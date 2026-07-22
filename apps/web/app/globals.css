@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Noto+Serif+SC:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+:root { --ink: #18342a; --paper: #f5f0e7; --mist: #d9e4d7; --leaf: #56765c; --sun: #e9aa3c; --coral: #c9644b; }
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: var(--paper); font-family: 'DM Mono', monospace; }
+button, input { font: inherit; }
+::selection { background: var(--sun); color: var(--ink); }
+.paper-grain { background-image: radial-gradient(rgba(24,52,42,.09) .7px, transparent .7px); background-size: 8px 8px; }
+.serif { font-family: 'Fraunces', 'Noto Serif SC', serif; }
+.field { width: 100%; border: 1px solid rgba(24,52,42,.35); background: rgba(255,255,255,.42); padding: .9rem 1rem; border-radius: .45rem; outline: none; transition: border .2s, box-shadow .2s; }
+.field:focus { border-color: var(--ink); box-shadow: 3px 3px 0 var(--sun); }
+.action { border: 0; border-radius: .45rem; padding: .92rem 1.1rem; background: var(--ink); color: var(--paper); cursor: pointer; transition: transform .16s, background .16s; }
+.action:hover { transform: translate(-2px,-2px); background: #28533f; }
+.action:disabled { opacity: .5; cursor: not-allowed; transform: none; }

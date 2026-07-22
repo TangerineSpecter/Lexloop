@@ -1,0 +1,69 @@
+# Lexloop 架构与技术栈
+
+## 目标
+
+Lexloop 是面向成人自学者的英语闭环学习平台。第一阶段先交付可运行的账户、数据、任务与 AI/RAG 基础设施；词书、复习算法、题库和报告属于后续业务迭代。
+
+## 系统边界
+
+```text
+浏览器 / PWA
+    │
+    ▼
+Next.js Web ───────────────► NestJS API ─────► PostgreSQL + pgvector
+                                  │                   │
+                                  │                   └── 业务数据、学习事件、AI 审计、RAG 知识块
+                                  ▼
+                            Redis + BullMQ ◄──── 独立 Worker
+                                  │
+                                  ▼
+                         S3 兼容对象存储（本地 MinIO / 外部 NAS MinIO / 腾讯 COS）
+```
+
+## 技术选型
+
+| 层级 | 技术 | 用途 |
+| --- | --- | --- |
+| Monorepo | pnpm workspace + Turborepo | 统一管理 Web、API、Worker 与共享包 |
+| Web | Next.js、React、TypeScript、Tailwind CSS、TanStack Query | 响应式用户端、PWA 元数据、登录与学习界面 |
+| API | NestJS + Fastify | REST API、OpenAPI/Swagger、鉴权、限流与业务模块 |
+| 关系数据 | PostgreSQL + Prisma | 用户、令牌、学习事件、内容与审计数据 |
+| RAG 检索 | PostgreSQL `pgvector` | 知识块与嵌入向量；首版无需独立向量数据库 |
+| 异步任务 | Redis + BullMQ + Node Worker | 报告聚合、导入、向量化与 AI 长任务 |
+| 文件对象 | S3 兼容 API | 音频、图片、导入文件和后续 AI 素材；本地默认 MinIO |
+| AI | Provider Adapter | 服务端持有密钥，统一生成、嵌入、结构化输出接口 |
+| 本地基础设施 | Docker Compose | PostgreSQL、Redis、MinIO |
+
+## 仓库布局
+
+```text
+apps/web       Next.js 用户端
+apps/api       NestJS API 与 Prisma schema/migrations
+apps/worker    BullMQ 消费者
+packages/types 前后端共享类型
+infra          容器初始化脚本
+docs           架构与部署文档
+```
+
+## 已实现能力
+
+- 邮箱密码注册、登录、JWT access/refresh token 刷新、`USER` / `ADMIN` 角色边界。
+- API 健康检查、Swagger、CORS、全局参数校验与限流。
+- PostgreSQL 初始迁移：用户、刷新令牌、学习事件、AI 调用审计、RAG 知识块及 `vector` 字段。
+- BullMQ 示例任务和独立 Worker。
+- `study`、`content`、`mistakes`、`reports`、`rag`、`ai` 模块的稳定入口。
+- AI 未配置密钥时安全拒绝调用；Provider Adapter 尚未绑定任何具体模型。
+
+## 当前存储策略
+
+本地 `dev.sh` 始终启动项目内的 MinIO，保证离线或在外网环境也可完成开发。生产或固定环境可将应用的 S3 endpoint 指向 NAS 上独立部署的 MinIO；应用代码应只依赖 S3 兼容接口，不依赖 MinIO 专属能力。
+
+当前项目尚未实现实际文件上传/下载服务；MinIO、`MINIO_ENDPOINT` 等变量是为对象存储模块预留的基础设施。实施上传模块时，应由 API 生成短期预签名 URL，浏览器直传对象存储，数据库仅保存对象键、媒体类型、大小和业务关联。
+
+## 本地开发
+
+```bash
+./dev.sh
+```
+
+脚本会自动准备 `.env`、依赖、Docker 服务、Prisma 客户端和迁移，并启动 Web、API 和 Worker。详见根目录 [README](../README.md)。

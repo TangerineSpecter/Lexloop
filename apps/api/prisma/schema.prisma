@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AiCallStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  passwordHash   String
+  displayName    String?
+  role           Role           @default(USER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  refreshTokens  RefreshToken[]
+  learningEvents LearningEvent[]
+  aiCalls        AiCallAudit[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenId   String   @unique
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model LearningEvent {
+  id        String   @id @default(cuid())
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model KnowledgeChunk {
+  id         String                 @id @default(cuid())
+  sourceType String
+  sourceId   String
+  content    String
+  metadata   Json?
+  embedding  Unsupported("vector")?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@index([sourceType, sourceId])
+}
+
+model AiCallAudit {
+  id            String       @id @default(cuid())
+  purpose       String
+  provider      String?
+  model         String?
+  promptVersion String?
+  status        AiCallStatus @default(PENDING)
+  latencyMs     Int?
+  estimatedCost Decimal?     @db.Decimal(12, 6)
+  errorCode     String?
+  createdAt     DateTime     @default(now())
+  completedAt   DateTime?
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
