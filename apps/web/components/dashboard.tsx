@@ -52,9 +52,20 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       {page === 'study' ? <div className="study-content">
         <h1>学习进度</h1>
         <section className="progress-grid">
-          <article className="streak-card"><div><div className="card-heading"><strong>学习连胜</strong><Trophy size={18}/><CheckCircle2 size={18}/></div><p>每天坚持学习，就能持续积累「连胜」<br/>你的「词汇量」和「外语水平」将迎来显著突破！</p></div><div className="streak-count"><b>0</b><Flame size={26}/><button aria-label="签到"><CheckCircle2 size={22}/></button><small>Today</small></div></article>
-          <Metric title="词表总词数" value="4545" detail="大学 CET-4 四级词汇" />
-          <Metric title="已学习词数" value="2" detail="学习进度 0.0%" />
+          <article className="streak-card">
+            <div className="streak-front">
+              <div className="streak-content">
+                <div className="card-heading"><strong>学习连胜</strong><Trophy size={18}/><CheckCircle2 size={18}/></div>
+                <p>每天坚持学习，就能持续积累「连胜」<br/>你的「词汇量」和「外语水平」将迎来显著突破！</p>
+              </div>
+              <div className="streak-count"><b>0</b><Flame size={26}/><small>Today</small></div>
+            </div>
+            <div className="streak-back">
+              <button className="check-in-btn"><CheckCircle2 size={32}/><span>立刻打卡</span></button>
+            </div>
+          </article>
+          <Metric title="词表总词数" value="4545" detail="大学 CET-4 四级词汇" backIcon={<BookOpen size={42} />} backText="海量词库等你探索" backColor="var(--sky)" />
+          <Metric title="已学习词数" value="2" detail="学习进度 0.0%" backIcon={<Flame size={42} />} backText="千里之行始于足下" backColor="var(--coral)" />
         </section>
 
         <div className="learning-tabs"><button className={activeTab === 'words' ? 'active' : ''} onClick={() => setActiveTab('words')}>单词列表</button><button className={activeTab === 'plan' ? 'active' : ''} onClick={() => setActiveTab('plan')}>今天的学习序列</button></div>
@@ -88,8 +99,16 @@ function Calendar() {
   return <section className="mini-calendar"><div className="calendar-title"><ChevronLeft size={15}/><span>July 2026</span><ChevronRight size={15}/></div><div className="calendar-grid weekdays">{['Su','Mo','Tu','We','Th','Fr','Sa'].map(day => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: 3 }, (_, i) => <span key={`e${i}`} />)}{days.map(day => <button key={day} className={day === 22 ? 'today' : ''}>{day}</button>)}<span className="muted-day">1</span></div></section>;
 }
 
-function Metric({ title, value, detail }: { title: string; value: string; detail: string }) {
-  return <article className="metric-card"><span>{title}</span><b>{value}</b><small>{detail}</small></article>;
+function Metric({ title, value, detail, backIcon, backText, backColor }: { title: string; value: string; detail: string; backIcon?: React.ReactNode; backText?: string; backColor?: string }) {
+  return <article className="metric-card" style={{ '--back-color': backColor } as React.CSSProperties}>
+    <div className="metric-front">
+      <span>{title}</span><b>{value}</b><small>{detail}</small>
+    </div>
+    <div className="metric-back">
+      {backIcon}
+      <strong>{backText}</strong>
+    </div>
+  </article>;
 }
 
 function WordsPanel({ onCreatePlan }: { onCreatePlan: (mode: StudyMode) => void }) {
