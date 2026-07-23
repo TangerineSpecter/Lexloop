@@ -44,7 +44,12 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         <Link href="/" className="serif text-2xl font-bold text-[var(--border-color)]">
           词环 <small className="ml-1 text-xs font-bold text-[var(--border-color)] opacity-70">LEXLOOP</small>
         </Link>
-        <h1 className="serif mt-12 text-4xl font-black text-[var(--border-color)]" style={{ textShadow: '2px 2px 0 var(--gold)' }}>{title}</h1>
+        <h1 className="serif mt-12 mb-4 text-4xl font-black text-[var(--border-color)]">
+          <span className="relative inline-block z-0">
+            <span className="relative z-10">{title}</span>
+            <span className="absolute bottom-0 left-[-4px] right-[-4px] h-[14px] bg-[var(--gold)] z-0 -rotate-1 rounded-sm skew-x-6" />
+          </span>
+        </h1>
         <p className="mt-2 text-sm font-black text-[var(--teal)] uppercase tracking-wide">{subtitle}</p>
         <div className="mt-8 text-[var(--border-color)] font-bold">{children}</div>
       </section>

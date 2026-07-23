@@ -31,9 +31,12 @@ function Welcome() {
       <section className="mx-auto grid max-w-6xl gap-12 pt-20 md:grid-cols-[1.2fr_.8fr] md:pt-32">
         <div>
           <p className="mb-5 text-sm font-black tracking-[.22em] text-[var(--teal)] uppercase">Learn · Return · Remember</p>
-          <h1 className="serif max-w-3xl text-5xl font-black leading-[1.05] text-[var(--border-color)] md:text-7xl" style={{ textShadow: '4px 4px 0 var(--gold)' }}>
+          <h1 className="serif max-w-3xl text-5xl font-black leading-[1.3] text-[var(--border-color)] md:text-7xl">
             每一个单词，<br />
-            <em className="font-black not-italic text-[var(--coral)]" style={{ textShadow: '2px 2px 0 var(--border-color)' }}>都会再见。</em>
+            <span className="relative inline-block mt-4 z-0">
+              <span className="relative z-10 text-[var(--border-color)]">都会再见。</span>
+              <span className="absolute bottom-1 left-[-8px] right-[-8px] h-6 bg-[var(--gold)] z-0 -rotate-2 skew-x-6 rounded-sm" />
+            </span>
           </h1>
           <p className="mt-8 max-w-lg text-lg font-bold leading-7 text-[var(--border-color)] opacity-80">
             词环把遗忘变成下一次相遇的理由。背词、刷题、错题与反馈，共同组成你自己的英语学习循环。
@@ -44,7 +47,12 @@ function Welcome() {
         </div>
         <div className="relative mx-auto w-full max-w-sm rotate-3 rounded-2xl border-4 border-[var(--border-color)] bg-white p-8 shadow-[8px_8px_0_var(--border-color)] transition-all hover:rotate-0 hover:scale-105 hover:shadow-[12px_12px_0_var(--border-color)] hover:-translate-y-2 hover:-translate-x-2">
           <p className="text-xs font-black tracking-[.18em] text-[var(--border-color)] uppercase bg-[var(--gold)] inline-block px-3 py-1 border-2 border-[var(--border-color)] rounded-md shadow-[2px_2px_0_var(--border-color)]">Today's Return</p>
-          <p className="serif mt-12 text-5xl font-black text-[var(--border-color)]" style={{ textShadow: '2px 2px 0 var(--teal)' }}>resilient</p>
+          <p className="serif mt-12 text-5xl font-black text-[var(--border-color)]">
+            <span className="relative inline-block z-0">
+              <span className="relative z-10">resilient</span>
+              <span className="absolute bottom-2 left-[-6px] right-[-6px] h-5 bg-[var(--teal)] z-0 rotate-1 skew-x-[-8deg] opacity-60 rounded-sm" />
+            </span>
+          </p>
           <p className="mt-3 text-sm font-bold italic text-[var(--border-color)] opacity-70">/rɪˈzɪliənt/</p>
           <p className="mt-7 border-t-4 border-dashed border-[var(--border-color)] pt-6 text-sm font-bold leading-6 text-[var(--border-color)]">
             能够迅速恢复、适应变化的。<br />
