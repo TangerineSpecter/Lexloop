@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto } from './auth.dto';
+import { LoginDto, RegisterDto, UpdatePasswordDto } from './auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 type CookieRequest = { cookies: { refresh_token?: string } };
@@ -19,6 +19,7 @@ export class AuthController {
     return this.setRefreshCookie(reply, await this.auth.refresh(refreshToken));
   }
   @Get('me') @ApiBearerAuth() @UseGuards(JwtAuthGuard) me(@Req() request: { user: { sub: string } }) { return this.auth.findSafeUser(request.user.sub); }
+  @Post('password') @ApiBearerAuth() @UseGuards(JwtAuthGuard) updatePassword(@Req() request: { user: { sub: string } }, @Body() dto: UpdatePasswordDto) { return this.auth.updatePassword(request.user.sub, dto.password); }
 
   private setRefreshCookie(reply: CookieReply, result: Awaited<ReturnType<AuthService['login']>>) {
     reply.setCookie('refresh_token', result.refreshToken, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/api/v1/auth', maxAge: 30 * 24 * 60 * 60 });

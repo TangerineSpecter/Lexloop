@@ -11,3 +11,7 @@ export class LoginDto {
   @ApiProperty({ example: 'learner@lexloop.dev' }) @IsEmail() email!: string;
   @ApiProperty({ minLength: 8 }) @IsString() @MinLength(8) password!: string;
 }
+
+export class UpdatePasswordDto {
+  @ApiProperty({ minLength: 8 }) @IsString() @MinLength(8) password!: string;
+}

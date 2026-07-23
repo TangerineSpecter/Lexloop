@@ -38,6 +38,12 @@ export class AuthService {
 
   async findSafeUser(id: string): Promise<SafeUser> { return this.prisma.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, displayName: true, role: true } }); }
 
+  async updatePassword(id: string, password: string) {
+    await this.prisma.user.update({ where: { id }, data: { passwordHash: await argon2.hash(password) } });
+    await this.prisma.refreshToken.deleteMany({ where: { userId: id } });
+    return { message: '密码已更新，请重新登录。' };
+  }
+
   private async issueTokens(user: Pick<User, 'id' | 'email' | 'role' | 'displayName'>) {
     const payload = { sub: user.id, email: user.email, role: user.role };
     const tokenId = randomUUID();
