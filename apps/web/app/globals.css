@@ -1,18 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Noto+Serif+SC:wght@500;600;700&display=swap');
 @import "tailwindcss";
 
-:root { --ink: #18342a; --paper: #f5f0e7; --mist: #d9e4d7; --leaf: #56765c; --sun: #e9aa3c; --coral: #c9644b; }
+:root {
+  --ink: #311703; /* replaced with border-color for general use */
+  --paper: #f9f5f0; /* replaced with soft background */
+  --mist: #d9e4d7;
+  --leaf: #019b98; /* teal */
+  --sun: #ffcf48;
+  --coral: #ff7f50;
+  --border-color: #311703;
+  --gold: #ffd700;
+  --teal: #019b98;
+  --sky: #00a6ff;
+  --line: #311703;
+  --muted: #5c6b7a;
+  --soft: #f9f5f0;
+  --card-shadow: 4px 4px 0 var(--border-color);
+}
 * { box-sizing: border-box; }
-body { margin: 0; color: var(--ink); background: var(--paper); font-family: 'DM Sans', 'PingFang SC', sans-serif; }
+body { margin: 0; color: var(--border-color); background: var(--soft); font-family: 'DM Sans', 'PingFang SC', sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 ::selection { background: var(--sun); color: var(--ink); }
 .paper-grain { background-image: radial-gradient(rgba(24,52,42,.09) .7px, transparent .7px); background-size: 8px 8px; }
 .serif { font-family: 'Fraunces', 'Noto Serif SC', serif; }
-.field { width: 100%; border: 1px solid rgba(24,52,42,.35); background: rgba(255,255,255,.42); padding: .9rem 1rem; border-radius: .45rem; outline: none; transition: border .2s, box-shadow .2s; }
-.field:focus { border-color: var(--ink); box-shadow: 3px 3px 0 var(--sun); }
-.action { border: 0; border-radius: .45rem; padding: .92rem 1.1rem; background: var(--ink); color: var(--paper); cursor: pointer; transition: transform .16s, background .16s; }
-.action:hover { transform: translate(-2px,-2px); background: #28533f; }.action:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.field { width: 100%; border: 3px solid var(--border-color); background: var(--soft); padding: .9rem 1rem; border-radius: 8px; outline: none; transition: all .2s; font-weight: 700; color: var(--border-color); box-shadow: inset 2px 2px 0 rgba(0,0,0,0.1); }
+.field:focus { background: #fff; box-shadow: 4px 4px 0 var(--border-color); transform: translate(-2px, -2px); }
+.action { border: 3px solid var(--border-color); border-radius: 8px; padding: .92rem 1.1rem; background: var(--teal); color: #fff; font-weight: 800; cursor: pointer; transition: all .2s cubic-bezier(0.81, -0.04, 0.38, 1.5); box-shadow: 4px 4px 0 var(--border-color); }
+.action:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--border-color); background: #03b0ac; }
+.action:active { transform: translate(0, 0); box-shadow: 0 0 0 var(--border-color); }
+.action:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: 2px 2px 0 var(--border-color); background: var(--muted); border-color: var(--border-color); color: #fff; }
 
 /* Retro/Neobrutalism inspired dashboard */
 .study-app { --border-color:#311703; --coral:#ff7f50; --gold:#ffd700; --teal:#019b98; --sky:#00a6ff; --sun:#ffcf48; --line:#311703; --muted:#5c6b7a; --soft:#f9f5f0; --card-shadow:4px 4px 0 var(--border-color); min-height:100vh; display:flex; background:var(--soft); color:var(--border-color); font-size:15px; }
