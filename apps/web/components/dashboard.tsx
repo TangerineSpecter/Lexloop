@@ -2,10 +2,10 @@
 
 import {
   BookOpen, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  CircleHelp, Copy, Eye, EyeOff, Flame, Grid2X2, LayoutList, ListRestart, LogOut, Menu,
-  Plus, Settings2, Sparkles, TimerReset, Trophy, UserRound, X,
+  Check, CircleHelp, Copy, Eye, EyeOff, FileText, Flame, Grid2X2, LayoutList, ListRestart,
+  LogOut, Menu, Plus, Settings2, Sparkles, TimerReset, Trophy, UserRound, X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 
 type Word = { word: string; part: string; meaning: string; state?: 'review' };
@@ -14,6 +14,16 @@ type StudyMode = 'group' | 'individual' | 'exam';
 const reviewWords: Word[] = [
   { word: 'business', part: 'n.', meaning: '商业；买卖；生意｜职业；行业｜企业；公司｜事情；事务', state: 'review' },
   { word: 'help', part: 'vt.', meaning: '帮助，协助｜改善，促进｜避免，防止', state: 'review' },
+  { word: 'market', part: 'n.', meaning: '市场；集市｜需求；销路｜交易', state: 'review' },
+  { word: 'policy', part: 'n.', meaning: '政策；方针｜保险单｜策略', state: 'review' },
+  { word: 'public', part: 'adj.', meaning: '公众的；公共的｜公开的', state: 'review' },
+  { word: 'report', part: 'n.', meaning: '报告；报道｜成绩单｜传闻', state: 'review' },
+  { word: 'result', part: 'n.', meaning: '结果；后果｜成果；成绩', state: 'review' },
+  { word: 'service', part: 'n.', meaning: '服务；公共事业｜服役', state: 'review' },
+  { word: 'system', part: 'n.', meaning: '系统；体系｜制度；方法', state: 'review' },
+  { word: 'value', part: 'n.', meaning: '价值；重要性｜价值观', state: 'review' },
+  { word: 'world', part: 'n.', meaning: '世界；领域｜世人；社会', state: 'review' },
+  { word: 'write', part: 'v.', meaning: '写；书写｜写信；编写', state: 'review' },
 ];
 const newWords: Word[] = [
   { word: 'health', part: 'n.', meaning: '健康；康健｜（人的）健康状况｜（组织、系统等的）运行状况' },
@@ -22,6 +32,12 @@ const newWords: Word[] = [
   { word: 'click', part: 'vt.', meaning: '使发出咔嗒声｜点击' },
   { word: 'like', part: 'vt.', meaning: '喜欢；喜爱｜希望；想要' },
   { word: 'find', part: 'vt.', meaning: '找到；发现｜（经历后）获得；得到' },
+  { word: 'learn', part: 'vt.', meaning: '学习；得知｜记住；学会' },
+  { word: 'practice', part: 'n.', meaning: '练习；实践｜惯例；做法' },
+  { word: 'remember', part: 'vt.', meaning: '记得；牢记｜代为问候' },
+  { word: 'review', part: 'n.', meaning: '复习；回顾｜评论；检讨' },
+  { word: 'study', part: 'n.', meaning: '学习；研究｜书房；课题' },
+  { word: 'understand', part: 'vt.', meaning: '理解；明白｜获悉；听说' },
 ];
 
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
@@ -31,11 +47,28 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [page, setPage] = useState<'study' | 'settings'>('study');
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const name = session.user.displayName || session.user.email.split('@')[0];
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [accountMenuOpen]);
 
   return <main className="study-app">
     <aside className={`study-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-      <div className="sidebar-account-wrap"><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>大学 CET-4 四级词汇</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
+      <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>大学 CET-4 四级词汇</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
       <Calendar />
       <nav className="sidebar-nav" aria-label="主导航">
         <span className="nav-label">APP</span>
@@ -61,7 +94,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <div className="streak-count"><b>0</b><Flame size={26}/><small>Today</small></div>
             </div>
             <div className="streak-back">
-              <button className="check-in-btn"><CheckCircle2 size={32}/><span>立刻打卡</span></button>
+              <CheckInButton />
             </div>
           </article>
           <Metric title="词表总词数" value="4545" detail="大学 CET-4 四级词汇" backIcon={<BookOpen size={42} />} backText="海量词库等你探索" backColor="var(--sky)" />
@@ -77,6 +110,37 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
 }
 
 function Avatar() { return <span className="profile-avatar" aria-hidden="true"><i/><b/></span>; }
+
+const checkInBursts = [
+  { x: '-104px', y: '-48px', turn: '-28deg', delay: '0ms' },
+  { x: '-66px', y: '-94px', turn: '-16deg', delay: '35ms' },
+  { x: '-16px', y: '-112px', turn: '12deg', delay: '10ms' },
+  { x: '44px', y: '-92px', turn: '34deg', delay: '45ms' },
+  { x: '98px', y: '-40px', turn: '58deg', delay: '0ms' },
+  { x: '106px', y: '34px', turn: '75deg', delay: '28ms' },
+  { x: '52px', y: '84px', turn: '104deg', delay: '15ms' },
+  { x: '-12px', y: '98px', turn: '132deg', delay: '52ms' },
+  { x: '-72px', y: '68px', turn: '158deg', delay: '20ms' },
+  { x: '-112px', y: '14px', turn: '188deg', delay: '40ms' },
+] as const;
+
+function CheckInButton() {
+  const [burst, setBurst] = useState(0);
+  const [checkedIn, setCheckedIn] = useState(false);
+
+  const celebrate = () => {
+    setCheckedIn(true);
+    setBurst((value) => value + 1);
+  };
+
+  return <button className={`check-in-btn ${burst ? 'is-celebrating' : ''}`} onClick={celebrate} aria-label={checkedIn ? '已打卡，再次播放庆祝动画' : '立刻打卡'}>
+    {burst > 0 && <span className="check-in-burst" aria-hidden="true" key={burst}>
+      {checkInBursts.map((star, index) => <i key={index} style={{ '--burst-x': star.x, '--burst-y': star.y, '--burst-turn': star.turn, '--burst-delay': star.delay } as React.CSSProperties}>✦</i>)}
+    </span>}
+    <CheckCircle2 size={32}/><span>{checkedIn ? '打卡成功' : '立刻打卡'}</span>
+    <span className="sr-only" aria-live="polite">{checkedIn ? '打卡成功，星星正在绽放' : ''}</span>
+  </button>;
+}
 
 function AccountMenu({ name, onSettings, onLogout }: { name: string; onSettings: () => void; onLogout: () => void }) {
   return <div className="account-menu"><div className="account-menu-user"><Avatar/><strong>{name}</strong></div><button onClick={onSettings}><Settings2 size={22}/>账户设置</button><button onClick={onLogout}><LogOut size={22}/>退出登录</button></div>;
@@ -113,17 +177,61 @@ function Metric({ title, value, detail, backIcon, backText, backColor }: { title
 
 function WordsPanel({ onCreatePlan }: { onCreatePlan: (mode: StudyMode) => void }) {
   const [mode, setMode] = useState<StudyMode>('group');
-  const [newWordCount, setNewWordCount] = useState(15);
+  const [newWordCount, setNewWordCount] = useState(10);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [drawer, setDrawer] = useState<'reading' | 'exam' | null>(null);
   return <section className="words-panel">
-    <header className="panel-top"><div className="panel-title"><BookOpen size={18}/><strong>今日学习词汇</strong></div><div className="panel-progress"><span>待复习: 2</span><span>新单词: {newWordCount}</span><i><b/></i></div><div className="toolbar"><button className={mode === 'group' ? 'selected' : ''} onClick={() => setMode('group')}><Grid2X2 size={15}/>分组</button><button className={mode === 'individual' ? 'selected' : ''} onClick={() => setMode('individual')}><LayoutList size={15}/>独立单词</button><button className={`real ${mode === 'exam' ? 'selected' : ''}`} onClick={() => setMode('exam')}><span>◎</span> 真题 <em>NEW</em></button><button className="create" onClick={() => onCreatePlan(mode)}><Sparkles size={15}/>创建学习计划</button><button aria-label="筛选设置">{mode === 'exam' ? <ExamBookIcon/> : <FilterSettingsIcon/>}</button></div></header>
-    <div className="word-columns"><WordColumn title="待复习单词" count="2" icon={<ReviewWordsIcon/>} words={reviewWords}/><WordColumn title="新单词" count={String(newWordCount)} icon={<NewWordsIcon/>} words={newWords} isNew onOpenSettings={() => setSettingsOpen(true)}/></div>
+    <header className="panel-top"><div className="panel-title"><BookOpen size={18}/><strong>今日学习词汇</strong></div><div className="panel-progress"><span>待复习: 2</span><span>新单词: {newWordCount}</span><i><b/></i></div><div className="toolbar"><button className={mode === 'group' ? 'selected' : ''} onClick={() => setMode('group')}><Grid2X2 size={15}/>分组</button><button className={mode === 'individual' ? 'selected' : ''} onClick={() => setMode('individual')}><LayoutList size={15}/>独立单词</button><button className={`real ${mode === 'exam' ? 'selected' : ''}`} onClick={() => setMode('exam')}><span>◎</span> 真题 <em>NEW</em></button><button className="create" onClick={() => onCreatePlan(mode)}><Sparkles size={15}/>创建学习计划</button><button className="mode-settings-trigger" aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'} onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}>{mode === 'exam' ? <ExamBookIcon/> : <FilterSettingsIcon/>}</button></div></header>
+    <div className="word-columns"><WordColumn title="待复习单词" count={String(reviewWords.length)} icon={<ReviewWordsIcon/>} words={reviewWords}/><WordColumn title="新单词" count={String(newWordCount)} icon={<NewWordsIcon/>} words={newWords} isNew onOpenSettings={() => setSettingsOpen(true)}/></div>
     {settingsOpen && <NewWordSettings value={newWordCount} onCancel={() => setSettingsOpen(false)} onSave={(value) => { setNewWordCount(value); setSettingsOpen(false); }}/>}
+    {drawer === 'reading' && <ReadingModelDrawer onClose={() => setDrawer(null)}/>}
+    {drawer === 'exam' && <ExamLibraryDrawer onClose={() => setDrawer(null)}/>}
   </section>;
 }
 
+function StudySettingsDrawer({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+  return <div className="study-drawer-layer"><button className="study-drawer-scrim" aria-label="关闭设置" onClick={onClose}/><aside className="study-settings-drawer" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="关闭"><X size={22}/></button></header>{children}</aside></div>;
+}
+
+function ReadingModelDrawer({ onClose }: { onClose: () => void }) {
+  const [model, setModel] = useState('Lexloop AI');
+  const models = [
+    { name: 'Lexloop AI', note: '当前生效模型', icon: <Sparkles size={24}/> },
+    { name: 'DeepSeek 3.2', note: '升级 Lexloop Ultra 后可切换', icon: <span>〽</span>, ultra: true },
+    { name: 'Qwen 3.5 Plus', note: '升级 Lexloop Ultra 后可切换', icon: <span>✧</span>, ultra: true },
+    { name: 'Doubao Seed 2.0', note: '升级 Lexloop Ultra 后可切换', icon: <span>◒</span>, ultra: true },
+  ];
+  return <StudySettingsDrawer title="阅读材料模型" onClose={onClose}><p className="drawer-intro">分组和独立单词模式会使用这里的模型，生成 Lexloop 的阅读材料和练习内容。</p><div className="model-options">{models.map(item => <button key={item.name} className={`model-option ${model === item.name ? 'is-active' : ''} ${item.ultra ? 'is-locked' : ''}`} onClick={() => !item.ultra && setModel(item.name)} disabled={item.ultra}><span className="model-icon">{item.icon}</span><span><strong>{item.name}{item.ultra && <em>Ultra</em>}</strong><small>{model === item.name ? '当前生效模型' : item.note}</small></span>{model === item.name && <Check size={24}/>}</button>)}</div></StudySettingsDrawer>;
+}
+
+function ExamLibraryDrawer({ onClose }: { onClose: () => void }) {
+  const libraries = [
+    ['CET4 真题', '2014–2025', '66 套', '11,000+ 条'],
+    ['考研英语一', '2009–2023', '15 套', '2,000+ 条'],
+    ['考研英语二', '2009–2024', '16 套', '2,000+ 条'],
+  ];
+  const [automatic, setAutomatic] = useState(true);
+  const [selected, setSelected] = useState<string[]>([]);
+  const selectLibrary = (name: string) => {
+    const nextSelected = selected.includes(name) ? selected.filter(item => item !== name) : [...selected, name];
+    setSelected(nextSelected);
+    setAutomatic(nextSelected.length === 0);
+  };
+  return <StudySettingsDrawer title="真题题库设置" onClose={onClose}><div className={`exam-mode-card ${automatic ? 'is-current' : ''}`}><FileText size={28}/><div><button className="mode-choice" onClick={() => { setAutomatic(true); setSelected([]); }} aria-pressed={automatic}><i className={automatic ? 'checked' : ''}/><strong>自动模式</strong>{automatic ? <b>当前生效</b> : <small>跟随词表</small>}<CircleHelp size={18}/></button><span>CET4 真题</span></div></div><div className={`exam-mode-card ${!automatic ? 'is-current' : ''}`}><FileText size={28}/><div className="exam-manual"><button className="mode-choice" onClick={() => selected.length > 0 && setAutomatic(false)} aria-pressed={!automatic}><i className={!automatic ? 'checked' : ''}/><strong>手动模式</strong>{automatic ? <small>勾选下方题库后切换</small> : <><b>当前生效</b><small>已选 {selected.length}</small></>}</button>{!automatic && <div className="selected-exam-libraries" aria-label="已选题库">{selected.map(name => <span key={name}>{name}</span>)}</div>}{automatic && <p>从下方题库中勾选范围</p>}{libraries.map(([name, year, sets, count]) => <button className="exam-library" key={name} onClick={() => selectLibrary(name)} aria-pressed={selected.includes(name)}><i className={selected.includes(name) ? 'checked' : ''}/><strong>{name}</strong><span>{year}</span><span>{sets}</span><span>{count}</span></button>)}</div></div></StudySettingsDrawer>;
+}
+
 function WordColumn({ title, count, icon, words, isNew, onOpenSettings }: { title: string; count: string; icon: React.ReactNode; words: Word[]; isNew?: boolean; onOpenSettings?: () => void }) {
-  return <div className="word-column"><div className={`word-column-head ${isNew ? 'is-new' : ''}`}><div>{icon}<strong>{title}</strong><span>{count}</span></div>{isNew && <div className="column-buttons"><button><Plus size={22}/>3</button><button onClick={onOpenSettings} aria-label="新单词设置"><GearIcon/></button></div>}</div><div className="word-list">{words.map((word) => <WordRow key={word.word} word={word}/>)}</div></div>;
+  const [visibleCount, setVisibleCount] = useState(10);
+  const hasMore = visibleCount < words.length;
+  const isScrollable = visibleCount > 10;
+  return <div className="word-column"><div className={`word-column-head ${isNew ? 'is-new' : ''}`}><div>{icon}<strong>{title}</strong><span>{count}</span></div>{isNew && <div className="column-buttons"><button><Plus size={22}/>3</button><button onClick={onOpenSettings} aria-label="新单词设置"><GearIcon/></button></div>}</div><div className={`word-list ${isScrollable ? 'is-scrollable' : ''}`} aria-label={title}>{words.slice(0, visibleCount).map((word) => <WordRow key={word.word} word={word}/>)}{hasMore && <button className="load-more-words" onClick={() => setVisibleCount(current => Math.min(current + 5, words.length))}>加载更多（剩余 {words.length - visibleCount} 个）</button>}</div></div>;
 }
 
 function NewWordSettings({ value, onCancel, onSave }: { value: number; onCancel: () => void; onSave: (value: number) => void }) {
