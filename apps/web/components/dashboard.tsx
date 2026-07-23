@@ -1,15 +1,17 @@
 'use client';
 
 import {
-  BookOpen, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  BarChart3, BookOpen, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   Check, CircleHelp, Copy, Eye, EyeOff, FileText, Flame, Grid2X2, LayoutList, ListRestart,
-  LogOut, Menu, Plus, Settings2, Sparkles, TimerReset, Trophy, UserRound, X,
+  LogOut, Menu, Pause, Play, Plus, Settings2, Sparkles, TimerReset, Trophy, UserRound, X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
+import { StatisticsPage } from './statistics-page';
 
 type Word = { word: string; part: string; meaning: string; state?: 'review' };
 type StudyMode = 'group' | 'individual' | 'exam';
+type LearningPlan = { id: number; mode: StudyMode; wordCount: number; words: Word[]; completed: number; started: boolean; createdAt: string };
 
 const reviewWords: Word[] = [
   { word: 'business', part: 'n.', meaning: '商业；买卖；生意｜职业；行业｜企业；公司｜事情；事务', state: 'review' },
@@ -41,14 +43,18 @@ const newWords: Word[] = [
 ];
 
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
-  const [activeTab, setActiveTab] = useState<'words' | 'plan'>('words');
-  const [plannedMode, setPlannedMode] = useState<StudyMode>('group');
+  const [activeTab, setActiveTab] = useState<'words' | 'plan' | 'history'>('words');
+  const [newWordCount, setNewWordCount] = useState(10);
+  const [plans, setPlans] = useState<LearningPlan[]>([]);
+  const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
+  const [plansReady, setPlansReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'settings'>('study');
+  const [page, setPage] = useState<'study' | 'statistics' | 'settings'>('study');
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const name = session.user.displayName || session.user.email.split('@')[0];
+  const plansStorageKey = `lexloop.learning-plans.${session.user.id}`;
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -66,6 +72,18 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     };
   }, [accountMenuOpen]);
 
+  useEffect(() => {
+    const savedPlans = window.localStorage.getItem(plansStorageKey);
+    if (savedPlans) {
+      try { setPlans(JSON.parse(savedPlans) as LearningPlan[]); } catch { window.localStorage.removeItem(plansStorageKey); }
+    }
+    setPlansReady(true);
+  }, [plansStorageKey]);
+
+  useEffect(() => {
+    if (plansReady) window.localStorage.setItem(plansStorageKey, JSON.stringify(plans));
+  }, [plans, plansReady, plansStorageKey]);
+
   return <main className="study-app">
     <aside className={`study-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
       <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>大学 CET-4 四级词汇</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
@@ -74,9 +92,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         <span className="nav-label">APP</span>
         <button className={`nav-item nav-button ${page === 'study' ? 'active' : ''}`} onClick={() => { setPage('study'); setSidebarOpen(false); }}><BookOpen size={16}/><span>词环</span></button>
         <div className="nav-group"><a className="nav-item" href="#words"><BookOpen size={16}/><span>我的单词</span><ChevronDown size={14}/></a><div className="nav-children"><a href="#learning">学习中</a><a href="#mastered">已掌握</a></div></div>
-        <button className="nav-item nav-button" onClick={() => { setPage('settings'); setSidebarOpen(false); }}><Settings2 size={16}/><span>账户设置</span></button>
+        <button className={`nav-item nav-button ${page === 'statistics' ? 'active' : ''}`} onClick={() => { setPage('statistics'); setSidebarOpen(false); }}><BarChart3 size={16}/><span>学习统计</span></button>
+        <button className={`nav-item nav-button ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings'); setSidebarOpen(false); }}><Settings2 size={16}/><span>账户设置</span></button>
       </nav>
-      <div className="sidebar-bottom"><button className="switch-book" onClick={() => setBookPickerOpen(true)}><Plus size={15}/>切换词汇表</button><button className="feedback"><CircleHelp size={15}/>反馈建议</button></div>
+      <div className="sidebar-bottom"><button className="switch-book" onClick={() => setBookPickerOpen(true)}><Plus size={15}/>切换词汇表</button></div>
     </aside>
     {sidebarOpen && <button className="sidebar-scrim" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}/>}
 
@@ -85,27 +104,28 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       {page === 'study' ? <div className="study-content">
         <h1>学习进度</h1>
         <section className="progress-grid">
-          <article className="streak-card">
-            <div className="streak-front">
-              <div className="streak-content">
-                <div className="card-heading"><strong>学习连胜</strong><Trophy size={18}/><CheckCircle2 size={18}/></div>
-                <p>每天坚持学习，就能持续积累「连胜」<br/>你的「词汇量」和「外语水平」将迎来显著突破！</p>
-              </div>
-              <div className="streak-count"><b>0</b><Flame size={26}/><small>Today</small></div>
-            </div>
-            <div className="streak-back">
-              <CheckInButton />
-            </div>
-          </article>
+          <StreakCard />
           <Metric title="词表总词数" value="4545" detail="大学 CET-4 四级词汇" backIcon={<BookOpen size={42} />} backText="海量词库等你探索" backColor="var(--sky)" />
           <Metric title="已学习词数" value="2" detail="学习进度 0.0%" backIcon={<Flame size={42} />} backText="千里之行始于足下" backColor="var(--coral)" />
         </section>
 
-        <div className="learning-tabs"><button className={activeTab === 'words' ? 'active' : ''} onClick={() => setActiveTab('words')}>单词列表</button><button className={activeTab === 'plan' ? 'active' : ''} onClick={() => setActiveTab('plan')}>今天的学习序列</button></div>
-        {activeTab === 'words' ? <WordsPanel onCreatePlan={(mode) => { setPlannedMode(mode); setActiveTab('plan'); }} /> : <PlanPanel mode={plannedMode} />}
-      </div> : <AccountSettings session={session} onBack={() => setPage('study')} />}
+        <div className="learning-tabs" role="tablist" aria-label="学习内容"><button role="tab" aria-selected={activeTab === 'words'} className={activeTab === 'words' ? 'active' : ''} onClick={() => setActiveTab('words')}>单词列表</button><button role="tab" aria-selected={activeTab === 'plan'} className={activeTab === 'plan' ? 'active' : ''} onClick={() => setActiveTab('plan')}>当前学习序列</button><button role="tab" aria-selected={activeTab === 'history'} className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>今日学习历史</button></div>
+        {activeTab === 'words' && <WordsPanel newWordCount={newWordCount} onNewWordCountChange={setNewWordCount} onCreatePlan={(mode) => {
+          const wordCount = newWordCount;
+          setPreviewPlan({ id: Date.now(), mode, wordCount, words: Array.from({ length: wordCount }, (_, index) => newWords[index % newWords.length]), completed: 0, started: false, createdAt: '刚刚' });
+        }} />}
+        {activeTab === 'plan' && <PlanPanel plan={plans.find(plan => plan.started) ?? plans[0] ?? null} onContinue={(id) => setPlans(current => current.map(plan => plan.id === id ? { ...plan, completed: Math.min(plan.completed + 1, plan.wordCount) } : plan))} />}
+        {activeTab === 'history' && <LearningHistory plans={plans} onContinue={(id) => { setActiveTab('plan'); setPlans(current => current.map(plan => plan.id === id ? { ...plan, started: true } : plan)); }} />}
+      </div> : page === 'statistics' ? <StatisticsPage onBack={() => setPage('study')} /> : <AccountSettings session={session} onBack={() => setPage('study')} />}
     </section>
     {bookPickerOpen && <BookPicker onClose={() => setBookPickerOpen(false)} />}
+    {previewPlan && (
+      <PlanPreview
+        plan={previewPlan}
+        onClose={() => setPreviewPlan(null)}
+        onStart={() => { setPlans(current => [{ ...previewPlan, started: true }, ...current.map(plan => ({ ...plan, started: false }))]); setPreviewPlan(null); setActiveTab('plan'); }}
+      />
+    )}
   </main>;
 }
 
@@ -124,22 +144,43 @@ const checkInBursts = [
   { x: '-112px', y: '14px', turn: '188deg', delay: '40ms' },
 ] as const;
 
-function CheckInButton() {
+function StreakCard() {
   const [burst, setBurst] = useState(0);
+  const [celebrating, setCelebrating] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
 
   const celebrate = () => {
     setCheckedIn(true);
     setBurst((value) => value + 1);
+    setCelebrating(true);
   };
 
-  return <button className={`check-in-btn ${burst ? 'is-celebrating' : ''}`} onClick={celebrate} aria-label={checkedIn ? '已打卡，再次播放庆祝动画' : '立刻打卡'}>
-    {burst > 0 && <span className="check-in-burst" aria-hidden="true" key={burst}>
+  useEffect(() => {
+    if (!celebrating) return;
+    const timer = window.setTimeout(() => setCelebrating(false), 800);
+    return () => window.clearTimeout(timer);
+  }, [burst, celebrating]);
+
+  return <div className="streak-card-wrap">
+    <article className="streak-card">
+      <div className="streak-front">
+        <div className="streak-content">
+          <div className="card-heading"><strong>学习连胜</strong><Trophy size={18}/><CheckCircle2 size={18}/></div>
+          <p>每天坚持学习，就能持续积累「连胜」<br/>你的「词汇量」和「外语水平」将迎来显著突破！</p>
+        </div>
+        <div className="streak-count"><b>0</b><Flame size={26}/><small>Today</small></div>
+      </div>
+      <div className="streak-back">
+        <button className={`check-in-btn ${celebrating ? 'is-celebrating' : ''}`} onClick={celebrate} aria-label={checkedIn ? '已打卡，再次播放庆祝动画' : '立刻打卡'}>
+          <CheckCircle2 size={32}/><span>{checkedIn ? '打卡成功' : '立刻打卡'}</span>
+          <span className="sr-only" aria-live="polite">{checkedIn ? '打卡成功，星星正在绽放' : ''}</span>
+        </button>
+      </div>
+    </article>
+    {celebrating && <span className="check-in-burst" aria-hidden="true" key={burst}>
       {checkInBursts.map((star, index) => <i key={index} style={{ '--burst-x': star.x, '--burst-y': star.y, '--burst-turn': star.turn, '--burst-delay': star.delay } as React.CSSProperties}>✦</i>)}
     </span>}
-    <CheckCircle2 size={32}/><span>{checkedIn ? '打卡成功' : '立刻打卡'}</span>
-    <span className="sr-only" aria-live="polite">{checkedIn ? '打卡成功，星星正在绽放' : ''}</span>
-  </button>;
+  </div>;
 }
 
 function AccountMenu({ name, onSettings, onLogout }: { name: string; onSettings: () => void; onLogout: () => void }) {
@@ -149,13 +190,21 @@ function AccountMenu({ name, onSettings, onLogout }: { name: string; onSettings:
 function BookPicker({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'learning' | 'mine' | 'system'>('learning');
   const cards = [{ title: '大学 CET-4 四级词汇', total: '4545', learned: '2', current: true, note: '含有大量常见词汇' }, { title: '大学 CET-6 六级词汇', total: '2345', learned: '0' }];
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
   return <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表"><header><div><h2>选择词表</h2><p>请选择一个词表开始您的学习之旅。</p></div><button onClick={onClose} aria-label="关闭"><X size={23}/></button></header><div className="book-tabs"><button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>学习中（2）</button><button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>我的词表</button><button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>系统词表（18）</button></div>{tab === 'learning' && <div className="book-card-grid">{cards.map(card => <article className="book-choice" key={card.title}><div><strong>{card.title}</strong><p>总词数: {card.total} | 已学: {card.learned}</p>{card.note && <small>{card.note}</small>}</div><button className={card.current ? 'current' : ''}>{card.current ? '当前' : '继续学习'}</button></article>)}</div>}{tab === 'mine' && <div className="book-empty"><strong>我的词表</strong><p>还没有创建任何词表</p><button><Plus size={18}/>创建新词表</button></div>}{tab === 'system' && <div className="book-system"><h3>升学与校内</h3><p>面向国内学习阶段、校内考试与升学目标的词表。</p><div className="book-card-grid">{cards.map(card => <article className="book-choice" key={`system-${card.title}`}><div><strong>{card.title}</strong><p>总词数: {card.total} | 已学: {card.learned}</p></div><button>开始学习</button></article>)}</div></div>}</div>;
 }
 
 function AccountSettings({ session, onBack }: { session: Session; onBack: () => void }) {
   const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [show, setShow] = useState(false); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const save = async (event: React.FormEvent) => { event.preventDefault(); if (password.length < 8) return setMessage('新密码至少需要 8 位。'); if (password !== confirm) return setMessage('两次输入的密码不一致。'); setBusy(true); setMessage(''); try { await request('/auth/password', { method: 'POST', body: JSON.stringify({ password }) }, session.accessToken); setPassword(''); setConfirm(''); setMessage('密码已更新。'); } catch (error) { setMessage(error instanceof Error ? error.message : '更新失败，请稍后重试。'); } finally { setBusy(false); } };
-  return <div className="settings-page"><header className="settings-heading"><div><button className="settings-back" onClick={onBack}>← 返回学习</button><h1>设置</h1><p>管理您的账号和系统设置</p></div><div className="identity-card"><span>身份 ID（可用于客服联系问题）</span><strong>{session.user.id}</strong><button onClick={() => navigator.clipboard?.writeText(session.user.id)} aria-label="复制身份 ID"><Copy size={20}/></button></div></header><div className="settings-layout"><nav><button className="active"><UserRound size={19}/>账号设置</button></nav><section><h2>账号设置</h2><form className="password-card" onSubmit={save}><h3>密码管理</h3><p>更新您的账户密码</p><label>新密码<div className="password-input"><input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"/><button type="button" onClick={() => setShow(!show)} aria-label="显示密码">{show ? <EyeOff size={20}/> : <Eye size={20}/>}</button></div></label><label>确认密码<input type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password"/></label>{message && <p className={message === '密码已更新。' ? 'form-success' : 'form-error'}>{message}</p>}<button className="save-password" disabled={busy}>{busy ? '更新中…' : '更新密码'}</button></form></section></div></div>;
+  return <div className="settings-page"><header className="settings-heading"><div><button className="settings-back" onClick={onBack}>← 返回学习</button><h1>设置</h1><p>管理您的账号和系统设置</p></div><div className="identity-card"><span>身份 ID（可用于客服联系问题）</span><div className="identity-card-value"><strong>{session.user.id}</strong><button onClick={() => navigator.clipboard?.writeText(session.user.id)} aria-label="复制身份 ID"><Copy size={20}/></button></div></div></header><div className="settings-layout"><nav><button className="active"><UserRound size={19}/>账号设置</button></nav><section><h2>账号设置</h2><form className="password-card" onSubmit={save}><h3>密码管理</h3><p>更新您的账户密码</p><label>新密码<div className="password-input"><input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"/><button type="button" onClick={() => setShow(!show)} aria-label="显示密码">{show ? <EyeOff size={20}/> : <Eye size={20}/>}</button></div></label><label>确认密码<input type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password"/></label>{message && <p className={message === '密码已更新。' ? 'form-success' : 'form-error'}>{message}</p>}<button className="save-password" disabled={busy}>{busy ? '更新中…' : '更新密码'}</button></form></section></div></div>;
 }
 
 function Calendar() {
@@ -175,15 +224,23 @@ function Metric({ title, value, detail, backIcon, backText, backColor }: { title
   </article>;
 }
 
-function WordsPanel({ onCreatePlan }: { onCreatePlan: (mode: StudyMode) => void }) {
+function WordsPanel({ newWordCount, onNewWordCountChange, onCreatePlan }: { newWordCount: number; onNewWordCountChange: (value: number) => void; onCreatePlan: (mode: StudyMode) => void }) {
   const [mode, setMode] = useState<StudyMode>('group');
-  const [newWordCount, setNewWordCount] = useState(10);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [drawer, setDrawer] = useState<'reading' | 'exam' | null>(null);
+  const reviewCount = 2;
+  const totalWordCount = reviewCount + newWordCount;
+  const reviewShare = `${(reviewCount / totalWordCount) * 100}%`;
   return <section className="words-panel">
-    <header className="panel-top"><div className="panel-title"><BookOpen size={18}/><strong>今日学习词汇</strong></div><div className="panel-progress"><span>待复习: 2</span><span>新单词: {newWordCount}</span><i><b/></i></div><div className="toolbar"><button className={mode === 'group' ? 'selected' : ''} onClick={() => setMode('group')}><Grid2X2 size={15}/>分组</button><button className={mode === 'individual' ? 'selected' : ''} onClick={() => setMode('individual')}><LayoutList size={15}/>独立单词</button><button className={`real ${mode === 'exam' ? 'selected' : ''}`} onClick={() => setMode('exam')}><span>◎</span> 真题 <em>NEW</em></button><button className="create" onClick={() => onCreatePlan(mode)}><Sparkles size={15}/>创建学习计划</button><button className="mode-settings-trigger" aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'} onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}>{mode === 'exam' ? <ExamBookIcon/> : <FilterSettingsIcon/>}</button></div></header>
+    <header className="panel-top"><div className="panel-title"><BookOpen size={18}/><strong>今日学习词汇</strong></div><div className="panel-progress" aria-label={`今日学习构成：待复习 ${reviewCount} 词，新单词 ${newWordCount} 词`}><div className="panel-progress-labels"><span className="is-review">待复习 <b>{reviewCount}</b></span><span className="is-new">新单词 <b>{newWordCount}</b></span><strong>{totalWordCount}<small>词</small></strong></div><div className="panel-progress-bar" aria-hidden="true"><b className="review" style={{ width: reviewShare }}/><b className="new"/></div></div><div className="toolbar"><button className={mode === 'group' ? 'selected' : ''} onClick={() => setMode('group')}><Grid2X2 size={15}/>分组</button><button className={mode === 'individual' ? 'selected' : ''} onClick={() => setMode('individual')}><LayoutList size={15}/>独立单词</button><button className={`real ${mode === 'exam' ? 'selected' : ''}`} onClick={() => setMode('exam')}><span>◎</span> 真题 <em>NEW</em></button><button className="create" onClick={() => onCreatePlan(mode)}><Sparkles size={15}/>创建学习计划</button><button className="mode-settings-trigger" aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'} onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}>{mode === 'exam' ? <ExamBookIcon/> : <FilterSettingsIcon/>}</button></div></header>
     <div className="word-columns"><WordColumn title="待复习单词" count={String(reviewWords.length)} icon={<ReviewWordsIcon/>} words={reviewWords}/><WordColumn title="新单词" count={String(newWordCount)} icon={<NewWordsIcon/>} words={newWords} isNew onOpenSettings={() => setSettingsOpen(true)}/></div>
-    {settingsOpen && <NewWordSettings value={newWordCount} onCancel={() => setSettingsOpen(false)} onSave={(value) => { setNewWordCount(value); setSettingsOpen(false); }}/>}
+    {settingsOpen && (
+      <NewWordSettings
+        value={newWordCount}
+        onCancel={() => setSettingsOpen(false)}
+        onSave={(value) => { onNewWordCountChange(value); setSettingsOpen(false); }}
+      />
+    )}
     {drawer === 'reading' && <ReadingModelDrawer onClose={() => setDrawer(null)}/>}
     {drawer === 'exam' && <ExamLibraryDrawer onClose={() => setDrawer(null)}/>}
   </section>;
@@ -250,9 +307,58 @@ function FilterSettingsIcon() {
 }
 
 function WordRow({ word }: { word: Word }) {
-  return <article className="word-row"><div className="word-copy"><strong>{word.word}</strong><p><span>{word.part}</span>{word.meaning}</p></div><div className="word-actions">{word.state === 'review' && <button className="reviewing"><TimerReset size={14}/>复习中</button>}<button title="加入学习"><ListRestart size={16}/></button><button title="标记掌握"><CheckCircle2 size={16}/></button><button title="稍后再学"><TimerReset size={16}/></button></div></article>;
+  return <article className="word-row"><div className="word-copy"><strong>{word.word}</strong><p><span>{word.part}</span>{word.meaning}</p></div><div className="word-actions">{word.state === 'review' && <button className="reviewing"><TimerReset size={14}/>复习中</button>}{!word.state && <button aria-label="加入复习" data-tooltip="加入复习"><ListRestart size={16}/></button>}<button aria-label="标记掌握" data-tooltip="标记掌握"><CheckCircle2 size={16}/></button><button aria-label="稍后再学" data-tooltip="稍后再学"><TimerReset size={16}/></button></div></article>;
 }
 
 function ExamBookIcon() { return <svg className="exam-book-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M658.285714 512m-182.857143 0a182.857143 182.857143 0 1 0 365.714286 0 182.857143 182.857143 0 1 0-365.714286 0Z" fill="#D4FD46" /><path d="M362.660571 149.284571H360.228571c-33.097143 0-61.622857 0-84.443428 3.072-24.484571 3.291429-47.926857 10.697143-66.962286 29.732572-19.017143 19.017143-26.441143 42.477714-29.732571 66.962286-3.072 22.838857-3.072 51.346286-3.072 84.443428v431.798857c0 72.155429 58.514286 130.651429 130.669714 130.651429H810.660571a37.339429 37.339429 0 1 0 0-74.660572H306.669714a56.009143 56.009143 0 0 1 0-112H663.771429c33.097143 0 61.622857 0 84.443428-3.072 24.484571-3.291429 47.945143-10.697143 66.962286-29.732571 19.017143-19.017143 26.441143-42.477714 29.732571-66.962286 3.072-22.820571 3.072-51.346286 3.072-84.443428V333.494857c0-33.097143 0-61.622857-3.072-84.443428-3.291429-24.466286-10.697143-47.926857-29.732571-66.962286-19.017143-19.017143-42.477714-26.441143-66.962286-29.732572-22.838857-3.072-51.346286-3.072-84.443428-3.072H362.660571z m-55.990857 485.339429a130.176 130.176 0 0 0-56.009143 12.562286v-311.222857c0-36.260571 0.091429-59.702857 2.413715-76.982858 2.176-16.182857 5.668571-21.248 8.521143-24.100571 2.852571-2.834286 7.917714-6.345143 24.118857-8.521143 17.261714-2.322286 40.704-2.413714 76.946285-2.413714h298.678858c36.242286 0 59.684571 0.091429 76.946285 2.413714 16.201143 2.176 21.266286 5.686857 24.118857 8.521143 2.834286 2.852571 6.345143 7.917714 8.521143 24.118857 2.322286 17.261714 2.413714 40.704 2.413715 76.946286v186.678857c0 36.242286-0.091429 59.684571-2.413715 76.946286-2.176 16.201143-5.668571 21.266286-8.521143 24.118857-2.852571 2.834286-7.917714 6.345143-24.118857 8.521143-17.261714 2.322286-40.704 2.413714-76.946285 2.413714H306.651429z" fill="currentColor" /><path d="M609.554286 363.190857l-3.072 91.392c0 31.488 2.56 57.984 7.68 79.488 5.376 21.504 15.232 36.352 29.568 44.544-17.664 11.008-35.584 16.512-53.76 16.512-32 0-51.712-25.856-59.136-77.568h-78.336c-4.864 16.64-7.296 29.44-7.296 38.4 0 8.704 1.024 15.744 3.072 21.12-18.944 12.032-35.84 18.048-50.688 18.048-22.784 0-34.176-13.824-34.176-41.472 0-13.824 4.224-31.232 12.672-52.224 8.704-20.992 20.096-45.056 34.176-72.192 14.336-27.136 23.424-45.056 27.264-53.76a674.102857 674.102857 0 0 0-9.6-40.704c13.312-9.216 26.112-16.128 38.4-20.736a110.555429 110.555429 0 0 1 40.32-7.296c14.592 0 24.704 3.2 30.336 9.6 14.592-6.4 26.624-9.6 36.096-9.6s16.512 1.536 21.12 4.608c4.608 3.072 7.936 7.552 9.984 13.44 3.584 10.24 5.376 23.04 5.376 38.4z m-77.184 8.832h-12.288c-23.04 44.544-40.192 79.616-51.456 105.216h59.52c0-27.904 1.408-62.976 4.224-105.216z" fill="currentColor" /></svg>; }
 
-function PlanPanel({ mode }: { mode: StudyMode }) { const modeName = { group: '分组', individual: '独立单词', exam: '真题' }[mode]; return <section className="plan-empty"><CalendarDays size={24}/><strong>{modeName}学习计划已创建</strong><p>已按「{modeName}」方式生成今天的学习序列。</p><button>开始今天的学习</button></section>; }
+const modeLabel = { group: '分组学习', individual: '单词模式', exam: '真题' } as const;
+
+function PlanPreview({ plan, onClose, onStart }: { plan: LearningPlan; onClose: () => void; onStart: () => void }) {
+  const [index, setIndex] = useState(0);
+  const word = plan.words[index] ?? newWords[index % newWords.length];
+  const previous = () => setIndex(current => Math.max(0, current - 1));
+  const next = () => setIndex(current => Math.min(plan.wordCount - 1, current + 1));
+
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setIndex(current => Math.max(0, current - 1));
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setIndex(current => Math.min(plan.wordCount - 1, current + 1));
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeydown);
+    return () => document.removeEventListener('keydown', handleKeydown);
+  }, [onClose, plan.wordCount]);
+
+  return <div className="plan-preview-layer" role="dialog" aria-modal="true" aria-label="学习计划预习" aria-keyshortcuts="ArrowLeft ArrowRight Escape">
+    <button className="plan-preview-scrim" onClick={onClose} aria-label="关闭预习"/>
+    <section className="plan-preview">
+      <header><div><p>学习计划生成完毕</p><span>预习第 {index + 1} / {plan.wordCount} 个单词</span></div><button onClick={onClose} aria-label="关闭"><X size={22}/></button></header>
+      <div className="preview-progress"><b style={{ width: `${((index + 1) / plan.wordCount) * 100}%` }}/></div>
+      <div className="preview-card-wrap"><button className="preview-arrow" onClick={previous} disabled={index === 0} aria-label="上一个单词"><ChevronLeft size={26}/></button><article className="preview-word-card"><div className="preview-word-title"><strong>{word.word}</strong><span>New</span></div><div className="preview-pronunciation">/{word.word}/ <button aria-label={`播放 ${word.word} 发音`}>◖</button></div><hr/><p><b>{word.part}</b>{word.meaning}</p><small>可使用左右方向键切换，空格键播放发音</small></article><button className="preview-arrow" onClick={next} disabled={index === plan.wordCount - 1} aria-label="下一个单词"><ChevronRight size={26}/></button></div>
+      <button className="start-challenge" onClick={onStart}><Play size={19}/>开始今天的挑战</button>
+    </section>
+  </div>;
+}
+
+function PlanPanel({ plan, onContinue }: { plan: LearningPlan | null; onContinue: (id: number) => void }) {
+  if (!plan) return <section className="plan-empty"><CalendarDays size={32}/><strong>还没有学习序列</strong><p>在单词列表中创建学习计划后，会在这里显示。</p></section>;
+  const progress = Math.round((plan.completed / plan.wordCount) * 100);
+  return <section className="sequence-panel"><header className="sequence-head"><div><BookOpen size={23}/><strong>学习序列</strong><span>{modeLabel[plan.mode]}</span><span>正常模式</span><span>第 1/{plan.wordCount} 组</span></div><div className="sequence-summary"><small>{plan.completed}/{plan.wordCount}</small><b>{progress}%</b><i><em style={{ width: `${progress}%` }}/></i><button onClick={() => onContinue(plan.id)}><BookOpen size={18}/>{plan.completed === plan.wordCount ? '已完成' : '继续学习'}</button></div></header><div className="sequence-body"><header><strong>学习分组</strong><span>共 {plan.wordCount} 组单词</span><small>New 新单词</small></header><div className="sequence-words">{plan.words.map((word, index) => <article key={`${plan.id}-${index}`}><b className={index < plan.completed ? 'done' : ''}>{index + 1}</b><strong>{word.word}</strong><BookOpen size={20}/></article>)}</div></div></section>;
+}
+
+function LearningHistory({ plans, onContinue }: { plans: LearningPlan[]; onContinue: (id: number) => void }) {
+  if (!plans.length) return <section className="plan-empty"><CalendarDays size={32}/><strong>今天还没有学习记录</strong><p>创建学习计划后，学习进度会保留在这里。</p></section>;
+  return <section className="history-grid">{plans.map(plan => { const progress = Math.round((plan.completed / plan.wordCount) * 100); return <article className={plan.started ? 'is-current' : ''} key={plan.id}><header><span>{modeLabel[plan.mode]}</span><span>正常模式</span><span>{plan.wordCount} 组单词</span>{plan.started ? <b><Play size={16}/>学习中</b> : <b><Pause size={16}/>未完成</b>}</header><div><strong>{plan.completed}/{plan.wordCount} 单词</strong><em>（剩余：{plan.wordCount - plan.completed}）</em><b>{progress}%</b></div><i><em style={{ width: `${progress}%` }}/></i><footer><span>当前学习分组：{Math.min(plan.completed + 1, plan.wordCount)} / {plan.wordCount}</span><button onClick={() => onContinue(plan.id)}><BookOpen size={18}/>继续学习</button></footer></article>; })}</section>;
+}
