@@ -18,6 +18,24 @@ enum AiCallStatus {
   FAILED
 }
 
+enum VocabularyCategory {
+  PRIMARY
+  JUNIOR
+  SENIOR
+  COLLEGE
+  EXAM
+  MATERIAL
+  PHRASES
+  GENERAL
+}
+
+enum WordProgressState {
+  NEW
+  LEARNING
+  REVIEWING
+  MASTERED
+}
+
 model User {
   id             String         @id @default(cuid())
   email          String         @unique
@@ -29,6 +47,82 @@ model User {
   refreshTokens  RefreshToken[]
   learningEvents LearningEvent[]
   aiCalls        AiCallAudit[]
+  vocabularyBooks UserVocabularyBook[]
+  wordProgresses  UserWordProgress[]
+}
+
+model VocabularyBook {
+  id          String             @id @default(cuid())
+  sourceKey   String             @unique
+  category    VocabularyCategory
+  title       String
+  sourcePath  String
+  publisher   String?
+  grade       String?
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  bookWords   VocabularyBookWord[]
+  userBooks   UserVocabularyBook[]
+
+  @@index([category, isActive])
+}
+
+model VocabularyWord {
+  id          String             @id @default(cuid())
+  normalized  String             @unique
+  text        String
+  ukPhonetic  String?
+  usPhonetic  String?
+  meaning     String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  bookWords   VocabularyBookWord[]
+}
+
+model VocabularyBookWord {
+  id        String          @id @default(cuid())
+  bookId    String
+  wordId    String
+  position  Int
+  book      VocabularyBook  @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  word      VocabularyWord  @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  progress  UserWordProgress[]
+
+  @@unique([bookId, wordId])
+  @@unique([bookId, position])
+  @@index([wordId])
+}
+
+model UserVocabularyBook {
+  id            String          @id @default(cuid())
+  userId        String
+  bookId        String
+  isDefault     Boolean         @default(false)
+  startedAt     DateTime        @default(now())
+  lastStudiedAt DateTime        @default(now())
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  book          VocabularyBook  @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bookId])
+  @@index([userId, isDefault])
+}
+
+model UserWordProgress {
+  id          String              @id @default(cuid())
+  userId      String
+  bookWordId  String
+  state       WordProgressState   @default(NEW)
+  familiarity Int                 @default(0)
+  reviewCount Int                 @default(0)
+  nextReviewAt DateTime?
+  firstLearnedAt DateTime?
+  lastReviewedAt DateTime?
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookWord    VocabularyBookWord  @relation(fields: [bookWordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bookWordId])
+  @@index([userId, state, nextReviewAt])
 }
 
 model RefreshToken {

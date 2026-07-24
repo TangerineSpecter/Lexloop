@@ -376,6 +376,13 @@ button { cursor: pointer; }
 .book-system { margin-top:48px; }
 .book-system h3 { margin:0; }
 .book-system>p { margin:12px 0 32px; }
+.book-category-tabs { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 -10px; }
+.book-category-tabs button { display:flex; align-items:center; gap:8px; min-height:42px; padding:0 15px; border:2px solid rgba(8,40,119,.28); border-radius:999px; background:#fffefa; color:var(--border-color); font-size:15px; font-weight:800; cursor:pointer; transition:.2s; }
+.book-category-tabs button b { display:grid; min-width:21px; height:21px; place-items:center; border-radius:50%; background:#eaf2ff; font-family:'DM Mono',monospace; font-size:11px; }
+.book-category-tabs button:hover { transform:translate(-2px,-2px); border-color:var(--border-color); box-shadow:3px 3px 0 var(--border-color); }
+.book-category-tabs button.active { border-color:var(--border-color); background:var(--gold); box-shadow:3px 3px 0 var(--border-color); }
+.book-message { margin:20px 0 -12px; color:#b43c21; font-weight:800; }
+.book-choice button:disabled { cursor:wait; opacity:.62; transform:none; }
 @keyframes drawer-enter { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:none; } }
 .settings-page { width:min(1220px,calc(100% - 72px)); margin:0 auto; padding:36px 0 60px; }
 .settings-heading { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }

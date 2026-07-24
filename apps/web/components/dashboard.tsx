@@ -12,6 +12,8 @@ import { StatisticsPage } from './statistics-page';
 type Word = { word: string; part: string; meaning: string; state?: 'review' };
 type StudyMode = 'group' | 'individual' | 'exam';
 type LearningPlan = { id: number; mode: StudyMode; wordCount: number; words: Word[]; completed: number; started: boolean; createdAt: string };
+type VocabularyBookCard = { id: string; category: string; title: string; totalWords: number; learnedWords: number; isLearning: boolean; isDefault: boolean };
+type VocabularyCatalog = { categories: Array<{ key: string; label: string; count: number }>; books: VocabularyBookCard[] };
 const GROUP_WORD_LIMIT = 3;
 const WORD_TONES = [
   { background: '#d8ebff', color: '#0b3a85' },
@@ -66,9 +68,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [page, setPage] = useState<'study' | 'statistics' | 'settings'>('study');
+  const [currentBook, setCurrentBook] = useState<{ id: string; title: string; totalWords: number } | null>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const name = session.user.displayName || session.user.email.split('@')[0];
   const plansStorageKey = `lexloop.learning-plans.${session.user.id}`;
+
+  useEffect(() => { request<{ id: string; title: string; totalWords: number } | null>('/vocabulary/default', {}, session.accessToken).then(setCurrentBook).catch(() => setCurrentBook(null)); }, [session.accessToken]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -100,7 +105,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
 
   return <main className="study-app">
     <aside className={`study-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-      <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>大学 CET-4 四级词汇</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
+      <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>{currentBook?.title ?? '请选择词表'}</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
       <Calendar />
       <nav className="sidebar-nav" aria-label="主导航">
         <span className="nav-label">APP</span>
@@ -119,7 +124,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         <h1>学习进度</h1>
         <section className="progress-grid">
           <StreakCard />
-          <Metric title="词表总词数" value="4545" detail="大学 CET-4 四级词汇" backIcon={<BookOpen size={42} />} backText="海量词库等你探索" backColor="var(--sky)" />
+          <Metric title="词表总词数" value={String(currentBook?.totalWords ?? 0)} detail={currentBook?.title ?? '请选择一个系统词表'} backIcon={<BookOpen size={42} />} backText="海量词库等你探索" backColor="var(--sky)" />
           <Metric title="已学习词数" value="2" detail="学习进度 0.0%" backIcon={<Flame size={42} />} backText="千里之行始于足下" backColor="var(--coral)" />
         </section>
 
@@ -132,7 +137,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         {activeTab === 'history' && <LearningHistory plans={plans} onContinue={(id) => { const plan = plans.find(item => item.id === id); setPlans(current => current.map(item => item.id === id ? { ...item, started: true } : item)); if (plan?.mode === 'group') setLessonPlanId(id); else setActiveTab('plan'); }} />}
       </div> : page === 'statistics' ? <StatisticsPage onBack={() => setPage('study')} /> : <AccountSettings session={session} onBack={() => setPage('study')} />}
     </section>
-    {bookPickerOpen && <BookPicker onClose={() => setBookPickerOpen(false)} />}
+    {bookPickerOpen && <BookPicker session={session} onClose={() => setBookPickerOpen(false)} onActivated={(book) => { setCurrentBook(book); setBookPickerOpen(false); setActiveTab('plan'); }} />}
     {previewPlan && (
       <PlanPreview
         plan={previewPlan}
@@ -201,18 +206,40 @@ function AccountMenu({ name, onSettings, onLogout }: { name: string; onSettings:
   return <div className="account-menu"><div className="account-menu-user"><Avatar/><strong>{name}</strong></div><button onClick={onSettings}><Settings2 size={22}/>账户设置</button><button onClick={onLogout}><LogOut size={22}/>退出登录</button></div>;
 }
 
-function BookPicker({ onClose }: { onClose: () => void }) {
+function BookPicker({ session, onClose, onActivated }: { session: Session; onClose: () => void; onActivated: (book: { id: string; title: string; totalWords: number }) => void }) {
   const [tab, setTab] = useState<'learning' | 'mine' | 'system'>('learning');
-  const cards = [{ title: '大学 CET-4 四级词汇', total: '4545', learned: '2', current: true, note: '含有大量常见词汇' }, { title: '大学 CET-6 六级词汇', total: '2345', learned: '0' }];
+  const [catalog, setCatalog] = useState<VocabularyCatalog>({ categories: [], books: [] });
+  const [learning, setLearning] = useState<VocabularyBookCard[]>([]);
+  const [category, setCategory] = useState<string>();
+  const [message, setMessage] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const load = async (selectedCategory?: string) => {
+    try {
+      const [nextCatalog, nextLearning] = await Promise.all([request<VocabularyCatalog>(`/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`, {}, session.accessToken), request<VocabularyBookCard[]>('/vocabulary/learning', {}, session.accessToken)]);
+      setCatalog(nextCatalog); setLearning(nextLearning); setMessage('');
+    } catch (error) { setMessage(error instanceof Error ? error.message : '词表加载失败'); }
+  };
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', closeOnEscape);
+    void load();
     return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
+  // The dialog is intentionally loaded once per opening; category switches call load explicitly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, session.accessToken]);
+  const activate = async (book: VocabularyBookCard, action: 'start' | 'continue') => {
+    setBusyId(book.id);
+    try { const active = await request<{ id: string; title: string; totalWords: number }>(`/vocabulary/books/${book.id}/${action}`, { method: 'POST' }, session.accessToken); await load(category); onActivated(active); } catch (error) { setMessage(error instanceof Error ? error.message : '更新学习词表失败'); } finally { setBusyId(null); }
+  };
 
-  return <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表"><header><div><h2>选择词表</h2><p>请选择一个词表开始您的学习之旅。</p></div><button onClick={onClose} aria-label="关闭"><X size={23}/></button></header><div className="book-tabs"><button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>学习中（2）</button><button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>我的词表</button><button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>系统词表（18）</button></div>{tab === 'learning' && <div className="book-card-grid">{cards.map(card => <article className="book-choice" key={card.title}><div><strong>{card.title}</strong><p>总词数: {card.total} | 已学: {card.learned}</p>{card.note && <small>{card.note}</small>}</div><button className={card.current ? 'current' : ''}>{card.current ? '当前' : '继续学习'}</button></article>)}</div>}{tab === 'mine' && <div className="book-empty"><strong>我的词表</strong><p>还没有创建任何词表</p><button><Plus size={18}/>创建新词表</button></div>}{tab === 'system' && <div className="book-system"><h3>升学与校内</h3><p>面向国内学习阶段、校内考试与升学目标的词表。</p><div className="book-card-grid">{cards.map(card => <article className="book-choice" key={`system-${card.title}`}><div><strong>{card.title}</strong><p>总词数: {card.total} | 已学: {card.learned}</p></div><button>开始学习</button></article>)}</div></div>}</div>;
+  return <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表"><header><div><h2>选择词表</h2><p>请选择一个词表开始您的学习之旅。</p></div><button onClick={onClose} aria-label="关闭"><X size={23}/></button></header><div className="book-tabs"><button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>学习中（{learning.length}）</button><button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>我的词表</button><button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>系统词表（{catalog.categories.reduce((sum, item) => sum + item.count, 0)}）</button></div>{message && <p className="book-message">{message}</p>}{tab === 'learning' && <BookCards cards={learning} busyId={busyId} onActivate={(book) => activate(book, 'continue')} />}{tab === 'mine' && <div className="book-empty"><strong>我的词表</strong><p>自建词表功能即将开放</p></div>}{tab === 'system' && <div className="book-system"><h3>系统词表</h3><p>按学习阶段与目标选择，无需额外筛选教材版本。</p><div className="book-category-tabs" role="tablist" aria-label="词表分类">{catalog.categories.map(item => <button key={item.key} role="tab" aria-selected={category === item.key} className={category === item.key ? 'active' : ''} onClick={() => { const next = category === item.key ? undefined : item.key; setCategory(next); void load(next); }}>{item.label}<b>{item.count}</b></button>)}</div><BookCards cards={catalog.books} busyId={busyId} onActivate={(book) => activate(book, 'start')} /></div>}</div>;
+}
+
+function BookCards({ cards, busyId, onActivate }: { cards: VocabularyBookCard[]; busyId: string | null; onActivate: (book: VocabularyBookCard) => void }) {
+  if (!cards.length) return <div className="book-empty"><strong>还没有可展示的词表</strong><p>词表初始化完成后会自动显示在这里。</p></div>;
+  return <div className="book-card-grid">{cards.map(book => <article className="book-choice" key={book.id}><div><strong>{book.title}</strong><p>总词数: {book.totalWords} | 已学: {book.learnedWords}</p></div><button className={book.isDefault ? 'current' : ''} disabled={busyId === book.id || book.isDefault} onClick={() => onActivate(book)}>{book.isDefault ? '当前' : busyId === book.id ? '处理中…' : book.isLearning ? '继续学习' : '开始学习'}</button></article>)}</div>;
 }
 
 function AccountSettings({ session, onBack }: { session: Session; onBack: () => void }) {
