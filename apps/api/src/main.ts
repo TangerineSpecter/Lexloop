@@ -12,7 +12,12 @@ async function bootstrap() {
   );
   await app.register(cookie);
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:52100', credentials: true });
+  app.enableCors({
+    origin: process.env.WEB_ORIGIN ?? 'http://localhost:52100',
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.getHttpAdapter().getInstance().get('/', () => ({
     name: 'Lexloop API',

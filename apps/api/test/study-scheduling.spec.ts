@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StudyPlanMode } from '@prisma/client';
-import { contentSignature, gradeQuestion, unfamiliarityScore } from '../src/modules/study/study.service';
+import { contentSignature, gradeQuestion, hasValidGeneratedMatchingPairs, unfamiliarityScore } from '../src/modules/study/study.service';
 
 describe('dynamic review unfamiliarity', () => {
   const stable = {
@@ -90,5 +90,30 @@ describe('server-side study answer grading', () => {
     }, ['feel blue=>感到沮丧', 'blue sky=>蓝天']);
     expect(result.isCorrect).toBe(true);
     expect(result.questionType).toBe('WORD_MATCHING');
+  });
+});
+
+describe('generated matching-pair validation', () => {
+  const pairs = [
+    { left: 'school bag', right: '上学时装书和文具的包', tip: '侧重日常学习场景。' },
+    { left: 'handbag', right: '随身携带物品的手提包', tip: '侧重携带方式。' },
+    { left: 'plastic bag', right: '由塑料制成的袋子', tip: '侧重材质。' },
+    { left: 'travel bag', right: '旅行时收纳物品的包', tip: '侧重旅行场景。' },
+  ];
+
+  it('requires four unique words and four unique Chinese definitions', () => {
+    expect(hasValidGeneratedMatchingPairs(pairs)).toBe(true);
+    expect(hasValidGeneratedMatchingPairs([
+      pairs[0],
+      { ...pairs[1], left: pairs[0].left },
+      pairs[2],
+      pairs[3],
+    ])).toBe(false);
+    expect(hasValidGeneratedMatchingPairs([
+      pairs[0],
+      { ...pairs[1], right: pairs[0].right },
+      pairs[2],
+      pairs[3],
+    ])).toBe(false);
   });
 });

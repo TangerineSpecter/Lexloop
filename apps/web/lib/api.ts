@@ -9,7 +9,12 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
   const headers = new Headers(init.headers);
   if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
+  } catch {
+    throw new Error('请求未能完成，请检查 API 服务或跨域配置。');
+  }
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.message ?? '请求失败，请稍后重试'); }
   return response.json() as Promise<T>;
 }

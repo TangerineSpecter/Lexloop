@@ -1,10 +1,18 @@
 'use client';
 
-import { Bot, ChevronDown, Pencil, Plus, ToggleLeft, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Bot, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
 
-type AiModel = { id: string; displayName: string; provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE'; model: string; baseUrl: string; isEnabled: boolean; hasApiKey: boolean };
+type AiModel = {
+  id: string;
+  displayName: string;
+  provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
+  model: string;
+  baseUrl: string;
+  isEnabled: boolean;
+  hasApiKey: boolean;
+};
 
 const DEEPSEEK_MODELS = [
   { value: 'deepseek-v4-flash', label: 'Flash' },
@@ -12,17 +20,389 @@ const DEEPSEEK_MODELS = [
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
-  const [models, setModels] = useState<AiModel[]>([]); const [modal, setModal] = useState<AiModel | 'new' | null>(null); const [message, setMessage] = useState('');
-  const load = () => request<AiModel[]>('/admin/ai-models', {}, session.accessToken).then(setModels).catch(error => setMessage(error instanceof Error ? error.message : '模型加载失败'));
-  useEffect(() => { void load(); }, [session.accessToken]);
-  const toggle = async (model: AiModel) => { try { const updated = await request<AiModel>(`/admin/ai-models/${model.id}/enabled`, { method: 'PATCH', body: JSON.stringify({ isEnabled: !model.isEnabled }) }, session.accessToken); setModels(items => items.map(item => item.id === model.id ? updated : item)); } catch (error) { setMessage(error instanceof Error ? error.message : '状态更新失败'); } };
-  const remove = async (model: AiModel) => { if (!window.confirm(`确定删除「${model.displayName}」吗？`)) return; try { await request(`/admin/ai-models/${model.id}`, { method: 'DELETE' }, session.accessToken); setModels(items => items.filter(item => item.id !== model.id)); } catch (error) { setMessage(error instanceof Error ? error.message : '删除失败'); } };
-  return <section className="system-settings"><h2>系统设置</h2><div className="system-tabs" role="tablist"><button className="active" role="tab" aria-selected="true"><Bot size={18}/>AI 模型管理</button></div><div className="model-head"><div><h3>已配置模型 <b>{models.length}</b></h3><p>添加后默认启用；学习助手会使用最早添加的启用模型。</p></div><button onClick={() => setModal('new')}><Plus size={18}/>添加模型</button></div>{message && <p className="form-error model-message">{message}</p>}{models.length ? <div className="model-list">{models.map(model => <article key={model.id}><div className="model-provider-mark">{model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}</div><div className="model-copy"><strong>{model.displayName}</strong><span>{model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} · {model.model}</span><small>{model.baseUrl}</small></div><span className={`model-status ${model.isEnabled ? 'enabled' : ''}`}>{model.isEnabled ? '已启用' : '已关闭'}</span><button className="model-toggle" onClick={() => void toggle(model)} aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}><ToggleLeft size={29}/></button><button className="model-icon-button" onClick={() => setModal(model)} aria-label={`编辑 ${model.displayName}`}><Pencil size={17}/></button><button className="model-icon-button danger" onClick={() => void remove(model)} aria-label={`删除 ${model.displayName}`}><Trash2 size={17}/></button></article>)}</div> : <div className="model-empty"><Bot size={28}/><strong>还没有配置模型</strong><p>添加 DeepSeek 或兼容 OpenAI Chat Completions 的模型开始使用。</p></div>}{modal && <AiModelDialog session={session} model={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSaved={(model) => { setModels(items => items.some(item => item.id === model.id) ? items.map(item => item.id === model.id ? model : item) : [...items, model]); setModal(null); }}/>}</section>;
+  const [models, setModels] = useState<AiModel[]>([]);
+  const [modal, setModal] = useState<AiModel | 'new' | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [message, setMessage] = useState('');
+  const load = () =>
+    request<AiModel[]>('/admin/ai-models', {}, session.accessToken)
+      .then(setModels)
+      .catch((error) => setMessage(error instanceof Error ? error.message : '模型加载失败'));
+  useEffect(() => {
+    void load();
+  }, [session.accessToken]);
+  const toggle = async (model: AiModel) => {
+    try {
+      const updated = await request<AiModel>(
+        `/admin/ai-models/${model.id}/enabled`,
+        { method: 'PATCH', body: JSON.stringify({ isEnabled: !model.isEnabled }) },
+        session.accessToken,
+      );
+      setModels((items) => items.map((item) => (item.id === model.id ? updated : item)));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '状态更新失败');
+    }
+  };
+  const remove = async (model: AiModel) => {
+    try {
+      setDeleting(true);
+      setDeleteError('');
+      await request(`/admin/ai-models/${model.id}`, { method: 'DELETE' }, session.accessToken);
+      setModels((items) => items.filter((item) => item.id !== model.id));
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '删除失败');
+    } finally {
+      setDeleting(false);
+    }
+  };
+  return (
+    <section className="system-settings">
+      <h2>系统设置</h2>
+      <div className="system-tabs" role="tablist">
+        <button className="active" role="tab" aria-selected="true">
+          <Bot size={18} />
+          AI 模型管理
+        </button>
+      </div>
+      <div className="model-head">
+        <div>
+          <h3>
+            已配置模型 <b>{models.length}</b>
+          </h3>
+          <p>添加后默认启用；学习助手会使用最早添加的启用模型。</p>
+        </div>
+        <button onClick={() => setModal('new')} data-tooltip="添加模型">
+          <Plus size={18} />
+          添加模型
+        </button>
+      </div>
+      {message && (
+        <p className="form-error model-message" role="alert">
+          <AlertTriangle size={18} aria-hidden="true" />
+          {message}
+        </p>
+      )}
+      {models.length ? (
+        <div className="model-list">
+          {models.map((model) => (
+            <article key={model.id}>
+              <div className="model-provider-mark">
+                {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
+              </div>
+              <div className="model-copy">
+                <strong>{model.displayName}</strong>
+                <span>
+                  {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} · {model.model}
+                </span>
+                <small>{model.baseUrl}</small>
+              </div>
+              <button
+                type="button"
+                className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
+                onClick={() => void toggle(model)}
+                aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
+                data-tooltip={model.isEnabled ? '点击关闭模型' : '点击启用模型'}
+              >
+                {model.isEnabled ? '已启用' : '已关闭'}
+              </button>
+              <button
+                className="model-icon-button"
+                onClick={() => setModal(model)}
+                aria-label={`编辑 ${model.displayName}`}
+                data-tooltip="编辑模型"
+              >
+                <Pencil size={17} />
+              </button>
+              <button
+                className="model-icon-button danger"
+                onClick={() => {
+                  setDeleteError('');
+                  setDeleteTarget(model);
+                }}
+                aria-label={`删除 ${model.displayName}`}
+                data-tooltip="删除模型"
+              >
+                <Trash2 size={17} />
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="model-empty">
+          <Bot size={28} />
+          <strong>还没有配置模型</strong>
+          <p>添加 DeepSeek 或兼容 OpenAI Chat Completions 的模型开始使用。</p>
+        </div>
+      )}
+      {modal && (
+        <AiModelDialog
+          session={session}
+          model={modal === 'new' ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={(model) => {
+            setModels((items) =>
+              items.some((item) => item.id === model.id)
+                ? items.map((item) => (item.id === model.id ? model : item))
+                : [...items, model],
+            );
+            setModal(null);
+          }}
+        />
+      )}
+      {deleteTarget && (
+        <ModelDeleteDialog
+          model={deleteTarget}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            setDeleteError('');
+            setDeleteTarget(null);
+          }}
+          onConfirm={() => void remove(deleteTarget)}
+        />
+      )}
+    </section>
+  );
 }
 
-function AiModelDialog({ session, model, onClose, onSaved }: { session: Session; model: AiModel | null; onClose: () => void; onSaved: (model: AiModel) => void }) {
-  const [provider, setProvider] = useState<AiModel['provider']>(model?.provider ?? 'DEEPSEEK'); const [displayName, setDisplayName] = useState(model?.displayName ?? ''); const [modelName, setModelName] = useState(model?.model ?? 'deepseek-v4-flash'); const [baseUrl, setBaseUrl] = useState(model?.provider === 'OPENAI_COMPATIBLE' ? model.baseUrl : ''); const [apiKey, setApiKey] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!displayName.trim() || !modelName.trim() || (!model && !apiKey.trim()) || (provider === 'OPENAI_COMPATIBLE' && !baseUrl.trim())) return setMessage('请填写所有必填项。'); setBusy(true); setMessage(''); try { const payload = { displayName, provider, model: modelName, ...(provider === 'OPENAI_COMPATIBLE' ? { baseUrl } : {}), ...(apiKey ? { apiKey } : {}) }; const result = await request<AiModel>(model ? `/admin/ai-models/${model.id}` : '/admin/ai-models', { method: model ? 'PUT' : 'POST', body: JSON.stringify(payload) }, session.accessToken); onSaved(result); } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败'); } finally { setBusy(false); } };
-  const selectedModel = DEEPSEEK_MODELS.find(({ value }) => value === modelName) ?? DEEPSEEK_MODELS[0];
-  return <div className="model-dialog-layer" role="dialog" aria-modal="true" aria-label={model ? '编辑模型' : '添加模型'}><button className="model-dialog-scrim" aria-label="关闭" onClick={onClose}/><form className="model-dialog" onSubmit={submit}><header><div><p>AI MODEL</p><h2>{model ? '编辑模型' : '添加模型'}</h2></div><button type="button" onClick={onClose} aria-label="关闭"><X size={22}/></button></header><div className="provider-choice" role="tablist"><button type="button" className={provider === 'DEEPSEEK' ? 'active' : ''} onClick={() => setProvider('DEEPSEEK')}>DeepSeek</button><button type="button" className={provider === 'OPENAI_COMPATIBLE' ? 'active' : ''} onClick={() => setProvider('OPENAI_COMPATIBLE')}>自定义 OpenAI</button></div><label>模型展示名称<input value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="例如：主学习助手" autoFocus/></label><label>模型 ID{provider === 'DEEPSEEK' ? <div className="model-picker"><button type="button" className="model-picker-trigger" aria-haspopup="listbox" aria-expanded={modelPickerOpen} onClick={() => setModelPickerOpen(open => !open)}><span><strong>DeepSeek {selectedModel.label}</strong><small>{selectedModel.value}</small></span><ChevronDown size={20} aria-hidden="true"/></button>{modelPickerOpen && <div className="model-picker-options" role="listbox" aria-label="选择 DeepSeek 模型">{DEEPSEEK_MODELS.map(({ value, label }) => <button key={value} type="button" role="option" aria-selected={modelName === value} className={modelName === value ? 'selected' : ''} onClick={() => { setModelName(value); setModelPickerOpen(false); }}><span>DeepSeek {label}</span><small>{value}</small></button>)}</div>}</div> : <input value={modelName} onChange={event => setModelName(event.target.value)} placeholder="例如：gpt-4o-mini"/>}</label>{provider === 'OPENAI_COMPATIBLE' && <label>API 地址<input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1"/></label>}<label>API 密钥{model?.hasApiKey && <small>留空则保持当前密钥</small>}<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={model?.hasApiKey ? '已配置' : '输入 API 密钥'} autoComplete="off"/></label>{message && <p className="form-error model-message">{message}</p>}<footer><button type="button" className="secondary" onClick={onClose}>取消</button><button disabled={busy}>{busy ? '保存中…' : model ? '保存修改' : '添加模型'}</button></footer></form></div>;
+function ModelDeleteDialog({
+  model,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  model: AiModel;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="learning-clear-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="model-delete-title"
+    >
+      <button
+        className="learning-clear-scrim"
+        aria-label="取消删除"
+        onClick={() => !busy && onCancel()}
+      />
+      <section className="learning-clear-dialog model-delete-dialog">
+        <span className="learning-clear-icon">
+          <AlertTriangle size={29} />
+        </span>
+        <h2 id="model-delete-title">确认删除「{model.displayName}」？</h2>
+        <div>
+          <strong>仅移除这条模型配置</strong>
+          <span>
+            不会影响学习记录、词书或账户数据；使用该模型的用户下次使用时可选择其他可用模型。
+          </span>
+          <small>模型 ID：{model.model}</small>
+        </div>
+        {error && <p className="form-error model-message" role="alert"><AlertTriangle size={18} aria-hidden="true"/>{error}</p>}
+        <footer>
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+            取消
+          </button>
+          <button type="button" className="confirm-danger" disabled={busy} onClick={onConfirm}>
+            <Trash2 size={17} />
+            {busy ? '正在删除…' : '确认删除模型'}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function AiModelDialog({
+  session,
+  model,
+  onClose,
+  onSaved,
+}: {
+  session: Session;
+  model: AiModel | null;
+  onClose: () => void;
+  onSaved: (model: AiModel) => void;
+}) {
+  const [provider, setProvider] = useState<AiModel['provider']>(model?.provider ?? 'DEEPSEEK');
+  const [displayName, setDisplayName] = useState(model?.displayName ?? '');
+  const [modelName, setModelName] = useState(model?.model ?? 'deepseek-v4-flash');
+  const [baseUrl, setBaseUrl] = useState(
+    model?.provider === 'OPENAI_COMPATIBLE' ? model.baseUrl : '',
+  );
+  const [apiKey, setApiKey] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (
+      !displayName.trim() ||
+      !modelName.trim() ||
+      (!model && !apiKey.trim()) ||
+      (provider === 'OPENAI_COMPATIBLE' && !baseUrl.trim())
+    )
+      return setMessage('请填写所有必填项。');
+    setBusy(true);
+    setMessage('');
+    try {
+      const payload = {
+        displayName,
+        provider,
+        model: modelName,
+        ...(provider === 'OPENAI_COMPATIBLE' ? { baseUrl } : {}),
+        ...(apiKey ? { apiKey } : {}),
+      };
+      const result = await request<AiModel>(
+        model ? `/admin/ai-models/${model.id}` : '/admin/ai-models',
+        { method: model ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+        session.accessToken,
+      );
+      onSaved(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const selectedModel =
+    DEEPSEEK_MODELS.find(({ value }) => value === modelName) ?? DEEPSEEK_MODELS[0];
+  return (
+    <div
+      className="model-dialog-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-label={model ? '编辑模型' : '添加模型'}
+    >
+      <button className="model-dialog-scrim" aria-label="关闭" onClick={onClose} />
+      <form className="model-dialog" onSubmit={submit}>
+        <header>
+          <div>
+            <p>AI MODEL</p>
+            <h2>{model ? '编辑模型' : '添加模型'}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭" data-tooltip="关闭弹窗">
+            <X size={22} />
+          </button>
+        </header>
+        <div className="provider-choice" role="tablist">
+          <button
+            type="button"
+            className={provider === 'DEEPSEEK' ? 'active' : ''}
+            onClick={() => setProvider('DEEPSEEK')}
+          >
+            DeepSeek
+          </button>
+          <button
+            type="button"
+            className={provider === 'OPENAI_COMPATIBLE' ? 'active' : ''}
+            onClick={() => setProvider('OPENAI_COMPATIBLE')}
+          >
+            自定义 OpenAI
+          </button>
+        </div>
+        <label>
+          模型展示名称
+          <input
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="例如：主学习助手"
+            autoFocus
+          />
+        </label>
+        <label>
+          模型 ID
+          {provider === 'DEEPSEEK' ? (
+            <div className="model-picker">
+              <button
+                type="button"
+                className="model-picker-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={modelPickerOpen}
+                onClick={() => setModelPickerOpen((open) => !open)}
+                data-tooltip="选择模型版本"
+              >
+                <span>
+                  <strong>DeepSeek {selectedModel.label}</strong>
+                  <small>{selectedModel.value}</small>
+                </span>
+                <ChevronDown size={20} aria-hidden="true" />
+              </button>
+              {modelPickerOpen && (
+                <div
+                  className="model-picker-options"
+                  role="listbox"
+                  aria-label="选择 DeepSeek 模型"
+                >
+                  {DEEPSEEK_MODELS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="option"
+                      aria-selected={modelName === value}
+                      className={modelName === value ? 'selected' : ''}
+                      onClick={() => {
+                        setModelName(value);
+                        setModelPickerOpen(false);
+                      }}
+                    >
+                      <span>DeepSeek {label}</span>
+                      <small>{value}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <input
+              value={modelName}
+              onChange={(event) => setModelName(event.target.value)}
+              placeholder="例如：gpt-4o-mini"
+            />
+          )}
+        </label>
+        {provider === 'OPENAI_COMPATIBLE' && (
+          <label>
+            API 地址
+            <input
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder="https://api.example.com/v1"
+            />
+          </label>
+        )}
+        <label>
+          API 密钥{model?.hasApiKey && <small>留空则保持当前密钥</small>}
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={model?.hasApiKey ? '已配置' : '输入 API 密钥'}
+            autoComplete="off"
+          />
+        </label>
+        {message && (
+          <p className="form-error model-message" role="alert">
+            <AlertTriangle size={18} aria-hidden="true" />
+            {message}
+          </p>
+        )}
+        <footer>
+          <button type="button" className="secondary" onClick={onClose} data-tooltip="不保存并关闭">
+            取消
+          </button>
+          <button disabled={busy} data-tooltip={model ? '保存修改' : '添加模型'}>
+            {busy ? '保存中…' : model ? '保存修改' : '添加模型'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
 }

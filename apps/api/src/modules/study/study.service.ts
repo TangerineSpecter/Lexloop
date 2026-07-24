@@ -18,13 +18,13 @@ type GeneratedQuestion = {
   correctAnswers: string[];
   explanation: string;
   optionNotes?: string[];
-  pairs?: Array<{ left: string; right: string }>;
+  pairs?: Array<{ left: string; right: string; tip?: string }>;
 };
 type GeneratedGroup = {
   index: number;
   title: string;
   wordOccurrences: Record<string, number>;
-  sentences: Array<{ english: string; chinese: string; simplified: string }>;
+  sentences: Array<{ english: string; chinese: string; simplified: string; grammar?: string }>;
   questions: GeneratedQuestion[];
 };
 type GeneratedContent = { groups: GeneratedGroup[] };
@@ -489,12 +489,22 @@ export function gradeQuestion(questionValue: unknown, selectedValue: unknown): G
   };
 }
 
+export function hasValidGeneratedMatchingPairs(pairs: unknown) {
+  if (!Array.isArray(pairs) || pairs.length !== 4) return false;
+  const values = pairs as Array<{ left?: unknown; right?: unknown; tip?: unknown }>;
+  if (values.some(pair => typeof pair.left !== 'string' || !pair.left.trim()
+    || typeof pair.right !== 'string' || !/[\u3400-\u9fff]/.test(pair.right)
+    || typeof pair.tip !== 'string' || !/[\u3400-\u9fff]/.test(pair.tip))) return false;
+  return new Set(values.map(pair => (pair.left as string).trim())).size === values.length
+    && new Set(values.map(pair => (pair.right as string).trim())).size === values.length;
+}
+
 export function contentSignature(mode: StudyPlanMode, words: PlanWord[]) {
   const canonicalWords = [...words]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map(word => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
   return createHash('sha256')
-    .update(JSON.stringify({ version: 1, mode, words: canonicalWords }))
+    .update(JSON.stringify({ version: 2, mode, words: canonicalWords }))
     .digest('hex');
 }
 
@@ -503,17 +513,17 @@ function generationPrompt(mode: StudyPlanMode, groups: Array<{ index: number; wo
 输入分组：${JSON.stringify(groups)}
 
 必须只返回以下 JSON 结构：
-{"groups":[{"index":0,"title":"英文短标题","wordOccurrences":{"word":2},"sentences":[{"english":"英文句子","chinese":"完整中文翻译","simplified":"除目标单词保留英文外，其余内容翻成中文的中英混合句"}],"questions":[{"bookWordId":"输入中的 id","type":"WORD_MNEMONIC|MEANING_RECOGNITION|WORD_MATCHING|SYNONYM_REPLACEMENT|READING_COMPREHENSION","prompt":"题干","options":["选项"],"correctAnswers":["正确选项原文"],"explanation":"简明解析","optionNotes":["与 options 对齐的提示"],"pairs":[{"left":"英文搭配","right":"中文解释"}]}]}]}
+{"groups":[{"index":0,"title":"英文短标题","wordOccurrences":{"word":2},"sentences":[{"english":"英文句子","chinese":"完整中文翻译","simplified":"除目标单词保留英文外，其余内容翻成中文的中英混合句","grammar":"中文语法结构提示"}],"questions":[{"bookWordId":"输入中的 id","type":"WORD_MNEMONIC|MEANING_RECOGNITION|WORD_MATCHING|SYNONYM_REPLACEMENT|READING_COMPREHENSION","prompt":"题干","options":["选项"],"correctAnswers":["正确选项原文"],"explanation":"中文简明解析","optionNotes":["与 options 对齐的中文提示"],"pairs":[{"left":"包含目标词的英文单词或短语","right":"中文功能或语义描述","tip":"补充说明该释义侧重的语境或功能"}]}]}]}
 
 规则：
 1. 每组 2–4 个自然、连贯且难度适中的英文句子，全文尽量不超过 90 个英文单词；独立单词材料尽量不超过 55 个英文单词。
 2. 每组每个目标单词必须至少自然出现一次，并准确填写 wordOccurrences；不要为了次数生硬重复。
-3. 每个英文句子必须有逐句 chinese 和 simplified。simplified 中目标单词保持英文原样，其余译成自然中文。
+3. 每个英文句子必须有逐句 chinese、simplified 和 grammar。simplified 中目标单词保持英文原样，其余译成自然中文；grammar 用中文简要说明句子主干或目标词作用。
 4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；五种题型轮换使用。每道客观题都能自动判分，通常提供 4 个有迷惑性的选项。
 5. WORD_MNEMONIC 是多选题，围绕词根、词缀、派生词或可靠的形音义联想，correctAnswers 可多项，解析逐项说明关系，不得编造词源。
-6. WORD_MATCHING 用 pairs 提供 4 组同一目标词的英文搭配与唯一中文释义；options 可为空。
+6. WORD_MATCHING 用 pairs 提供 4 组同一目标词的英文单词或短语、中文功能/语义描述和中文 tip。right 应像学习卡片一样解释含义或使用场景，tip 进一步说明侧重点；四组必须能唯一配对，options 可为空。
 7. READING_COMPREHENSION 模仿考试阅读理解，必须依据本组文章考查目标词在篇章中的含义、细节或推断，不考文章外知识。
-8. 所有题目的正确答案和解析必须与文章、目标词释义一致。`;
+8. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation、optionNotes、pairs.right、pairs.tip 必须使用自然中文，不得输出英文解析。`;
 }
 
 function parseGeneratedContent(response: unknown): GeneratedContent {
@@ -531,12 +541,16 @@ function validateGeneratedContent(content: GeneratedContent, expected: Array<{ i
     if (group.questions.length !== expectedGroup.words.length || new Set(group.questions.map(question => question.bookWordId)).size !== expectedGroup.words.length) {
       throw new Error(`第 ${expectedGroup.index + 1} 组必须为每个单词生成且只生成一道题`);
     }
-    if (group.sentences.some(sentence => !sentence.english?.trim() || !sentence.chinese?.trim() || !sentence.simplified?.trim())) {
-      throw new Error(`第 ${expectedGroup.index + 1} 组缺少逐句翻译或简化文本`);
+    if (group.sentences.some(sentence => !sentence.english?.trim() || !sentence.chinese?.trim() || !sentence.simplified?.trim() || !/[\u3400-\u9fff]/.test(sentence.grammar ?? ''))) {
+      throw new Error(`第 ${expectedGroup.index + 1} 组缺少中文逐句翻译、简化文本或语法提示`);
     }
     for (const word of expectedGroup.words) {
       const question = group.questions.find(item => item.bookWordId === word.id);
       if (!question || !question.prompt?.trim() || !Array.isArray(question.correctAnswers)) throw new Error(`单词 ${word.word} 缺少完整练习题`);
+      if (!/[\u3400-\u9fff]/.test(question.explanation ?? '')) throw new Error(`单词 ${word.word} 的题目解析必须使用中文`);
+      if (question.type === 'WORD_MATCHING' && !hasValidGeneratedMatchingPairs(question.pairs)) {
+        throw new Error(`单词 ${word.word} 的匹配题必须包含 4 组唯一的中文释义和提示`);
+      }
       if (!group.sentences.some(sentence => new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(sentence.english))) throw new Error(`阅读材料未包含单词 ${word.word}`);
     }
   }

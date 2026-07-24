@@ -58,9 +58,9 @@ type GeneratedQuestion = {
   correctAnswers: string[];
   explanation: string;
   optionNotes?: string[];
-  pairs?: Array<{ left: string; right: string }>;
+  pairs?: Array<{ left: string; right: string; tip?: string }>;
 };
-type ReadingSentence = { english: string; chinese: string; simplified: string };
+type ReadingSentence = { english: string; chinese: string; simplified: string; grammar?: string };
 type GeneratedGroup = {
   index: number;
   title: string;
@@ -2467,8 +2467,6 @@ function GeneratedStudyPage({
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
   const [answers, setAnswers] = useState<Record<string, { selected: string[]; correct: boolean }>>({});
-  const [sentenceMode, setSentenceMode] = useState(false);
-  const [translationMode, setTranslationMode] = useState<'none' | 'translation' | 'simplified'>('none');
   const [submitting, setSubmitting] = useState(false);
   const [finishedPlan, setFinishedPlan] = useState<LearningPlan | null>(null);
   const groupStartedAt = useRef(Date.now());
@@ -2521,8 +2519,6 @@ function GeneratedStudyPage({
       if (updated.status === 'COMPLETED') setFinishedPlan(updated);
       else {
         setAnswers({});
-        setSentenceMode(false);
-        setTranslationMode('none');
         groupStartedAt.current = Date.now();
       }
     } catch (error) {
@@ -2551,20 +2547,7 @@ function GeneratedStudyPage({
             </div>
             <h2>{group.title}</h2>
             <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
-            <div className="reading-tools generated-reading-tools">
-              <button aria-pressed={sentenceMode} onClick={() => setSentenceMode((value) => !value)} title="分句阅读">☰</button>
-              <button aria-pressed={translationMode === 'translation'} onClick={() => setTranslationMode((value) => value === 'translation' ? 'none' : 'translation')} title="翻译全文">译</button>
-              <button aria-pressed={translationMode === 'simplified'} onClick={() => setTranslationMode((value) => value === 'simplified' ? 'none' : 'simplified')} title="简化全文">✦</button>
-            </div>
-            <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
-              {group.sentences.map((sentence, index) => <article className={sentenceMode ? 'sentence-line' : ''} key={`${group.index}-${index}`}>
-                <p>{sentenceMode && <b>{index + 1}. </b>}<HighlightedSentence text={sentence.english} words={words}/></p>
-                {sentenceMode && translationMode !== 'none' && <small>{translationMode === 'translation' ? sentence.chinese : sentence.simplified}</small>}
-              </article>)}
-            </div>
-            {!sentenceMode && translationMode !== 'none' && <p className={translationMode === 'translation' ? 'reading-translation' : 'reading-simple'}>
-              {group.sentences.map((sentence) => translationMode === 'translation' ? sentence.chinese : sentence.simplified).join('')}
-            </p>}
+            <GeneratedReadingContent key={group.index} sentences={group.sentences} words={words}/>
             <small>Powered by Lexloop AI</small>
           </article>
         </section>
@@ -2599,6 +2582,51 @@ function GeneratedStudyPage({
   </section>;
 }
 
+function GeneratedReadingContent({ sentences, words }: { sentences: ReadingSentence[]; words: Word[] }) {
+  type Detail = 'translation' | 'grammar' | 'simplified';
+  const [sentenceMode, setSentenceMode] = useState(false);
+  const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
+  const [sentenceDetails, setSentenceDetails] = useState<Record<number, Detail | undefined>>({});
+  const speak = (text: string) => {
+    window.speechSynthesis?.cancel();
+    window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
+  };
+  const toggleDetail = (index: number, detail: Detail) => setSentenceDetails((current) => ({
+    ...current,
+    [index]: current[index] === detail ? undefined : detail,
+  }));
+  const detailText = (sentence: ReadingSentence, detail?: Detail) => {
+    if (detail === 'translation') return sentence.chinese;
+    if (detail === 'simplified') return sentence.simplified;
+    if (detail === 'grammar') return sentence.grammar?.trim() || '句子结构提示：先找主语和谓语，再结合上下文判断目标词在句中的作用。';
+    return '';
+  };
+  return <>
+    <div className="reading-tools generated-reading-tools">
+      <button aria-label={sentenceMode ? '收起分句阅读' : '展开分句阅读'} aria-pressed={sentenceMode} data-tip={sentenceMode ? '收起分句阅读' : '展开分句阅读'} onClick={() => setSentenceMode((value) => !value)}>☰</button>
+      <button aria-label="翻译全文" aria-pressed={fullDetail === 'translation'} data-tip="翻译全文" onClick={() => setFullDetail((value) => value === 'translation' ? 'none' : 'translation')}>译</button>
+      <button aria-label="简化全文" aria-pressed={fullDetail === 'simplified'} data-tip="简化全文" onClick={() => setFullDetail((value) => value === 'simplified' ? 'none' : 'simplified')}>✦</button>
+      <button aria-label="朗读全文" data-tip="朗读全文" onClick={() => speak(sentences.map((sentence) => sentence.english).join(' '))}><Volume2 size={18}/></button>
+    </div>
+    <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
+      {sentences.map((sentence, index) => <article className={sentenceMode ? 'sentence-line' : ''} key={index}>
+        <p>{sentenceMode && <b>{index + 1}. </b>}<HighlightedSentence text={sentence.english} words={words}/></p>
+        {sentenceMode && <div className="sentence-tools" aria-label={`第 ${index + 1} 句操作`}>
+          <button aria-label="复制" data-tip="复制" onClick={() => void navigator.clipboard?.writeText(sentence.english)}><Copy size={16}/></button>
+          <button aria-label="翻译" aria-pressed={sentenceDetails[index] === 'translation'} data-tip="翻译" onClick={() => toggleDetail(index, 'translation')}>译</button>
+          <button aria-label="语法分析" aria-pressed={sentenceDetails[index] === 'grammar'} data-tip="语法分析" onClick={() => toggleDetail(index, 'grammar')}>⌕</button>
+          <button aria-label="简化" aria-pressed={sentenceDetails[index] === 'simplified'} data-tip="简化" onClick={() => toggleDetail(index, 'simplified')}>✦</button>
+          <button aria-label="朗读" data-tip="朗读" onClick={() => speak(sentence.english)}><Volume2 size={16}/></button>
+        </div>}
+        {sentenceMode && sentenceDetails[index] && <small className={`sentence-detail is-${sentenceDetails[index]}`}>{detailText(sentence, sentenceDetails[index])}</small>}
+      </article>)}
+    </div>
+    {!sentenceMode && fullDetail !== 'none' && <p className={fullDetail === 'translation' ? 'reading-translation' : 'reading-simple'}>
+      {sentences.map((sentence) => fullDetail === 'translation' ? sentence.chinese : sentence.simplified).join('')}
+    </p>}
+  </>;
+}
+
 function HighlightedSentence({ text, words }: { text: string; words: Word[] }) {
   const escaped = words.map((word) => word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   if (!escaped) return <>{text}</>;
@@ -2628,28 +2656,90 @@ function GeneratedQuestionCard({
     const next = option ? [option] : selected;
     if (next.length) onAnswer(next);
   };
+  const explanation = /[\u3400-\u9fff]/.test(question.explanation)
+    ? question.explanation
+    : question.type === 'WORD_MATCHING' && question.pairs?.length
+      ? `正确配对为：${question.pairs.map((pair) => `${pair.left} 对应 ${pair.right}`).join('；')}。`
+      : `正确答案为：${question.correctAnswers.join('、')}。请结合文章语境和单词释义理解本题。`;
   return <article className="exercise-card generated-question">
     <span className="exercise-kind">{exerciseLabels[question.type]}</span>
     <h3><mark style={wordTone(toneIndex)}>{word.word}</mark>　{question.prompt}</h3>
     {question.type === 'WORD_MATCHING' && question.pairs?.length ? (
-      <div className="generated-matching">{question.pairs.map((pair, index) => <label key={pair.left}><strong>{pair.left}</strong><select disabled={Boolean(answer)} defaultValue="" onChange={(event) => {
-        const next = [...selected.filter((value) => !value.startsWith(`${pair.left}=>`)), `${pair.left}=>${event.target.value}`];
-        setSelected(next);
-        if (next.length === question.pairs!.length) onAnswer(next);
-      }}><option value="" disabled>选择对应释义</option>{[...question.pairs!].sort((a, b) => b.right.localeCompare(a.right)).map((item) => <option key={item.right}>{item.right}</option>)}</select></label>)}</div>
+      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} onAnswer={onAnswer}/>
     ) : (
       <div className="answer-options">{question.options.map((option, index) => {
         const checked = selected.includes(option);
-        const correct = answer && question.correctAnswers.includes(option);
-        return <button key={option} disabled={Boolean(answer)} className={`${checked ? 'selected' : ''} ${correct ? 'correct' : ''} ${answer && !correct ? 'muted' : ''}`} onClick={() => {
+        const isCorrectOption = question.correctAnswers.includes(option);
+        const resultClass = !answer ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
+        return <button key={option} disabled={Boolean(answer)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
           if (isMultiple) setSelected((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option]);
           else submit(option);
-        }}>{option}{answer && correct ? ' ✓' : ''}{question.optionNotes?.[index] && <small>{question.optionNotes[index]}</small>}</button>;
+        }}>{option}{answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{answer && checked && !isCorrectOption ? ' ×' : ''}{answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}{question.optionNotes?.[index] && <small>{question.optionNotes[index]}</small>}</button>;
       })}</div>
     )}
     {isMultiple && !answer && <button className="check-matches" disabled={!selected.length} onClick={() => submit()}>提交多选答案</button>}
-    {answer && <><strong className={answer.correct ? 'answer-feedback success' : 'answer-feedback'}>{answer.correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-explanation">{question.explanation}</p><WordMeaningCard word={word}/></>}
+    {answer && <><strong className={answer.correct ? 'answer-feedback success' : 'answer-feedback'}>{answer.correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
   </article>;
+}
+
+function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
+  pairs: NonNullable<GeneratedQuestion['pairs']>;
+  answer?: { selected: string[]; correct: boolean };
+  onAnswer: (selected: string[]) => void;
+}) {
+  const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
+  const [selectedDefinition, setSelectedDefinition] = useState<number | null>(null);
+  const [matches, setMatches] = useState<Record<number, string>>({});
+  const phraseOptions = pairs.map((_, index) => pairs[(index + 1) % pairs.length]);
+  const assignMatch = (index: number, phrase: string) => setMatches((current) => ({
+    ...Object.fromEntries(Object.entries(current).filter(([key, value]) => value !== phrase || Number(key) === index)),
+    [index]: phrase,
+  }));
+  const choosePhrase = (phrase: string) => {
+    if (answer) return;
+    if (selectedDefinition !== null) {
+      assignMatch(selectedDefinition, phrase);
+      setSelectedDefinition(null);
+      return;
+    }
+    setSelectedPhrase(phrase);
+  };
+  const chooseDefinition = (index: number) => {
+    if (answer) return;
+    if (selectedPhrase) {
+      assignMatch(index, selectedPhrase);
+      setSelectedPhrase(null);
+      return;
+    }
+    setSelectedDefinition(index);
+  };
+  const selectedAnswers = Object.entries(matches).map(([index, phrase]) => `${phrase}=>${pairs[Number(index)].right}`);
+  return <div className="generated-matching matching-exercise">
+    <p className="matching-instruction">单词 - 点击选中</p>
+    <div className="match-phrases">
+      {phraseOptions.map((pair, index) => <button key={pair.left} disabled={Boolean(answer)} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${Object.values(matches).includes(pair.left) ? 'linked' : ''}`} onClick={() => choosePhrase(pair.left)}>
+        <span>{index + 1}</span>{pair.left}
+      </button>)}
+    </div>
+    <p className="matching-instruction">释义 - 可先点释义，也可先点单词</p>
+    <div className="match-definitions">
+      {pairs.map((pair, index) => {
+        const phrase = matches[index];
+        const correct = phrase === pair.left;
+        return <button key={`${pair.right}-${index}`} disabled={Boolean(answer)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${answer ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
+          <span className="match-definition-copy">
+            <strong>{pair.right}</strong>
+            <small>{pair.tip?.trim() || `侧重于理解 “${pair.left}” 在具体搭配中的含义。`}</small>
+          </span>
+          {answer && phrase && !correct ? <span className="match-answer-review">
+            <b className="match-answer-review-wrong">你的答案：{phraseOptions.findIndex((item) => item.left === phrase) + 1}</b>
+            <b className="match-answer-review-correct">正确答案：{phraseOptions.findIndex((item) => item.left === pair.left) + 1}</b>
+          </span> : phrase ? <b>{phraseOptions.findIndex((item) => item.left === phrase) + 1}</b> : <em>{selectedPhrase ? `插入选项 ${phraseOptions.findIndex((item) => item.left === selectedPhrase) + 1}` : '选择此处'}</em>}
+        </button>;
+      })}
+    </div>
+    {!answer && <button className="check-matches" disabled={Object.keys(matches).length !== pairs.length} onClick={() => onAnswer(selectedAnswers)}>提交匹配答案</button>}
+  </div>;
 }
 
 function GroupStudyPage({
