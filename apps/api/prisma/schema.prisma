@@ -41,6 +41,24 @@ enum WordProgressState {
   MASTERED
 }
 
+enum StudyPlanStatus {
+  GENERATING
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+enum StudyPlanMode {
+  GROUP
+  INDIVIDUAL
+  EXAM
+}
+
+enum StudyPlanItemSource {
+  NEW
+  REVIEW
+}
+
 model User {
   id             String         @id @default(cuid())
   email          String         @unique
@@ -53,9 +71,12 @@ model User {
   learningEvents LearningEvent[]
   aiCalls        AiCallAudit[]
   selectedAiModelId String?
+  defaultNewWordCount Int @default(10)
   selectedAiModel AiModelConfig? @relation("UserSelectedAiModel", fields: [selectedAiModelId], references: [id], onDelete: SetNull)
   vocabularyBooks UserVocabularyBook[]
   wordProgresses  UserWordProgress[]
+  masteredWords   UserMasteredWord[]
+  studyPlans      StudyPlan[]
 }
 
 model VocabularyBook {
@@ -85,6 +106,7 @@ model VocabularyWord {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   bookWords   VocabularyBookWord[]
+  masteredBy  UserMasteredWord[]
 }
 
 model VocabularyBookWord {
@@ -95,6 +117,7 @@ model VocabularyBookWord {
   book      VocabularyBook  @relation(fields: [bookId], references: [id], onDelete: Cascade)
   word      VocabularyWord  @relation(fields: [wordId], references: [id], onDelete: Cascade)
   progress  UserWordProgress[]
+  studyPlanItems StudyPlanItem[]
 
   @@unique([bookId, wordId])
   @@unique([bookId, position])
@@ -122,6 +145,11 @@ model UserWordProgress {
   state       WordProgressState   @default(NEW)
   familiarity Int                 @default(0)
   reviewCount Int                 @default(0)
+  totalAttempts Int               @default(0)
+  correctAttempts Int             @default(0)
+  consecutiveCorrect Int          @default(0)
+  lastIntervalDays Int            @default(0)
+  postponedCount Int              @default(0)
   nextReviewAt DateTime?
   firstLearnedAt DateTime?
   lastReviewedAt DateTime?
@@ -130,6 +158,90 @@ model UserWordProgress {
 
   @@unique([userId, bookWordId])
   @@index([userId, state, nextReviewAt])
+}
+
+model StudyPlan {
+  id               String          @id @default(cuid())
+  userId           String
+  mode             StudyPlanMode   @default(GROUP)
+  status           StudyPlanStatus @default(GENERATING)
+  generatedContent Json?
+  generationError  String?
+  generationStartedAt DateTime?
+  generatedAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items            StudyPlanItem[]
+
+  @@index([userId, status, createdAt])
+}
+
+model StudyPlanItem {
+  id          String              @id @default(cuid())
+  planId      String
+  bookWordId  String
+  contentCacheId String?
+  source      StudyPlanItemSource
+  groupIndex  Int
+  question    Json?
+  completedAt DateTime?
+  plan        StudyPlan           @relation(fields: [planId], references: [id], onDelete: Cascade)
+  bookWord    VocabularyBookWord  @relation(fields: [bookWordId], references: [id], onDelete: Cascade)
+  contentCache StudyContentCache? @relation(fields: [contentCacheId], references: [id], onDelete: SetNull)
+  attempts    WordReviewAttempt[]
+
+  @@unique([planId, bookWordId])
+  @@index([planId, groupIndex])
+  @@index([contentCacheId])
+}
+
+// AI-generated materials and questions are global reusable content. They do
+// not belong to a user and survive deletion of personal learning records.
+model StudyContentCache {
+  id          String        @id @default(cuid())
+  signature   String
+  mode        StudyPlanMode
+  material    Json
+  hitCount    Int           @default(0)
+  lastUsedAt  DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  planItems   StudyPlanItem[]
+
+  @@index([signature, mode, createdAt])
+}
+
+model WordReviewAttempt {
+  id         String        @id @default(cuid())
+  userId     String
+  bookWordId String
+  planItemId String
+  isCorrect  Boolean
+  questionType String?
+  selectedAnswer Json?
+  responseTimeMs Int?
+  createdAt  DateTime      @default(now())
+  item       StudyPlanItem @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+
+  @@index([userId, bookWordId, createdAt])
+  @@index([planItemId])
+}
+
+// Mastery is tracked at the vocabulary-word level so a word stays mastered
+// even when the learner later switches to another book containing it.
+model UserMasteredWord {
+  id         String         @id @default(cuid())
+  userId     String
+  wordId     String
+  masteredAt DateTime       @default(now())
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word       VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordId])
+  @@index([wordId])
 }
 
 model RefreshToken {

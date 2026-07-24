@@ -46,6 +46,40 @@ export class AiService implements AiProvider {
     return response;
   }
 
+  async selectedChatCompletions(request: OpenAiChatCompletionRequest, userId: string): Promise<Response> {
+    const configured = await this.modelConfigs.selectedProvider(userId);
+    if (!configured) {
+      throw new ServiceUnavailableException('请先在阅读材料模型设置中选择可用的大模型');
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${configured.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${configured.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...request, model: configured.model }),
+      });
+    } catch {
+      throw new BadGatewayException('AI Provider 无法连接，请检查模型配置或稍后重试');
+    }
+    if (!response.ok) {
+      const detail = await this.providerError(response);
+      throw new BadGatewayException(`AI Provider 请求失败（${response.status}）：${detail}`);
+    }
+    return response;
+  }
+
+  async generateForUser(request: GenerateRequest, userId: string): Promise<unknown> {
+    const response = await this.selectedChatCompletions({
+      messages: [
+        { role: 'system', content: '你是 Lexloop 的英语学习内容设计师。只输出符合要求的 JSON，不输出 Markdown。' },
+        { role: 'user', content: request.prompt },
+      ],
+      temperature: 0.7,
+      response_format: { type: 'json_object' },
+    }, userId);
+    return response.json();
+  }
+
   async generate(request: GenerateRequest): Promise<unknown> {
     const response = await this.chatCompletions({
       messages: [{ role: 'user', content: request.prompt }],

@@ -18,7 +18,7 @@ export class AiModelConfigService {
   async listEnabled(userId: string) {
     const models = await this.prisma.aiModelConfig.findMany({ where: { isEnabled: true }, orderBy: { createdAt: 'asc' } });
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { selectedAiModelId: true } });
-    const selectedId = user?.selectedAiModelId ?? models[0]?.id;
+    const selectedId = user?.selectedAiModelId;
     return models.map(({ id, displayName, provider, model }) => ({ id, displayName, provider, model, isSelected: id === selectedId }));
   }
 
@@ -51,6 +51,23 @@ export class AiModelConfigService {
     const selected = userId ? await this.prisma.user.findUnique({ where: { id: userId }, select: { selectedAiModel: true } }) : null;
     const model = selected?.selectedAiModel?.isEnabled ? selected.selectedAiModel : await this.prisma.aiModelConfig.findFirst({ where: { isEnabled: true }, orderBy: { createdAt: 'asc' } });
     return model ? { baseUrl: model.baseUrl, model: model.model, apiKey: this.decrypt(model.encryptedApiKey), provider: model.provider } : null;
+  }
+
+  async selectedProvider(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { selectedAiModel: true },
+    });
+    const model = user?.selectedAiModel;
+    if (!model?.isEnabled) return null;
+    return {
+      id: model.id,
+      displayName: model.displayName,
+      baseUrl: model.baseUrl,
+      model: model.model,
+      apiKey: this.decrypt(model.encryptedApiKey),
+      provider: model.provider,
+    };
   }
 
   private normalize(input: { displayName?: string; provider: AiModelProvider; model?: string; baseUrl?: string }) {
