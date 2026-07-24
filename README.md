@@ -1,6 +1,58 @@
 # Lexloop · 词环
 
-英语闭环学习平台的全栈基础工程：Next.js Web、NestJS API、PostgreSQL/pgvector、Redis/BullMQ 与 MinIO。
+Lexloop 是面向成人自学者的英语闭环学习平台。它围绕“认识、理解、提取、运用”设计单词学习路径：学习者先在词表中完成新词与复习词的学习，再通过阅读、练习、输出和错题复习，将短期记忆转化为可用能力。
+
+本仓库是一个 pnpm workspace + Turborepo 全栈工程，包含 Next.js Web、NestJS API、PostgreSQL/pgvector、Redis/BullMQ 与 MinIO。
+
+## 产品能力
+
+### 三种学习模式
+
+- **AI 智能分组学习（闯关模式）**：将当天新词切分为小组；每组学习词汇、阅读材料和练习，完成后再进入下一组。
+- **独立单词学习（自由刷词）**：不受分组和解锁顺序限制，可按词表、随机词、错词或高频词进行定向学习。
+- **真题模式（应试专项）**：以考试真题语境组织学习，强化熟词僻义、固定搭配与阅读做题能力。
+
+各模式的完整定义与当前行为见 [单词学习模式说明](docs/单词学习模式.md)。
+
+### 练习题型
+
+| 分类 | 题型 | 目标 |
+| --- | --- | --- |
+| 客观选择题 | 单词助记、词义识别、单词匹配、同义替换、阅读理解 | 建立词义、构词与语境理解 |
+| 主观输出题 | 句子翻译、主题造句、句子改写 | 检验翻译、写作与同义表达能力 |
+| 专项巩固题 | 单词拼写、听力练习、口语练习 | 强化拼写、听辨与发音 |
+
+客观题由系统即时判分并展示答案解析；翻译、造句、改写与口语等输出题由 AI 按评分要点反馈。题型的交互、判分与 AI 反馈要求见 [单词练习题型说明](docs/单词练习题型.md)。
+
+## 当前可体验功能
+
+当前 Web 已提供可交互的学习流程原型：
+
+- 欢迎页、邮箱密码注册/登录、会话刷新、退出登录与密码修改。
+- 学习进度看板，包括连续学习打卡、词表总量、已学习词数、单词列表、当前学习序列和当日学习历史。
+- 词表选择抽屉，展示学习中、我的词表和系统词表入口；当前示例包含 CET-4 / CET-6 词表。
+- 当日待复习词和新词展示，可设置每日新词数量（5–40），并标记单词为复习、掌握或稍后学习。
+- 分组、独立单词和真题三种学习计划入口；支持计划预习、开始挑战、查看完成进度和继续学习。
+- 分组学习页：按每组最多 3 个新词展示阅读材料、词义信息和单词匹配/词义辨析练习，并即时显示作答结果。
+- 阅读材料与真题题库设置入口；真题模式支持自动范围和手动选择题库的界面交互。
+- 学习统计页与账户设置页。
+
+> 当前阶段，词表内容、统计数据、阅读材料和部分练习为前端演示数据；学习计划及进度暂存于浏览器本地存储。题库生成、完整题型、AI 批改、语音处理、错题复习与报告尚待接入正式 API 和异步任务。
+
+## 技术架构
+
+```text
+浏览器 / PWA → Next.js Web → NestJS API → PostgreSQL + pgvector
+                                  │
+                                  ├→ Redis + BullMQ → Worker
+                                  └→ S3 兼容对象存储（本地 MinIO / 外部存储）
+```
+
+- Web 仅通过 API 获取和提交业务数据。
+- API 处理鉴权、校验、业务规则和数据读写。
+- 阅读材料生成、主观题批改、语音识别、口语评分等长耗时 AI 任务由 Worker 异步执行。
+
+详见 [系统架构](docs/系统架构.md) 和 [存储服务部署](docs/存储服务部署.md)。
 
 ## 本地启动
 
@@ -8,15 +60,26 @@
 ./dev.sh
 ```
 
-- Web: http://localhost:52100
-- API: http://localhost:52101/api/v1/health
-- Swagger: http://localhost:52101/api/docs
-- MinIO 控制台: http://localhost:9001
+- Web：http://localhost:52100
+- API 健康检查：http://localhost:52101/api/v1/health
+- API 文档：http://localhost:52101/api/docs
+- MinIO 控制台：http://localhost:9001
 
-首次启动前请将 `.env` 中的两个 JWT 密钥替换成长随机字符串。AI 功能默认安全禁用，配置 `AI_API_KEY` 后再实现相应 Provider Adapter。
+首次启动前，请将 `.env` 中的两个 JWT 密钥替换为足够长的随机字符串。AI 功能默认安全禁用；配置 `AI_API_KEY` 后，仍需实现相应的 Provider Adapter 才会实际调用模型。
 
-`dev.sh` 会自动加载 nvm（若当前终端没有 Node.js）、首次安装依赖、创建并导出根目录 `.env`、启动 Docker 服务、执行 Prisma 迁移，并同时运行 Web、API 和 Worker。它会在 Web 和 API 健康检查都通过后打印访问地址。按 `Ctrl+C` 可停止应用进程；基础设施容器仍会保留，可通过 `pnpm infra:down` 停止。
+`dev.sh` 会自动加载 nvm（若当前终端没有 Node.js）、首次安装依赖、创建并导出根目录 `.env`、启动 Docker 服务、执行 Prisma 迁移，并同时启动 Web、API 和 Worker。Web 与 API 健康检查通过后会打印访问地址。
 
-脚本会在启动前检查 Web（`52100`）和 API（`52101`）端口；如端口已被占用，会直接退出并显示占用进程 PID，避免只启动部分服务。
+按 `Ctrl+C` 可停止应用进程；基础设施容器会保留，可执行 `pnpm infra:down` 停止。脚本会在启动前检查 Web（`52100`）和 API（`52101`）端口；如端口被占用，会退出并显示占用进程 PID。
 
-若之前的 watch 进程未退出，先执行 `./stop.sh`（或 `pnpm dev:stop`）再运行 `./dev.sh`。停止脚本只清理本仓库的 Web、API、Worker 与 Turbo 进程，不会停止 PostgreSQL、Redis、MinIO 或其他项目的进程。
+若此前的 watch 进程未退出，请先执行 `./stop.sh`（或 `pnpm dev:stop`）再运行 `./dev.sh`。停止脚本只清理本仓库的 Web、API、Worker 与 Turbo 进程，不会停止 PostgreSQL、Redis、MinIO 或其他项目的进程。
+
+## 仓库结构
+
+```text
+apps/web       Next.js 用户端
+apps/api       NestJS API、Prisma schema 与 migrations
+apps/worker    BullMQ 异步任务消费者
+packages/types 前后端共享类型
+infra          容器初始化脚本
+docs           产品、架构与部署文档
+```
