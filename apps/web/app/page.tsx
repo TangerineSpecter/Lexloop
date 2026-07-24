@@ -32,7 +32,7 @@ function Welcome() {
           <p className="scribble-label">YOUR MEMORY, IN MOTION</p>
           <h1>把每一次<br />遗忘，<em>画成进步。</em></h1>
           <p className="hero-intro">词环为你记录单词的每一次回来。复习、新词、掌握度——所有努力，都看得见。</p>
-          <div className="hero-buttons"><Link href="/login" className="begin-button">开始建立词环 <ArrowUpRight size={21} strokeWidth={2.8} /></Link><a href="#memory-chart" className="quiet-button">看看学习轨迹 ↓</a></div>
+          <div className="hero-buttons"><Link href="/login" className="begin-button">开始建立词环 <ArrowUpRight size={21} strokeWidth={2.8} /></Link><Link href="/about" className="quiet-button">认识词环 <span aria-hidden="true">→</span></Link></div>
           <div className="hero-note"><span>✦</span><p>不是刷过就算，<br />是让记忆留下来。</p></div>
         </div>
         <div className="hero-art" id="memory-chart" aria-label="学习进度手绘图表">
