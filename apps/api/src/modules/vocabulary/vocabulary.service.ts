@@ -12,23 +12,48 @@ export class VocabularyService {
 
   async listSystemBooks(userId: string, category?: string) {
     const selected = category && Object.values(VocabularyCategory).includes(category as VocabularyCategory) ? category as VocabularyCategory : undefined;
+    const availableToUser = { userBooks: { none: { userId } } };
     const [books, categories] = await Promise.all([
       this.prisma.vocabularyBook.findMany({
-        where: { isActive: true, ...(selected ? { category: selected } : {}) },
+        where: { isActive: true, ...availableToUser, ...(selected ? { category: selected } : {}) },
         orderBy: [{ category: 'asc' }, { title: 'asc' }],
         include: { _count: { select: { bookWords: true } }, userBooks: { where: { userId }, select: { isDefault: true } }, },
       }),
-      this.prisma.vocabularyBook.groupBy({ by: ['category'], where: { isActive: true }, _count: { _all: true } }),
+      this.prisma.vocabularyBook.groupBy({ by: ['category'], where: { isActive: true, ...availableToUser }, _count: { _all: true } }),
     ]);
     return {
       categories: categories.sort((a, b) => categoryLabels[a.category].localeCompare(categoryLabels[b.category], 'zh-CN')).map((item) => ({ key: item.category, label: categoryLabels[item.category], count: item._count._all })),
-      books: books.map((book) => ({ id: book.id, category: book.category, title: book.title, totalWords: book._count.bookWords, learnedWords: 0, isLearning: book.userBooks.length > 0, isDefault: book.userBooks[0]?.isDefault ?? false })),
+      books: books.map((book) => ({
+        id: book.id,
+        category: book.category,
+        categoryLabel: categoryLabels[book.category],
+        title: book.title,
+        publisher: book.publisher,
+        grade: book.grade,
+        totalWords: book._count.bookWords,
+        learnedWords: 0,
+        isLearning: book.userBooks.length > 0,
+        isDefault: book.userBooks[0]?.isDefault ?? false,
+      })),
     };
   }
 
   async listLearningBooks(userId: string) {
     const books = await this.prisma.userVocabularyBook.findMany({ where: { userId }, orderBy: [{ isDefault: 'desc' }, { lastStudiedAt: 'desc' }], include: { book: { include: { _count: { select: { bookWords: true } } } } } });
-    return books.map((item) => ({ id: item.book.id, category: item.book.category, title: item.book.title, totalWords: item.book._count.bookWords, learnedWords: 0, isLearning: true, isDefault: item.isDefault, startedAt: item.startedAt, lastStudiedAt: item.lastStudiedAt }));
+    return books.map((item) => ({
+      id: item.book.id,
+      category: item.book.category,
+      categoryLabel: categoryLabels[item.book.category],
+      title: item.book.title,
+      publisher: item.book.publisher,
+      grade: item.book.grade,
+      totalWords: item.book._count.bookWords,
+      learnedWords: 0,
+      isLearning: true,
+      isDefault: item.isDefault,
+      startedAt: item.startedAt,
+      lastStudiedAt: item.lastStudiedAt,
+    }));
   }
 
   async getDefaultBook(userId: string) {

@@ -5,14 +5,14 @@ import {
   Check, CircleHelp, Copy, Eye, EyeOff, FileText, Flame, Grid2X2, LayoutList, ListRestart,
   LogOut, Menu, Pause, Play, Plus, Send, Settings2, Sparkles, TimerReset, Trophy, UserRound, Volume2, X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { StatisticsPage } from './statistics-page';
 
 type Word = { word: string; part: string; meaning: string; state?: 'review' };
 type StudyMode = 'group' | 'individual' | 'exam';
 type LearningPlan = { id: number; mode: StudyMode; wordCount: number; words: Word[]; completed: number; started: boolean; createdAt: string };
-type VocabularyBookCard = { id: string; category: string; title: string; totalWords: number; learnedWords: number; isLearning: boolean; isDefault: boolean };
+type VocabularyBookCard = { id: string; category: string; categoryLabel: string; title: string; publisher: string | null; grade: string | null; totalWords: number; learnedWords: number; isLearning: boolean; isDefault: boolean };
 type VocabularyCatalog = { categories: Array<{ key: string; label: string; count: number }>; books: VocabularyBookCard[] };
 const GROUP_WORD_LIMIT = 3;
 const WORD_TONES = [
@@ -72,6 +72,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const name = session.user.displayName || session.user.email.split('@')[0];
   const plansStorageKey = `lexloop.learning-plans.${session.user.id}`;
+  const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
 
   useEffect(() => { request<{ id: string; title: string; totalWords: number } | null>('/vocabulary/default', {}, session.accessToken).then(setCurrentBook).catch(() => setCurrentBook(null)); }, [session.accessToken]);
 
@@ -137,7 +138,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         {activeTab === 'history' && <LearningHistory plans={plans} onContinue={(id) => { const plan = plans.find(item => item.id === id); setPlans(current => current.map(item => item.id === id ? { ...item, started: true } : item)); if (plan?.mode === 'group') setLessonPlanId(id); else setActiveTab('plan'); }} />}
       </div> : page === 'statistics' ? <StatisticsPage onBack={() => setPage('study')} /> : <AccountSettings session={session} onBack={() => setPage('study')} />}
     </section>
-    {bookPickerOpen && <BookPicker session={session} onClose={() => setBookPickerOpen(false)} onActivated={(book) => { setCurrentBook(book); setBookPickerOpen(false); setActiveTab('plan'); }} />}
+    {bookPickerOpen && <BookPicker session={session} onClose={closeBookPicker} onActivated={setCurrentBook} />}
     {previewPlan && (
       <PlanPreview
         plan={previewPlan}
@@ -216,7 +217,15 @@ function BookPicker({ session, onClose, onActivated }: { session: Session; onClo
   const load = async (selectedCategory?: string) => {
     try {
       const [nextCatalog, nextLearning] = await Promise.all([request<VocabularyCatalog>(`/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`, {}, session.accessToken), request<VocabularyBookCard[]>('/vocabulary/learning', {}, session.accessToken)]);
-      setCatalog(nextCatalog); setLearning(nextLearning); setMessage('');
+      setCatalog(nextCatalog);
+      setLearning(nextLearning);
+      setMessage('');
+    } catch (error) { setMessage(error instanceof Error ? error.message : '词表加载失败'); }
+  };
+  const loadCatalog = async (selectedCategory?: string) => {
+    try {
+      setCatalog(await request<VocabularyCatalog>(`/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`, {}, session.accessToken));
+      setMessage('');
     } catch (error) { setMessage(error instanceof Error ? error.message : '词表加载失败'); }
   };
   useEffect(() => {
@@ -231,15 +240,45 @@ function BookPicker({ session, onClose, onActivated }: { session: Session; onClo
   }, [onClose, session.accessToken]);
   const activate = async (book: VocabularyBookCard, action: 'start' | 'continue') => {
     setBusyId(book.id);
-    try { const active = await request<{ id: string; title: string; totalWords: number }>(`/vocabulary/books/${book.id}/${action}`, { method: 'POST' }, session.accessToken); await load(category); onActivated(active); } catch (error) { setMessage(error instanceof Error ? error.message : '更新学习词表失败'); } finally { setBusyId(null); }
+    try {
+      const active = await request<{ id: string; title: string; totalWords: number }>(`/vocabulary/books/${book.id}/${action}`, { method: 'POST' }, session.accessToken);
+      setLearning(current => {
+        const selected = { ...book, isLearning: true, isDefault: true };
+        const withUpdatedDefault = current.map(item => ({ ...item, isDefault: item.id === book.id }));
+        return current.some(item => item.id === book.id) ? withUpdatedDefault : [...withUpdatedDefault, selected];
+      });
+      if (action === 'start') {
+        setTab('learning');
+        await loadCatalog(category);
+      }
+      onActivated(active);
+    } catch (error) { setMessage(error instanceof Error ? error.message : '更新学习词表失败'); } finally { setBusyId(null); }
   };
 
-  return <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表"><header><div><h2>选择词表</h2><p>请选择一个词表开始您的学习之旅。</p></div><button onClick={onClose} aria-label="关闭"><X size={23}/></button></header><div className="book-tabs"><button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>学习中（{learning.length}）</button><button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>我的词表</button><button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>系统词表（{catalog.categories.reduce((sum, item) => sum + item.count, 0)}）</button></div>{message && <p className="book-message">{message}</p>}{tab === 'learning' && <BookCards cards={learning} busyId={busyId} onActivate={(book) => activate(book, 'continue')} />}{tab === 'mine' && <div className="book-empty"><strong>我的词表</strong><p>自建词表功能即将开放</p></div>}{tab === 'system' && <div className="book-system"><h3>系统词表</h3><p>按学习阶段与目标选择，无需额外筛选教材版本。</p><div className="book-category-tabs" role="tablist" aria-label="词表分类">{catalog.categories.map(item => <button key={item.key} role="tab" aria-selected={category === item.key} className={category === item.key ? 'active' : ''} onClick={() => { const next = category === item.key ? undefined : item.key; setCategory(next); void load(next); }}>{item.label}<b>{item.count}</b></button>)}</div><BookCards cards={catalog.books} busyId={busyId} onActivate={(book) => activate(book, 'start')} /></div>}</div>;
+  return <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表"><header><div><h2>选择词表</h2><p>请选择一个词表开始您的学习之旅。</p></div><button onClick={onClose} aria-label="关闭"><X size={23}/></button></header><div className="book-tabs"><button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>学习中（{learning.length}）</button><button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>我的词表</button><button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>系统词表（{catalog.categories.reduce((sum, item) => sum + item.count, 0)}）</button></div>{message && <p className="book-message">{message}</p>}{tab === 'learning' && <BookCards cards={learning} busyId={busyId} showProgress onActivate={(book) => activate(book, 'continue')} />}{tab === 'mine' && <div className="book-empty"><strong>我的词表</strong><p>自建词表功能即将开放</p></div>}{tab === 'system' && <div className="book-system"><h3>系统词表</h3><p>按学习阶段与目标选择，无需额外筛选教材版本。</p><div className="book-category-tabs" role="tablist" aria-label="词表分类">{catalog.categories.map(item => <button key={item.key} role="tab" aria-selected={category === item.key} className={category === item.key ? 'active' : ''} onClick={() => { const next = category === item.key ? undefined : item.key; setCategory(next); void loadCatalog(next); }}>{item.label}<b>{item.count}</b></button>)}</div><BookCards cards={catalog.books} busyId={busyId} onActivate={(book) => activate(book, 'start')} /></div>}</div>;
 }
 
-function BookCards({ cards, busyId, onActivate }: { cards: VocabularyBookCard[]; busyId: string | null; onActivate: (book: VocabularyBookCard) => void }) {
+function BookCards({ cards, busyId, showProgress = false, onActivate }: { cards: VocabularyBookCard[]; busyId: string | null; showProgress?: boolean; onActivate: (book: VocabularyBookCard) => void }) {
   if (!cards.length) return <div className="book-empty"><strong>还没有可展示的词表</strong><p>词表初始化完成后会自动显示在这里。</p></div>;
-  return <div className="book-card-grid">{cards.map(book => <article className="book-choice" key={book.id}><div><strong>{book.title}</strong><p>总词数: {book.totalWords} | 已学: {book.learnedWords}</p></div><button className={book.isDefault ? 'current' : ''} disabled={busyId === book.id || book.isDefault} onClick={() => onActivate(book)}>{book.isDefault ? '当前' : busyId === book.id ? '处理中…' : book.isLearning ? '继续学习' : '开始学习'}</button></article>)}</div>;
+  return <div className="book-card-grid">{cards.map(book => {
+    const progress = book.totalWords > 0 ? Math.min(100, Math.round((book.learnedWords / book.totalWords) * 100)) : 0;
+    return <article className="book-choice" key={book.id}>
+      <div className="book-choice-main">
+        <strong title={book.title}>{book.title}</strong>
+        <div className="book-choice-tags" aria-label={`教材信息：${[book.publisher, book.categoryLabel, book.grade].filter(Boolean).join('，')}，共 ${book.totalWords} 词`}>
+          {book.publisher && <span>{book.publisher}</span>}
+          <span>{book.categoryLabel}</span>
+          {book.grade && <span>{book.grade}</span>}
+          <span className="book-choice-count"><b>{book.totalWords}</b> 词</span>
+        </div>
+        {showProgress && <div className="book-choice-learning-meta"><span>已学 <b>{book.learnedWords}</b> 词</span><span>{progress}%</span></div>}
+        {showProgress && <div className="book-choice-progress" role="progressbar" aria-label={`${book.title}学习进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+          <i style={{ width: `${progress}%` }}/>
+        </div>}
+      </div>
+      <button className={book.isDefault ? 'current' : ''} disabled={busyId === book.id || book.isDefault} onClick={() => onActivate(book)}>{book.isDefault ? '当前' : showProgress ? '切换' : '开始'}</button>
+    </article>;
+  })}</div>;
 }
 
 function AccountSettings({ session, onBack }: { session: Session; onBack: () => void }) {

@@ -6,7 +6,10 @@ export function readSession(): Session | null { const raw = localStorage.getItem
 export function clearSession() { localStorage.removeItem('lexloop.session'); }
 export function refreshSession() { return request<Session>('/auth/refresh', { method: 'POST' }); }
 export async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers } });
+  const headers = new Headers(init.headers);
+  if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.message ?? '请求失败，请稍后重试'); }
   return response.json() as Promise<T>;
 }
