@@ -1,18 +1,74 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AiModelConfigService } from '../admin/ai-model-config.service';
+
+export interface ChatCompletionRequest {
+  model?: string;
+  messages: Array<Record<string, unknown>>;
+  stream?: boolean;
+  response_format?: unknown;
+}
+export type OpenAiChatCompletionRequest = ChatCompletionRequest & Record<string, unknown>;
 
 export interface GenerateRequest { purpose: string; prompt: string; schema?: Record<string, unknown>; }
 export interface AiProvider { generate(request: GenerateRequest): Promise<unknown>; embed(texts: string[]): Promise<number[][]>; }
 
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
+
 @Injectable()
 export class AiService implements AiProvider {
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService, private readonly modelConfigs: AiModelConfigService) {}
 
-  private unavailable(): never {
-    if (!this.config.get<string>('AI_API_KEY')) throw new ServiceUnavailableException('AI 服务尚未配置：请在 API 环境变量中设置 AI_API_KEY');
-    throw new ServiceUnavailableException('AI Provider Adapter 尚未实现：请配置具体模型供应商适配器');
+  async chatCompletions(request: OpenAiChatCompletionRequest, userId?: string): Promise<Response> {
+    const configured = await this.modelConfigs.activeProvider(userId);
+    const apiKey = configured?.apiKey || this.config.get<string>('AI_API_KEY');
+    if (!apiKey) throw new ServiceUnavailableException('AI 服务尚未配置：请在 API 环境变量中设置 AI_API_KEY');
+
+    const baseUrl = (configured?.baseUrl || this.config.get<string>('AI_BASE_URL') || DEEPSEEK_BASE_URL).replace(/\/+$/, '');
+    const model = configured?.model || this.config.get<string>('AI_MODEL') || DEEPSEEK_DEFAULT_MODEL;
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...request, model }),
+      });
+    } catch {
+      throw new BadGatewayException('AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试');
+    }
+
+    if (!response.ok) {
+      const detail = await this.providerError(response);
+      throw new BadGatewayException(`AI Provider 请求失败（${response.status}）：${detail}`);
+    }
+    return response;
   }
-  async generate(_request: GenerateRequest): Promise<unknown> { return this.unavailable(); }
-  async embed(_texts: string[]): Promise<number[][]> { return this.unavailable(); }
+
+  async generate(request: GenerateRequest): Promise<unknown> {
+    const response = await this.chatCompletions({
+      messages: [{ role: 'user', content: request.prompt }],
+      ...(request.schema ? { response_format: { type: 'json_object' } } : {}),
+    });
+    return response.json();
+  }
+
+  async embed(_texts: string[]): Promise<number[][]> {
+    throw new ServiceUnavailableException('当前 AI Provider 仅配置了 Chat Completions；嵌入模型适配器尚未配置');
+  }
+
   async explain(text: string) { return this.generate({ purpose: 'explain', prompt: text }); }
+
+  private async providerError(response: Response): Promise<string> {
+    try {
+      const payload: unknown = await response.json();
+      if (typeof payload === 'object' && payload !== null) {
+        const error = (payload as { error?: unknown }).error;
+        if (typeof error === 'string') return error;
+        if (typeof error === 'object' && error !== null && typeof (error as { message?: unknown }).message === 'string') return (error as { message: string }).message;
+      }
+    } catch { /* Provider returned a non-JSON error body. */ }
+    return '请检查模型、请求参数和 Provider 配置';
+  }
 }

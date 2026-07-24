@@ -5,6 +5,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthModule } from '../auth/auth.module';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { AiModelConfigController } from './ai-model-config.controller';
+import { AiModelConfigService } from './ai-model-config.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -13,5 +15,5 @@ import { RolesGuard } from '../auth/roles.guard';
 @Controller('admin')
 class AdminController { @Get('health') health() { return { status: 'ok', role: 'admin' }; } }
 
-@Module({ imports: [AuthModule], controllers: [AdminController] })
+@Module({ imports: [AuthModule], controllers: [AdminController, AiModelConfigController], providers: [AiModelConfigService], exports: [AiModelConfigService] })
 export class AdminModule {}

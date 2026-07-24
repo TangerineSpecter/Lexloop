@@ -14,8 +14,21 @@ export class AuthService {
 
   async register(email: string, password: string, displayName?: string) {
     const normalizedEmail = email.trim().toLowerCase();
-    if (await this.prisma.user.findUnique({ where: { email: normalizedEmail } })) throw new ConflictException('邮箱已被注册');
-    const user = await this.prisma.user.create({ data: { email: normalizedEmail, passwordHash: await argon2.hash(password), displayName } });
+    const passwordHash = await argon2.hash(password);
+    const user = await this.prisma.$transaction(async (tx) => {
+      // Serialize registrations while deciding which account is the first one.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('lexloop:first-user-registration'))`;
+      if (await tx.user.findUnique({ where: { email: normalizedEmail } })) throw new ConflictException('邮箱已被注册');
+      const isFirstUser = await tx.user.count() === 0;
+      return tx.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          displayName,
+          role: isFirstUser ? Role.ADMIN : Role.USER,
+        },
+      });
+    });
     return this.issueTokens(user);
   }
 

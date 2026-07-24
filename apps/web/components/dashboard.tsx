@@ -3,11 +3,12 @@
 import {
   ArrowLeft, BarChart3, BookOpen, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, CircleX,
   Check, CircleHelp, Copy, Eye, EyeOff, FileText, Flame, Grid2X2, LayoutList, ListRestart,
-  LogOut, Menu, Pause, Play, Plus, Send, Settings2, Sparkles, TimerReset, Trophy, UserRound, Volume2, X,
+  LogOut, Menu, Pause, Play, Plus, Send, Settings2, Sparkles, TimerReset, ToggleLeft, Trophy, UserRound, Volume2, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { StatisticsPage } from './statistics-page';
+import { SystemSettings } from './system-settings';
 
 type Word = { word: string; part: string; meaning: string; state?: 'review' };
 type StudyMode = 'group' | 'individual' | 'exam';
@@ -68,6 +69,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [page, setPage] = useState<'study' | 'statistics' | 'settings'>('study');
+  const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
   const [currentBook, setCurrentBook] = useState<{ id: string; title: string; totalWords: number } | null>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const name = session.user.displayName || session.user.email.split('@')[0];
@@ -106,14 +108,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
 
   return <main className="study-app">
     <aside className={`study-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-      <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>{currentBook?.title ?? '请选择词表'}</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} onSettings={() => { setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
+      <div className="sidebar-account-wrap" ref={accountMenuRef}><button className="sidebar-book" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}><Avatar/><div><strong>{name}</strong><span>{currentBook?.title ?? '请选择词表'}</span></div><ChevronDown size={15}/></button>{accountMenuOpen && <AccountMenu name={name} isAdmin={session.user.role === 'ADMIN'} onSettings={() => { setSettingsSection('account'); setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onSystemSettings={() => { setSettingsSection('system'); setPage('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }} onLogout={onLogout}/>}</div>
       <Calendar />
       <nav className="sidebar-nav" aria-label="主导航">
         <span className="nav-label">APP</span>
         <button className={`nav-item nav-button ${page === 'study' ? 'active' : ''}`} onClick={() => { setPage('study'); setSidebarOpen(false); }}><BookOpen size={16}/><span>词环</span></button>
         <div className="nav-group"><a className="nav-item" href="#words"><BookOpen size={16}/><span>我的单词</span><ChevronDown size={14}/></a><div className="nav-children"><a href="#learning">学习中</a><a href="#mastered">已掌握</a></div></div>
         <button className={`nav-item nav-button ${page === 'statistics' ? 'active' : ''}`} onClick={() => { setPage('statistics'); setSidebarOpen(false); }}><BarChart3 size={16}/><span>学习统计</span></button>
-        <button className={`nav-item nav-button ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings'); setSidebarOpen(false); }}><Settings2 size={16}/><span>账户设置</span></button>
+        <button className={`nav-item nav-button ${page === 'settings' ? 'active' : ''}`} onClick={() => { setSettingsSection('account'); setPage('settings'); setSidebarOpen(false); }}><Settings2 size={16}/><span>账户设置</span></button>
       </nav>
       <div className="sidebar-bottom"><button className="switch-book" onClick={() => setBookPickerOpen(true)}><Plus size={15}/>切换词汇表</button></div>
     </aside>
@@ -130,13 +132,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         </section>
 
         <div className="learning-tabs" role="tablist" aria-label="学习内容"><button role="tab" aria-selected={activeTab === 'words'} className={activeTab === 'words' ? 'active' : ''} onClick={() => setActiveTab('words')}>单词列表</button><button role="tab" aria-selected={activeTab === 'plan'} className={activeTab === 'plan' ? 'active' : ''} onClick={() => setActiveTab('plan')}>当前学习序列</button><button role="tab" aria-selected={activeTab === 'history'} className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>今日学习历史</button></div>
-        {activeTab === 'words' && <WordsPanel newWordCount={newWordCount} onNewWordCountChange={setNewWordCount} onCreatePlan={(mode) => {
+        {activeTab === 'words' && <WordsPanel session={session} newWordCount={newWordCount} onNewWordCountChange={setNewWordCount} onCreatePlan={(mode) => {
           const wordCount = newWordCount;
           setPreviewPlan({ id: Date.now(), mode, wordCount, words: Array.from({ length: wordCount }, (_, index) => newWords[index % newWords.length]), completed: 0, started: false, createdAt: '刚刚' });
         }} />}
         {activeTab === 'plan' && <PlanPanel plan={plans.find(plan => plan.started) ?? plans[0] ?? null} onContinue={(id) => { const plan = plans.find(item => item.id === id); if (plan?.mode === 'group') setLessonPlanId(id); else setPlans(current => current.map(item => item.id === id ? { ...item, completed: Math.min(item.completed + 1, item.wordCount) } : item)); }} />}
         {activeTab === 'history' && <LearningHistory plans={plans} onContinue={(id) => { const plan = plans.find(item => item.id === id); setPlans(current => current.map(item => item.id === id ? { ...item, started: true } : item)); if (plan?.mode === 'group') setLessonPlanId(id); else setActiveTab('plan'); }} />}
-      </div> : page === 'statistics' ? <StatisticsPage onBack={() => setPage('study')} /> : <AccountSettings session={session} onBack={() => setPage('study')} />}
+      </div> : page === 'statistics' ? <StatisticsPage onBack={() => setPage('study')} /> : <AccountSettings session={session} initialSection={settingsSection} onBack={() => setPage('study')} />}
     </section>
     {bookPickerOpen && <BookPicker session={session} onClose={closeBookPicker} onActivated={setCurrentBook} />}
     {previewPlan && (
@@ -203,8 +205,8 @@ function StreakCard() {
   </div>;
 }
 
-function AccountMenu({ name, onSettings, onLogout }: { name: string; onSettings: () => void; onLogout: () => void }) {
-  return <div className="account-menu"><div className="account-menu-user"><Avatar/><strong>{name}</strong></div><button onClick={onSettings}><Settings2 size={22}/>账户设置</button><button onClick={onLogout}><LogOut size={22}/>退出登录</button></div>;
+function AccountMenu({ name, isAdmin, onSettings, onSystemSettings, onLogout }: { name: string; isAdmin: boolean; onSettings: () => void; onSystemSettings: () => void; onLogout: () => void }) {
+  return <div className="account-menu"><div className="account-menu-user"><Avatar/><strong>{name}</strong></div><button onClick={onSettings}><Settings2 size={22}/>账户设置</button>{isAdmin && <button onClick={onSystemSettings}><ToggleLeft size={22}/>系统设置</button>}<button onClick={onLogout}><LogOut size={22}/>退出登录</button></div>;
 }
 
 function BookPicker({ session, onClose, onActivated }: { session: Session; onClose: () => void; onActivated: (book: { id: string; title: string; totalWords: number }) => void }) {
@@ -281,10 +283,11 @@ function BookCards({ cards, busyId, showProgress = false, onActivate }: { cards:
   })}</div>;
 }
 
-function AccountSettings({ session, onBack }: { session: Session; onBack: () => void }) {
-  const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [show, setShow] = useState(false); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+function AccountSettings({ session, initialSection, onBack }: { session: Session; initialSection: 'account' | 'system'; onBack: () => void }) {
+  const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [show, setShow] = useState(false); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [section, setSection] = useState<'account' | 'system'>(initialSection);
+  useEffect(() => setSection(initialSection), [initialSection]);
   const save = async (event: React.FormEvent) => { event.preventDefault(); if (password.length < 8) return setMessage('新密码至少需要 8 位。'); if (password !== confirm) return setMessage('两次输入的密码不一致。'); setBusy(true); setMessage(''); try { await request('/auth/password', { method: 'POST', body: JSON.stringify({ password }) }, session.accessToken); setPassword(''); setConfirm(''); setMessage('密码已更新。'); } catch (error) { setMessage(error instanceof Error ? error.message : '更新失败，请稍后重试。'); } finally { setBusy(false); } };
-  return <div className="settings-page"><header className="settings-heading"><div><button className="settings-back" onClick={onBack}>← 返回学习</button><h1>设置</h1><p>管理您的账号和系统设置</p></div><div className="identity-card"><span>身份 ID（可用于客服联系问题）</span><div className="identity-card-value"><strong>{session.user.id}</strong><button onClick={() => navigator.clipboard?.writeText(session.user.id)} aria-label="复制身份 ID"><Copy size={20}/></button></div></div></header><div className="settings-layout"><nav><button className="active"><UserRound size={19}/>账号设置</button></nav><section><h2>账号设置</h2><form className="password-card" onSubmit={save}><h3>密码管理</h3><p>更新您的账户密码</p><label>新密码<div className="password-input"><input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"/><button type="button" onClick={() => setShow(!show)} aria-label="显示密码">{show ? <EyeOff size={20}/> : <Eye size={20}/>}</button></div></label><label>确认密码<input type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password"/></label>{message && <p className={message === '密码已更新。' ? 'form-success' : 'form-error'}>{message}</p>}<button className="save-password" disabled={busy}>{busy ? '更新中…' : '更新密码'}</button></form></section></div></div>;
+  return <div className="settings-page"><header className="settings-heading"><div><button className="settings-back" onClick={onBack}>← 返回学习</button><h1>设置</h1><p>管理您的账号和系统设置</p></div><div className="identity-card"><span>身份 ID（可用于客服联系问题）</span><div className="identity-card-value"><strong>{session.user.id}</strong><button onClick={() => navigator.clipboard?.writeText(session.user.id)} aria-label="复制身份 ID"><Copy size={20}/></button></div></div></header><div className="settings-layout"><nav><button className={section === 'account' ? 'active' : ''} onClick={() => setSection('account')}><UserRound size={19}/>账号设置</button>{session.user.role === 'ADMIN' && <button className={section === 'system' ? 'active' : ''} onClick={() => setSection('system')}><Settings2 size={19}/>系统设置</button>}</nav>{section === 'system' && session.user.role === 'ADMIN' ? <SystemSettings session={session}/> : <section><h2>账号设置</h2><form className="password-card" onSubmit={save}><h3>密码管理</h3><p>更新您的账户密码</p><label>新密码<div className="password-input"><input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"/><button type="button" onClick={() => setShow(!show)} aria-label="显示密码">{show ? <EyeOff size={20}/> : <Eye size={20}/>}</button></div></label><label>确认密码<input type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password"/></label>{message && <p className={message === '密码已更新。' ? 'form-success' : 'form-error'}>{message}</p>}<button className="save-password" disabled={busy}>{busy ? '更新中…' : '更新密码'}</button></form></section>}</div></div>;
 }
 
 function Calendar() {
@@ -304,7 +307,7 @@ function Metric({ title, value, detail, backIcon, backText, backColor }: { title
   </article>;
 }
 
-function WordsPanel({ newWordCount, onNewWordCountChange, onCreatePlan }: { newWordCount: number; onNewWordCountChange: (value: number) => void; onCreatePlan: (mode: StudyMode) => void }) {
+function WordsPanel({ session, newWordCount, onNewWordCountChange, onCreatePlan }: { session: Session; newWordCount: number; onNewWordCountChange: (value: number) => void; onCreatePlan: (mode: StudyMode) => void }) {
   const [mode, setMode] = useState<StudyMode>('group');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [drawer, setDrawer] = useState<'reading' | 'exam' | null>(null);
@@ -321,7 +324,7 @@ function WordsPanel({ newWordCount, onNewWordCountChange, onCreatePlan }: { newW
         onSave={(value) => { onNewWordCountChange(value); setSettingsOpen(false); }}
       />
     )}
-    {drawer === 'reading' && <ReadingModelDrawer onClose={() => setDrawer(null)}/>}
+    {drawer === 'reading' && <ReadingModelDrawer session={session} onClose={() => setDrawer(null)}/>}
     {drawer === 'exam' && <ExamLibraryDrawer onClose={() => setDrawer(null)}/>}
   </section>;
 }
@@ -337,15 +340,12 @@ function StudySettingsDrawer({ title, children, onClose }: { title: string; chil
   return <div className="study-drawer-layer"><button className="study-drawer-scrim" aria-label="关闭设置" onClick={onClose}/><aside className="study-settings-drawer" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="关闭"><X size={22}/></button></header>{children}</aside></div>;
 }
 
-function ReadingModelDrawer({ onClose }: { onClose: () => void }) {
-  const [model, setModel] = useState('Lexloop AI');
-  const models = [
-    { name: 'Lexloop AI', note: '当前生效模型', icon: <Sparkles size={24}/> },
-    { name: 'DeepSeek 3.2', note: '升级 Lexloop Ultra 后可切换', icon: <span>〽</span>, ultra: true },
-    { name: 'Qwen 3.5 Plus', note: '升级 Lexloop Ultra 后可切换', icon: <span>✧</span>, ultra: true },
-    { name: 'Doubao Seed 2.0', note: '升级 Lexloop Ultra 后可切换', icon: <span>◒</span>, ultra: true },
-  ];
-  return <StudySettingsDrawer title="阅读材料模型" onClose={onClose}><p className="drawer-intro">分组和独立单词模式会使用这里的模型，生成 Lexloop 的阅读材料和练习内容。</p><div className="model-options">{models.map(item => <button key={item.name} className={`model-option ${model === item.name ? 'is-active' : ''} ${item.ultra ? 'is-locked' : ''}`} onClick={() => !item.ultra && setModel(item.name)} disabled={item.ultra}><span className="model-icon">{item.icon}</span><span><strong>{item.name}{item.ultra && <em>Ultra</em>}</strong><small>{model === item.name ? '当前生效模型' : item.note}</small></span>{model === item.name && <Check size={24}/>}</button>)}</div></StudySettingsDrawer>;
+type AvailableAiModel = { id: string; displayName: string; provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE'; model: string; isSelected: boolean };
+function ReadingModelDrawer({ session, onClose }: { session: Session; onClose: () => void }) {
+  const [models, setModels] = useState<AvailableAiModel[]>([]); const [busyId, setBusyId] = useState<string>(); const [message, setMessage] = useState('');
+  useEffect(() => { request<AvailableAiModel[]>('/ai/models', {}, session.accessToken).then(setModels).catch(error => setMessage(error instanceof Error ? error.message : '模型加载失败')); }, [session.accessToken]);
+  const select = async (id: string) => { setBusyId(id); setMessage(''); try { await request(`/ai/models/${id}/select`, { method: 'PATCH' }, session.accessToken); setModels(items => items.map(item => ({ ...item, isSelected: item.id === id }))); } catch (error) { setMessage(error instanceof Error ? error.message : '模型切换失败'); } finally { setBusyId(undefined); } };
+  return <StudySettingsDrawer title="阅读材料模型" onClose={onClose}><p className="drawer-intro">仅展示管理员在系统设置中添加并启用的模型；分组和独立单词模式会使用这里的模型生成阅读材料和练习内容。</p>{message && <p className="book-message">{message}</p>}{!message && !models.length && <div className="model-options-empty"><Sparkles size={27}/><strong>暂时没有可用模型</strong><p>请联系管理员在系统设置中添加并启用模型。</p></div>}<div className="model-options">{models.map(item => <button key={item.id} className={`model-option ${item.isSelected ? 'is-active' : ''}`} onClick={() => void select(item.id)} disabled={busyId === item.id}><span className="model-icon"><Sparkles size={24}/></span><span><strong>{item.displayName}</strong><small>{item.isSelected ? '当前生效模型' : `${item.provider === 'DEEPSEEK' ? 'DeepSeek' : 'OpenAI 兼容'} · ${item.model}`}</small></span>{item.isSelected && <Check size={24}/>}</button>)}</div></StudySettingsDrawer>;
 }
 
 function ExamLibraryDrawer({ onClose }: { onClose: () => void }) {

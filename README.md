@@ -93,7 +93,9 @@ Lexloop 的 AI 与 Agent 不替学习者完成学习，而是基于真实学习�
 | 📚 API 文档 | http://localhost:52101/api/docs |
 | 🗂️ MinIO 控制台 | http://localhost:9001 |
 
-首次启动前，请将 `.env` 中的两个 JWT 密钥替换为足够长的随机字符串。AI 功能默认安全禁用；配置 `AI_API_KEY` 后，仍需实现相应的 Provider Adapter 才会实际调用模型。
+首次启动前，请将 `.env` 中的两个 JWT 密钥替换为足够长的随机字符串。AI 功能默认安全禁用；设置 `AI_API_KEY` 后即可使用。默认接入 DeepSeek（`AI_BASE_URL=https://api.deepseek.com`、`AI_MODEL=deepseek-v4-flash`），也可将这两个变量改为任意支持 OpenAI Chat Completions 的服务。认证用户可调用 `POST /api/v1/ai/chat/completions`，请求与返回均保持 OpenAI Chat Completions 格式，支持 `stream: true` 的 SSE 转发。
+
+管理员可在账户菜单的「系统设置 → AI 模型管理」中维护 DeepSeek 或自定义 OpenAI 兼容模型，支持添加、编辑、删除与启停。首次通过该页面保存模型前，请在 `.env` 设置一个长期保存的随机 `AI_CONFIG_ENCRYPTION_KEY`；系统仅保存经 AES-256-GCM 加密的密钥，管理列表不会返回密钥明文。所有用户的阅读材料模型选择器仅展示系统添加且已启用的模型，用户的选择会保存并用于后续 AI 调用；没有可用配置时才回退到上述环境变量。
 
 `dev.sh` 会自动加载 nvm（若当前终端没有 Node.js）、首次安装依赖、创建并导出根目录 `.env`、启动 Docker 服务、执行 Prisma 迁移，并同时启动 Web、API 和 Worker。Web 与 API 健康检查通过后会打印访问地址。
 

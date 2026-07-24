@@ -18,6 +18,11 @@ enum AiCallStatus {
   FAILED
 }
 
+enum AiModelProvider {
+  DEEPSEEK
+  OPENAI_COMPATIBLE
+}
+
 enum VocabularyCategory {
   PRIMARY
   JUNIOR
@@ -47,6 +52,8 @@ model User {
   refreshTokens  RefreshToken[]
   learningEvents LearningEvent[]
   aiCalls        AiCallAudit[]
+  selectedAiModelId String?
+  selectedAiModel AiModelConfig? @relation("UserSelectedAiModel", fields: [selectedAiModelId], references: [id], onDelete: SetNull)
   vocabularyBooks UserVocabularyBook[]
   wordProgresses  UserWordProgress[]
 }
@@ -177,4 +184,19 @@ model AiCallAudit {
   user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+}
+
+model AiModelConfig {
+  id              String          @id @default(cuid())
+  displayName     String
+  provider        AiModelProvider
+  model           String
+  baseUrl         String
+  encryptedApiKey String
+  isEnabled       Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  selectedByUsers User[]          @relation("UserSelectedAiModel")
+
+  @@index([isEnabled, createdAt])
 }
