@@ -2673,12 +2673,15 @@ function GeneratedQuestionCard({
         const resultClass = !answer ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
         return <button key={option} disabled={Boolean(answer)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
           if (isMultiple) setSelected((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option]);
-          else submit(option);
-        }}>{option}{answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{answer && checked && !isCorrectOption ? ' ×' : ''}{answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}{question.optionNotes?.[index] && <small>{question.optionNotes[index]}</small>}</button>;
+          else {
+            setSelected([option]);
+            submit(option);
+          }
+        }}>{option}{answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{answer && checked && !isCorrectOption ? ' ×' : ''}{answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}</button>;
       })}</div>
     )}
     {isMultiple && !answer && <button className="check-matches" disabled={!selected.length} onClick={() => submit()}>提交多选答案</button>}
-    {answer && <><strong className={answer.correct ? 'answer-feedback success' : 'answer-feedback'}>{answer.correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
+    {answer && <><strong className={answer.correct ? 'answer-feedback success' : 'answer-feedback'}>{answer.correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
   </article>;
 }
 
@@ -2690,6 +2693,7 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
   const [selectedDefinition, setSelectedDefinition] = useState<number | null>(null);
   const [matches, setMatches] = useState<Record<number, string>>({});
+  const matchingRootRef = useRef<HTMLDivElement>(null);
   const phraseOptions = pairs.map((_, index) => pairs[(index + 1) % pairs.length]);
   const assignMatch = (index: number, phrase: string) => setMatches((current) => ({
     ...Object.fromEntries(Object.entries(current).filter(([key, value]) => value !== phrase || Number(key) === index)),
@@ -2713,13 +2717,32 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
     }
     setSelectedDefinition(index);
   };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (answer || !selectedPhrase || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (!matchingRootRef.current?.contains(document.activeElement)) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
+      const index = Number(event.key) - 1;
+      if (index < 0 || index >= pairs.length) return;
+      event.preventDefault();
+      assignMatch(index, selectedPhrase);
+      setSelectedPhrase(null);
+      setSelectedDefinition(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [answer, pairs.length, selectedPhrase]);
   const selectedAnswers = Object.entries(matches).map(([index, phrase]) => `${phrase}=>${pairs[Number(index)].right}`);
-  return <div className="generated-matching matching-exercise">
-    <p className="matching-instruction">单词 - 点击选中</p>
+  return <div ref={matchingRootRef} className="generated-matching matching-exercise">
+    <p className="matching-instruction">英文短语 · 点击选中后可按键盘数字插入对应释义槽</p>
     <div className="match-phrases">
-      {phraseOptions.map((pair, index) => <button key={pair.left} disabled={Boolean(answer)} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${Object.values(matches).includes(pair.left) ? 'linked' : ''}`} onClick={() => choosePhrase(pair.left)}>
-        <span>{index + 1}</span>{pair.left}
-      </button>)}
+      {phraseOptions.map((pair) => {
+        const isMatched = Object.values(matches).includes(pair.left);
+        return <button key={pair.left} disabled={Boolean(answer) || isMatched} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`} onClick={() => choosePhrase(pair.left)}>
+          {pair.left}
+        </button>;
+      })}
     </div>
     <p className="matching-instruction">释义 - 可先点释义，也可先点单词</p>
     <div className="match-definitions">
@@ -2729,12 +2752,12 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
         return <button key={`${pair.right}-${index}`} disabled={Boolean(answer)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${answer ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
           <span className="match-definition-copy">
             <strong>{pair.right}</strong>
-            <small>{pair.tip?.trim() || `侧重于理解 “${pair.left}” 在具体搭配中的含义。`}</small>
+            <small>{pair.tip?.trim() || '侧重于理解该描述强调的语义维度。'}</small>
           </span>
           {answer && phrase && !correct ? <span className="match-answer-review">
-            <b className="match-answer-review-wrong">你的答案：{phraseOptions.findIndex((item) => item.left === phrase) + 1}</b>
-            <b className="match-answer-review-correct">正确答案：{phraseOptions.findIndex((item) => item.left === pair.left) + 1}</b>
-          </span> : phrase ? <b>{phraseOptions.findIndex((item) => item.left === phrase) + 1}</b> : <em>{selectedPhrase ? `插入选项 ${phraseOptions.findIndex((item) => item.left === selectedPhrase) + 1}` : '选择此处'}</em>}
+            <b className="match-answer-review-wrong">你的答案：{phrase}</b>
+            <b className="match-answer-review-correct">正确答案：{pair.left}</b>
+          </span> : phrase ? <b>{phrase}</b> : <em>{selectedPhrase ? '插入此处' : '选择此处'}</em>}
         </button>;
       })}
     </div>

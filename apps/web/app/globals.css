@@ -691,6 +691,9 @@ button { cursor: pointer; }
 .generated-question .answer-options button.wrong,.generated-question .answer-options button.missed { border-color:#d94b4b; background:#fff0ef; color:#a52631; opacity:1; box-shadow:2px 2px 0 #d94b4b; }
 .generated-question .answer-options button.missed { border-style:dashed; }
 .generated-question .answer-options button:disabled { cursor:default; }
+.generated-question .question-answer { margin:14px 0 0; padding:10px 13px; border-left:4px solid var(--teal); background:#eaf2ff; color:var(--border-color); font-weight:800; line-height:1.55; }
+.generated-question .question-explanation { margin:10px 0 0; padding:10px 13px; border-left:4px solid var(--gold); background:#fff9dc; color:rgba(8,40,119,.78); font-weight:700; line-height:1.6; }
+.generated-matching .match-definitions button>b { max-width:min(360px, 100%); padding:7px 10px; white-space:normal; line-height:1.35; text-align:left; }
 
 @media (max-width:680px) {
   .generated-sentences .sentence-line { grid-template-areas:'copy' 'tools' 'detail'; grid-template-columns:1fr; }

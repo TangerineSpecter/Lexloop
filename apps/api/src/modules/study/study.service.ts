@@ -495,6 +495,7 @@ export function hasValidGeneratedMatchingPairs(pairs: unknown) {
   if (values.some(pair => typeof pair.left !== 'string' || !pair.left.trim()
     || typeof pair.right !== 'string' || !/[\u3400-\u9fff]/.test(pair.right)
     || typeof pair.tip !== 'string' || !/[\u3400-\u9fff]/.test(pair.tip))) return false;
+  if (values.some(pair => (pair.tip as string).toLowerCase().includes((pair.left as string).toLowerCase()))) return false;
   return new Set(values.map(pair => (pair.left as string).trim())).size === values.length
     && new Set(values.map(pair => (pair.right as string).trim())).size === values.length;
 }
@@ -504,7 +505,7 @@ export function contentSignature(mode: StudyPlanMode, words: PlanWord[]) {
     .sort((left, right) => left.id.localeCompare(right.id))
     .map(word => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
   return createHash('sha256')
-    .update(JSON.stringify({ version: 2, mode, words: canonicalWords }))
+    .update(JSON.stringify({ version: 3, mode, words: canonicalWords }))
     .digest('hex');
 }
 
@@ -519,11 +520,13 @@ function generationPrompt(mode: StudyPlanMode, groups: Array<{ index: number; wo
 1. 每组 2–4 个自然、连贯且难度适中的英文句子，全文尽量不超过 90 个英文单词；独立单词材料尽量不超过 55 个英文单词。
 2. 每组每个目标单词必须至少自然出现一次，并准确填写 wordOccurrences；不要为了次数生硬重复。
 3. 每个英文句子必须有逐句 chinese、simplified 和 grammar。simplified 中目标单词保持英文原样，其余译成自然中文；grammar 用中文简要说明句子主干或目标词作用。
-4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；五种题型轮换使用。每道客观题都能自动判分，通常提供 4 个有迷惑性的选项。
-5. WORD_MNEMONIC 是多选题，围绕词根、词缀、派生词或可靠的形音义联想，correctAnswers 可多项，解析逐项说明关系，不得编造词源。
-6. WORD_MATCHING 用 pairs 提供 4 组同一目标词的英文单词或短语、中文功能/语义描述和中文 tip。right 应像学习卡片一样解释含义或使用场景，tip 进一步说明侧重点；四组必须能唯一配对，options 可为空。
-7. READING_COMPREHENSION 模仿考试阅读理解，必须依据本组文章考查目标词在篇章中的含义、细节或推断，不考文章外知识。
-8. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation、optionNotes、pairs.right、pairs.tip 必须使用自然中文，不得输出英文解析。`;
+4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；五种题型轮换使用。所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
+5. WORD_MNEMONIC 是多选题：英文题干和 4 个英文候选项，围绕可靠的词根、词缀、派生词或形音义联想；correctAnswers 可多项。解析用中文逐项说明关系，不得编造词源。
+6. MEANING_RECOGNITION 是单选题：英文语境题干中必须自然出现目标词；4 个 options 必须是相近、同粒度的中文释义，正确项只对应当前语境，其他项是该词其他义项或合理近义干扰项。
+7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。
+8. SYNONYM_REPLACEMENT 是单选题：英文语境题干中标出目标词；4 个 options 都是纯英文候选词或短语。正确项在当前句子的词义、词性、数和搭配上可直接替换；其余项必须是语义相关但不能替换的干扰项。不得附中文释义。
+9. READING_COMPREHENSION 是单选题：英文问题和 4 个纯英文选项，必须依据本组英文文章考查目标词相关的细节、词义、推断或主旨，不考文章外知识，也不得附中文释义。
+10. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation 必须使用自然中文，说明语境依据与干扰项为何不成立；界面会单独先展示正确答案，因此 explanation 不要重复答案或输出英文解析。optionNotes 为空数组或省略。`;
 }
 
 function parseGeneratedContent(response: unknown): GeneratedContent {
@@ -531,6 +534,14 @@ function parseGeneratedContent(response: unknown): GeneratedContent {
   if (typeof content !== 'string') throw new Error('模型响应缺少 JSON 内容');
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   return JSON.parse(cleaned) as GeneratedContent;
+}
+
+function containsEnglish(value: unknown) {
+  return typeof value === 'string' && /[A-Za-z]{3,}/.test(value);
+}
+
+function containsChinese(value: unknown) {
+  return typeof value === 'string' && /[\u3400-\u9fff]/.test(value);
 }
 
 function validateGeneratedContent(content: GeneratedContent, expected: Array<{ index: number; words: PlanWord[] }>) {
@@ -546,10 +557,24 @@ function validateGeneratedContent(content: GeneratedContent, expected: Array<{ i
     }
     for (const word of expectedGroup.words) {
       const question = group.questions.find(item => item.bookWordId === word.id);
-      if (!question || !question.prompt?.trim() || !Array.isArray(question.correctAnswers)) throw new Error(`单词 ${word.word} 缺少完整练习题`);
-      if (!/[\u3400-\u9fff]/.test(question.explanation ?? '')) throw new Error(`单词 ${word.word} 的题目解析必须使用中文`);
+      if (!question || !containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers)) throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
+      if (!containsChinese(question.explanation)) throw new Error(`单词 ${word.word} 的解析必须使用中文`);
+      const isMatching = question.type === 'WORD_MATCHING';
+      const isMnemonic = question.type === 'WORD_MNEMONIC';
+      const expectsChineseOptions = question.type === 'MEANING_RECOGNITION';
+      if (!isMatching && (!Array.isArray(question.options) || question.options.length !== 4
+        || question.options.some(option => expectsChineseOptions ? !containsChinese(option) : !containsEnglish(option)))) {
+        throw new Error(`单词 ${word.word} 的选项语言或数量不符合题型要求`);
+      }
+      if ((!isMatching && (!question.correctAnswers.length || question.correctAnswers.some(answer => !question.options.includes(answer))))
+        || (!isMnemonic && !isMatching && question.correctAnswers.length !== 1)) {
+        throw new Error(`单词 ${word.word} 的正确答案不符合题型要求`);
+      }
       if (question.type === 'WORD_MATCHING' && !hasValidGeneratedMatchingPairs(question.pairs)) {
         throw new Error(`单词 ${word.word} 的匹配题必须包含 4 组唯一的中文释义和提示`);
+      }
+      if (question.type === 'WORD_MATCHING' && question.pairs?.some(pair => !new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(pair.left))) {
+        throw new Error(`单词 ${word.word} 的每个匹配短语都必须包含目标词`);
       }
       if (!group.sentences.some(sentence => new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(sentence.english))) throw new Error(`阅读材料未包含单词 ${word.word}`);
     }

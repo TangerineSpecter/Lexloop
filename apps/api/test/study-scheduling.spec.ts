@@ -79,6 +79,20 @@ describe('server-side study answer grading', () => {
     expect(result.selectedAnswer).toEqual(['选项 A', '选项 C']);
   });
 
+  it('rejects incomplete or over-selected mnemonic answers', () => {
+    const question = { type: 'WORD_MNEMONIC', correctAnswers: ['derive', 'derivation'] };
+    expect(gradeQuestion(question, ['derive']).isCorrect).toBe(false);
+    expect(gradeQuestion(question, ['derive', 'derivation', 'diverge']).isCorrect).toBe(false);
+  });
+
+  it.each([
+    ['MEANING_RECOGNITION', ['预订'], ['预订']],
+    ['SYNONYM_REPLACEMENT', ['volume'], ['volume']],
+    ['READING_COMPREHENSION', ['on the desk'], ['on the desk']],
+  ] as const)('grades %s from its stored correct option', (type, correctAnswers, selectedAnswer) => {
+    expect(gradeQuestion({ type, correctAnswers }, selectedAnswer).isCorrect).toBe(true);
+  });
+
   it('derives matching answers from the persisted pairs', () => {
     const result = gradeQuestion({
       type: 'WORD_MATCHING',
@@ -112,6 +126,15 @@ describe('generated matching-pair validation', () => {
     expect(hasValidGeneratedMatchingPairs([
       pairs[0],
       { ...pairs[1], right: pairs[0].right },
+      pairs[2],
+      pairs[3],
+    ])).toBe(false);
+  });
+
+  it('rejects a tip that leaks its matching phrase', () => {
+    expect(hasValidGeneratedMatchingPairs([
+      { ...pairs[0], tip: 'school bag 指上学时使用的包。' },
+      pairs[1],
       pairs[2],
       pairs[3],
     ])).toBe(false);
