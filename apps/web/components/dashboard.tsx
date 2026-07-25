@@ -43,6 +43,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
+import { Tooltip } from './tooltip';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -1441,13 +1442,15 @@ function WordsPanel({
             <Sparkles size={15} />
             创建学习计划
           </button>
-          <button
-            className="mode-settings-trigger"
-            aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'}
-            onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}
-          >
-            {mode === 'exam' ? <ExamBookIcon /> : <FilterSettingsIcon />}
-          </button>
+          <Tooltip label="模型设置">
+            <button
+              className="mode-settings-trigger"
+              aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'}
+              onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}
+            >
+              {mode === 'exam' ? <ExamBookIcon /> : <FilterSettingsIcon />}
+            </button>
+          </Tooltip>
         </div>
       </header>
       {message && <p className="book-message">{message}</p>}
@@ -1624,9 +1627,6 @@ function ReadingModelDrawer({ session, onClose }: { session: Session; onClose: (
   };
   return (
     <StudySettingsDrawer title="阅读材料模型" onClose={onClose}>
-      <p className="drawer-intro">
-        仅展示管理员在系统设置中添加并启用的模型；分组和独立单词模式会使用这里的模型生成阅读材料和练习内容。
-      </p>
       {message && <p className="book-message">{message}</p>}
       {!message && !models.length && (
         <div className="model-options-empty">
@@ -1787,9 +1787,11 @@ function WordColumn({
             <button className="add-three-words" onClick={onAddThree}>
               <Plus size={22} />3
             </button>
-            <button onClick={onOpenSettings} aria-label="新单词设置">
-              <GearIcon />
-            </button>
+            <Tooltip label="单词数量">
+              <button onClick={onOpenSettings} aria-label="单词数量">
+                <GearIcon />
+              </button>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -1925,24 +1927,22 @@ function WordRow({
           </button>
         )}
         {!word.state && (
-          <button
-            aria-label="加入复习"
-            data-tooltip="加入复习"
-            onClick={() => void onAddToReview?.(word)}
-          >
-            <ListRestart size={16} />
-          </button>
+          <Tooltip label="加入复习">
+            <button aria-label="加入复习" onClick={() => void onAddToReview?.(word)}>
+              <ListRestart size={16} />
+            </button>
+          </Tooltip>
         )}
-        <button
-          aria-label="标记掌握"
-          data-tooltip="标记掌握"
-          onClick={() => void onMarkMastered?.(word)}
-        >
-          <CheckCircle2 size={16} />
-        </button>
-        <button aria-label="稍后再学" data-tooltip="稍后再学" onClick={() => void onDefer?.(word)}>
-          <TimerReset size={16} />
-        </button>
+        <Tooltip label="标记掌握">
+          <button aria-label="标记掌握" onClick={() => void onMarkMastered?.(word)}>
+            <CheckCircle2 size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip label="稍后再学">
+          <button aria-label="稍后再学" onClick={() => void onDefer?.(word)}>
+            <TimerReset size={16} />
+          </button>
+        </Tooltip>
       </div>
     </article>
   );

@@ -3,6 +3,7 @@
 import { AlertTriangle, Bot, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
+import { Tooltip } from './tooltip';
 
 type AiModel = {
   id: string;
@@ -74,10 +75,12 @@ export function SystemSettings({ session }: { session: Session }) {
           </h3>
           <p>添加后默认启用；学习助手会使用最早添加的启用模型。</p>
         </div>
-        <button onClick={() => setModal('new')} data-tooltip="添加模型">
-          <Plus size={18} />
-          添加模型
-        </button>
+        <Tooltip label="添加模型">
+          <button onClick={() => setModal('new')}>
+            <Plus size={18} />
+            添加模型
+          </button>
+        </Tooltip>
       </div>
       {message && (
         <p className="form-error model-message" role="alert">
@@ -99,34 +102,33 @@ export function SystemSettings({ session }: { session: Session }) {
                 </span>
                 <small>{model.baseUrl}</small>
               </div>
-              <button
-                type="button"
-                className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
-                onClick={() => void toggle(model)}
-                aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
-                data-tooltip={model.isEnabled ? '点击关闭模型' : '点击启用模型'}
-              >
-                {model.isEnabled ? '已启用' : '已关闭'}
-              </button>
-              <button
-                className="model-icon-button"
-                onClick={() => setModal(model)}
-                aria-label={`编辑 ${model.displayName}`}
-                data-tooltip="编辑模型"
-              >
-                <Pencil size={17} />
-              </button>
-              <button
-                className="model-icon-button danger"
-                onClick={() => {
-                  setDeleteError('');
-                  setDeleteTarget(model);
-                }}
-                aria-label={`删除 ${model.displayName}`}
-                data-tooltip="删除模型"
-              >
-                <Trash2 size={17} />
-              </button>
+              <Tooltip label={model.isEnabled ? '点击关闭模型' : '点击启用模型'}>
+                <button
+                  type="button"
+                  className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
+                  onClick={() => void toggle(model)}
+                  aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
+                >
+                  {model.isEnabled ? '已启用' : '已关闭'}
+                </button>
+              </Tooltip>
+              <Tooltip label="编辑模型">
+                <button className="model-icon-button" onClick={() => setModal(model)} aria-label={`编辑 ${model.displayName}`}>
+                  <Pencil size={17} />
+                </button>
+              </Tooltip>
+              <Tooltip label="删除模型">
+                <button
+                  className="model-icon-button danger"
+                  onClick={() => {
+                    setDeleteError('');
+                    setDeleteTarget(model);
+                  }}
+                  aria-label={`删除 ${model.displayName}`}
+                >
+                  <Trash2 size={17} />
+                </button>
+              </Tooltip>
             </article>
           ))}
         </div>
@@ -288,9 +290,11 @@ function AiModelDialog({
             <p>AI MODEL</p>
             <h2>{model ? '编辑模型' : '添加模型'}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭" data-tooltip="关闭弹窗">
-            <X size={22} />
-          </button>
+          <Tooltip label="关闭弹窗">
+            <button type="button" onClick={onClose} aria-label="关闭">
+              <X size={22} />
+            </button>
+          </Tooltip>
         </header>
         <div className="provider-choice" role="tablist">
           <button
@@ -321,20 +325,21 @@ function AiModelDialog({
           模型 ID
           {provider === 'DEEPSEEK' ? (
             <div className="model-picker">
-              <button
-                type="button"
-                className="model-picker-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={modelPickerOpen}
-                onClick={() => setModelPickerOpen((open) => !open)}
-                data-tooltip="选择模型版本"
-              >
-                <span>
-                  <strong>DeepSeek {selectedModel.label}</strong>
-                  <small>{selectedModel.value}</small>
-                </span>
-                <ChevronDown size={20} aria-hidden="true" />
-              </button>
+              <Tooltip label="选择模型版本">
+                <button
+                  type="button"
+                  className="model-picker-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded={modelPickerOpen}
+                  onClick={() => setModelPickerOpen((open) => !open)}
+                >
+                  <span>
+                    <strong>DeepSeek {selectedModel.label}</strong>
+                    <small>{selectedModel.value}</small>
+                  </span>
+                  <ChevronDown size={20} aria-hidden="true" />
+                </button>
+              </Tooltip>
               {modelPickerOpen && (
                 <div
                   className="model-picker-options"
@@ -395,12 +400,14 @@ function AiModelDialog({
           </p>
         )}
         <footer>
-          <button type="button" className="secondary" onClick={onClose} data-tooltip="不保存并关闭">
-            取消
-          </button>
-          <button disabled={busy} data-tooltip={model ? '保存修改' : '添加模型'}>
-            {busy ? '保存中…' : model ? '保存修改' : '添加模型'}
-          </button>
+          <Tooltip label="不保存并关闭">
+            <button type="button" className="secondary" onClick={onClose}>
+              取消
+            </button>
+          </Tooltip>
+          <Tooltip label={model ? '保存修改' : '添加模型'}>
+            <button disabled={busy}>{busy ? '保存中…' : model ? '保存修改' : '添加模型'}</button>
+          </Tooltip>
         </footer>
       </form>
     </div>
