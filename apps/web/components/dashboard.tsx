@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
+import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
 import { Tooltip } from './tooltip';
@@ -84,7 +85,7 @@ type Word = {
 type DashboardWords = { defaultNewWordCount: number; reviewWords: Word[]; newWords: Word[] };
 type MasteredWord = Word & { id: string; masteredAt: string };
 type StudyMode = 'group' | 'individual' | 'exam';
-type LearningPlan = {
+export type LearningPlan = {
   id: string;
   mode: StudyMode;
   wordCount: number;
@@ -101,6 +102,7 @@ type LearningPlan = {
   };
   status: 'GENERATING' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
   createdAt: string;
+  completedAt?: string | null;
 };
 type LearningWord = Omit<Word, 'state'> & {
   state: 'LEARNING' | 'REVIEWING';
@@ -223,7 +225,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'learning' | 'mastered' | 'statistics' | 'settings'>(
+  const [page, setPage] = useState<'study' | 'learning' | 'mastered' | 'history' | 'statistics' | 'settings'>(
     'study',
   );
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
@@ -354,6 +356,16 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               </button>
             </div>
           </div>
+          <button
+            className={`nav-item nav-button ${page === 'history' ? 'active' : ''}`}
+            onClick={() => {
+              setPage('history');
+              setSidebarOpen(false);
+            }}
+          >
+            <CalendarDays size={16} />
+            <span>学习历史</span>
+          </button>
           <button
             className={`nav-item nav-button ${page === 'statistics' ? 'active' : ''}`}
             onClick={() => {
@@ -505,6 +517,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             session={session}
             onBack={() => setPage('study')}
             onProgressChanged={() => setProgressRevision((current) => current + 1)}
+          />
+        ) : page === 'history' ? (
+          <LearningHistoryPage
+            session={session}
+            onBack={() => setPage('study')}
           />
         ) : page === 'statistics' ? (
           <StatisticsPage session={session} onBack={() => setPage('study')} />
@@ -3305,7 +3322,8 @@ function LearningHistory({
   onContinue: (id: string) => void;
   onRetry: (plan: LearningPlan) => void;
 }) {
-  if (!plans.length)
+  const todayPlans = plans.filter((plan) => isToday(plan.createdAt));
+  if (!todayPlans.length)
     return (
       <section className="plan-empty">
         <CalendarDays size={32} />
@@ -3315,7 +3333,7 @@ function LearningHistory({
     );
   return (
     <section className="history-grid">
-      {plans.map((plan) => {
+      {todayPlans.map((plan) => {
         const progress = Math.round((plan.completed / plan.wordCount) * 100);
         const active = plan.status === 'ACTIVE' || plan.status === 'GENERATING';
         const failed = plan.status === 'FAILED';
@@ -3374,4 +3392,12 @@ function LearningHistory({
       })}
     </section>
   );
+}
+
+function isToday(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  return date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
 }

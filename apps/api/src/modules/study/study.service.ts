@@ -278,6 +278,23 @@ export class StudyService {
     return Promise.all(plans.map(plan => this.serializePlan(plan.id, userId)));
   }
 
+  async listCompletedPlans(userId: string, requestedPage = 1, requestedPageSize = 20) {
+    const page = Math.max(1, requestedPage);
+    const pageSize = Math.min(50, Math.max(1, requestedPageSize));
+    const plans = await this.prisma.studyPlan.findMany({
+      where: { userId, status: StudyPlanStatus.COMPLETED },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize + 1,
+      select: { id: true },
+    });
+    const hasMore = plans.length > pageSize;
+    return {
+      items: await Promise.all(plans.slice(0, pageSize).map(plan => this.serializePlan(plan.id, userId))),
+      hasMore,
+    };
+  }
+
   async completeGroup(
     userId: string,
     planId: string,
