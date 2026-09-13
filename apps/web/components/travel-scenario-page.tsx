@@ -24,7 +24,7 @@ import {
   TrainFront,
   Utensils,
 } from 'lucide-react';
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { request, type Session, userFacingError } from '../lib/api';
 
 type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
@@ -90,7 +90,7 @@ const dimensions = [
   ['naturalness', '自然表达'],
 ] as const;
 
-export function TravelScenarioPage({ session, onBack }: { session: Session; onBack: () => void }) {
+export function TravelScenarioPage({ session, onBack, startWithAssessment = false }: { session: Session; onBack: () => void; startWithAssessment?: boolean }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [plan, setPlan] = useState<TodayPlan | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -101,6 +101,7 @@ export function TravelScenarioPage({ session, onBack }: { session: Session; onBa
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const assessmentRequested = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,13 +117,18 @@ export function TravelScenarioPage({ session, onBack }: { session: Session; onBa
     finally { setLoading(false); }
   }, [session.accessToken]);
 
-  useEffect(() => { void load(); }, [load]);
-
-  const startAssessment = async () => {
+  const startAssessment = useCallback(async () => {
     setMessage('');
     try { setAssessment(await request<AssessmentState>('/proficiency/assessments', { method: 'POST' }, session.accessToken)); }
     catch (error) { setMessage(userFacingError(error, '暂时无法开始测评')); }
-  };
+  }, [session.accessToken]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!startWithAssessment || assessmentRequested.current) return;
+    assessmentRequested.current = true;
+    void startAssessment();
+  }, [startAssessment, startWithAssessment]);
   const startScenario = async (scenario: Scenario) => {
     setMessage(''); setLoading(true); setReport(null);
     try { setActive(await request<ScenarioStart>('/scenario-sessions', { method: 'POST', body: JSON.stringify({ templateId: scenario.id }) }, session.accessToken)); }

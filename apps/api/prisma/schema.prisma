@@ -100,6 +100,12 @@ enum ProfileConfidence {
   HIGH
 }
 
+enum ProfileSnapshotSource {
+  ASSESSMENT
+  SCENARIO
+  BACKFILLED_BASELINE
+}
+
 enum AssessmentStatus {
   IN_PROGRESS
   COMPLETED
@@ -188,6 +194,8 @@ model User {
   skillProgresses UserSkillProgress[]
   dailyPracticePlans DailyPracticePlan[]
   scenarioDailyUsages ScenarioDailyUsage[]
+  languageProfileSnapshots LanguageProfileSnapshot[]
+  learningAnalysisCache LearningAnalysisCache?
 }
 
 model VocabularyBook {
@@ -524,6 +532,38 @@ model LanguageProfile {
   user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([overallLevel, confidence])
+}
+
+model LanguageProfileSnapshot {
+  id                    String                @id @default(cuid())
+  userId                String
+  source                ProfileSnapshotSource
+  sourceId              String
+  overallLevel          CefrLevel
+  confidence            ProfileConfidence
+  vocabularyScore       Int
+  grammarScore          Int
+  sentenceBuildingScore Int
+  taskCompletionScore   Int
+  naturalnessScore      Int
+  provisional           Boolean
+  backfilled             Boolean               @default(false)
+  recordedAt            DateTime
+  createdAt             DateTime              @default(now())
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, source, sourceId])
+  @@index([userId, recordedAt])
+}
+
+model LearningAnalysisCache {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  inputHash   String
+  content     Json
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AssessmentItem {

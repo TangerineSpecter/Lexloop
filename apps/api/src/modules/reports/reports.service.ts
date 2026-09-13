@@ -1,30 +1,34 @@
-import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { BadGatewayException, Injectable } from '@nestjs/common';
+import {
+  AiCallStatus, AssessmentItemType, CefrLevel, Prisma, ProfileConfidence, ProfileSnapshotSource,
+  ScenarioOutcome, ScenarioSessionStatus, StudyPlanStatus, WeaknessStatus, WordProgressState,
+} from '@prisma/client';
+import type { CareerAiAnalysis, CareerRecommendation, CareerStatistics, LearningHistoryItem, LearningHistoryResponse, PeriodStatistics } from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
 
 const DAY = 86_400_000;
+const LEVELS = [CefrLevel.A1, CefrLevel.A2, CefrLevel.B1, CefrLevel.B2, CefrLevel.C1];
 type Signal = { word: string; attempts: number; correct: number; familiarity: number; reviewCount: number };
+type FiveDimensions = { vocabulary: number; grammar: number; sentenceBuilding: number; taskCompletion: number; naturalness: number };
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly ai: AiService) {}
 
-  async statistics(userId: string, days: number) {
+  async statistics(userId: string, days: number): Promise<PeriodStatistics> {
     const end = endOfToday();
     const start = new Date(end.getTime() - days * DAY);
     const previousStart = new Date(start.getTime() - days * DAY);
-    const [attempts, previousAttempts, progresses, mastered, allMastered] = await Promise.all([
-      this.prisma.wordReviewAttempt.findMany({
-        where: { userId, createdAt: { gte: start, lt: end } },
-        include: { item: { include: { bookWord: { include: { word: true } } } } },
-        orderBy: { createdAt: 'asc' },
-      }),
+    const [attempts, previousAttempts, progresses, mastered, plans, scenarios, assessments] = await Promise.all([
+      this.prisma.wordReviewAttempt.findMany({ where: { userId, createdAt: { gte: start, lt: end } }, include: { item: { include: { bookWord: { include: { word: true } } } } }, orderBy: { createdAt: 'asc' } }),
       this.prisma.wordReviewAttempt.count({ where: { userId, createdAt: { gte: previousStart, lt: start } } }),
-      this.prisma.userWordProgress.findMany({
-        where: { userId },
-        include: { bookWord: { include: { word: true } } },
-      }),
+      this.prisma.userWordProgress.findMany({ where: { userId }, include: { bookWord: { include: { word: true } } } }),
       this.prisma.userMasteredWord.count({ where: { userId, masteredAt: { gte: start, lt: end } } }),
-      this.prisma.userMasteredWord.count({ where: { userId } }),
+      this.prisma.studyPlan.findMany({ where: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
+      this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
+      this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
     ]);
     const activity = Array.from({ length: days }, (_, index) => {
       const date = new Date(start.getTime() + index * DAY);
@@ -33,79 +37,268 @@ export class ReportsService {
       return {
         label: `${date.getMonth() + 1} 月 ${date.getDate()} 日`,
         words: new Set(daily.map(attempt => attempt.bookWordId)).size,
+        questions: daily.length,
+        studySeconds: Math.round(daily.reduce((sum, attempt) => sum + (attempt.responseTimeMs ?? 0), 0) / 1000),
+        scenarios: scenarios.filter(item => item.completedAt && item.completedAt >= date && item.completedAt < next).length,
+        assessments: assessments.filter(item => item.completedAt && item.completedAt >= date && item.completedAt < next).length,
         today: index === days - 1,
       };
     });
     const chart = days === 7
-      ? activity.map((day, index) => ({ ...day, label: index === 6 ? '今天' : weekDay(new Date(start.getTime() + index * DAY)), completed: day.words > 0 }))
-      : Array.from({ length: 10 }, (_, index) => {
-        const slice = activity.slice(index * 3, index * 3 + 3);
-        return { label: index === 9 ? '至今' : `${index * 3 + 1}–${index * 3 + 3}`, words: slice.reduce((sum, day) => sum + day.words, 0), completed: slice.some(day => day.words > 0), today: index === 9 };
-      });
-    const activeDays = activity.filter(day => day.words > 0).length;
-    const totalWords = activity.reduce((sum, day) => sum + day.words, 0);
-    const previousWords = previousAttempts;
-    const newWords = progresses.filter(progress => progress.firstLearnedAt && progress.firstLearnedAt >= start && progress.firstLearnedAt < end).length;
+      ? activity.map((day, index) => ({ ...day, label: index === 6 ? '今天' : weekDay(new Date(start.getTime() + index * DAY)), completed: isActiveDay(day) }))
+      : periodChart(activity, start, days === 365 ? 12 : 10);
+    const activeDays = activity.filter(isActiveDay).length;
     const signals = signalRows(progresses, attempts);
-    const streak = await this.currentStreak(userId);
+    const responseTimes = attempts.map(item => item.responseTimeMs).filter((value): value is number => value != null);
     return {
-      activeDays,
-      activity,
-      chart,
-      currentStreak: streak,
-      learnedWords: progresses.filter(progress => progress.firstLearnedAt).length,
+      activeDays, activity, chart, currentStreak: await this.currentStreak(userId),
+      learnedWords: progresses.filter(item => item.firstLearnedAt).length,
       masteredWords: mastered,
-      totalMasteredWords: allMastered,
-      newWords,
+      newWords: progresses.filter(item => item.firstLearnedAt && item.firstLearnedAt >= start && item.firstLearnedAt < end).length,
       reviewWords: attempts.length,
-      versusPrevious: previousWords ? Math.round((attempts.length - previousWords) / previousWords * 100) : attempts.length ? 100 : 0,
-      summary: activeDays ? `本期有 ${activeDays} 天完成学习，共练习 ${attempts.length} 道题。` : '本期还没有学习记录。',
-      suggestion: signals.unfamiliar[0] ? `建议优先巩固 ${signals.unfamiliar[0].word}，它目前的陌生程度最高。` : '从一个单词开始，建立今天的学习节奏。',
+      attemptCount: attempts.length,
+      accuracy: attempts.length ? Math.round(attempts.filter(item => item.isCorrect).length / attempts.length * 100) : 0,
+      averageResponseMs: responseTimes.length ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length) : 0,
+      studySeconds: Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / 1000),
+      completedPlans: plans.length,
+      completedScenarios: scenarios.length,
+      completedAssessments: assessments.length,
+      versusPrevious: previousAttempts ? Math.round((attempts.length - previousAttempts) / previousAttempts * 100) : attempts.length ? 100 : 0,
+      summary: activeDays ? `本期有 ${activeDays} 天留下学习记录，共完成 ${attempts.length} 道题和 ${scenarios.length} 次场景练习。` : '本期还没有学习记录。',
+      suggestion: signals.unfamiliar[0] ? `建议优先巩固 ${signals.unfamiliar[0].word}，它目前的陌生程度最高。` : '从一个单词或一次场景练习开始，建立今天的学习节奏。',
       rankings: signals,
     };
   }
 
-  private async currentStreak(userId: string) {
-    const attempts = await this.prisma.wordReviewAttempt.findMany({
-      where: { userId, createdAt: { gte: new Date(Date.now() - 366 * DAY) } },
-      select: { createdAt: true },
+  async history(userId: string, requestedPage = 1, requestedPageSize = 20): Promise<LearningHistoryResponse> {
+    const page = Math.min(1_000, Math.max(1, Math.trunc(requestedPage)));
+    const pageSize = Math.min(50, Math.max(1, Math.trunc(requestedPageSize)));
+    const end = page * pageSize;
+    const take = end + 1;
+    const [plans, assessments, scenarios, planCount, wordCount, questionCount, correctQuestionCount, assessmentCount, scenarioCount] = await Promise.all([
+      this.prisma.studyPlan.findMany({
+        where: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { not: null } },
+        orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+        take,
+        include: { items: { include: { bookWord: { include: { word: true } }, attempts: { orderBy: { createdAt: 'desc' }, take: 1 } } } },
+      }),
+      this.prisma.assessmentAttempt.findMany({
+        where: { userId, status: 'COMPLETED', completedAt: { not: null } },
+        orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+        take,
+        include: { responses: { select: { provisional: true } } },
+      }),
+      this.prisma.scenarioSession.findMany({
+        where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { not: null }, report: { isNot: null } },
+        orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+        take,
+        include: { template: { select: { title: true, category: true } }, report: { select: { outcome: true } } },
+      }),
+      this.prisma.studyPlan.count({ where: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { not: null } } }),
+      this.prisma.studyPlanItem.count({ where: { plan: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { not: null } } } }),
+      this.prisma.wordReviewAttempt.count({ where: { userId, item: { plan: { status: StudyPlanStatus.COMPLETED, completedAt: { not: null } } } } }),
+      this.prisma.wordReviewAttempt.count({ where: { userId, isCorrect: true, item: { plan: { status: StudyPlanStatus.COMPLETED, completedAt: { not: null } } } } }),
+      this.prisma.assessmentAttempt.count({ where: { userId, status: 'COMPLETED', completedAt: { not: null } } }),
+      this.prisma.scenarioSession.count({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { not: null }, report: { isNot: null } } }),
+    ]);
+    const items: LearningHistoryItem[] = [
+      ...plans.map(plan => {
+        const attempts = plan.items.flatMap(item => item.attempts);
+        const typeStats = questionTypeRows(attempts);
+        return {
+          kind: 'PLAN' as const,
+          id: plan.id,
+          occurredAt: plan.completedAt!.toISOString(),
+          mode: plan.mode.toLowerCase() as 'group' | 'individual' | 'exam',
+          wordCount: plan.items.length,
+          totalQuestions: attempts.length,
+          correctQuestions: attempts.filter(item => item.isCorrect).length,
+          durationSeconds: Math.round(attempts.reduce((sum, item) => sum + (item.responseTimeMs ?? 0), 0) / 1_000),
+          typeStats,
+          weakWords: [...new Set(plan.items.filter(item => item.attempts[0]?.isCorrect === false).map(item => item.bookWord.word.text))],
+        };
+      }),
+      ...assessments.map(attempt => {
+        const confidence = attempt.confidence ?? ProfileConfidence.LOW;
+        return {
+          kind: 'ASSESSMENT' as const,
+          id: attempt.id,
+          occurredAt: attempt.completedAt!.toISOString(),
+          level: lowerLevel(attempt.objectiveLevel ?? CefrLevel.A1, attempt.expressionLevel ?? CefrLevel.A1),
+          confidence,
+          provisional: assessmentIsProvisional(confidence, attempt.responses),
+          questionCount: attempt.itemCount,
+        };
+      }),
+      ...scenarios.flatMap(session => session.report ? [{
+        kind: 'SCENARIO' as const,
+        id: session.id,
+        occurredAt: session.completedAt!.toISOString(),
+        title: session.template.title,
+        category: session.template.category,
+        level: session.level,
+        outcome: session.report.outcome,
+      }] : []),
+    ].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime() || right.id.localeCompare(left.id));
+    const start = (page - 1) * pageSize;
+    return {
+      items: items.slice(start, end),
+      hasMore: items.length > end,
+      totals: { records: planCount + assessmentCount + scenarioCount, plans: planCount, words: wordCount, questions: questionCount, correctQuestions: correctQuestionCount, assessments: assessmentCount, scenarios: scenarioCount },
+    };
+  }
+
+  async career(userId: string): Promise<CareerStatistics> {
+    await this.ensureBackfilledSnapshots(userId);
+    const now = new Date();
+    const [user, attempts, progresses, masteredWords, plans, weaknesses, profile, snapshots, scenarios, assessments, skills, cache] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { createdAt: true } }),
+      this.prisma.wordReviewAttempt.findMany({ where: { userId }, select: { isCorrect: true, responseTimeMs: true, questionType: true, createdAt: true } }),
+      this.prisma.userWordProgress.findMany({ where: { userId }, select: { state: true, nextReviewAt: true, firstLearnedAt: true } }),
+      this.prisma.userMasteredWord.count({ where: { userId } }),
+      this.prisma.studyPlan.findMany({ where: { userId, status: StudyPlanStatus.COMPLETED }, select: { completedAt: true } }),
+      this.prisma.weaknessSignal.findMany({ where: { userId }, select: { status: true } }),
+      this.prisma.languageProfile.findUnique({ where: { userId } }),
+      this.prisma.languageProfileSnapshot.findMany({ where: { userId }, orderBy: { recordedAt: 'asc' } }),
+      this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED }, select: { completedAt: true, template: { select: { category: true } }, report: { select: { outcome: true } } } }),
+      this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED' }, select: { completedAt: true } }),
+      this.prisma.userSkillProgress.findMany({ where: { userId }, include: { skill: true }, orderBy: [{ score: 'asc' }, { lastPracticedAt: 'desc' }] }),
+      this.prisma.learningAnalysisCache.findUnique({ where: { userId } }),
+    ]);
+    const activeDates = new Set<string>();
+    attempts.forEach(item => activeDates.add(dateKey(item.createdAt)));
+    plans.forEach(item => item.completedAt && activeDates.add(dateKey(item.completedAt)));
+    scenarios.forEach(item => item.completedAt && activeDates.add(dateKey(item.completedAt)));
+    assessments.forEach(item => item.completedAt && activeDates.add(dateKey(item.completedAt)));
+    const activityDates = [...attempts.map(item => item.createdAt), ...plans.map(item => item.completedAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt)].filter((value): value is Date => Boolean(value));
+    const responseTimes = attempts.map(item => item.responseTimeMs).filter((value): value is number => value != null);
+    const typeRows = questionTypeRows(attempts);
+    const learnedWords = progresses.filter(item => item.firstLearnedAt).length;
+    const dueWords = progresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt <= now).length;
+    const overdueWords = progresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt < startOfToday()).length;
+    const completedScenarios = scenarios.length;
+    const successfulScenarios = scenarios.filter(item => item.report?.outcome === ScenarioOutcome.SUCCESS).length;
+    const categoryRows = [...new Set(scenarios.map(item => item.template.category))].map(category => {
+      const rows = scenarios.filter(item => item.template.category === category);
+      const successful = rows.filter(item => item.report?.outcome === ScenarioOutcome.SUCCESS).length;
+      return { category, count: rows.length, successRate: Math.round(successful / rows.length * 100) };
+    }).sort((left, right) => right.count - left.count);
+    const overview = {
+      startedAt: new Date(Math.min(user.createdAt.getTime(), ...(activityDates.length ? activityDates.map(value => value.getTime()) : [user.createdAt.getTime()]))).toISOString(),
+      activeDays: activeDates.size,
+      totalQuestions: attempts.length,
+      studySeconds: Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / 1000),
+      completedPlans: plans.length,
+      learnedWords,
+      masteredWords,
+      completedScenarios,
+    };
+    const memory = {
+      learningWords: progresses.filter(item => item.state === WordProgressState.LEARNING).length,
+      reviewingWords: progresses.filter(item => item.state === WordProgressState.REVIEWING).length,
+      dueWords, overdueWords,
+      masteryRate: learnedWords ? Math.round(masteredWords / learnedWords * 100) : 0,
+    };
+    const quality = {
+      accuracy: attempts.length ? Math.round(attempts.filter(item => item.isCorrect).length / attempts.length * 100) : 0,
+      averageResponseMs: responseTimes.length ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length) : 0,
+      activeWeaknesses: weaknesses.filter(item => item.status === WeaknessStatus.ACTIVE).length,
+      resolvedWeaknesses: weaknesses.filter(item => item.status === WeaknessStatus.RESOLVED).length,
+      strongestQuestionType: typeRows.at(-1)?.type ?? null,
+      weakestQuestionType: typeRows[0]?.type ?? null,
+    };
+    const practice = {
+      successRate: completedScenarios ? Math.round(successfulScenarios / completedScenarios * 100) : 0,
+      categoriesExperienced: new Set(scenarios.map(item => item.template.category)).size,
+      totalCategories: 6,
+      categories: categoryRows,
+      skills: skills.map(item => ({ code: item.skill.code, title: item.skill.title, level: item.skill.level, score: item.score, evidenceCount: item.evidenceCount })),
+    };
+    const currentProfile = { level: profile?.overallLevel ?? CefrLevel.A1, confidence: profile?.confidence ?? ProfileConfidence.LOW, provisional: profile?.provisional ?? true, assessedAt: profile?.assessedAt?.toISOString() ?? null, dimensions: profileDimensions(profile) };
+    const insights = careerInsights({ overview, memory, quality, practice, profile: currentProfile });
+    const resultWithoutAnalysis = {
+      generatedAt: now.toISOString(), overview, profile: currentProfile,
+      growth: snapshots.map(item => ({ id: item.id, source: item.source, level: item.overallLevel, confidence: item.confidence, provisional: item.provisional, dimensions: snapshotDimensions(item), recordedAt: item.recordedAt.toISOString(), backfilled: item.backfilled })),
+      memory, quality, practice, insights,
+    };
+    const inputHash = careerHash(resultWithoutAnalysis);
+    return { ...resultWithoutAnalysis, aiAnalysis: { status: cache ? cache.inputHash === inputHash ? 'ready' : 'stale' : 'none', generatedAt: cache?.generatedAt.toISOString() ?? null, content: cache ? parseStoredAnalysis(cache.content) : null } };
+  }
+
+  async generateCareerAnalysis(userId: string) {
+    const career = await this.career(userId);
+    const inputHash = careerHash(career);
+    const audit = await this.prisma.aiCallAudit.create({ data: { userId, purpose: 'learning-career-analysis', promptVersion: 'v1' } });
+    const startedAt = Date.now();
+    try {
+      const response = await this.ai.generateForUser({ purpose: 'learning-career-analysis', prompt: `请根据以下匿名聚合学习数据生成简洁、具体、可执行的中文学习分析。不得虚构数据，不得诊断用户。只返回 JSON：{"headline":"一句标题","summary":"2-3句总结","strengths":["最多3项"],"focusAreas":["最多3项"],"weeklyPlan":[{"action":"行动","target":"assessment|review|mistakes|travel|study","reason":"原因"}]}。\n数据：${JSON.stringify({ overview: career.overview, profile: career.profile, memory: career.memory, quality: career.quality, practice: career.practice, ruleInsights: career.insights })}` }, userId);
+      const content = validateAiAnalysis(extractCompletion(response));
+      const generatedAt = new Date();
+      await Promise.all([
+        this.prisma.learningAnalysisCache.upsert({ where: { userId }, create: { userId, inputHash, content: content as unknown as Prisma.InputJsonValue, generatedAt }, update: { inputHash, content: content as unknown as Prisma.InputJsonValue, generatedAt } }),
+        this.prisma.aiCallAudit.update({ where: { id: audit.id }, data: { status: AiCallStatus.SUCCEEDED, latencyMs: Date.now() - startedAt, completedAt: generatedAt } }),
+      ]);
+      return { status: 'ready' as const, generatedAt: generatedAt.toISOString(), content };
+    } catch (error) {
+      await this.prisma.aiCallAudit.update({ where: { id: audit.id }, data: { status: AiCallStatus.FAILED, latencyMs: Date.now() - startedAt, errorCode: safeError(error), completedAt: new Date() } });
+      throw error;
+    }
+  }
+
+  private async ensureBackfilledSnapshots(userId: string) {
+    const [profile, assessments, existingSnapshots] = await Promise.all([
+      this.prisma.languageProfile.findUnique({ where: { userId } }),
+      this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { not: null } }, include: { responses: { include: { item: true } } } }),
+      this.prisma.languageProfileSnapshot.count({ where: { userId } }),
+    ]);
+    const rows: Prisma.LanguageProfileSnapshotCreateManyInput[] = assessments.map(attempt => {
+      const dimensions = assessmentDimensions(attempt.responses);
+      const confidence = attempt.confidence ?? ProfileConfidence.LOW;
+      return { userId, source: ProfileSnapshotSource.ASSESSMENT, sourceId: attempt.id, overallLevel: lowerLevel(attempt.objectiveLevel ?? CefrLevel.A1, attempt.expressionLevel ?? CefrLevel.A1), confidence, ...snapshotFields(dimensions), provisional: assessmentIsProvisional(confidence, attempt.responses), backfilled: true, recordedAt: attempt.completedAt! };
     });
-    const days = new Set(attempts.map(attempt => dateKey(attempt.createdAt)));
+    const hasMeaningfulProfile = profile && (profile.assessedAt || Object.values(profileDimensions(profile)).some(value => typeof value === 'number' && value > 0));
+    if (!existingSnapshots && hasMeaningfulProfile) rows.push({ userId, source: ProfileSnapshotSource.BACKFILLED_BASELINE, sourceId: 'current-profile', overallLevel: profile.overallLevel, confidence: profile.confidence, ...snapshotFields(profileDimensions(profile)), provisional: profile.provisional, backfilled: true, recordedAt: profile.assessedAt ?? profile.updatedAt });
+    if (rows.length) await this.prisma.languageProfileSnapshot.createMany({ data: rows, skipDuplicates: true });
+  }
+
+  private async currentStreak(userId: string) {
+    const since = new Date(Date.now() - 366 * DAY);
+    const [attempts, scenarios, assessments] = await Promise.all([
+      this.prisma.wordReviewAttempt.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } }),
+      this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: since } }, select: { completedAt: true } }),
+      this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: since } }, select: { completedAt: true } }),
+    ]);
+    const dates = [...attempts.map(item => item.createdAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt)].filter((value): value is Date => Boolean(value));
+    const days = new Set(dates.map(dateKey));
     let cursor = new Date();
     if (!days.has(dateKey(cursor))) cursor = new Date(cursor.getTime() - DAY);
     let streak = 0;
-    while (days.has(dateKey(cursor))) {
-      streak++;
-      cursor = new Date(cursor.getTime() - DAY);
-    }
+    while (days.has(dateKey(cursor))) { streak++; cursor = new Date(cursor.getTime() - DAY); }
     return streak;
   }
 }
 
-function signalRows(
-  progresses: Array<{ bookWordId: string; familiarity: number; reviewCount: number; totalAttempts: number; correctAttempts: number; bookWord: { word: { text: string } } }>,
-  attempts: Array<{ bookWordId: string; isCorrect: boolean }>,
-) {
-  const rows: Signal[] = progresses.map(progress => {
-    const rangeAttempts = attempts.filter(attempt => attempt.bookWordId === progress.bookWordId);
-    return {
-      word: progress.bookWord.word.text,
-      attempts: rangeAttempts.length,
-      correct: rangeAttempts.filter(attempt => attempt.isCorrect).length,
-      familiarity: progress.familiarity,
-      reviewCount: progress.reviewCount,
-    };
-  });
-  const withAttempts = rows.filter(row => row.attempts > 0);
-  const rate = (row: Signal) => row.attempts ? row.correct / row.attempts * 100 : 0;
-  return {
-    reviews: [...rows].filter(row => row.reviewCount > 0).sort((a, b) => b.reviewCount - a.reviewCount).slice(0, 5).map(row => ({ word: row.word, count: row.reviewCount })),
-    unfamiliar: [...rows].sort((a, b) => a.familiarity - b.familiarity).slice(0, 5).reverse().map(row => ({ word: row.word, rate: 100 - row.familiarity })),
-    errorRate: [...withAttempts].sort((a, b) => rate(a) - rate(b)).slice(0, 10).map(row => ({ word: row.word, rate: 100 - rate(row) })),
-    accuracy: [...withAttempts].sort((a, b) => rate(b) - rate(a)).slice(0, 10).map(row => ({ word: row.word, rate: rate(row) })),
-  };
-}
-
+function isActiveDay(day: { questions: number; scenarios: number; assessments: number }) { return day.questions > 0 || day.scenarios > 0 || day.assessments > 0; }
+function signalRows(progresses: Array<{ bookWordId: string; familiarity: number; reviewCount: number; bookWord: { word: { text: string } } }>, attempts: Array<{ bookWordId: string; isCorrect: boolean }>) { const rows: Signal[] = progresses.map(progress => { const rangeAttempts = attempts.filter(attempt => attempt.bookWordId === progress.bookWordId); return { word: progress.bookWord.word.text, attempts: rangeAttempts.length, correct: rangeAttempts.filter(attempt => attempt.isCorrect).length, familiarity: progress.familiarity, reviewCount: progress.reviewCount }; }); const withAttempts = rows.filter(row => row.attempts > 0); const rate = (row: Signal) => row.attempts ? row.correct / row.attempts * 100 : 0; return { reviews: [...rows].filter(row => row.reviewCount > 0).sort((a, b) => b.reviewCount - a.reviewCount).slice(0, 5).map(row => ({ word: row.word, count: row.reviewCount })), unfamiliar: [...rows].sort((a, b) => a.familiarity - b.familiarity).slice(0, 5).reverse().map(row => ({ word: row.word, rate: 100 - row.familiarity })), errorRate: [...withAttempts].sort((a, b) => rate(a) - rate(b)).slice(0, 10).map(row => ({ word: row.word, rate: 100 - rate(row) })), accuracy: [...withAttempts].sort((a, b) => rate(b) - rate(a)).slice(0, 10).map(row => ({ word: row.word, rate: rate(row) })) }; }
+function questionTypeRows(attempts: Array<{ questionType: string | null; isCorrect: boolean }>) { const grouped = new Map<string, { type: string; total: number; correct: number }>(); for (const item of attempts) { const type = item.questionType ?? 'OTHER'; const row = grouped.get(type) ?? { type, total: 0, correct: 0 }; row.total++; if (item.isCorrect) row.correct++; grouped.set(type, row); } return [...grouped.values()].sort((a, b) => a.correct / a.total - b.correct / b.total); }
+function profileDimensions(profile: { vocabularyScore: number; grammarScore: number; sentenceBuildingScore: number; taskCompletionScore: number; naturalnessScore: number; pronunciationScore?: number | null; listeningScore?: number | null; fluencyScore?: number | null } | null): CareerStatistics['profile']['dimensions'] { return { vocabulary: profile?.vocabularyScore ?? 0, grammar: profile?.grammarScore ?? 0, sentenceBuilding: profile?.sentenceBuildingScore ?? 0, taskCompletion: profile?.taskCompletionScore ?? 0, naturalness: profile?.naturalnessScore ?? 0, pronunciation: profile?.pronunciationScore ?? null, listening: profile?.listeningScore ?? null, fluency: profile?.fluencyScore ?? null }; }
+function snapshotDimensions(value: { vocabularyScore: number; grammarScore: number; sentenceBuildingScore: number; taskCompletionScore: number; naturalnessScore: number }): FiveDimensions { return { vocabulary: value.vocabularyScore, grammar: value.grammarScore, sentenceBuilding: value.sentenceBuildingScore, taskCompletion: value.taskCompletionScore, naturalness: value.naturalnessScore }; }
+function snapshotFields(value: FiveDimensions) { return { vocabularyScore: value.vocabulary, grammarScore: value.grammar, sentenceBuildingScore: value.sentenceBuilding, taskCompletionScore: value.taskCompletion, naturalnessScore: value.naturalness }; }
+function assessmentIsProvisional(confidence: ProfileConfidence, responses: Array<{ provisional: boolean }>) { return confidence === ProfileConfidence.LOW || responses.some(item => item.provisional); }
+function assessmentDimensions(responses: Array<{ isCorrect: boolean | null; scores: Prisma.JsonValue | null; item: { dimension: string; type: AssessmentItemType } }>): FiveDimensions { const keys: Array<keyof FiveDimensions> = ['vocabulary', 'grammar', 'sentenceBuilding', 'taskCompletion', 'naturalness']; const result = { vocabulary: 0, grammar: 0, sentenceBuilding: 0, taskCompletion: 0, naturalness: 0 }; for (const key of keys) { const objective = responses.filter(item => item.item.type !== AssessmentItemType.FREE_RESPONSE && item.item.dimension === key); const expression = responses.filter(item => item.item.type === AssessmentItemType.FREE_RESPONSE).map(item => jsonScores(item.scores)[key]); const objectiveScore = objective.length ? objective.filter(item => item.isCorrect).length / objective.length * 100 : null; result[key] = Math.round(objectiveScore === null ? average(expression) : expression.length ? objectiveScore * .7 + average(expression) * .3 : objectiveScore); } return result; }
+function jsonScores(value: unknown): FiveDimensions { const row = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; const score = (key: string) => Math.max(0, Math.min(100, Number(row[key]) || 0)); return { vocabulary: score('vocabulary'), grammar: score('grammar'), sentenceBuilding: score('sentenceBuilding'), taskCompletion: score('taskCompletion'), naturalness: score('naturalness') }; }
+function careerInsights(data: Pick<CareerStatistics, 'overview' | 'memory' | 'quality' | 'practice' | 'profile'>): CareerStatistics['insights'] { const strengths: string[] = []; const risks: string[] = []; const recommendations: CareerRecommendation[] = []; if (data.quality.accuracy >= 85 && data.overview.totalQuestions >= 10) strengths.push(`累计正确率 ${data.quality.accuracy}%，基础掌握较稳定。`); if (data.overview.activeDays >= 7) strengths.push(`已经留下 ${data.overview.activeDays} 个学习日，节奏正在形成。`); if (data.practice.successRate >= 70 && data.overview.completedScenarios > 0) strengths.push(`场景任务成功率 ${data.practice.successRate}%，实战表达表现良好。`); if (data.profile.provisional) { risks.push('当前 CEFR 仍是暂定起点，能力判断缺少正式测评证据。'); recommendations.push({ title: '完成一次水平测评', reason: '建立可信的 CEFR 起点和五维能力画像。', target: 'assessment' }); } if (data.memory.overdueWords > 0) { risks.push(`${data.memory.overdueWords} 个单词已经逾期复习。`); recommendations.push({ title: '先清理逾期复习', reason: '按记忆节奏及时再见一面，比继续堆新词更有效。', target: 'review' }); } if (data.quality.activeWeaknesses > 0) { risks.push(`仍有 ${data.quality.activeWeaknesses} 个活跃薄弱项。`); recommendations.push({ title: '完成薄弱项专项', reason: '连续答对后系统会自动标记为已纠正。', target: 'mistakes' }); } if (!data.overview.completedScenarios) recommendations.push({ title: '完成第一次场景练习', reason: '把词汇和语法放进真实表达任务中验证。', target: 'travel' }); if (!recommendations.length) recommendations.push({ title: '保持当前学习节奏', reason: '继续复习到期单词，并用场景练习检验调用能力。', target: 'study' }); if (!strengths.length) strengths.push('学习证据正在积累，完成更多练习后会形成更稳定的趋势。'); return { strengths: strengths.slice(0, 3), risks: risks.slice(0, 3), recommendations: recommendations.slice(0, 3) }; }
+function careerHash(value: Omit<CareerStatistics, 'aiAnalysis'> | CareerStatistics) { const row = value as CareerStatistics; return createHash('sha256').update(JSON.stringify({ overview: row.overview, profile: row.profile, memory: row.memory, quality: row.quality, practice: row.practice, insights: row.insights })).digest('hex'); }
+function extractCompletion(value: unknown) { const content = (value as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content; if (typeof content !== 'string') throw new BadGatewayException('学习分析模型没有返回有效内容'); try { return JSON.parse(content) as unknown; } catch { throw new BadGatewayException('学习分析模型返回的 JSON 无法解析'); } }
+function validateAiAnalysis(value: unknown): CareerAiAnalysis { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadGatewayException('学习分析结构无效'); const row = value as Record<string, unknown>; const strings = (key: string) => Array.isArray(row[key]) ? (row[key] as unknown[]).filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 3) : []; const targets = new Set(['assessment', 'review', 'mistakes', 'travel', 'study']); const weeklyPlan = Array.isArray(row.weeklyPlan) ? row.weeklyPlan.flatMap(item => { const plan = item as Record<string, unknown>; return typeof plan?.action === 'string' && typeof plan?.reason === 'string' && targets.has(String(plan.target)) ? [{ action: plan.action.trim(), reason: plan.reason.trim(), target: plan.target as CareerAiAnalysis['weeklyPlan'][number]['target'] }] : []; }).slice(0, 3) : []; if (typeof row.headline !== 'string' || typeof row.summary !== 'string' || !weeklyPlan.length) throw new BadGatewayException('学习分析缺少必要字段'); return { headline: row.headline.trim(), summary: row.summary.trim(), strengths: strings('strengths'), focusAreas: strings('focusAreas'), weeklyPlan }; }
+function parseStoredAnalysis(value: Prisma.JsonValue): CareerAiAnalysis | null { try { return validateAiAnalysis(value); } catch { return null; } }
+function safeError(error: unknown) { return (error instanceof Error ? error.name : 'unknown').slice(0, 120); }
+function lowerLevel(left: CefrLevel, right: CefrLevel) { return LEVELS[Math.min(LEVELS.indexOf(left), LEVELS.indexOf(right))]; }
+function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0; }
+function startOfToday() { const date = new Date(); date.setHours(0, 0, 0, 0); return date; }
 function endOfToday() { const date = new Date(); date.setHours(24, 0, 0, 0); return date; }
 function dateKey(date: Date) { return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`; }
 function weekDay(date: Date) { return `周${'日一二三四五六'[date.getDay()]}`; }
+function periodChart(activity: PeriodStatistics['activity'], start: Date, bucketCount: number) { const bucketSize = Math.ceil(activity.length / bucketCount); return Array.from({ length: bucketCount }, (_, index) => { const offset = index * bucketSize; const slice = activity.slice(offset, offset + bucketSize); const date = new Date(start.getTime() + offset * DAY); return { label: index === bucketCount - 1 ? '至今' : bucketCount === 12 ? `${date.getMonth() + 1}月` : `${date.getMonth() + 1}/${date.getDate()}`, words: slice.reduce((sum, day) => sum + day.words, 0), completed: slice.some(isActiveDay), today: index === bucketCount - 1 }; }); }
+
+export { assessmentIsProvisional, careerInsights, validateAiAnalysis };

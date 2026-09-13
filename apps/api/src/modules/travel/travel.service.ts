@@ -9,6 +9,7 @@ import {
   PracticeItemType,
   Prisma,
   ProfileConfidence,
+  ProfileSnapshotSource,
   ScenarioCategory,
   ScenarioOutcome,
   ScenarioSessionStatus,
@@ -133,17 +134,23 @@ export class TravelService {
         : ProfileConfidence.LOW;
     const dimensions = assessmentDimensions(attempt.responses);
     const now = new Date();
-    const [, profile] = await this.prisma.$transaction([
-      this.prisma.assessmentAttempt.update({
+    const profile = await this.prisma.$transaction(async tx => {
+      await tx.assessmentAttempt.update({
         where: { id: attemptId },
         data: { status: AssessmentStatus.COMPLETED, completedAt: now, objectiveLevel, expressionLevel, confidence },
-      }),
-      this.prisma.languageProfile.upsert({
+      });
+      const updatedProfile = await tx.languageProfile.upsert({
         where: { userId },
         create: { userId, overallLevel, confidence, ...profileFields(dimensions), provisional: provisional || confidence === ProfileConfidence.LOW, assessedAt: now },
         update: { overallLevel, confidence, ...profileFields(dimensions), provisional: provisional || confidence === ProfileConfidence.LOW, assessedAt: now },
-      }),
-    ]);
+      });
+      await tx.languageProfileSnapshot.upsert({
+        where: { userId_source_sourceId: { userId, source: ProfileSnapshotSource.ASSESSMENT, sourceId: attemptId } },
+        create: { userId, source: ProfileSnapshotSource.ASSESSMENT, sourceId: attemptId, overallLevel, confidence, ...profileFields(dimensions), provisional: updatedProfile.provisional, recordedAt: now },
+        update: { overallLevel, confidence, ...profileFields(dimensions), provisional: updatedProfile.provisional, recordedAt: now },
+      });
+      return updatedProfile;
+    });
     return this.publicProfile(profile);
   }
 
@@ -298,7 +305,7 @@ export class TravelService {
       });
       if (evaluations.length) {
         const profile = await tx.languageProfile.upsert({ where: { userId }, create: { userId }, update: {} });
-        await tx.languageProfile.update({
+        const updatedProfile = await tx.languageProfile.update({
           where: { userId },
           data: {
             overallLevel: promotedLevel,
@@ -308,6 +315,11 @@ export class TravelService {
             taskCompletionScore: blend(profile.taskCompletionScore, dimensions.taskCompletion),
             naturalnessScore: blend(profile.naturalnessScore, dimensions.naturalness),
           },
+        });
+        await tx.languageProfileSnapshot.upsert({
+          where: { userId_source_sourceId: { userId, source: ProfileSnapshotSource.SCENARIO, sourceId: sessionId } },
+          create: { userId, source: ProfileSnapshotSource.SCENARIO, sourceId: sessionId, overallLevel: updatedProfile.overallLevel, confidence: updatedProfile.confidence, ...profileSnapshotFields(updatedProfile), provisional: updatedProfile.provisional, recordedAt: new Date() },
+          update: { overallLevel: updatedProfile.overallLevel, confidence: updatedProfile.confidence, ...profileSnapshotFields(updatedProfile), provisional: updatedProfile.provisional },
         });
       }
       if (skill && evaluations.length) {
@@ -368,15 +380,17 @@ export class TravelService {
   }
 
   async clearRecords(userId: string) {
-    const [plans, sessions, assessments, skills, profiles, usages] = await this.prisma.$transaction([
+    const [plans, sessions, assessments, skills, profiles, usages, snapshots, analysisCache] = await this.prisma.$transaction([
       this.prisma.dailyPracticePlan.deleteMany({ where: { userId } }),
       this.prisma.scenarioSession.deleteMany({ where: { userId } }),
       this.prisma.assessmentAttempt.deleteMany({ where: { userId } }),
       this.prisma.userSkillProgress.deleteMany({ where: { userId } }),
       this.prisma.languageProfile.deleteMany({ where: { userId } }),
       this.prisma.scenarioDailyUsage.deleteMany({ where: { userId } }),
+      this.prisma.languageProfileSnapshot.deleteMany({ where: { userId } }),
+      this.prisma.learningAnalysisCache.deleteMany({ where: { userId } }),
     ]);
-    return { success: true, cleared: { plans: plans.count, sessions: sessions.count, assessments: assessments.count, skills: skills.count, profiles: profiles.count, usages: usages.count } };
+    return { success: true, cleared: { plans: plans.count, sessions: sessions.count, assessments: assessments.count, skills: skills.count, profiles: profiles.count, usages: usages.count, snapshots: snapshots.count, analysisCache: analysisCache.count } };
   }
 
   private async reserveScenarioQuota(userId: string) {
@@ -552,6 +566,7 @@ export function highestPassedObjectiveLevel(responses: Array<{ isCorrect: boolea
 }
 function assessmentDimensions(responses: Array<{ isCorrect: boolean | null; scores: Prisma.JsonValue | null; item: { dimension: string; type: AssessmentItemType } }>): DimensionScores { const keys: Array<keyof DimensionScores> = ['vocabulary', 'grammar', 'sentenceBuilding', 'taskCompletion', 'naturalness']; const values = zeroScores(); for (const key of keys) { const objective = responses.filter(item => item.item.type !== AssessmentItemType.FREE_RESPONSE && item.item.dimension === key); const expression = responses.filter(item => item.item.type === AssessmentItemType.FREE_RESPONSE).map(item => normalizeScores(item.scores)[key]); const objectiveScore = objective.length ? objective.filter(item => item.isCorrect).length / objective.length * 100 : null; values[key] = Math.round(objectiveScore === null ? average(expression) : expression.length ? objectiveScore * .7 + average(expression) * .3 : objectiveScore); } return values; }
 function profileFields(scores: DimensionScores) { return { vocabularyScore: scores.vocabulary, grammarScore: scores.grammar, sentenceBuildingScore: scores.sentenceBuilding, taskCompletionScore: scores.taskCompletion, naturalnessScore: scores.naturalness }; }
+export function profileSnapshotFields(profile: { vocabularyScore: number; grammarScore: number; sentenceBuildingScore: number; taskCompletionScore: number; naturalnessScore: number }) { return { vocabularyScore: profile.vocabularyScore, grammarScore: profile.grammarScore, sentenceBuildingScore: profile.sentenceBuildingScore, taskCompletionScore: profile.taskCompletionScore, naturalnessScore: profile.naturalnessScore }; }
 function heuristicExpression(text: string): DimensionScores { const words = text.split(/\s+/).filter(Boolean); const sentences = text.split(/[.!?]+/).filter(Boolean); const polite = /\b(could|would|please|i'd like|may i)\b/i.test(text); const grammar = /\b(i|we|my|our)\b/i.test(text) && /\b(am|have|has|would|could|is|are|need|want|like)\b/i.test(text); return { vocabulary: Math.min(75, 25 + words.length * 3), grammar: grammar ? 55 : 30, sentenceBuilding: Math.min(75, 30 + sentences.length * 15 + Math.min(words.length, 15)), taskCompletion: Math.min(75, 20 + sentences.length * 20), naturalness: polite ? 60 : 35 }; }
 function parseCompletionJson(response: unknown) { const content = (response as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content; if (typeof content !== 'string') throw new BadGatewayException('模型响应缺少结构化内容'); const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''); try { return JSON.parse(cleaned) as unknown; } catch { throw new BadGatewayException('模型没有返回有效 JSON'); } }
 function safeErrorCode(error: unknown) { return (error instanceof Error ? error.message : 'unknown').slice(0, 120); }

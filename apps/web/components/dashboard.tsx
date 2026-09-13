@@ -230,9 +230,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'travel' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
+  const [page, setPage] = useState<'study' | 'travel' | 'assessment' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
     'study',
   );
+  const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
   const [currentBook, setCurrentBook] = useState<{
     id: string;
@@ -335,7 +336,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <span>词环</span>
           </button>
           <button
-            className={`nav-item nav-button ${page === 'travel' ? 'active' : ''}`}
+            className={`nav-item nav-button ${page === 'travel' || page === 'assessment' ? 'active' : ''}`}
             onClick={() => { setPage('travel'); setSidebarOpen(false); }}
           >
             <PlaneTakeoff size={16} />
@@ -380,6 +381,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <button
             className={`nav-item nav-button ${page === 'history' ? 'active' : ''}`}
             onClick={() => {
+              setHistoryBackPage('study');
               setPage('history');
               setSidebarOpen(false);
             }}
@@ -532,8 +534,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
             )}
           </div>
-        ) : page === 'travel' ? (
-          <TravelScenarioPage session={session} onBack={() => setPage('study')} />
+        ) : page === 'travel' || page === 'assessment' ? (
+          <TravelScenarioPage session={session} startWithAssessment={page === 'assessment'} onBack={() => setPage('study')} />
         ) : page === 'learning' ? (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
         ) : page === 'mistakes' ? (
@@ -550,10 +552,24 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         ) : page === 'history' ? (
           <LearningHistoryPage
             session={session}
-            onBack={() => setPage('study')}
+            backLabel={historyBackPage === 'statistics' ? '返回学习统计' : '返回学习进度'}
+            onBack={() => setPage(historyBackPage)}
           />
         ) : page === 'statistics' ? (
-          <StatisticsPage session={session} onBack={() => setPage('study')} />
+          <StatisticsPage
+            session={session}
+            onBack={() => setPage('study')}
+            onOpenHistory={() => {
+              setHistoryBackPage('statistics');
+              setPage('history');
+            }}
+            onNavigate={(target) => {
+              if (target === 'mistakes') setPage('mistakes');
+              else if (target === 'assessment') setPage('assessment');
+              else if (target === 'travel') setPage('travel');
+              else { setActiveTab('words'); setPage('study'); }
+            }}
+          />
         ) : (
           <AccountSettings
             session={session}

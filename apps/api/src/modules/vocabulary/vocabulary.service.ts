@@ -84,7 +84,7 @@ export class VocabularyService {
       select: { wordId: true },
     });
     const personalWordIds = [...new Set(personalWords.map(item => item.wordId))];
-    const [plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
+    const [plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, profileSnapshots, analysisCache, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
       this.prisma.studyPlan.deleteMany({ where: { userId } }),
       this.prisma.weaknessSignal.deleteMany({ where: { userId } }),
       this.prisma.tutorConversation.deleteMany({ where: { userId } }),
@@ -95,6 +95,8 @@ export class VocabularyService {
       this.prisma.userSkillProgress.deleteMany({ where: { userId } }),
       this.prisma.languageProfile.deleteMany({ where: { userId } }),
       this.prisma.scenarioDailyUsage.deleteMany({ where: { userId } }),
+      this.prisma.languageProfileSnapshot.deleteMany({ where: { userId } }),
+      this.prisma.learningAnalysisCache.deleteMany({ where: { userId } }),
       this.prisma.userWordProgress.deleteMany({ where: { userId } }),
       this.prisma.userMasteredWord.deleteMany({ where: { userId } }),
       this.prisma.learningEvent.deleteMany({ where: { userId } }),
@@ -114,6 +116,8 @@ export class VocabularyService {
         skillProgresses: skillProgresses.count,
         languageProfiles: languageProfiles.count,
         scenarioDailyUsages: scenarioDailyUsages.count,
+        profileSnapshots: profileSnapshots.count,
+        analysisCache: analysisCache.count,
         wordProgresses: progresses.count,
         masteredWords: masteredWords.count,
         learningEvents: learningEvents.count,

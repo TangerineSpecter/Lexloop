@@ -2,7 +2,7 @@ import { BadGatewayException } from '@nestjs/common';
 import { CefrLevel, ScenarioCategory } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import { ASSESSMENT_ITEMS, SCENARIOS } from '../src/modules/travel/travel.catalog';
-import { adaptLevel, expressionEvidenceLevel, highestPassedObjectiveLevel, mergeProgress, normalizeTurn } from '../src/modules/travel/travel.service';
+import { adaptLevel, expressionEvidenceLevel, highestPassedObjectiveLevel, mergeProgress, normalizeTurn, profileSnapshotFields } from '../src/modules/travel/travel.service';
 
 describe('travel learning rules', () => {
   it('ships six categories, three scenarios each, and a complete 22-item assessment', () => {
@@ -59,6 +59,16 @@ describe('travel learning rules', () => {
     expect(result.vocabulary[0].type).toBe('PHRASE');
     expect(() => normalizeTurn({ scores: {} })).toThrow(BadGatewayException);
     expect(() => normalizeTurn({ reply: 'OK', taskProgress: [], blockingCorrection: null, deferredFeedback: [], vocabulary: [], scores: {}, skillCodes: [], sessionShouldEnd: false })).toThrow(BadGatewayException);
+  });
+
+  it('takes scenario snapshot dimensions from the blended profile', () => {
+    expect(profileSnapshotFields({ vocabularyScore: 64, grammarScore: 71, sentenceBuildingScore: 68, taskCompletionScore: 80, naturalnessScore: 62 })).toEqual({
+      vocabularyScore: 64,
+      grammarScore: 71,
+      sentenceBuildingScore: 68,
+      taskCompletionScore: 80,
+      naturalnessScore: 62,
+    });
   });
 });
 
