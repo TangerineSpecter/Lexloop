@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import { CefrLevel, LexicalItemType } from '@prisma/client';
+import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VocabularyService } from './vocabulary.service';
 
@@ -8,6 +9,15 @@ type AuthenticatedRequest = { user: { sub: string } };
 
 class UpdateNewWordCountDto {
   @IsInt() @Min(5) @Max(40) defaultNewWordCount!: number;
+}
+
+class PersonalVocabularyItemDto {
+  @IsString() @MinLength(1) @MaxLength(120) text!: string;
+  @IsEnum(LexicalItemType) type!: LexicalItemType;
+  @IsString() @MinLength(1) @MaxLength(500) meaning!: string;
+  @IsString() @MinLength(1) @MaxLength(800) example!: string;
+  @IsOptional() @IsString() @MaxLength(160) sourceScenario?: string;
+  @IsOptional() @IsEnum(CefrLevel) cefrLevel?: CefrLevel;
 }
 
 @ApiTags('vocabulary')
@@ -19,6 +29,9 @@ export class VocabularyController {
 
   @Get('system') system(@Req() request: AuthenticatedRequest, @Query('category') category?: string) { return this.vocabulary.listSystemBooks(request.user.sub, category); }
   @Get('learning') learning(@Req() request: AuthenticatedRequest) { return this.vocabulary.listLearningBooks(request.user.sub); }
+  @Get('personal') personal(@Req() request: AuthenticatedRequest) { return this.vocabulary.listPersonalItems(request.user.sub); }
+  @Post('personal/items') savePersonal(@Req() request: AuthenticatedRequest, @Body() dto: PersonalVocabularyItemDto) { return this.vocabulary.savePersonalItem(request.user.sub, dto); }
+  @Delete('personal') clearPersonal(@Req() request: AuthenticatedRequest) { return this.vocabulary.clearPersonalItems(request.user.sub); }
   @Get('default') defaultBook(@Req() request: AuthenticatedRequest) { return this.vocabulary.getDefaultBook(request.user.sub); }
   @Get('progress-summary') progressSummary(@Req() request: AuthenticatedRequest) { return this.vocabulary.getProgressSummary(request.user.sub); }
   @Delete('learning-records') clearLearningRecords(@Req() request: AuthenticatedRequest) { return this.vocabulary.clearLearningRecords(request.user.sub); }

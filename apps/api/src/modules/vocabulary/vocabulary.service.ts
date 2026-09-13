@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { VocabularyCategory, WordProgressState } from '@prisma/client';
+import { CefrLevel, LexicalItemType, VocabularyBookKind, VocabularyCategory, WordProgressState } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const categoryLabels: Record<VocabularyCategory, string> = {
@@ -15,11 +15,11 @@ export class VocabularyService {
     const availableToUser = { userBooks: { none: { userId } } };
     const [books, categories] = await Promise.all([
       this.prisma.vocabularyBook.findMany({
-        where: { isActive: true, ...availableToUser, ...(selected ? { category: selected } : {}) },
+        where: { isActive: true, kind: VocabularyBookKind.SYSTEM, ownerId: null, ...availableToUser, ...(selected ? { category: selected } : {}) },
         orderBy: [{ category: 'asc' }, { title: 'asc' }],
         include: { _count: { select: { bookWords: true } }, userBooks: { where: { userId }, select: { isDefault: true } }, },
       }),
-      this.prisma.vocabularyBook.groupBy({ by: ['category'], where: { isActive: true, ...availableToUser }, _count: { _all: true } }),
+      this.prisma.vocabularyBook.groupBy({ by: ['category'], where: { isActive: true, kind: VocabularyBookKind.SYSTEM, ownerId: null, ...availableToUser }, _count: { _all: true } }),
     ]);
     return {
       categories: categories.sort((a, b) => categoryLabels[a.category].localeCompare(categoryLabels[b.category], 'zh-CN')).map((item) => ({ key: item.category, label: categoryLabels[item.category], count: item._count._all })),
@@ -79,14 +79,27 @@ export class VocabularyService {
   }
 
   async clearLearningRecords(userId: string) {
-    const [plans, weaknesses, tutorConversations, tutorDailyUsages, progresses, masteredWords, learningEvents] = await this.prisma.$transaction([
+    const personalWords = await this.prisma.vocabularyBookWord.findMany({
+      where: { book: { ownerId: userId, kind: VocabularyBookKind.PERSONAL } },
+      select: { wordId: true },
+    });
+    const personalWordIds = [...new Set(personalWords.map(item => item.wordId))];
+    const [plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
       this.prisma.studyPlan.deleteMany({ where: { userId } }),
       this.prisma.weaknessSignal.deleteMany({ where: { userId } }),
       this.prisma.tutorConversation.deleteMany({ where: { userId } }),
       this.prisma.tutorDailyUsage.deleteMany({ where: { userId } }),
+      this.prisma.dailyPracticePlan.deleteMany({ where: { userId } }),
+      this.prisma.scenarioSession.deleteMany({ where: { userId } }),
+      this.prisma.assessmentAttempt.deleteMany({ where: { userId } }),
+      this.prisma.userSkillProgress.deleteMany({ where: { userId } }),
+      this.prisma.languageProfile.deleteMany({ where: { userId } }),
+      this.prisma.scenarioDailyUsage.deleteMany({ where: { userId } }),
       this.prisma.userWordProgress.deleteMany({ where: { userId } }),
       this.prisma.userMasteredWord.deleteMany({ where: { userId } }),
       this.prisma.learningEvent.deleteMany({ where: { userId } }),
+      this.prisma.vocabularyBook.deleteMany({ where: { ownerId: userId, kind: VocabularyBookKind.PERSONAL } }),
+      this.prisma.vocabularyWord.deleteMany({ where: { id: { in: personalWordIds }, bookWords: { none: {} } } }),
     ]);
     return {
       success: true,
@@ -95,11 +108,74 @@ export class VocabularyService {
         weaknesses: weaknesses.count,
         tutorConversations: tutorConversations.count,
         tutorDailyUsages: tutorDailyUsages.count,
+        travelPlans: travelPlans.count,
+        scenarioSessions: scenarioSessions.count,
+        assessments: assessments.count,
+        skillProgresses: skillProgresses.count,
+        languageProfiles: languageProfiles.count,
+        scenarioDailyUsages: scenarioDailyUsages.count,
         wordProgresses: progresses.count,
         masteredWords: masteredWords.count,
         learningEvents: learningEvents.count,
+        personalBooks: personalBooks.count,
+        orphanWords: orphanWords.count,
       },
     };
+  }
+
+  async savePersonalItem(userId: string, input: { text: string; type: LexicalItemType; meaning: string; example: string; sourceScenario?: string; cefrLevel?: CefrLevel }) {
+    const normalized = input.text.trim().toLowerCase().replace(/\s+/g, ' ');
+    const personalNormalized = `personal:${userId}:${normalized}`;
+    const text = input.text.trim().replace(/\s+/g, ' ');
+    if (!normalized) throw new NotFoundException('要收藏的表达不能为空');
+    return this.prisma.$transaction(async tx => {
+      const book = await tx.vocabularyBook.upsert({
+        where: { sourceKey: `personal:${userId}:travel` },
+        create: { sourceKey: `personal:${userId}:travel`, sourcePath: `personal://${userId}/travel`, category: VocabularyCategory.GENERAL, title: '旅行生词本', kind: VocabularyBookKind.PERSONAL, ownerId: userId },
+        update: { isActive: true },
+      });
+      await tx.userVocabularyBook.upsert({ where: { userId_bookId: { userId, bookId: book.id } }, create: { userId, bookId: book.id }, update: { lastStudiedAt: new Date() } });
+      const word = await tx.vocabularyWord.upsert({
+        where: { normalized: personalNormalized },
+        create: { normalized: personalNormalized, text, itemType: input.type, cefrLevel: input.cefrLevel, spokenPriority: 100 },
+        update: { text, itemType: input.type, cefrLevel: input.cefrLevel, spokenPriority: 100 },
+      });
+      const existing = await tx.vocabularyBookWord.findUnique({ where: { bookId_wordId: { bookId: book.id, wordId: word.id } } });
+      const position = existing?.position ?? await tx.vocabularyBookWord.count({ where: { bookId: book.id } }) + 1;
+      const bookWord = await tx.vocabularyBookWord.upsert({
+        where: { bookId_wordId: { bookId: book.id, wordId: word.id } },
+        create: { bookId: book.id, wordId: word.id, position, contextMeaning: input.meaning.trim(), sourceScenario: input.sourceScenario?.trim() || null, sourceExample: input.example.trim() },
+        update: { contextMeaning: input.meaning.trim(), sourceScenario: input.sourceScenario?.trim() || null, sourceExample: input.example.trim() },
+        include: { word: true },
+      });
+      await tx.userWordProgress.upsert({
+        where: { userId_bookWordId: { userId, bookWordId: bookWord.id } },
+        create: { userId, bookWordId: bookWord.id, state: WordProgressState.REVIEWING, firstLearnedAt: new Date(), nextReviewAt: new Date() },
+        update: { state: WordProgressState.REVIEWING, nextReviewAt: new Date() },
+      });
+      return { id: bookWord.id, wordId: word.id, text: word.text, type: word.itemType, meaning: bookWord.contextMeaning ?? word.meaning, example: bookWord.sourceExample, sourceScenario: bookWord.sourceScenario, addedToReview: true };
+    });
+  }
+
+  async listPersonalItems(userId: string) {
+    const book = await this.prisma.vocabularyBook.findUnique({ where: { sourceKey: `personal:${userId}:travel` } });
+    if (!book || book.ownerId !== userId) return [];
+    const items = await this.prisma.vocabularyBookWord.findMany({ where: { bookId: book.id }, include: { word: true, progress: { where: { userId }, take: 1 } }, orderBy: { position: 'desc' } });
+    return items.map(item => ({ id: item.id, wordId: item.wordId, text: item.word.text, type: item.word.itemType, level: item.word.cefrLevel, meaning: item.contextMeaning ?? item.word.meaning, example: item.sourceExample, sourceScenario: item.sourceScenario, state: item.progress[0]?.state ?? WordProgressState.NEW, nextReviewAt: item.progress[0]?.nextReviewAt ?? null }));
+  }
+
+  async clearPersonalItems(userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const book = await tx.vocabularyBook.findFirst({
+        where: { ownerId: userId, kind: VocabularyBookKind.PERSONAL, sourceKey: `personal:${userId}:travel` },
+        include: { bookWords: { select: { wordId: true } } },
+      });
+      if (!book) return { success: true, cleared: 0, orphanWords: 0 };
+      const wordIds = [...new Set(book.bookWords.map(item => item.wordId))];
+      await tx.vocabularyBook.delete({ where: { id: book.id } });
+      const orphanWords = await tx.vocabularyWord.deleteMany({ where: { id: { in: wordIds }, bookWords: { none: {} } } });
+      return { success: true, cleared: 1, orphanWords: orphanWords.count };
+    });
   }
 
   async listMasteredWords(userId: string) {
@@ -242,7 +318,7 @@ export class VocabularyService {
   }
 
   async activateBook(userId: string, bookId: string) {
-    const book = await this.prisma.vocabularyBook.findFirst({ where: { id: bookId, isActive: true } });
+    const book = await this.prisma.vocabularyBook.findFirst({ where: { id: bookId, isActive: true, OR: [{ kind: VocabularyBookKind.SYSTEM }, { ownerId: userId }] } });
     if (!book) throw new NotFoundException('词表不存在或暂不可用');
     await this.prisma.$transaction(async (tx) => {
       await tx.userVocabularyBook.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });

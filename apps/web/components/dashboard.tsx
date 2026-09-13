@@ -37,6 +37,7 @@ import {
   Undo2,
   UserRound,
   Volume2,
+  PlaneTakeoff,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -47,6 +48,7 @@ import { SystemSettings } from './system-settings';
 import { Tooltip } from './tooltip';
 import { MistakesPage } from './mistakes-page';
 import { TutorPanel } from './tutor-panel';
+import { TravelScenarioPage } from './travel-scenario-page';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -228,7 +230,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
+  const [page, setPage] = useState<'study' | 'travel' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
     'study',
   );
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
@@ -331,6 +333,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           >
             <BookOpen size={16} />
             <span>词环</span>
+          </button>
+          <button
+            className={`nav-item nav-button ${page === 'travel' ? 'active' : ''}`}
+            onClick={() => { setPage('travel'); setSidebarOpen(false); }}
+          >
+            <PlaneTakeoff size={16} />
+            <span>场景口语</span>
           </button>
           <div className="nav-group">
             <a className="nav-item" href="#words">
@@ -523,6 +532,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
             )}
           </div>
+        ) : page === 'travel' ? (
+          <TravelScenarioPage session={session} onBack={() => setPage('study')} />
         ) : page === 'learning' ? (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
         ) : page === 'mistakes' ? (
@@ -1256,7 +1267,7 @@ function AccountSettings({
               <div>
                 <span>危险操作</span>
                 <h3 id="learning-danger-title">清理学习记录</h3>
-                <p>清除所有个人学习计划、答题结果、复习排期、学习中及已掌握单词。账号、词书、模型、偏好设置和可复用的 AI 阅读材料题库都会保留。</p>
+                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、旅行生词本、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
               </div>
               <button type="button" onClick={() => {
                 setClearMessage('');
@@ -1279,7 +1290,7 @@ function AccountSettings({
             <h2 id="learning-clear-title">确认清理全部学习记录？</h2>
             <div>
               <strong>此操作无法撤销</strong>
-              <span>当前学习序列、历史答题、复习时间、正确率、统计数据和已掌握状态都会被清空。</span>
+              <span>当前学习序列、旅行场景、水平画像、旅行生词、历史答题、复习时间、统计数据和已掌握状态都会被清空。</span>
               <small>账号、已添加词书、大模型配置、每日新词数量以及公共 AI 阅读材料与题目不会改变。</small>
             </div>
             {clearMessage && <p className="settings-clear-error">{clearMessage}</p>}
