@@ -119,7 +119,7 @@ export class TutorService {
       finalized = true;
       yield sse('done', { messageId: assistantMessageId, remaining: quota.remaining });
     } catch (error) {
-      const text = error instanceof Error ? error.message : 'AI 助手暂时不可用';
+      const text = this.safeErrorMessage(error);
       await this.failPendingCall(userId, assistantMessageId, auditId, complete || text, text, startedAt, quota.usageDate);
       finalized = true;
       yield sse('error', { message: text });
@@ -153,6 +153,20 @@ export class TutorService {
       return true;
     });
     if (transitioned) await this.refundQuota(userId, usageDate);
+  }
+
+  private safeErrorMessage(error: unknown) {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      const message = typeof response === 'string' ? response : response && typeof response === 'object' && 'message' in response ? (response as { message?: unknown }).message : undefined;
+      if (typeof message === 'string' && message.trim()) return message;
+      if (Array.isArray(message)) {
+        const text = message.filter((item): item is string => typeof item === 'string').join('；');
+        if (text) return text;
+      }
+    }
+    if (error instanceof Error && error.message === '模型没有返回可用内容') return error.message;
+    return '助手暂时无法回答，请稍后重试。';
   }
 
   private systemPrompt(type: TutorContext['type']) {

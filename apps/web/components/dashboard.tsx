@@ -444,6 +444,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             plan={plans.find((plan) => plan.id === lessonPlanId) ?? null}
             session={session}
             onBack={() => setLessonPlanId(null)}
+            onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined}
             onPlanUpdated={(updated) =>
               setPlans((current) =>
                 current.map((plan) =>
@@ -525,7 +526,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         ) : page === 'learning' ? (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
         ) : page === 'mistakes' ? (
-          <MistakesPage session={session} onBack={() => setPage('study')} onPlanCreated={(plan) => {
+          <MistakesPage session={session} onBack={() => setPage('study')} onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined} onPlanCreated={(plan) => {
             setPlans((current) => [plan, ...current.filter(item => item.id !== plan.id)]);
             setPreviewPlan(plan);
           }}/>
@@ -2494,11 +2495,13 @@ function GeneratedStudyPage({
   plan,
   session,
   onBack,
+  onOpenTutorSettings,
   onPlanUpdated,
 }: {
   plan: LearningPlan | null;
   session: Session;
   onBack: () => void;
+  onOpenTutorSettings?: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
   const [answers, setAnswers] = useState<Record<string, { selected: string[]; correct: boolean }>>({});
@@ -2612,7 +2615,7 @@ function GeneratedStudyPage({
           const question = group.questions.find((item) => item.bookWordId === word.id);
           return <div className={answer ? answer.correct ? 'is-correct' : 'is-wrong' : ''} key={word.id}>{!answer ? <Circle size={25}/> : answer.correct ? <CheckCircle2 size={25}/> : <CircleX size={25}/>}<strong>{word.word}</strong><span>{question ? exerciseLabels[question.type] : '练习题'}</span></div>;
         })}<p>{allAnswered ? '本组练习已完成' : '完成所有练习题后即可继续'}</p></section>
-        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: plan.id, groupIndex: group.index }} compact/>
+        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: plan.id, groupIndex: group.index }} compact onOpenSettings={onOpenTutorSettings}/>
       </aside>
     </div>
   </section>;

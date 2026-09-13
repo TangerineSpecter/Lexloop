@@ -39,10 +39,7 @@ export class AiService implements AiProvider {
       throw new BadGatewayException('AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试');
     }
 
-    if (!response.ok) {
-      const detail = await this.providerError(response);
-      throw new BadGatewayException(`AI Provider 请求失败（${response.status}）：${detail}`);
-    }
+    if (!response.ok) throw new BadGatewayException(await this.providerError(response));
     return response;
   }
 
@@ -61,10 +58,7 @@ export class AiService implements AiProvider {
     } catch {
       throw new BadGatewayException('AI Provider 无法连接，请检查模型配置或稍后重试');
     }
-    if (!response.ok) {
-      const detail = await this.providerError(response);
-      throw new BadGatewayException(`AI Provider 请求失败（${response.status}）：${detail}`);
-    }
+    if (!response.ok) throw new BadGatewayException(await this.providerError(response));
     return response;
   }
 
@@ -96,13 +90,12 @@ export class AiService implements AiProvider {
 
   private async providerError(response: Response): Promise<string> {
     try {
-      const payload: unknown = await response.json();
-      if (typeof payload === 'object' && payload !== null) {
-        const error = (payload as { error?: unknown }).error;
-        if (typeof error === 'string') return error;
-        if (typeof error === 'object' && error !== null && typeof (error as { message?: unknown }).message === 'string') return (error as { message: string }).message;
-      }
+      await response.json();
     } catch { /* Provider returned a non-JSON error body. */ }
-    return '请检查模型、请求参数和 Provider 配置';
+    if (response.status === 401 || response.status === 403) return '模型认证失败，请在模型设置中检查 API Key 是否有效后重试。';
+    if (response.status === 404) return '模型接口不存在，请检查 API 地址和模型配置。';
+    if (response.status === 408 || response.status === 429) return '模型服务暂时繁忙或额度不足，请稍后再试。';
+    if (response.status >= 500) return '模型服务暂时不可用，请稍后再试。';
+    return '模型请求未被接受，请检查模型名称和参数配置。';
   }
 }

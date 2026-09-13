@@ -15,7 +15,7 @@ type MistakeDetail = Weakness & { bookWordId: string; word: string; part: string
 
 const labels: Record<string, string> = { WORD_MNEMONIC: '单词助记', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '单词匹配', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解' };
 
-export function MistakesPage({ session, onBack, onPlanCreated }: { session: Session; onBack: () => void; onPlanCreated: (plan: LearningPlan) => void }) {
+export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreated }: { session: Session; onBack: () => void; onOpenTutorSettings?: () => void; onPlanCreated: (plan: LearningPlan) => void }) {
   const [status, setStatus] = useState<MistakeStatus>('active');
   const [questionType, setQuestionType] = useState('');
   const [page, setPage] = useState(1);
@@ -39,6 +39,18 @@ export function MistakesPage({ session, onBack, onPlanCreated }: { session: Sess
   }, [page, questionType, session.accessToken, status]);
 
   useEffect(() => { void load(true); }, [load]);
+
+  useEffect(() => {
+    if (!detail) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        setDetail(null);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [detail]);
 
   const openDetail = async (id: string) => {
     try { setDetail(await request<MistakeDetail>(`/mistakes/${id}`, {}, session.accessToken)); }
@@ -83,7 +95,7 @@ export function MistakesPage({ session, onBack, onPlanCreated }: { session: Sess
       </article>;
     })}</div>}
     {result && result.total > 20 && <div className="mistakes-pagination"><button disabled={page === 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={16}/>上一页</button><span>第 {page} 页</span><button disabled={!result.hasMore} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={16}/></button></div>}
-    {detail && <div className="mistake-detail-layer" role="dialog" aria-modal="true" aria-label={`${detail.word} 错题详情`}><button className="mistake-detail-scrim" onClick={() => setDetail(null)} aria-label="关闭错题详情"/><section className="mistake-detail"><header><div><p>{labels[detail.questionType] ?? detail.questionType}</p><h2>{detail.word}</h2><span>答对两次即可纠正 · 当前 {detail.consecutiveCorrect}/2</span></div><button onClick={() => setDetail(null)} aria-label="关闭"><X size={20}/></button></header><div className="mistake-detail-grid"><main><p className="mistake-meaning"><b>{detail.part}</b>{detail.meaning}</p>{detail.attempts.map(attempt => <article className={`mistake-attempt ${attempt.isCorrect ? 'is-correct' : 'is-wrong'}`} key={attempt.id}><header><strong>{attempt.isCorrect ? '回答正确' : '回答错误'}</strong><time>{new Date(attempt.createdAt).toLocaleString('zh-CN')}</time></header><p>{attempt.question?.prompt ?? '题目内容不可用'}</p>{attempt.question?.options?.length ? <ul>{attempt.question.options.map(option => <li key={option} className={attempt.question?.correctAnswers?.includes(option) ? 'is-answer' : ''}>{option}</li>)}</ul> : null}<small>你的答案：{answerText(attempt.selectedAnswer)}</small><strong>正确答案：{attempt.question?.correctAnswers?.join('、') || matchingAnswer(attempt.question)}</strong><p>{attempt.question?.explanation}</p></article>)}{detail.status !== 'resolved' && <button className="mistake-status-button" onClick={() => void changeStatus(detail, detail.status === 'ignored' ? 'ACTIVE' : 'IGNORED')}>{detail.status === 'ignored' ? <><RotateCcw size={16}/>恢复待巩固</> : <>暂时忽略</>}</button>}</main><aside><TutorPanel session={session} context={{ type: 'MISTAKE', weaknessId: detail.id }} compact/></aside></div></section></div>}
+    {detail && <div className="mistake-detail-layer" role="dialog" aria-modal="true" aria-label={`${detail.word} 错题详情`}><button className="mistake-detail-scrim" onClick={() => setDetail(null)} aria-label="关闭错题详情"/><section className="mistake-detail"><header><div><p>{labels[detail.questionType] ?? detail.questionType}</p><h2>{detail.word}</h2><span>答对两次即可纠正 · 当前 {detail.consecutiveCorrect}/2</span></div><button onClick={() => setDetail(null)} aria-label="关闭"><X size={20}/></button></header><div className="mistake-detail-grid"><main><p className="mistake-meaning"><b>{detail.part}</b>{detail.meaning}</p>{detail.attempts.map(attempt => <article className={`mistake-attempt ${attempt.isCorrect ? 'is-correct' : 'is-wrong'}`} key={attempt.id}><header><strong>{attempt.isCorrect ? '回答正确' : '回答错误'}</strong><time>{new Date(attempt.createdAt).toLocaleString('zh-CN')}</time></header><p>{attempt.question?.prompt ?? '题目内容不可用'}</p>{attempt.question?.options?.length ? <ul>{attempt.question.options.map(option => <li key={option} className={attempt.question?.correctAnswers?.includes(option) ? 'is-answer' : ''}>{option}</li>)}</ul> : null}<small>你的答案：{answerText(attempt.selectedAnswer)}</small><strong>正确答案：{attempt.question?.correctAnswers?.join('、') || matchingAnswer(attempt.question)}</strong><p>{attempt.question?.explanation}</p></article>)}{detail.status !== 'resolved' && <button className="mistake-status-button" onClick={() => void changeStatus(detail, detail.status === 'ignored' ? 'ACTIVE' : 'IGNORED')}>{detail.status === 'ignored' ? <><RotateCcw size={16}/>恢复待巩固</> : <>暂时忽略</>}</button>}</main><aside><TutorPanel session={session} context={{ type: 'MISTAKE', weaknessId: detail.id }} compact onOpenSettings={onOpenTutorSettings}/></aside></div></section></div>}
   </section>;
 }
 

@@ -64,9 +64,13 @@ describe('AiService', () => {
   });
 
   it('turns provider errors into a safe gateway error', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'Invalid model' } }), { status: 422 })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'Your api key: sk-secret is invalid' } }), { status: 401 })));
     const service = new AiService({ get: vi.fn((key: string) => key === 'AI_API_KEY' ? 'key' : undefined) } as never, { activeProvider: vi.fn().mockResolvedValue(null) } as never);
 
-    await expect(service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] })).rejects.toBeInstanceOf(BadGatewayException);
+    await expect(service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] })).rejects.toMatchObject({
+      constructor: BadGatewayException,
+      message: expect.stringContaining('模型认证失败'),
+    });
+    await expect(service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] })).rejects.not.toThrow('sk-secret');
   });
 });
