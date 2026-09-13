@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, Send, Settings2, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, Clock3, RefreshCw, Send, Settings2, Trash2 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { request, streamSse, type Session, userFacingError } from '../lib/api';
 
@@ -120,12 +120,12 @@ export function TutorPanel({ session, context, compact = false, onOpenSettings }
 
   const quickActions = context.type === 'MISTAKE' ? ['为什么会错？', '给我一个新例句', '怎么记住这个用法？'] : ['给我一点提示', '解释这个词', '给个新例句'];
   return <section className={`tutor-panel ${compact ? 'is-compact' : ''}`} aria-label="词环学习助手">
-    <header className="tutor-header"><div className="tutor-title"><span className="tutor-mark"><Sparkles size={19}/></span><div><strong>词环学习助手</strong><small>{context.type === 'MISTAKE' ? '错题追问' : '本组辅导'}</small></div></div>{messages.length > 0 && <button onClick={() => void clear()} disabled={busy || clearLoading} aria-label="清空助手会话"><Trash2 size={16}/></button>}</header>
+    <header className="tutor-header"><div className="tutor-title"><span className="tutor-mark"><Bot size={19}/></span><div><strong>词环学习助手</strong><small>{context.type === 'MISTAKE' ? '错题追问' : '本组辅导'}</small></div></div>{messages.length > 0 && <button onClick={() => void clear()} disabled={busy || clearLoading} aria-label="清空助手会话"><Trash2 size={16}/></button>}</header>
     <div className="tutor-context"><span className="tutor-context-dot" />{context.type === 'STUDY_GROUP' ? '先给线索，再一起拆解；交卷后可完整分析答案。' : '围绕这道错题，找到卡住的词义、搭配或解题线索。'}</div>
     <div className="tutor-quick-actions" aria-label="快捷提问">{quickActions.map(action => <button key={action} disabled={busy || remaining === 0 || historyLoading} onClick={() => void send(undefined, action)}>{action}</button>)}</div>
     <div className="tutor-messages" aria-live="polite">
       {hasMore && <button className="tutor-load-older" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? '正在读取更早对话…' : '加载更早对话'}</button>}
-      {historyLoading ? <div className="tutor-loading" aria-label="正在加载对话"><i/><i/><i/></div> : !messages.length && <div className="tutor-empty"><Sparkles size={25}/><strong>从一个小问题开始</strong><span>可以问词义、例句、记忆方法，或让助手解释这道题。</span></div>}
+      {historyLoading ? <div className="tutor-loading" aria-label="正在加载对话"><i/><i/><i/></div> : !messages.length && <div className="tutor-empty"><Bot size={25}/><strong>从一个小问题开始</strong><span>可以问词义、例句、记忆方法，或让助手解释这道题。</span></div>}
       {messages.map((item, index) => {
         const previous = messages[index - 1];
         const retryPrompt = item.status === 'failed' && previous?.role === 'user' ? previous.content : lastPrompt;
