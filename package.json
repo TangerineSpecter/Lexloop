@@ -1,5 +1,6 @@
 {
   "name": "lexloop",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
@@ -11,6 +12,8 @@
     "test": "turbo test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "release": "node scripts/release.mjs",
+    "test:updater": "node --test deploy/updater/*.test.mjs",
     "db:generate": "pnpm --filter @lexloop/api prisma:generate",
     "db:migrate": "pnpm --filter @lexloop/api prisma:migrate",
     "infra:up": "docker compose up -d",

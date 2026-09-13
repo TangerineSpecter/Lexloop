@@ -1,0 +1,191 @@
+name: lexloop
+
+x-app-build: &app-build
+  context: ..
+  dockerfile: Dockerfile
+  args:
+    NODE_IMAGE: ${NODE_IMAGE:-node:22.14.0-bookworm-slim}
+    APP_VERSION: ${APP_VERSION}
+    APP_COMMIT_SHA: ${APP_COMMIT_SHA}
+    APP_BUILD_TIME: ${APP_BUILD_TIME}
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+  REDIS_URL: redis://redis:6379
+  APP_VERSION: ${APP_VERSION}
+  APP_COMMIT_SHA: ${APP_COMMIT_SHA}
+  APP_BUILD_TIME: ${APP_BUILD_TIME}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:0.8.0-pg16}
+    container_name: lexloop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
+    container_name: lexloop-redis
+    restart: unless-stopped
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-02-07T23-21-09Z}
+    container_name: lexloop-minio
+    profiles: [storage]
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    networks: [internal]
+
+  web:
+    image: lexloop-web:${LEXLOOP_IMAGE_TAG}
+    build:
+      <<: *app-build
+      target: web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:52101
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  api:
+    image: lexloop-api:${LEXLOOP_IMAGE_TAG}
+    build:
+      <<: *app-build
+      target: api
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      PORT: 52101
+      WEB_ORIGIN: ${WEB_ORIGIN}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      AI_MODEL: ${AI_MODEL:-deepseek-v4-flash}
+      AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY}
+      UPDATER_SOCKET: /run/lexloop/updater.sock
+    volumes:
+      - /opt/lexloop/data/run:/run/lexloop:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:52101/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  worker:
+    image: lexloop-worker:${LEXLOOP_IMAGE_TAG}
+    build:
+      <<: *app-build
+      target: worker
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, 'try{process.kill(1,0)}catch{process.exit(1)}']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  migrate:
+    image: lexloop-migrate:${LEXLOOP_IMAGE_TAG}
+    build:
+      <<: *app-build
+      target: migrate
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  gateway:
+    image: ${CADDY_IMAGE:-caddy:2.9.1-alpine}
+    container_name: lexloop-gateway
+    restart: unless-stopped
+    ports:
+      - ${HTTP_PORT:-80}:80
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/api/v1/health]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+networks:
+  internal:
+    name: lexloop_internal
+    external: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

@@ -33,6 +33,7 @@ import {
   TimerReset,
   ToggleLeft,
   Trophy,
+  Swords,
   Trash2,
   Undo2,
   UserRound,
@@ -342,6 +343,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <PlaneTakeoff size={16} />
             <span>场景口语</span>
           </button>
+          <a className="nav-item" href="/dashboard/adventure">
+            <Swords size={16} />
+            <span>地下词环</span>
+          </a>
           <div className="nav-group">
             <a className="nav-item" href="#words">
               <BookOpen size={16} />

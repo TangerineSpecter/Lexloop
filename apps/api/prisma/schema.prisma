@@ -166,6 +166,82 @@ enum PracticeItemType {
   SCENARIO
 }
 
+enum AdventureRunStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+  RETREATED
+}
+
+enum AdventureRoomType {
+  COMBAT
+  ELITE
+  EVENT
+  CAMP
+  TREASURE
+  BOSS
+}
+
+enum AdventureRoomStatus {
+  PENDING
+  ACTIVE
+  CLEARED
+  FAILED
+  SKIPPED
+}
+
+enum AdventureChallengeType {
+  CHOICE
+  SPELLING
+  SENTENCE_ORDER
+  MATCHING
+  FREE_RESPONSE
+}
+
+enum AdventureActionPhase {
+  ATTACK
+  BLOCK
+}
+
+enum AdventureHitGrade {
+  PERFECT
+  HIT
+  GRAZE
+  MISS
+}
+
+enum AdventureEvidenceKind {
+  RECOGNITION
+  RECALL
+  PRODUCTION
+}
+
+enum EquipmentSlot {
+  WEAPON
+  ARMOR
+  ACCESSORY
+}
+
+enum EquipmentRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum SkillTarget {
+  SELF
+  ENEMY
+  ALLY
+  PARTY
+}
+
+enum AdventureQuestType {
+  DUE_REVIEW
+  WEAKNESS
+  FREE_CHALLENGE
+}
+
 model User {
   id             String         @id @default(cuid())
   email          String         @unique
@@ -196,6 +272,12 @@ model User {
   scenarioDailyUsages ScenarioDailyUsage[]
   languageProfileSnapshots LanguageProfileSnapshot[]
   learningAnalysisCache LearningAnalysisCache?
+  adventureProfile AdventureProfile?
+  adventureRuns DungeonRun[]
+  adventureEvidence AdventureLearningEvidence[]
+  adventureFloorProgresses UserFloorProgress[]
+  inventoryItems InventoryItem[]
+  adventureDailyQuests AdventureDailyQuest[]
 }
 
 model VocabularyBook {
@@ -214,6 +296,7 @@ model VocabularyBook {
   bookWords   VocabularyBookWord[]
   userBooks   UserVocabularyBook[]
   owner       User?              @relation("OwnedVocabularyBooks", fields: [ownerId], references: [id], onDelete: Cascade)
+  dungeonFloors DungeonFloor[]
 
   @@index([category, isActive])
   @@index([ownerId, kind])
@@ -248,6 +331,7 @@ model VocabularyBookWord {
   progress  UserWordProgress[]
   studyPlanItems StudyPlanItem[]
   weaknesses WeaknessSignal[]
+  floorTargets FloorLearningTarget[]
 
   @@unique([bookId, wordId])
   @@unique([bookId, position])
@@ -417,13 +501,15 @@ model WordReviewAttempt {
   id         String        @id @default(cuid())
   userId     String
   bookWordId String
-  planItemId String
+  planItemId String?
+  adventureActionId String? @unique
   isCorrect  Boolean
   questionType String?
   selectedAnswer Json?
   responseTimeMs Int?
   createdAt  DateTime      @default(now())
-  item       StudyPlanItem @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+  item       StudyPlanItem? @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+  adventureAction BattleAction? @relation(fields: [adventureActionId], references: [id], onDelete: Cascade)
 
   @@index([userId, bookWordId, createdAt])
   @@index([planItemId])
@@ -760,4 +846,275 @@ model ScenarioDailyUsage {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, usageDate])
+}
+
+model AdventureProfile {
+  id             String      @id @default(cuid())
+  userId         String      @unique
+  currentClassId String?
+  level          Int         @default(1)
+  experience     Int         @default(0)
+  gold           Int         @default(0)
+  materials      Int         @default(0)
+  skillPoints    Int         @default(1)
+  highestFloor   Int         @default(0)
+  soundEnabled   Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentClass   ClassNode?  @relation(fields: [currentClassId], references: [id], onDelete: SetNull)
+  skills         UserSkill[]
+
+  @@index([currentClassId])
+}
+
+model ClassNode {
+  id            String             @id
+  key           String             @unique
+  name          String
+  description   String
+  combatRole    String
+  tier          Int
+  requiredLevel Int
+  parentId      String?
+  sortOrder     Int                @default(0)
+  isActive      Boolean            @default(true)
+  parent        ClassNode?         @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children      ClassNode[]        @relation("ClassTree")
+  profiles      AdventureProfile[]
+  skills        SkillDefinition[]
+
+  @@index([parentId, tier, sortOrder])
+}
+
+model SkillDefinition {
+  id              String            @id
+  key             String            @unique
+  classNodeId     String
+  name            String
+  description     String
+  target          SkillTarget
+  cost            Int               @default(0)
+  requiredLevel   Int               @default(1)
+  requiredSkillId String?
+  effect          Json
+  sortOrder       Int               @default(0)
+  classNode       ClassNode         @relation(fields: [classNodeId], references: [id], onDelete: Cascade)
+  requiredSkill   SkillDefinition?  @relation("SkillPrerequisite", fields: [requiredSkillId], references: [id], onDelete: SetNull)
+  dependents      SkillDefinition[] @relation("SkillPrerequisite")
+  users           UserSkill[]
+
+  @@index([classNodeId, requiredLevel, sortOrder])
+}
+
+model UserSkill {
+  id         String           @id @default(cuid())
+  profileId  String
+  skillId    String
+  rank       Int              @default(1)
+  unlockedAt DateTime         @default(now())
+  profile    AdventureProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  skill      SkillDefinition  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, skillId])
+  @@index([skillId])
+}
+
+model DungeonFloor {
+  id             String                @id @default(cuid())
+  bookId         String
+  floorNumber    Int
+  title          String
+  cefrLevel      CefrLevel
+  sentenceFrames Json
+  version        Int                   @default(1)
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  book           VocabularyBook        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  targets        FloorLearningTarget[]
+  progresses     UserFloorProgress[]
+  runs           DungeonRun[]
+  quests         AdventureDailyQuest[]
+
+  @@unique([bookId, floorNumber, version])
+  @@index([bookId, isActive, floorNumber])
+}
+
+model FloorLearningTarget {
+  id         String                      @id @default(cuid())
+  floorId    String
+  bookWordId String
+  position   Int
+  floor      DungeonFloor                @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  bookWord   VocabularyBookWord          @relation(fields: [bookWordId], references: [id], onDelete: Cascade)
+  evidence   AdventureLearningEvidence[]
+
+  @@unique([floorId, bookWordId])
+  @@unique([floorId, position])
+  @@index([bookWordId])
+}
+
+model UserFloorProgress {
+  id             String       @id @default(cuid())
+  userId         String
+  floorId        String
+  exploration    Int          @default(0)
+  mastery        Int          @default(0)
+  bossUnlocked   Boolean      @default(false)
+  completedAt    DateTime?
+  bestScore      Int          @default(0)
+  lastExploredAt DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  floor          DungeonFloor @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, floorId])
+  @@index([userId, completedAt, lastExploredAt])
+}
+
+model DungeonRun {
+  id               String                      @id @default(cuid())
+  userId           String
+  floorId          String
+  status           AdventureRunStatus          @default(ACTIVE)
+  durationMinutes  Int
+  seed             String
+  roomCount        Int
+  currentRoom      Int                         @default(0)
+  playerHp         Int                         @default(100)
+  playerMaxHp      Int                         @default(100)
+  resource         Int                         @default(3)
+  experienceEarned Int                         @default(0)
+  goldEarned       Int                         @default(0)
+  materialsEarned  Int                         @default(0)
+  securedItemId    String?
+  snapshot         Json
+  startedAt        DateTime                    @default(now())
+  completedAt      DateTime?
+  user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  floor            DungeonFloor                @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  rooms            DungeonRoom[]
+  actions          BattleAction[]
+  evidence         AdventureLearningEvidence[]
+  acquiredItems    InventoryItem[]             @relation("AcquiredInRun")
+
+  @@index([userId, status, startedAt])
+  @@index([floorId, completedAt])
+}
+
+model DungeonRoom {
+  id         String              @id @default(cuid())
+  runId      String
+  position   Int
+  type       AdventureRoomType
+  status     AdventureRoomStatus @default(PENDING)
+  enemyName  String?
+  enemyHp    Int?
+  enemyMaxHp Int?
+  challenge  Json?
+  reward     Json?
+  state      Json?
+  run        DungeonRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  actions    BattleAction[]
+
+  @@unique([runId, position])
+}
+
+model BattleAction {
+  id             String                      @id @default(cuid())
+  runId          String
+  roomId         String
+  clientActionId String
+  phase          AdventureActionPhase
+  skillId        String?
+  challengeType  AdventureChallengeType
+  answer         Json
+  score          Int
+  grade          AdventureHitGrade
+  damageDealt    Int                         @default(0)
+  damageReceived Int                         @default(0)
+  feedback       Json
+  responseTimeMs Int?
+  createdAt      DateTime                    @default(now())
+  run            DungeonRun                  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  room           DungeonRoom                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  evidence       AdventureLearningEvidence[]
+  reviewAttempt  WordReviewAttempt?
+
+  @@unique([runId, clientActionId])
+  @@index([roomId, createdAt])
+}
+
+model AdventureLearningEvidence {
+  id          String                @id @default(cuid())
+  userId      String
+  targetId    String
+  runId       String
+  actionId    String
+  kind        AdventureEvidenceKind
+  score       Int
+  validRecall Boolean               @default(false)
+  createdAt   DateTime              @default(now())
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target      FloorLearningTarget   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  run         DungeonRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  action      BattleAction          @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, targetId])
+  @@index([userId, targetId, createdAt])
+}
+
+model EquipmentDefinition {
+  id          String          @id
+  key         String          @unique
+  name        String
+  description String
+  slot        EquipmentSlot
+  rarity      EquipmentRarity
+  minFloor    Int             @default(1)
+  baseStats   Json
+  isActive    Boolean         @default(true)
+  items       InventoryItem[]
+
+  @@index([slot, rarity, minFloor])
+}
+
+model InventoryItem {
+  id            String              @id @default(cuid())
+  userId        String
+  definitionId  String
+  acquiredRunId String?
+  stats         Json
+  durability    Int                 @default(100)
+  equipped      Boolean             @default(false)
+  secured       Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  definition    EquipmentDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  acquiredRun   DungeonRun?         @relation("AcquiredInRun", fields: [acquiredRunId], references: [id], onDelete: SetNull)
+
+  @@index([userId, equipped, createdAt])
+  @@index([acquiredRunId])
+}
+
+model AdventureDailyQuest {
+  id          String             @id @default(cuid())
+  userId      String
+  questDate   DateTime           @db.Date
+  type        AdventureQuestType
+  floorId     String?
+  title       String
+  description String
+  targetCount Int
+  progress    Int                @default(0)
+  reward      Json
+  claimedAt   DateTime?
+  createdAt   DateTime           @default(now())
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  floor       DungeonFloor?      @relation(fields: [floorId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, questDate, type])
+  @@index([userId, questDate, claimedAt])
 }

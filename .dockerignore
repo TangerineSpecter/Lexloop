@@ -1,0 +1,13 @@
+.git
+.github
+.next
+.turbo
+**/.next
+**/dist
+**/node_modules
+coverage
+.env
+.env.*
+*.log
+*.tsbuildinfo
+/deploy/updater/*.test.mjs

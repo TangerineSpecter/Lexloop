@@ -196,7 +196,7 @@ export class TutorService {
     const signal = await this.prisma.weaknessSignal.findFirst({ where: { id: context.weaknessId, userId }, include: { bookWord: { include: { word: true } } } });
     if (!signal) throw new NotFoundException('薄弱项不存在');
     const attempt = await this.prisma.wordReviewAttempt.findFirst({ where: { userId, bookWordId: signal.bookWordId, questionType: signal.questionType }, orderBy: { createdAt: 'desc' }, include: { item: true } });
-    return { word: signal.bookWord.word.text, meaning: signal.bookWord.word.meaning, questionType: signal.questionType, wrongCount: signal.wrongCount, consecutiveCorrect: signal.consecutiveCorrect, latestAttempt: attempt ? { isCorrect: attempt.isCorrect, selectedAnswer: attempt.selectedAnswer, question: attempt.item.question } : null };
+    return { word: signal.bookWord.word.text, meaning: signal.bookWord.word.meaning, questionType: signal.questionType, wrongCount: signal.wrongCount, consecutiveCorrect: signal.consecutiveCorrect, latestAttempt: attempt ? { isCorrect: attempt.isCorrect, selectedAnswer: attempt.selectedAnswer, question: attempt.item?.question ?? null } : null };
   }
 
   private findConversation(userId: string, context: TutorContext) {

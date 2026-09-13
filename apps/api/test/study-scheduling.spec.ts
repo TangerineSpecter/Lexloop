@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
 import { contentSignature, gradeQuestion, hasValidGeneratedMatchingPairs, unfamiliarityScore } from '../src/modules/study/study.service';
+import { reviewSchedule } from '../src/modules/study/review-scheduling';
 
 describe('dynamic review unfamiliarity', () => {
   const stable = {
@@ -39,6 +40,20 @@ describe('dynamic review unfamiliarity', () => {
     const highestRisk = unfamiliarityScore({ ...stable, accuracy: 0, overdueDays: 1000, postponedCount: 100 });
     expect(highestRisk).toBeGreaterThanOrEqual(0);
     expect(highestRisk).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('shared dynamic review schedule', () => {
+  it('preserves a mature interval when a correct answer comes from another learning mode', () => {
+    const now = new Date('2026-09-14T00:00:00.000Z');
+    const result = reviewSchedule({
+      reviewCount: 12, totalAttempts: 14, correctAttempts: 13, consecutiveCorrect: 5,
+      lastIntervalDays: 30, postponedCount: 0,
+      lastReviewedAt: new Date('2026-08-15T00:00:00.000Z'), nextReviewAt: now,
+    }, true, now);
+
+    expect(result.lastIntervalDays).toBeGreaterThan(30);
+    expect(result.nextReviewAt.getTime()).toBe(now.getTime() + result.lastIntervalDays * 86_400_000);
   });
 });
 

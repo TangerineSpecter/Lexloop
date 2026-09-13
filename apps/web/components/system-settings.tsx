@@ -1,9 +1,19 @@
 'use client';
 
-import { AlertTriangle, Bot, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bot,
+  ChevronDown,
+  PackageSearch,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { Tooltip } from './tooltip';
+import { SystemUpdatePanel } from './system-update-panel';
 
 type AiModel = {
   id: string;
@@ -21,6 +31,7 @@ const DEEPSEEK_MODELS = [
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
+  const [tab, setTab] = useState<'models' | 'updates'>('models');
   const [models, setModels] = useState<AiModel[]>([]);
   const [modal, setModal] = useState<AiModel | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
@@ -63,108 +74,132 @@ export function SystemSettings({ session }: { session: Session }) {
     <section className="system-settings">
       <h2>系统设置</h2>
       <div className="system-tabs" role="tablist">
-        <button className="active" role="tab" aria-selected="true">
+        <button
+          className={tab === 'models' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'models'}
+          onClick={() => setTab('models')}
+        >
           <Bot size={18} />
           AI 模型管理
         </button>
+        <button
+          className={tab === 'updates' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'updates'}
+          onClick={() => setTab('updates')}
+        >
+          <PackageSearch size={18} />
+          系统更新
+        </button>
       </div>
-      <div className="model-head">
-        <div>
-          <h3>
-            已配置模型 <b>{models.length}</b>
-          </h3>
-          <p>添加后默认启用；学习助手会使用最早添加的启用模型。</p>
-        </div>
-        <Tooltip label="添加模型">
-          <button onClick={() => setModal('new')}>
-            <Plus size={18} />
-            添加模型
-          </button>
-        </Tooltip>
-      </div>
-      {message && (
-        <p className="form-error model-message" role="alert">
-          <AlertTriangle size={18} aria-hidden="true" />
-          {message}
-        </p>
-      )}
-      {models.length ? (
-        <div className="model-list">
-          {models.map((model) => (
-            <article key={model.id}>
-              <div className="model-provider-mark">
-                {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
-              </div>
-              <div className="model-copy">
-                <strong>{model.displayName}</strong>
-                <span>
-                  {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} · {model.model}
-                </span>
-                <small>{model.baseUrl}</small>
-              </div>
-              <Tooltip label={model.isEnabled ? '点击关闭模型' : '点击启用模型'}>
-                <button
-                  type="button"
-                  className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
-                  onClick={() => void toggle(model)}
-                  aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
-                >
-                  {model.isEnabled ? '已启用' : '已关闭'}
-                </button>
-              </Tooltip>
-              <Tooltip label="编辑模型">
-                <button className="model-icon-button" onClick={() => setModal(model)} aria-label={`编辑 ${model.displayName}`}>
-                  <Pencil size={17} />
-                </button>
-              </Tooltip>
-              <Tooltip label="删除模型">
-                <button
-                  className="model-icon-button danger"
-                  onClick={() => {
-                    setDeleteError('');
-                    setDeleteTarget(model);
-                  }}
-                  aria-label={`删除 ${model.displayName}`}
-                >
-                  <Trash2 size={17} />
-                </button>
-              </Tooltip>
-            </article>
-          ))}
-        </div>
+      {tab === 'updates' ? (
+        <SystemUpdatePanel session={session} />
       ) : (
-        <div className="model-empty">
-          <Bot size={28} />
-          <strong>还没有配置模型</strong>
-          <p>添加 DeepSeek 或兼容 OpenAI Chat Completions 的模型开始使用。</p>
-        </div>
-      )}
-      {modal && (
-        <AiModelDialog
-          session={session}
-          model={modal === 'new' ? null : modal}
-          onClose={() => setModal(null)}
-          onSaved={(model) => {
-            setModels((items) =>
-              items.some((item) => item.id === model.id)
-                ? items.map((item) => (item.id === model.id ? model : item))
-                : [...items, model],
-            );
-            setModal(null);
-          }}
-        />
-      )}
-      {deleteTarget && (
-        <ModelDeleteDialog
-          model={deleteTarget}
-          busy={deleting}
-          error={deleteError}
-          onCancel={() => {
-            setDeleteError('');
-            setDeleteTarget(null);
-          }}
-          onConfirm={() => void remove(deleteTarget)}
-        />
+        <>
+          <div className="model-head">
+            <div>
+              <h3>
+                已配置模型 <b>{models.length}</b>
+              </h3>
+              <p>添加后默认启用；学习助手会使用最早添加的启用模型。</p>
+            </div>
+            <Tooltip label="添加模型">
+              <button onClick={() => setModal('new')}>
+                <Plus size={18} />
+                添加模型
+              </button>
+            </Tooltip>
+          </div>
+          {message && (
+            <p className="form-error model-message" role="alert">
+              <AlertTriangle size={18} aria-hidden="true" />
+              {message}
+            </p>
+          )}
+          {models.length ? (
+            <div className="model-list">
+              {models.map((model) => (
+                <article key={model.id}>
+                  <div className="model-provider-mark">
+                    {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
+                  </div>
+                  <div className="model-copy">
+                    <strong>{model.displayName}</strong>
+                    <span>
+                      {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} · {model.model}
+                    </span>
+                    <small>{model.baseUrl}</small>
+                  </div>
+                  <Tooltip label={model.isEnabled ? '点击关闭模型' : '点击启用模型'}>
+                    <button
+                      type="button"
+                      className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
+                      onClick={() => void toggle(model)}
+                      aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
+                    >
+                      {model.isEnabled ? '已启用' : '已关闭'}
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="编辑模型">
+                    <button
+                      className="model-icon-button"
+                      onClick={() => setModal(model)}
+                      aria-label={`编辑 ${model.displayName}`}
+                    >
+                      <Pencil size={17} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="删除模型">
+                    <button
+                      className="model-icon-button danger"
+                      onClick={() => {
+                        setDeleteError('');
+                        setDeleteTarget(model);
+                      }}
+                      aria-label={`删除 ${model.displayName}`}
+                    >
+                      <Trash2 size={17} />
+                    </button>
+                  </Tooltip>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="model-empty">
+              <Bot size={28} />
+              <strong>还没有配置模型</strong>
+              <p>添加 DeepSeek 或兼容 OpenAI Chat Completions 的模型开始使用。</p>
+            </div>
+          )}
+          {modal && (
+            <AiModelDialog
+              session={session}
+              model={modal === 'new' ? null : modal}
+              onClose={() => setModal(null)}
+              onSaved={(model) => {
+                setModels((items) =>
+                  items.some((item) => item.id === model.id)
+                    ? items.map((item) => (item.id === model.id ? model : item))
+                    : [...items, model],
+                );
+                setModal(null);
+              }}
+            />
+          )}
+          {deleteTarget && (
+            <ModelDeleteDialog
+              model={deleteTarget}
+              busy={deleting}
+              error={deleteError}
+              onCancel={() => {
+                setDeleteError('');
+                setDeleteTarget(null);
+              }}
+              onConfirm={() => void remove(deleteTarget)}
+            />
+          )}
+        </>
       )}
     </section>
   );
@@ -207,7 +242,12 @@ function ModelDeleteDialog({
           </span>
           <small>模型 ID：{model.model}</small>
         </div>
-        {error && <p className="form-error model-message" role="alert"><AlertTriangle size={18} aria-hidden="true"/>{error}</p>}
+        {error && (
+          <p className="form-error model-message" role="alert">
+            <AlertTriangle size={18} aria-hidden="true" />
+            {error}
+          </p>
+        )}
         <footer>
           <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
             取消

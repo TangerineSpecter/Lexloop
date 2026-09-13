@@ -1,9 +1,15 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '../src/modules/auth/auth.service';
 
-const user = { id: 'user_1', email: 'learner@lexloop.dev', displayName: 'Learner', role: 'USER' as const, passwordHash: '' };
+const user = {
+  id: 'user_1',
+  email: 'learner@lexloop.dev',
+  displayName: 'Learner',
+  role: 'USER' as const,
+  passwordHash: '',
+};
 
 describe('AuthService', () => {
   const prisma = {
@@ -19,7 +25,9 @@ describe('AuthService', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
     user.passwordHash = await argon2.hash('correct-password');
-    prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
+    prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) =>
+      callback(prisma),
+    );
     jwt.signAsync.mockResolvedValueOnce('access-token').mockResolvedValueOnce('refresh-token');
     service = new AuthService(prisma as never, jwt as never, config as never);
   });
@@ -33,7 +41,11 @@ describe('AuthService', () => {
 
     expect(prisma.$executeRaw).toHaveBeenCalledOnce();
     expect(prisma.user.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ email: user.email, displayName: user.displayName, role: 'ADMIN' }),
+      data: expect.objectContaining({
+        email: user.email,
+        displayName: user.displayName,
+        role: 'ADMIN',
+      }),
     });
     expect(result.user.role).toBe('ADMIN');
   });
@@ -58,8 +70,19 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toBe('access-token');
     expect(result.refreshToken).toBe('refresh-token');
-    expect(prisma.refreshToken.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: user.id, tokenId: expect.any(String), tokenHash: expect.any(String) }) }));
-    expect(jwt.signAsync).toHaveBeenLastCalledWith(expect.objectContaining({ sub: user.id, jti: expect.any(String) }), expect.objectContaining({ expiresIn: '30d' }));
+    expect(prisma.refreshToken.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: user.id,
+          tokenId: expect.any(String),
+          tokenHash: expect.any(String),
+        }),
+      }),
+    );
+    expect(jwt.signAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sub: user.id, jti: expect.any(String) }),
+      expect.objectContaining({ expiresIn: '30d' }),
+    );
   });
 
   it('rejects a refresh token whose jti cannot be found', async () => {
@@ -67,5 +90,14 @@ describe('AuthService', () => {
     prisma.refreshToken.findUnique.mockResolvedValue(null);
 
     await expect(service.refresh('refresh-token')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('re-verifies the current password before a privileged operation', async () => {
+    prisma.user.findUnique.mockResolvedValue(user);
+
+    await expect(service.verifyPassword(user.id, 'correct-password')).resolves.toBe(true);
+    await expect(service.verifyPassword(user.id, 'wrong-password')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });

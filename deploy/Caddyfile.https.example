@@ -1,0 +1,15 @@
+{
+	email admin@example.com
+}
+
+lexloop.example.com {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:52101
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

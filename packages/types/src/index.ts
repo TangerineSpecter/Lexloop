@@ -12,6 +12,49 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export type SystemUpdateStage =
+  | 'IDLE'
+  | 'CHECKING'
+  | 'BUILDING'
+  | 'BACKING_UP'
+  | 'MIGRATING'
+  | 'DEPLOYING'
+  | 'VERIFYING'
+  | 'SUCCEEDED'
+  | 'FAILED';
+
+export interface SystemUpdateRelease {
+  version: string;
+  sha: string;
+  tag: string;
+  compareUrl: string | null;
+}
+
+export interface SystemUpdateJob {
+  id: string;
+  stage: SystemUpdateStage;
+  message: string;
+  targetVersion: string;
+  targetSha: string;
+  actorId: string;
+  actorEmail: string;
+  startedAt: string;
+  finishedAt: string | null;
+  logs: string[];
+}
+
+export interface SystemUpdateStatus {
+  currentVersion: string;
+  currentSha: string;
+  updaterAvailable: boolean;
+  error: string | null;
+  latest: SystemUpdateRelease | null;
+  updateAvailable: boolean;
+  sameVersionRevision: boolean;
+  checkedAt: string | null;
+  job: SystemUpdateJob | null;
+}
+
 export type StatisticsRange = '7d' | '30d' | '365d';
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
 export type ProfileConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -26,7 +69,11 @@ export interface PeriodActivityDay {
   today?: boolean;
 }
 
-export interface RankingRow { word: string; count?: number; rate?: number }
+export interface RankingRow {
+  word: string;
+  count?: number;
+  rate?: number;
+}
 
 export interface PeriodStatistics {
   activeDays: number;
@@ -47,7 +94,12 @@ export interface PeriodStatistics {
   summary: string;
   suggestion: string;
   versusPrevious: number;
-  rankings: { accuracy: RankingRow[]; errorRate: RankingRow[]; unfamiliar: RankingRow[]; reviews: RankingRow[] };
+  rankings: {
+    accuracy: RankingRow[];
+    errorRate: RankingRow[];
+    unfamiliar: RankingRow[];
+    reviews: RankingRow[];
+  };
 }
 
 export interface AbilityDimensions {
@@ -73,7 +125,11 @@ export interface AbilitySnapshot {
 }
 
 export type CareerActionTarget = 'assessment' | 'review' | 'mistakes' | 'travel' | 'study';
-export interface CareerRecommendation { title: string; reason: string; target: CareerActionTarget }
+export interface CareerRecommendation {
+  title: string;
+  reason: string;
+  target: CareerActionTarget;
+}
 export interface CareerAiAnalysis {
   headline: string;
   summary: string;
@@ -122,10 +178,168 @@ export interface CareerStatistics {
     categoriesExperienced: number;
     totalCategories: number;
     categories: Array<{ category: string; count: number; successRate: number }>;
-    skills: Array<{ code: string; title: string; level: CefrLevel; score: number; evidenceCount: number }>;
+    skills: Array<{
+      code: string;
+      title: string;
+      level: CefrLevel;
+      score: number;
+      evidenceCount: number;
+    }>;
   };
   insights: { strengths: string[]; risks: string[]; recommendations: CareerRecommendation[] };
-  aiAnalysis: { status: 'none' | 'ready' | 'stale'; generatedAt: string | null; content: CareerAiAnalysis | null };
+  aiAnalysis: {
+    status: 'none' | 'ready' | 'stale';
+    generatedAt: string | null;
+    content: CareerAiAnalysis | null;
+  };
+}
+
+export type AdventureClassKey = 'warrior' | 'mage' | 'ranger' | 'cleric';
+export type AdventureChallengeType =
+  'CHOICE' | 'SPELLING' | 'SENTENCE_ORDER' | 'MATCHING' | 'FREE_RESPONSE';
+export type AdventureHitGrade = 'PERFECT' | 'HIT' | 'GRAZE' | 'MISS';
+export type AdventureRoomType = 'COMBAT' | 'ELITE' | 'EVENT' | 'CAMP' | 'TREASURE' | 'BOSS';
+export type AdventureRunStatus = 'ACTIVE' | 'COMPLETED' | 'FAILED' | 'RETREATED';
+export type EquipmentSlot = 'WEAPON' | 'ARMOR' | 'ACCESSORY';
+export type EquipmentRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+
+export interface AdventureClassNode {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  combatRole: string;
+  tier: number;
+  requiredLevel: number;
+  parentId: string | null;
+  available: boolean;
+  current: boolean;
+}
+
+export interface AdventureSkill {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  target: 'SELF' | 'ENEMY' | 'ALLY' | 'PARTY';
+  cost: number;
+  requiredLevel: number;
+  unlocked: boolean;
+}
+
+export interface AdventureProfile {
+  id: string;
+  level: number;
+  experience: number;
+  experienceToNextLevel: number;
+  gold: number;
+  materials: number;
+  skillPoints: number;
+  highestFloor: number;
+  soundEnabled: boolean;
+  currentClass: AdventureClassNode | null;
+  availableClasses: AdventureClassNode[];
+  skills: AdventureSkill[];
+}
+
+export interface DungeonFloorSummary {
+  id: string;
+  floorNumber: number;
+  title: string;
+  cefrLevel: CefrLevel;
+  targetCount: number;
+  exploration: number;
+  mastery: number;
+  bossUnlocked: boolean;
+  completed: boolean;
+  locked: boolean;
+}
+
+export interface DungeonMap {
+  book: { id: string; title: string } | null;
+  floors: DungeonFloorSummary[];
+}
+
+export interface BattleChallenge {
+  id: string;
+  type: AdventureChallengeType;
+  phase: 'ATTACK' | 'BLOCK';
+  prompt: string;
+  options?: string[];
+  tokens?: string[];
+  hint?: string;
+  inputPlaceholder?: string;
+}
+
+export interface DungeonRoomState {
+  id: string;
+  position: number;
+  type: AdventureRoomType;
+  status: 'PENDING' | 'ACTIVE' | 'CLEARED' | 'FAILED' | 'SKIPPED';
+  enemyName: string | null;
+  enemyHp: number | null;
+  enemyMaxHp: number | null;
+}
+
+export interface DungeonRunState {
+  id: string;
+  status: AdventureRunStatus;
+  durationMinutes: 5 | 10 | 15;
+  currentRoom: number;
+  roomCount: number;
+  playerHp: number;
+  playerMaxHp: number;
+  resource: number;
+  experienceEarned: number;
+  goldEarned: number;
+  materialsEarned: number;
+  floor: DungeonFloorSummary;
+  rooms: DungeonRoomState[];
+  loot: InventoryItem[];
+  challenge: BattleChallenge | null;
+  availableSkills: AdventureSkill[];
+  canRetreat: boolean;
+}
+
+export interface BattleResolution {
+  repeated: boolean;
+  score: number;
+  grade: AdventureHitGrade;
+  damageDealt: number;
+  damageReceived: number;
+  feedback: { correct: boolean; message: string; answer?: string };
+  run: DungeonRunState;
+  rewards?: { experience: number; gold: number; materials: number; item?: InventoryItem };
+}
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  description: string;
+  slot: EquipmentSlot;
+  rarity: EquipmentRarity;
+  stats: Record<string, number>;
+  durability: number;
+  equipped: boolean;
+  secured: boolean;
+}
+
+export interface Inventory {
+  items: InventoryItem[];
+  equipped: Partial<Record<EquipmentSlot, InventoryItem>>;
+}
+
+export interface DailyQuest {
+  id: string;
+  type: 'DUE_REVIEW' | 'WEAKNESS' | 'FREE_CHALLENGE';
+  title: string;
+  description: string;
+  targetCount: number;
+  progress: number;
+  reward: { gold: number; materials: number };
+  claimedAt: string | null;
+  claimable: boolean;
+  floorId: string | null;
 }
 
 interface LearningHistoryBase {
@@ -160,9 +374,18 @@ export interface LearningHistoryScenarioItem extends LearningHistoryBase {
   outcome: 'SUCCESS' | 'PARTIAL' | 'INCOMPLETE';
 }
 
-export type LearningHistoryItem = LearningHistoryPlanItem | LearningHistoryAssessmentItem | LearningHistoryScenarioItem;
+export type LearningHistoryItem =
+  LearningHistoryPlanItem | LearningHistoryAssessmentItem | LearningHistoryScenarioItem;
 export interface LearningHistoryResponse {
   items: LearningHistoryItem[];
   hasMore: boolean;
-  totals: { records: number; plans: number; words: number; questions: number; correctQuestions: number; assessments: number; scenarios: number };
+  totals: {
+    records: number;
+    plans: number;
+    words: number;
+    questions: number;
+    correctQuestions: number;
+    assessments: number;
+    scenarios: number;
+  };
 }

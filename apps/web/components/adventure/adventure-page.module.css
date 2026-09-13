@@ -1,0 +1,1756 @@
+.page,
+.classPage,
+.battlePage,
+.resultPage,
+.loading {
+  --ink: #082877;
+  --paper: #fffefa;
+  --blue: #315eb6;
+  --yellow: #ffdf4d;
+  --orange: #ff8351;
+  min-height: 100vh;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(8, 40, 119, 0.07) 0.65px, transparent 0.8px);
+  background-size: 8px 8px;
+  font-family: 'DM Sans', 'PingFang SC', sans-serif;
+}
+.page {
+  padding-bottom: 72px;
+}
+.topbar {
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 10px max(32px, calc((100vw - 1220px) / 2));
+  border-bottom: 3px solid var(--ink);
+  background: rgba(255, 254, 250, 0.96);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.topbar > button,
+.back,
+.battlePage > header > button {
+  justify-self: start;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.topbar > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.topbar small,
+.hero p,
+.sheet header small,
+.dungeonBoard header small,
+.questBoard header small,
+.classPage header small,
+.routePicker header small,
+.battlePage header small,
+.resultPage small {
+  font:
+    800 11px/1 'DM Mono',
+    monospace;
+  letter-spacing: 0.12em;
+}
+.topbar > div strong {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 22px;
+}
+.topbar nav {
+  justify-self: end;
+  display: flex;
+  gap: 7px;
+}
+.topbar nav button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  font-weight: 800;
+}
+.topbar nav button svg {
+  width: 17px;
+}
+.topbar nav button > b {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  font:
+    800 10px 'DM Mono',
+    monospace;
+}
+.topbar nav button.active {
+  border-color: var(--ink);
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.notice {
+  width: min(1220px, calc(100% - 64px));
+  margin: 18px auto 0;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-left: 8px solid var(--orange);
+  background: #fff4b9;
+  font-weight: 800;
+}
+.hero {
+  width: min(1220px, calc(100% - 64px));
+  margin: 34px auto 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 410px;
+  align-items: center;
+  gap: 40px;
+}
+.hero p {
+  margin: 0 0 10px;
+  color: var(--orange);
+}
+.hero h1 {
+  max-width: 720px;
+  margin: 0;
+  font:
+    800 clamp(32px, 4vw, 54px)/1.12 'Noto Serif SC',
+    serif;
+  letter-spacing: -0.04em;
+  text-decoration: underline 9px var(--yellow);
+  text-underline-offset: -5px;
+}
+.hero > div > span {
+  display: block;
+  max-width: 700px;
+  margin-top: 18px;
+  font-size: 16px;
+  line-height: 1.7;
+  font-weight: 700;
+  opacity: 0.72;
+}
+.profileCard {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 15px;
+  padding: 20px;
+  border: 3px solid var(--ink);
+  border-radius: 12px 9px 13px 8px;
+  background: #eaf2ff;
+  box-shadow: 5px 5px 0 var(--ink);
+  transform: rotate(0.4deg);
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--orange);
+  color: var(--paper);
+}
+.avatar svg {
+  width: 32px;
+}
+.profileCard > div:nth-child(2) small,
+.profileCard > div:nth-child(2) strong,
+.profileCard > div:nth-child(2) span {
+  display: block;
+}
+.profileCard strong {
+  font-size: 20px;
+}
+.profileCard i,
+.meters i,
+.questBoard article i,
+.hp {
+  display: block;
+  height: 11px;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+}
+.profileCard i {
+  margin: 8px 0 4px;
+}
+.profileCard i b,
+.meters i b,
+.questBoard article i em,
+.hp b {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+.profileCard > div span {
+  font:
+    700 11px 'DM Mono',
+    monospace;
+}
+.profileCard footer {
+  grid-column: 1/-1;
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 2px dashed rgba(8, 40, 119, 0.35);
+}
+.profileCard footer span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  background: var(--paper);
+  font-weight: 800;
+}
+.profileCard footer svg {
+  width: 15px;
+}
+.questBoard,
+.dungeonBoard,
+.sheet {
+  width: min(1220px, calc(100% - 64px));
+  margin: 24px auto;
+  border: 3px solid var(--ink);
+  border-radius: 13px 9px 12px 8px;
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
+  overflow: hidden;
+}
+.questBoard > header,
+.dungeonBoard > header,
+.sheet > header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 22px;
+  border-bottom: 3px solid var(--ink);
+  background: #fff4b9;
+}
+.questBoard header > div {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.questBoard header svg {
+  color: var(--orange);
+}
+.questBoard h2,
+.dungeonBoard h2,
+.sheet h2 {
+  margin: 3px 0 0;
+  font:
+    800 24px 'Noto Serif SC',
+    serif;
+}
+.questBoard header p {
+  margin: 0;
+  font-weight: 800;
+  opacity: 0.68;
+}
+.questBoard > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.questBoard article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 17px;
+  border-right: 2px dashed rgba(8, 40, 119, 0.35);
+}
+.questBoard article:last-child {
+  border: 0;
+}
+.questBoard article > b {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+  font:
+    800 14px 'DM Mono',
+    monospace;
+}
+.questBoard article strong,
+.questBoard article small {
+  display: block;
+}
+.questBoard article span > small {
+  min-height: 34px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+.questBoard article i {
+  margin-top: 8px;
+}
+.questBoard article > div {
+  min-width: 86px;
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  gap: 7px;
+}
+.questBoard article button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 86px;
+  height: 42px;
+  padding: 0 10px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  color: var(--paper);
+  background: var(--blue);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.questBoard article button:disabled {
+  color: var(--ink);
+  background: #eaf2ff;
+  box-shadow: none;
+  opacity: 0.65;
+}
+.questBoard article button svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+.dungeonBoard > header {
+  background: #eaf2ff;
+}
+.dungeonBoard header > span,
+.sheet header > span {
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  background: var(--paper);
+  font-weight: 800;
+}
+.floorTrail {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+.floorTrail:before {
+  content: '';
+  position: absolute;
+  left: 54px;
+  top: 30px;
+  bottom: 30px;
+  border-left: 3px dashed rgba(8, 40, 119, 0.3);
+}
+.floorTrail > button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--paper);
+  text-align: left;
+}
+.floorTrail > button:not(:disabled):hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.floorTrail > button:disabled {
+  opacity: 0.48;
+  background: #edf0f5;
+}
+.floorTrail > button.complete {
+  background: #eef9e8;
+}
+.floorTrail > button.boss {
+  border-width: 3px;
+  background: #fff4b9;
+}
+.floorNo {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+  font:
+    900 14px 'DM Mono',
+    monospace;
+}
+.floorNo svg {
+  width: 21px;
+}
+.floorTrail strong {
+  display: block;
+  margin: 3px 0 10px;
+  font-size: 19px;
+}
+.floorTrail small {
+  font:
+    700 11px 'DM Mono',
+    monospace;
+}
+.floorTrail > button > svg {
+  width: 20px;
+}
+.meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.meters label {
+  display: grid;
+  grid-template-columns: auto 1fr 36px;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.meters i {
+  height: 9px;
+}
+.meters label:nth-child(2) i b {
+  background: var(--orange);
+}
+.meters em {
+  font-style: normal;
+  font-family: 'DM Mono', monospace;
+}
+.modalLayer {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(8, 40, 119, 0.38);
+}
+.routePicker {
+  position: relative;
+  width: min(680px, 100%);
+  border: 3px solid var(--ink);
+  border-radius: 13px;
+  background: var(--paper);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+.routePicker > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px;
+  border-bottom: 3px solid var(--ink);
+}
+.routePicker h2 {
+  margin: 5px 0;
+  font:
+    800 29px 'Noto Serif SC',
+    serif;
+}
+.routePicker header p {
+  margin: 0;
+  opacity: 0.68;
+}
+.routePicker header button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.routePicker > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 22px;
+}
+.routePicker > div > button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  padding: 18px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  color: var(--ink);
+  background: #eaf2ff;
+  text-align: left;
+}
+.routePicker > div > button:hover {
+  background: var(--yellow);
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.routePicker > div span {
+  grid-column: 1/-1;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+.routePicker > div strong,
+.routePicker > div small {
+  display: block;
+}
+.routePicker > div strong {
+  font-size: 18px;
+}
+.routePicker > div small {
+  grid-column: 1/-1;
+}
+.routePicker > div > button > svg {
+  grid-column: 2;
+  grid-row: 2;
+}
+.bossNote {
+  margin: 0 22px 22px;
+  padding: 10px 12px;
+  border: 2px dashed var(--ink);
+  background: #fff4b9;
+  font-weight: 800;
+}
+.bossNote svg {
+  width: 17px;
+  vertical-align: middle;
+}
+.classPage {
+  padding: 36px max(32px, calc((100vw - 1220px) / 2)) 80px;
+}
+.classPage > .back {
+  display: flex;
+  width: auto;
+  padding: 0 13px;
+  gap: 7px;
+}
+.classPage > header {
+  max-width: 760px;
+  margin: 62px auto 40px;
+  text-align: center;
+}
+.classPage h1 {
+  margin: 12px 0;
+  font:
+    800 clamp(36px, 5vw, 62px)/1.08 'Noto Serif SC',
+    serif;
+  text-decoration: underline 10px var(--yellow);
+  text-underline-offset: -5px;
+}
+.classPage header p {
+  font-size: 17px;
+  line-height: 1.7;
+  opacity: 0.7;
+}
+.classGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+.classGrid > button {
+  min-height: 320px;
+  padding: 24px;
+  border: 3px solid var(--ink);
+  border-radius: 13px 9px 12px 8px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
+  text-align: left;
+}
+.classGrid > button:nth-child(2n) {
+  background: #eaf2ff;
+}
+.classGrid > button i {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--orange);
+}
+.classGrid h2 {
+  margin: 10px 0;
+  font:
+    800 30px 'Noto Serif SC',
+    serif;
+}
+.classGrid p {
+  min-height: 65px;
+  line-height: 1.6;
+}
+.classGrid span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 18px;
+  border-top: 2px dashed var(--ink);
+  font-weight: 900;
+}
+.classGrid span svg {
+  width: 18px;
+}
+.sheet {
+  padding-bottom: 24px;
+}
+.sheet > header {
+  margin-bottom: 20px;
+}
+.advancement {
+  margin: 20px;
+  padding: 20px;
+  border: 2px dashed var(--ink);
+  background: #fff4b9;
+}
+.advancement h3 {
+  margin-top: 0;
+}
+.advancement button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  width: 100%;
+  padding: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+}
+.advancement button + button {
+  margin-top: 8px;
+}
+.advancement button strong,
+.advancement button small {
+  display: block;
+}
+.advancement button svg {
+  grid-row: 1/3;
+  grid-column: 2;
+  align-self: center;
+}
+.skillTree,
+.inventory {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 13px;
+  padding: 0 20px;
+}
+.skillTree article,
+.inventory article {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 9px;
+  background: #f3f5f8;
+}
+.skillTree article.unlocked {
+  background: #eef9e8;
+}
+.skillTree article > i,
+.inventory article > i {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+  font:
+    800 14px 'DM Mono',
+    monospace;
+}
+.skillTree p,
+.inventory p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.skillTree small,
+.inventory small {
+  opacity: 0.68;
+}
+.skillTree button,
+.inventory button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  color: var(--paper);
+  background: var(--blue);
+  font-weight: 800;
+}
+.skillTree button:disabled,
+.inventory button:disabled {
+  color: var(--ink);
+  background: transparent;
+  opacity: 0.6;
+}
+.inventory article {
+  position: relative;
+}
+.rarity {
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  padding: 2px 6px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  font:
+    800 9px 'DM Mono',
+    monospace;
+}
+.rare {
+  background: #d8ebff;
+}
+.epic {
+  background: #fff4b9;
+}
+.legendary {
+  color: var(--paper);
+  background: var(--orange);
+}
+.sectionTitle {
+  position: relative;
+}
+.sectionTitle small {
+  color: var(--orange);
+  font:
+    800 10px/1 'DM Mono',
+    monospace;
+  letter-spacing: 0.12em;
+}
+.sectionTitle h3 {
+  margin: 5px 0 0;
+  font:
+    800 22px 'Noto Serif SC',
+    serif;
+}
+.sectionTitle > span {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  font-size: 12px;
+  font-weight: 800;
+  opacity: 0.62;
+}
+.equipmentRack {
+  margin: 0 20px 24px;
+  padding: 20px;
+  border: 3px solid var(--ink);
+  border-radius: 11px;
+  background: #eaf2ff;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.equipmentRack > .sectionTitle {
+  margin-bottom: 15px;
+}
+.equipmentRack > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.equipmentRack article {
+  min-height: 116px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 2px dashed rgba(8, 40, 119, 0.42);
+  border-radius: 9px;
+  background: rgba(255, 254, 250, 0.65);
+}
+.equipmentRack article.occupied {
+  border-style: solid;
+  background: var(--paper);
+}
+.equipmentRack article > i {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.equipmentRack article > i svg {
+  width: 25px;
+}
+.equipmentRack article span > * {
+  display: block;
+}
+.equipmentRack article span > small {
+  color: var(--orange);
+  font:
+    900 10px 'DM Mono',
+    monospace;
+}
+.equipmentRack article strong {
+  margin: 5px 0;
+  font-size: 17px;
+}
+.equipmentRack article em {
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.62;
+}
+.backpackSection {
+  padding: 0 20px;
+}
+.backpackSection > .sectionTitle {
+  margin: 0 0 18px;
+  padding-top: 18px;
+  border-top: 2px dashed rgba(8, 40, 119, 0.35);
+}
+.packEmpty {
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px;
+  border: 2px dashed var(--ink);
+  border-radius: 10px;
+  background: #fffaf0;
+}
+.packEmpty > svg {
+  width: 46px;
+  height: 46px;
+  color: var(--orange);
+}
+.packEmpty strong {
+  font-size: 18px;
+}
+.packEmpty p {
+  margin: 5px 0 0;
+  opacity: 0.68;
+}
+.insured {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 2px 6px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #eef9e8;
+  font:
+    800 9px 'DM Mono',
+    monospace;
+  font-style: normal;
+}
+.empty {
+  width: min(1220px, calc(100% - 64px));
+  margin: 30px auto;
+  display: grid;
+  justify-items: center;
+  padding: 60px 24px;
+  border: 3px dashed var(--ink);
+  border-radius: 12px;
+  background: var(--paper);
+  text-align: center;
+}
+.empty svg {
+  width: 52px;
+  height: 52px;
+  color: var(--orange);
+}
+.empty h2 {
+  margin-bottom: 4px;
+}
+.battlePage {
+  padding-bottom: 60px;
+}
+.battlePage > header {
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 10px max(24px, calc((100vw - 1120px) / 2));
+  border-bottom: 3px solid var(--ink);
+  background: var(--paper);
+}
+.battlePage > header > button {
+  display: flex;
+  width: auto;
+  gap: 7px;
+  padding: 0 12px;
+}
+.battlePage > header > div {
+  text-align: center;
+}
+.battlePage > header strong {
+  display: block;
+  font:
+    800 19px 'Noto Serif SC',
+    serif;
+}
+.battlePage > header > span {
+  justify-self: end;
+  padding: 5px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  background: var(--yellow);
+  font-weight: 800;
+}
+.roomTrack {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+}
+.roomTrack i {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  font:
+    800 11px 'DM Mono',
+    monospace;
+}
+.roomTrack i:not(:last-child):after {
+  content: '';
+  position: absolute;
+  left: 29px;
+  width: 20px;
+  border-top: 2px dashed var(--ink);
+}
+.roomTrack i.done {
+  color: var(--paper);
+  background: var(--blue);
+}
+.roomTrack i.here {
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: scale(1.15);
+}
+.roomTrack svg {
+  width: 14px;
+}
+.arena {
+  position: relative;
+  width: min(1000px, calc(100% - 48px));
+  min-height: 310px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 110px 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 28px 36px;
+  border: 3px solid var(--ink);
+  border-radius: 13px 9px 13px 9px;
+  background: linear-gradient(#eaf2ff 0 70%, #fff4b9 70%);
+  box-shadow: 5px 5px 0 var(--ink);
+  overflow: hidden;
+}
+.playerPane,
+.enemyPane {
+  min-width: 0;
+}
+.combatName {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 900;
+}
+.hp {
+  height: 15px;
+  margin-top: 7px;
+}
+.hp b {
+  background: var(--orange);
+}
+.heroDoodle {
+  height: 155px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+.heroDoodle svg:first-child {
+  width: 105px;
+  height: 105px;
+  fill: var(--paper);
+  stroke-width: 1.4;
+}
+.heroDoodle svg:last-child {
+  width: 78px;
+  height: 78px;
+  margin-left: -28px;
+  transform: rotate(-18deg);
+}
+.resource {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+.resource i {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+.resource i.filled {
+  background: var(--yellow);
+}
+.turnSeal {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  transform: rotate(-3deg);
+}
+.turnSeal small {
+  font:
+    800 9px 'DM Mono',
+    monospace;
+}
+.turnSeal strong {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  margin-top: 6px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--blue);
+  box-shadow: 4px 4px 0 var(--yellow);
+  font:
+    900 22px 'Noto Serif SC',
+    serif;
+}
+.enemyPane p {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+.monster {
+  height: 165px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+}
+.monster > i {
+  position: relative;
+  display: block;
+  width: 112px;
+  height: 94px;
+  border: 4px solid var(--ink);
+  border-radius: 52% 48% 38% 42%;
+  background: var(--orange);
+  box-shadow: 6px 7px 0 var(--ink);
+}
+.monster > i.bossMonster {
+  width: 142px;
+  height: 116px;
+  background: var(--yellow);
+}
+.monster i span {
+  position: absolute;
+  top: 36px;
+  width: 13px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.monster i span:first-child {
+  left: 29px;
+}
+.monster i span:nth-child(2) {
+  right: 29px;
+}
+.monster i b {
+  position: absolute;
+  left: 43%;
+  bottom: 18px;
+  width: 28px;
+  border-bottom: 4px solid var(--ink);
+  transform: rotate(4deg);
+}
+.monster em {
+  margin-top: 12px;
+  font:
+    800 9px 'DM Mono',
+    monospace;
+  font-style: normal;
+}
+.damageFx {
+  position: absolute;
+  z-index: 5;
+  top: 45%;
+  right: 22%;
+  padding: 7px 11px;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  color: var(--paper);
+  background: var(--orange);
+  box-shadow: 3px 3px 0 var(--ink);
+  font:
+    900 26px 'DM Mono',
+    monospace;
+}
+.damageFx.miss {
+  background: var(--paper);
+  color: var(--ink);
+}
+.lootDrop,
+.lootSatchel {
+  width: min(900px, calc(100% - 48px));
+  margin: 24px auto 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: var(--yellow);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.lootDrop > i,
+.lootSatchel > svg {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 9px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+.lootDrop > i svg {
+  width: 24px;
+}
+.lootDrop > svg {
+  color: var(--orange);
+}
+.lootDrop span > *,
+.lootSatchel span > * {
+  display: block;
+}
+.lootDrop small,
+.lootSatchel small {
+  font:
+    800 9px 'DM Mono',
+    monospace;
+  letter-spacing: 0.12em;
+}
+.lootDrop strong,
+.lootSatchel strong {
+  margin: 3px 0;
+  font-size: 17px;
+}
+.lootDrop em {
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.68;
+}
+.lootSatchel {
+  grid-template-columns: auto 1fr;
+  border-width: 2px;
+  background: #eaf2ff;
+  box-shadow: none;
+}
+.challengeCard {
+  width: min(900px, calc(100% - 48px));
+  margin: 28px auto 0;
+  padding: 22px 26px;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.challengeCard > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.challengeCard > header span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  color: var(--paper);
+  background: var(--blue);
+  font-weight: 800;
+}
+.challengeCard > header svg {
+  width: 16px;
+}
+.challengeCard > header small {
+  font-weight: 700;
+  opacity: 0.65;
+}
+.challengeCard h1 {
+  margin: 18px 0;
+  font:
+    800 clamp(21px, 3vw, 30px)/1.35 'Noto Serif SC',
+    serif;
+}
+.challengeCard > input {
+  width: 100%;
+  height: 58px;
+  padding: 0 16px;
+  border: 3px solid var(--ink);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 17px;
+  outline: none;
+}
+.challengeCard > input:focus {
+  box-shadow: 3px 3px 0 var(--yellow);
+  transform: translate(-1px, -1px);
+}
+.options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.options button,
+.order button {
+  min-height: 47px;
+  padding: 8px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font-weight: 800;
+}
+.options button:hover,
+.options button.selected,
+.order button:hover {
+  background: #eaf2ff;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.order > div {
+  min-height: 57px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 2px dashed var(--ink);
+}
+.order hr {
+  border: 0;
+  margin: 8px;
+}
+.order button:disabled {
+  opacity: 0.25;
+}
+.skillBar {
+  display: flex;
+  gap: 8px;
+  overflow: auto;
+  margin-top: 18px;
+  padding: 2px 2px 5px;
+}
+.skillBar > button {
+  min-width: 155px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  text-align: left;
+}
+.skillBar > button.selected {
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.skillBar svg {
+  width: 18px;
+}
+.skillBar strong,
+.skillBar small {
+  display: block;
+}
+.skillBar small {
+  opacity: 0.65;
+}
+.strike {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 54px;
+  margin-top: 18px;
+  border: 3px solid var(--ink);
+  border-radius: 9px;
+  color: var(--paper);
+  background: var(--orange);
+  box-shadow: 4px 4px 0 var(--ink);
+  font-size: 17px;
+  font-weight: 900;
+}
+.strike:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+.strike:disabled {
+  opacity: 0.5;
+  box-shadow: none;
+}
+.error,
+.success {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-left: 5px solid #b33a1d;
+  background: #fff0e8;
+  font-weight: 800;
+}
+.success {
+  border-color: #23834b;
+  background: #eef9e8;
+}
+.retreat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px auto;
+  padding: 10px 16px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #fff4b9;
+  font-weight: 900;
+}
+.resultPage,
+.loading {
+  display: grid;
+  place-items: center;
+  padding: 30px;
+}
+.resultPage > div {
+  width: min(680px, 100%);
+  padding: 44px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 8px 8px 0 var(--ink);
+  text-align: center;
+}
+.resultPage > div > span {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 18px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.resultPage > div > span svg {
+  width: 44px;
+  height: 44px;
+}
+.resultPage h1 {
+  margin: 12px;
+  font:
+    800 40px 'Noto Serif SC',
+    serif;
+}
+.resultPage section {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 24px 0;
+}
+.resultPage section b {
+  padding: 7px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  background: #eaf2ff;
+}
+.resultLoot {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr);
+  padding: 16px;
+  border: 2px dashed var(--ink);
+  background: #fffaf0;
+  text-align: left;
+}
+.resultLoot h2 {
+  grid-column: 1/-1;
+  margin: 0 0 5px;
+  font:
+    800 18px 'Noto Serif SC',
+    serif;
+}
+.resultLoot article {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.resultLoot article > i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.resultLoot article svg {
+  width: 18px;
+}
+.resultLoot article span > * {
+  display: block;
+}
+.resultLoot article small {
+  margin-top: 2px;
+  font-size: 9px;
+  opacity: 0.65;
+}
+.resultPage button {
+  min-height: 50px;
+  padding: 0 24px;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  color: var(--paper);
+  background: var(--blue);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-weight: 900;
+}
+.loading {
+  align-content: center;
+  gap: 16px;
+}
+.loading > button {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.loading > svg {
+  width: 44px;
+  height: 44px;
+  color: var(--orange);
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 920px) {
+  .topbar {
+    grid-template-columns: auto 1fr;
+  }
+  .topbar > div {
+    justify-self: center;
+  }
+  .topbar nav {
+    grid-column: 1/-1;
+    justify-self: stretch;
+    justify-content: center;
+    overflow: auto;
+  }
+  .hero {
+    grid-template-columns: 1fr;
+  }
+  .profileCard {
+    transform: none;
+  }
+  .questBoard > div {
+    grid-template-columns: 1fr;
+  }
+  .questBoard article {
+    border-right: 0;
+    border-bottom: 2px dashed rgba(8, 40, 119, 0.35);
+  }
+  .classGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .equipmentRack > div:last-child {
+    grid-template-columns: 1fr;
+  }
+  .arena {
+    grid-template-columns: 1fr 70px 1fr;
+    padding: 24px 18px;
+  }
+  .turnSeal strong {
+    width: 66px;
+    height: 66px;
+    font-size: 17px;
+  }
+  .skillTree,
+  .inventory {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .page {
+    padding-bottom: 40px;
+  }
+  .topbar {
+    padding: 10px 16px;
+  }
+  .topbar > div small {
+    display: none;
+  }
+  .topbar nav button {
+    flex: 1;
+    justify-content: center;
+  }
+  .topbar nav button > b {
+    display: none;
+  }
+  .hero,
+  .questBoard,
+  .dungeonBoard,
+  .sheet,
+  .empty {
+    width: calc(100% - 28px);
+  }
+  .hero {
+    margin-top: 22px;
+  }
+  .hero h1 {
+    font-size: 34px;
+  }
+  .questBoard > header,
+  .dungeonBoard > header,
+  .sheet > header {
+    grid-template-columns: 1fr;
+  }
+  .questBoard article {
+    grid-template-columns: 34px 1fr;
+  }
+  .questBoard article > div {
+    grid-column: 2;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    justify-items: start;
+  }
+  .floorTrail {
+    padding: 14px;
+  }
+  .floorTrail:before {
+    left: 39px;
+  }
+  .floorTrail > button {
+    grid-template-columns: 44px 1fr;
+    padding: 12px;
+  }
+  .floorTrail > button > svg {
+    display: none;
+  }
+  .floorNo {
+    width: 39px;
+    height: 39px;
+  }
+  .meters {
+    grid-template-columns: 1fr;
+  }
+  .routePicker > div {
+    grid-template-columns: 1fr;
+  }
+  .classPage {
+    padding: 22px 14px 50px;
+  }
+  .classPage > header {
+    margin: 42px auto 28px;
+  }
+  .classGrid {
+    grid-template-columns: 1fr;
+  }
+  .classGrid > button {
+    min-height: 270px;
+  }
+  .equipmentRack,
+  .backpackSection {
+    margin-left: 12px;
+    margin-right: 12px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .sectionTitle > span {
+    position: static;
+    display: block;
+    margin-top: 6px;
+  }
+  .inventory article {
+    grid-template-columns: auto 1fr;
+  }
+  .inventory article > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .battlePage > header {
+    grid-template-columns: auto 1fr;
+    padding: 10px 14px;
+  }
+  .battlePage > header > button {
+    width: 42px;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 10px;
+    font-size: 0;
+  }
+  .battlePage > header > button svg {
+    width: 19px;
+    height: 19px;
+  }
+  .battlePage > header > div {
+    text-align: left;
+  }
+  .battlePage > header > span {
+    display: none;
+  }
+  .arena {
+    width: calc(100% - 28px);
+    min-height: 340px;
+    grid-template-columns: 1fr 54px 1fr;
+    align-items: start;
+    padding: 18px 10px;
+    background: linear-gradient(#eaf2ff 0 88%, #fff4b9 88%);
+  }
+  .heroDoodle,
+  .monster {
+    height: 125px;
+  }
+  .heroDoodle svg:first-child {
+    width: 75px;
+  }
+  .heroDoodle svg:last-child {
+    width: 55px;
+  }
+  .monster > i {
+    width: 88px;
+    height: 76px;
+  }
+  .monster > i.bossMonster {
+    width: 100px;
+    height: 90px;
+  }
+  .combatName {
+    display: grid;
+    font-size: 11px;
+  }
+  .turnSeal {
+    align-self: center;
+    margin-top: 90px;
+  }
+  .turnSeal strong {
+    width: 50px;
+    height: 50px;
+    font-size: 14px;
+  }
+  .enemyPane p {
+    font-size: 10px;
+  }
+  .lootDrop,
+  .lootSatchel,
+  .challengeCard {
+    width: calc(100% - 28px);
+  }
+  .challengeCard {
+    padding: 18px 14px;
+  }
+  .challengeCard > header {
+    align-items: flex-start;
+  }
+  .options {
+    grid-template-columns: 1fr;
+  }
+  .skillBar > button {
+    min-width: 135px;
+  }
+  .resultPage > div {
+    padding: 30px 18px;
+  }
+  .resultPage h1 {
+    font-size: 32px;
+  }
+  .resultPage section {
+    flex-direction: column;
+  }
+  .resultLoot {
+    grid-template-columns: 1fr;
+  }
+  .resultLoot h2 {
+    grid-column: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .monster,
+  .spin {
+    animation: none !important;
+  }
+  .floorTrail > button,
+  .classGrid > button,
+  .damageFx {
+    transition: none !important;
+    transform: none !important;
+  }
+}

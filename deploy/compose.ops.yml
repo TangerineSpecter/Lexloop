@@ -1,0 +1,38 @@
+name: lexloop-ops
+
+services:
+  updater:
+    image: lexloop-updater:${LEXLOOP_IMAGE_TAG}
+    build:
+      context: ..
+      dockerfile: deploy/updater/Dockerfile
+      args:
+        DOCKER_CLI_IMAGE: ${DOCKER_CLI_IMAGE:-docker:27.5.1-cli}
+    container_name: lexloop-updater
+    restart: unless-stopped
+    environment:
+      UPDATER_SOCKET: /opt/lexloop/data/run/updater.sock
+      UPDATER_STATE_FILE: /opt/lexloop/data/updater/update-state.json
+      REPOSITORY_URL: https://github.com/TangerineSpecter/Lexloop.git
+      GITHUB_REPOSITORY: TangerineSpecter/Lexloop
+      TRUSTED_BRANCH: master
+      BARE_REPOSITORY: /opt/lexloop/source/repo.git
+      RELEASES_DIR: /opt/lexloop/releases
+      BACKUPS_DIR: /opt/lexloop/backups
+      PRODUCTION_ENV: /opt/lexloop/config/production.env
+      COMPOSE_PROJECT_NAME: lexloop
+      APP_VERSION: ${APP_VERSION}
+      APP_COMMIT_SHA: ${APP_COMMIT_SHA}
+      LEXLOOP_IMAGE_TAG: ${LEXLOOP_IMAGE_TAG}
+      CURRENT_RELEASE_PATH: ${CURRENT_RELEASE_PATH}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/lexloop:/opt/lexloop
+    networks: [internal]
+
+networks:
+  internal:
+    name: lexloop_internal
+    external: true

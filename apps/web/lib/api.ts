@@ -1,36 +1,58 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:52101/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 
-export type Session = { accessToken: string; user: { id: string; email: string; displayName: string | null; role: 'USER' | 'ADMIN' } };
+export type Session = {
+  accessToken: string;
+  user: { id: string; email: string; displayName: string | null; role: 'USER' | 'ADMIN' };
+};
 export class ApiRequestError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
     super(message);
     this.name = 'ApiRequestError';
   }
 }
 
 function responseMessage(status: number, body: unknown, fallback: string) {
-  const raw = typeof body === 'object' && body !== null && 'message' in body ? (body as { message?: unknown }).message : undefined;
+  const raw =
+    typeof body === 'object' && body !== null && 'message' in body
+      ? (body as { message?: unknown }).message
+      : undefined;
   const message = Array.isArray(raw)
     ? raw.filter((item): item is string => typeof item === 'string').join('；')
-    : typeof raw === 'string' ? raw : '';
+    : typeof raw === 'string'
+      ? raw
+      : '';
   if (status === 401) return '登录状态已过期，请重新登录后继续。';
   if (status === 403) return '当前账号没有执行此操作的权限。';
   if (status === 404) return '要访问的内容不存在，可能已被移除。';
   if (status === 408 || status === 429) return message || '请求较多或服务繁忙，请稍后再试。';
-  if (status >= 500) return message && /^[\u3400-\u9fff]/.test(message) ? message : '服务暂时不可用，请稍后再试。';
+  if (status >= 500)
+    return message && /^[\u3400-\u9fff]/.test(message) ? message : '服务暂时不可用，请稍后再试。';
   return message || fallback;
 }
 
 export function userFacingError(error: unknown, fallback = '操作未完成，请稍后再试。') {
   return error instanceof Error && error.message ? error.message : fallback;
 }
-export function saveSession(session: Session) { localStorage.setItem('lexloop.session', JSON.stringify(session)); }
-export function readSession(): Session | null { const raw = localStorage.getItem('lexloop.session'); return raw ? JSON.parse(raw) as Session : null; }
-export function clearSession() { localStorage.removeItem('lexloop.session'); }
-export function refreshSession() { return request<Session>('/auth/refresh', { method: 'POST' }); }
+export function saveSession(session: Session) {
+  localStorage.setItem('lexloop.session', JSON.stringify(session));
+}
+export function readSession(): Session | null {
+  const raw = localStorage.getItem('lexloop.session');
+  return raw ? (JSON.parse(raw) as Session) : null;
+}
+export function clearSession() {
+  localStorage.removeItem('lexloop.session');
+}
+export function refreshSession() {
+  return request<Session>('/auth/refresh', { method: 'POST' });
+}
 export async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(init.headers);
-  if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (typeof init.body === 'string' && !headers.has('Content-Type'))
+    headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   let response: Response;
   try {
@@ -38,7 +60,13 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
   } catch {
     throw new Error('请求未能完成，请检查 API 服务或跨域配置。');
   }
-  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new ApiRequestError(responseMessage(response.status, body, '请求失败，请稍后重试'), response.status); }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiRequestError(
+      responseMessage(response.status, body, '请求失败，请稍后重试'),
+      response.status,
+    );
+  }
   return response.json() as Promise<T>;
 }
 
@@ -59,7 +87,10 @@ export async function streamSse(
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiRequestError(responseMessage(response.status, body, '助手请求失败，请稍后重试。'), response.status);
+    throw new ApiRequestError(
+      responseMessage(response.status, body, '助手请求失败，请稍后重试。'),
+      response.status,
+    );
   }
   if (!response.body) throw new Error('AI 助手没有返回内容');
   const reader = response.body.getReader();

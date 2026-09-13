@@ -84,7 +84,7 @@ export class MistakesService {
     return {
       ...this.serializeSignal(signal), bookWordId: signal.bookWordId, word: signal.bookWord.word.text,
       part: part(signal.bookWord.word.meaning), meaning: meaning(signal.bookWord.word.meaning), bookTitle: signal.bookWord.book.title,
-      attempts: attempts.map(attempt => ({ id: attempt.id, isCorrect: attempt.isCorrect, selectedAnswer: attempt.selectedAnswer, responseTimeMs: attempt.responseTimeMs, createdAt: attempt.createdAt, question: attempt.item.question })),
+      attempts: attempts.map(attempt => ({ id: attempt.id, isCorrect: attempt.isCorrect, selectedAnswer: attempt.selectedAnswer, responseTimeMs: attempt.responseTimeMs, createdAt: attempt.createdAt, question: attempt.item?.question ?? null })),
     };
   }
 

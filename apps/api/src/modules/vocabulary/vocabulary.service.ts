@@ -84,7 +84,12 @@ export class VocabularyService {
       select: { wordId: true },
     });
     const personalWordIds = [...new Set(personalWords.map(item => item.wordId))];
-    const [plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, profileSnapshots, analysisCache, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
+    const [adventureQuests, adventureRuns, adventureFloorProgresses, inventoryItems, adventureProfiles, plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, profileSnapshots, analysisCache, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
+      this.prisma.adventureDailyQuest.deleteMany({ where: { userId } }),
+      this.prisma.dungeonRun.deleteMany({ where: { userId } }),
+      this.prisma.userFloorProgress.deleteMany({ where: { userId } }),
+      this.prisma.inventoryItem.deleteMany({ where: { userId } }),
+      this.prisma.adventureProfile.deleteMany({ where: { userId } }),
       this.prisma.studyPlan.deleteMany({ where: { userId } }),
       this.prisma.weaknessSignal.deleteMany({ where: { userId } }),
       this.prisma.tutorConversation.deleteMany({ where: { userId } }),
@@ -106,6 +111,11 @@ export class VocabularyService {
     return {
       success: true,
       cleared: {
+        adventureQuests: adventureQuests.count,
+        adventureRuns: adventureRuns.count,
+        adventureFloorProgresses: adventureFloorProgresses.count,
+        inventoryItems: inventoryItems.count,
+        adventureProfiles: adventureProfiles.count,
         plans: plans.count,
         weaknesses: weaknesses.count,
         tutorConversations: tutorConversations.count,

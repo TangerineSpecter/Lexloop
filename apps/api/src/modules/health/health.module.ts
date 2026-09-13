@@ -10,7 +10,14 @@ class HealthController {
   @Get()
   async check() {
     await this.prisma.$queryRaw`SELECT 1`;
-    return { status: 'ok', database: 'ok', timestamp: new Date().toISOString() };
+    return {
+      status: 'ok',
+      database: 'ok',
+      version: process.env.APP_VERSION ?? 'development',
+      commitSha: process.env.APP_COMMIT_SHA ?? 'unknown',
+      buildTime: process.env.APP_BUILD_TIME ?? null,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
 
