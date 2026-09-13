@@ -18,3 +18,39 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.message ?? '请求失败，请稍后重试'); }
   return response.json() as Promise<T>;
 }
+
+export async function streamSse(
+  path: string,
+  init: RequestInit,
+  token: string,
+  onEvent: (event: string, data: unknown) => void,
+) {
+  const headers = new Headers(init.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message ?? 'AI 助手请求失败');
+  }
+  if (!response.body) throw new Error('AI 助手没有返回内容');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? '';
+    for (const frame of frames) {
+      let event = 'message';
+      let data = '';
+      for (const line of frame.split(/\r?\n/)) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (data) onEvent(event, JSON.parse(data));
+    }
+    if (done) break;
+  }
+}

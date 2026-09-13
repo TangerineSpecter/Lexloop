@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StudyPlanMode } from '@prisma/client';
+import { StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
 import { contentSignature, gradeQuestion, hasValidGeneratedMatchingPairs, unfamiliarityScore } from '../src/modules/study/study.service';
 
 describe('dynamic review unfamiliarity', () => {
@@ -57,6 +57,20 @@ describe('shared generated content signature', () => {
     const original = contentSignature(StudyPlanMode.GROUP, words);
     expect(contentSignature(StudyPlanMode.INDIVIDUAL, words)).not.toBe(original);
     expect(contentSignature(StudyPlanMode.GROUP, [{ ...words[0], meaning: '忧郁的' }, words[1]])).not.toBe(original);
+  });
+
+  it('keeps normal-plan cache keys compatible while isolating weakness variants', () => {
+    const normal = contentSignature(StudyPlanMode.GROUP, words);
+    expect(contentSignature(StudyPlanMode.GROUP, words, StudyPlanPurpose.NORMAL, {})).toBe(normal);
+    const weakness = contentSignature(StudyPlanMode.GROUP, words, StudyPlanPurpose.WEAKNESS, {
+      'book-word-1': 'MEANING_RECOGNITION',
+      'book-word-2': 'READING_COMPREHENSION',
+    });
+    expect(weakness).not.toBe(normal);
+    expect(contentSignature(StudyPlanMode.GROUP, words, StudyPlanPurpose.WEAKNESS, {
+      'book-word-2': 'READING_COMPREHENSION',
+      'book-word-1': 'MEANING_RECOGNITION',
+    })).toBe(weakness);
   });
 });
 

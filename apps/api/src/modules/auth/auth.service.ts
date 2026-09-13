@@ -17,7 +17,7 @@ export class AuthService {
     const passwordHash = await argon2.hash(password);
     const user = await this.prisma.$transaction(async (tx) => {
       // Serialize registrations while deciding which account is the first one.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('lexloop:first-user-registration'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('lexloop:first-user-registration'))`;
       if (await tx.user.findUnique({ where: { email: normalizedEmail } })) throw new ConflictException('邮箱已被注册');
       const isFirstUser = await tx.user.count() === 0;
       return tx.user.create({

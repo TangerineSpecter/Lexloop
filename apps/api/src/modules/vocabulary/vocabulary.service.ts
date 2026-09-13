@@ -79,8 +79,11 @@ export class VocabularyService {
   }
 
   async clearLearningRecords(userId: string) {
-    const [plans, progresses, masteredWords, learningEvents] = await this.prisma.$transaction([
+    const [plans, weaknesses, tutorConversations, tutorDailyUsages, progresses, masteredWords, learningEvents] = await this.prisma.$transaction([
       this.prisma.studyPlan.deleteMany({ where: { userId } }),
+      this.prisma.weaknessSignal.deleteMany({ where: { userId } }),
+      this.prisma.tutorConversation.deleteMany({ where: { userId } }),
+      this.prisma.tutorDailyUsage.deleteMany({ where: { userId } }),
       this.prisma.userWordProgress.deleteMany({ where: { userId } }),
       this.prisma.userMasteredWord.deleteMany({ where: { userId } }),
       this.prisma.learningEvent.deleteMany({ where: { userId } }),
@@ -89,6 +92,9 @@ export class VocabularyService {
       success: true,
       cleared: {
         plans: plans.count,
+        weaknesses: weaknesses.count,
+        tutorConversations: tutorConversations.count,
+        tutorDailyUsages: tutorDailyUsages.count,
         wordProgresses: progresses.count,
         masteredWords: masteredWords.count,
         learningEvents: learningEvents.count,

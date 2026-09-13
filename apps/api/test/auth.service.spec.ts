@@ -7,7 +7,7 @@ const user = { id: 'user_1', email: 'learner@lexloop.dev', displayName: 'Learner
 
 describe('AuthService', () => {
   const prisma = {
-    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
     user: { count: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn() },
     refreshToken: { create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
@@ -31,7 +31,7 @@ describe('AuthService', () => {
 
     const result = await service.register(user.email, 'correct-password', user.displayName);
 
-    expect(prisma.$queryRaw).toHaveBeenCalledOnce();
+    expect(prisma.$executeRaw).toHaveBeenCalledOnce();
     expect(prisma.user.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ email: user.email, displayName: user.displayName, role: 'ADMIN' }),
     });

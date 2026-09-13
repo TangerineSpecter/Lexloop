@@ -1,9 +1,10 @@
 import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanStatus, WordProgressState } from '@prisma/client';
+import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanPurpose, StudyPlanStatus, WordProgressState } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AiService } from '../ai/ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MistakesService } from '../mistakes/mistakes.service';
 
 const DAY = 86_400_000;
 const startOfToday = () => { const date = new Date(); date.setHours(0, 0, 0, 0); return date; };
@@ -37,6 +38,7 @@ export class StudyService {
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
     private readonly modelConfigs: AiModelConfigService,
+    private readonly mistakes: MistakesService,
   ) {}
 
   async createPlan(userId: string, requestedNewWordCount?: number, requestedMode: RequestedMode = 'group') {
@@ -49,6 +51,7 @@ export class StudyService {
     const existing = await this.prisma.studyPlan.findFirst({
       where: {
         userId,
+        purpose: StudyPlanPurpose.NORMAL,
         OR: [
           { status: StudyPlanStatus.GENERATING },
           { status: StudyPlanStatus.ACTIVE, generatedContent: { not: Prisma.DbNull } },
@@ -87,7 +90,7 @@ export class StudyService {
     const groups = buildGroups(ids, mode);
 
     const plan = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.studyPlan.create({ data: { userId, mode, status: StudyPlanStatus.GENERATING } });
+      const created = await tx.studyPlan.create({ data: { userId, mode, purpose: StudyPlanPurpose.NORMAL, status: StudyPlanStatus.GENERATING } });
       await tx.studyPlanItem.createMany({
         data: groups.flatMap((group, groupIndex) => group.map(bookWordId => ({
           planId: created.id,
@@ -151,11 +154,12 @@ export class StudyService {
     const groupSpec = [...grouped.entries()].map(([index, items]) => ({
       index,
       words: items.map(item => words.find(word => word.id === item.bookWordId)!),
+      targetQuestionTypes: Object.fromEntries(items.filter(item => item.targetQuestionType).map(item => [item.bookWordId, item.targetQuestionType!])),
     }));
 
     try {
       const cached = await Promise.all(groupSpec.map(async (spec): Promise<ResolvedGroup | null> => {
-        const signature = contentSignature(plan.mode, spec.words);
+        const signature = contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes);
         const cache = await this.prisma.studyContentCache.findFirst({
           where: {
             signature,
@@ -179,7 +183,7 @@ export class StudyService {
       if (missingSpecs.length) {
         const response = await this.ai.generateForUser({
           purpose: 'study-plan',
-          prompt: generationPrompt(plan.mode, missingSpecs),
+          prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
           schema: {},
         }, userId);
         const generated = parseGeneratedContent(response);
@@ -195,7 +199,7 @@ export class StudyService {
           word.word,
           passage.match(new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'gi'))?.length ?? 0,
         ]));
-        return { group, signature: contentSignature(plan.mode, spec.words), reused: false };
+        return { group, signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes), reused: false };
       });
       const generatedContent: GeneratedContent = { groups: resolved.map(item => item.group) };
       validateGeneratedContent(generatedContent, groupSpec);
@@ -332,6 +336,7 @@ export class StudyService {
             responseTimeMs: answer.responseTimeMs == null ? undefined : Math.max(0, Math.min(3_600_000, answer.responseTimeMs)),
           },
         });
+        await this.mistakes.recordAttempt(tx, { userId, bookWordId: item.bookWordId, questionType: graded.questionType, isCorrect: graded.isCorrect });
         await tx.userWordProgress.update({ where: { id: progress.id }, data: this.schedule(progress, graded.isCorrect) });
       }
       await tx.studyPlanItem.updateMany({ where: { id: { in: items.map(item => item.id) } }, data: { completedAt: new Date() } });
@@ -405,6 +410,7 @@ export class StudyService {
       source: item.source,
       groupIndex: item.groupIndex,
       question: item.question,
+      targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
     }));
@@ -420,6 +426,7 @@ export class StudyService {
     return {
       id: plan.id,
       mode: plan.mode.toLowerCase(),
+      purpose: plan.purpose.toLowerCase(),
       status: plan.status,
       generationError: plan.generationError,
       generatedAt: plan.generatedAt,
@@ -517,17 +524,34 @@ export function hasValidGeneratedMatchingPairs(pairs: unknown) {
     && new Set(values.map(pair => (pair.right as string).trim())).size === values.length;
 }
 
-export function contentSignature(mode: StudyPlanMode, words: PlanWord[]) {
+export function contentSignature(
+  mode: StudyPlanMode,
+  words: PlanWord[],
+  purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
+  targetQuestionTypes: Record<string, string> = {},
+) {
   const canonicalWords = [...words]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map(word => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
+  if (purpose === StudyPlanPurpose.NORMAL && !Object.keys(targetQuestionTypes).length) {
+    return createHash('sha256')
+      .update(JSON.stringify({ version: 3, mode, words: canonicalWords }))
+      .digest('hex');
+  }
+  const canonicalTargetQuestionTypes = Object.fromEntries(
+    Object.entries(targetQuestionTypes).sort(([left], [right]) => left.localeCompare(right)),
+  );
   return createHash('sha256')
-    .update(JSON.stringify({ version: 3, mode, words: canonicalWords }))
+    .update(JSON.stringify({ version: 4, mode, purpose, words: canonicalWords, targetQuestionTypes: canonicalTargetQuestionTypes }))
     .digest('hex');
 }
 
-function generationPrompt(mode: StudyPlanMode, groups: Array<{ index: number; words: PlanWord[] }>) {
-  return `为 Lexloop 生成一份${mode === StudyPlanMode.INDIVIDUAL ? '独立单词' : '随机分组'}学习计划。
+function generationPrompt(
+  mode: StudyPlanMode,
+  groups: Array<{ index: number; words: PlanWord[]; targetQuestionTypes?: Record<string, string> }>,
+  purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
+) {
+  return `为 Lexloop 生成一份${purpose === StudyPlanPurpose.WEAKNESS ? '薄弱词专项' : mode === StudyPlanMode.INDIVIDUAL ? '独立单词' : '随机分组'}学习计划。
 输入分组：${JSON.stringify(groups)}
 
 必须只返回以下 JSON 结构：
@@ -543,7 +567,8 @@ function generationPrompt(mode: StudyPlanMode, groups: Array<{ index: number; wo
 7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。
 8. SYNONYM_REPLACEMENT 是单选题：英文语境题干中标出目标词；4 个 options 都是纯英文候选词或短语。正确项在当前句子的词义、词性、数和搭配上可直接替换；其余项必须是语义相关但不能替换的干扰项。不得附中文释义。
 9. READING_COMPREHENSION 是单选题：英文问题和 4 个纯英文选项，必须依据本组英文文章考查目标词相关的细节、词义、推断或主旨，不考文章外知识，也不得附中文释义。
-10. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation 必须使用自然中文，说明语境依据与干扰项为何不成立；界面会单独先展示正确答案，因此 explanation 不要重复答案或输出英文解析。optionNotes 为空数组或省略。`;
+10. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation 必须使用自然中文，说明语境依据与干扰项为何不成立；界面会单独先展示正确答案，因此 explanation 不要重复答案或输出英文解析。optionNotes 为空数组或省略。
+11. 输入分组若包含 targetQuestionTypes，则对应 bookWordId 必须严格生成指定题型；题目必须是新的语境和选项，不能复述历史原题。`;
 }
 
 function parseGeneratedContent(response: unknown): GeneratedContent {
@@ -561,7 +586,7 @@ function containsChinese(value: unknown) {
   return typeof value === 'string' && /[\u3400-\u9fff]/.test(value);
 }
 
-function validateGeneratedContent(content: GeneratedContent, expected: Array<{ index: number; words: PlanWord[] }>) {
+function validateGeneratedContent(content: GeneratedContent, expected: Array<{ index: number; words: PlanWord[]; targetQuestionTypes?: Record<string, string> }>) {
   if (!Array.isArray(content.groups) || content.groups.length !== expected.length) throw new Error('模型返回的阅读材料分组数量不正确');
   for (const expectedGroup of expected) {
     const group = content.groups.find(item => item.index === expectedGroup.index);
@@ -575,6 +600,8 @@ function validateGeneratedContent(content: GeneratedContent, expected: Array<{ i
     for (const word of expectedGroup.words) {
       const question = group.questions.find(item => item.bookWordId === word.id);
       if (!question || !containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers)) throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
+      const targetType = expectedGroup.targetQuestionTypes?.[word.id];
+      if (targetType && question.type !== targetType) throw new Error(`单词 ${word.word} 必须生成 ${targetType} 题型的变式题`);
       if (!containsChinese(question.explanation)) throw new Error(`单词 ${word.word} 的解析必须使用中文`);
       const isMatching = question.type === 'WORD_MATCHING';
       const isMnemonic = question.type === 'WORD_MNEMONIC';

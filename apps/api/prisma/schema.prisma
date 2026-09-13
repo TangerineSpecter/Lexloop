@@ -54,6 +54,33 @@ enum StudyPlanMode {
   EXAM
 }
 
+enum StudyPlanPurpose {
+  NORMAL
+  WEAKNESS
+}
+
+enum WeaknessStatus {
+  ACTIVE
+  IGNORED
+  RESOLVED
+}
+
+enum TutorContextType {
+  STUDY_GROUP
+  MISTAKE
+}
+
+enum TutorMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum TutorMessageStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
 enum StudyPlanItemSource {
   NEW
   REVIEW
@@ -77,6 +104,9 @@ model User {
   wordProgresses  UserWordProgress[]
   masteredWords   UserMasteredWord[]
   studyPlans      StudyPlan[]
+  weaknesses      WeaknessSignal[]
+  tutorConversations TutorConversation[]
+  tutorDailyUsages TutorDailyUsage[]
 }
 
 model VocabularyBook {
@@ -118,6 +148,7 @@ model VocabularyBookWord {
   word      VocabularyWord  @relation(fields: [wordId], references: [id], onDelete: Cascade)
   progress  UserWordProgress[]
   studyPlanItems StudyPlanItem[]
+  weaknesses WeaknessSignal[]
 
   @@unique([bookId, wordId])
   @@unique([bookId, position])
@@ -164,6 +195,7 @@ model StudyPlan {
   id               String          @id @default(cuid())
   userId           String
   mode             StudyPlanMode   @default(GROUP)
+  purpose          StudyPlanPurpose @default(NORMAL)
   status           StudyPlanStatus @default(GENERATING)
   generatedContent Json?
   generationError  String?
@@ -175,8 +207,9 @@ model StudyPlan {
   updatedAt        DateTime        @updatedAt
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   items            StudyPlanItem[]
+  tutorConversations TutorConversation[]
 
-  @@index([userId, status, createdAt])
+  @@index([userId, purpose, status, createdAt])
 }
 
 model StudyPlanItem {
@@ -186,6 +219,7 @@ model StudyPlanItem {
   contentCacheId String?
   source      StudyPlanItemSource
   groupIndex  Int
+  targetQuestionType String?
   question    Json?
   completedAt DateTime?
   plan        StudyPlan           @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -196,6 +230,72 @@ model StudyPlanItem {
   @@unique([planId, bookWordId])
   @@index([planId, groupIndex])
   @@index([contentCacheId])
+}
+
+model WeaknessSignal {
+  id                String         @id @default(cuid())
+  userId            String
+  bookWordId        String
+  questionType      String
+  status            WeaknessStatus @default(ACTIVE)
+  wrongCount        Int            @default(1)
+  consecutiveCorrect Int           @default(0)
+  lastWrongAt       DateTime
+  lastAttemptAt     DateTime
+  resolvedAt        DateTime?
+  ignoredAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookWord          VocabularyBookWord @relation(fields: [bookWordId], references: [id], onDelete: Cascade)
+  tutorConversations TutorConversation[]
+
+  @@unique([userId, bookWordId, questionType])
+  @@index([userId, status, consecutiveCorrect, wrongCount, lastWrongAt])
+}
+
+model TutorConversation {
+  id               String           @id @default(cuid())
+  userId           String
+  contextType      TutorContextType
+  studyPlanId      String?
+  groupIndex       Int?
+  weaknessSignalId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studyPlan        StudyPlan?       @relation(fields: [studyPlanId], references: [id], onDelete: Cascade)
+  weaknessSignal   WeaknessSignal?  @relation(fields: [weaknessSignalId], references: [id], onDelete: Cascade)
+  messages         TutorMessage[]
+
+  @@unique([userId, studyPlanId, groupIndex])
+  @@unique([userId, weaknessSignalId])
+  @@index([userId, contextType, updatedAt])
+}
+
+model TutorMessage {
+  id             String             @id @default(cuid())
+  conversationId String
+  role           TutorMessageRole
+  status         TutorMessageStatus @default(COMPLETED)
+  content        String             @db.Text
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  conversation   TutorConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model TutorDailyUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  usageDate DateTime @db.Date
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, usageDate])
 }
 
 // AI-generated materials and questions are global reusable content. They do

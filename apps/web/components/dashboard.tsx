@@ -45,6 +45,8 @@ import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
 import { Tooltip } from './tooltip';
+import { MistakesPage } from './mistakes-page';
+import { TutorPanel } from './tutor-panel';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -88,6 +90,7 @@ type StudyMode = 'group' | 'individual' | 'exam';
 export type LearningPlan = {
   id: string;
   mode: StudyMode;
+  purpose?: 'normal' | 'weakness';
   wordCount: number;
   words: Word[];
   completed: number;
@@ -225,7 +228,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'learning' | 'mastered' | 'history' | 'statistics' | 'settings'>(
+  const [page, setPage] = useState<'study' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
     'study',
   );
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
@@ -344,6 +347,15 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 }}
               >
                 学习中
+              </button>
+              <button
+                className={page === 'mistakes' ? 'active' : ''}
+                onClick={() => {
+                  setPage('mistakes');
+                  setSidebarOpen(false);
+                }}
+              >
+                待巩固
               </button>
               <button
                 className={page === 'mastered' ? 'active' : ''}
@@ -512,6 +524,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           </div>
         ) : page === 'learning' ? (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
+        ) : page === 'mistakes' ? (
+          <MistakesPage session={session} onBack={() => setPage('study')} onPlanCreated={(plan) => {
+            setPlans((current) => [plan, ...current.filter(item => item.id !== plan.id)]);
+            setPreviewPlan(plan);
+          }}/>
         ) : page === 'mastered' ? (
           <MasteredWordsPage
             session={session}
@@ -557,6 +574,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               ...current.filter((plan) => plan.id !== previewPlan.id),
             ]);
             setPreviewPlan(null);
+            setPage('study');
             setLessonPlanId(previewPlan.id);
           }}
         />
@@ -2086,7 +2104,7 @@ function PlanPreview({
       <section className="plan-preview">
         <header>
           <div>
-            <p>{generating || plan.status === 'GENERATING' ? '学习计划生成中，先预习一下…' : plan.status === 'FAILED' ? '学习计划生成失败' : '学习计划生成完毕'}</p>
+            <p>{generating || plan.status === 'GENERATING' ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…` : plan.status === 'FAILED' ? '学习计划生成失败' : plan.purpose === 'weakness' ? '薄弱词专项生成完毕' : '学习计划生成完毕'}</p>
             <span>
               预习第 {index + 1} / {plan.wordCount} 个单词
             </span>
@@ -2143,7 +2161,7 @@ function PlanPreview({
         ) : (
           <button className="start-challenge" onClick={onStart} disabled={generating || plan.status !== 'ACTIVE'}>
             <Play size={19} />
-            {generating || plan.status === 'GENERATING' ? '题目生成中，请稍候' : '开始今天的挑战'}
+            {generating || plan.status === 'GENERATING' ? '题目生成中，请稍候' : plan.purpose === 'weakness' ? '开始薄弱词专项' : '开始今天的挑战'}
           </button>
         )}
       </section>
@@ -2175,7 +2193,7 @@ function PlanPanel({
           <BookOpen size={23} />
           <strong>学习序列</strong>
           <span>{modeLabel[plan.mode]}</span>
-          <span>正常模式</span>
+          <span>{plan.purpose === 'weakness' ? '薄弱词专项' : '正常模式'}</span>
           <span>第 1/{groups.length} 组</span>
         </div>
         <div className="sequence-summary">
@@ -2551,7 +2569,7 @@ function GeneratedStudyPage({
   return <section className="lesson-page">
     <header className="lesson-page-head">
       <button onClick={onBack}><ArrowLeft size={19}/>返回学习序列</button>
-      <div><span>{modeLabel[plan.mode]} · 正常模式</span><strong>第 {group.index + 1} / {plan.groupCount} {plan.mode === 'individual' ? '篇' : '组'}</strong></div>
+      <div><span>{plan.purpose === 'weakness' ? '薄弱词专项' : `${modeLabel[plan.mode]} · 正常模式`}</span><strong>第 {group.index + 1} / {plan.groupCount} {plan.mode === 'individual' ? '篇' : '组'}</strong></div>
       <b>{plan.completed}/{plan.wordCount} 已完成</b>
     </header>
     <div className="lesson-layout">
@@ -2594,6 +2612,7 @@ function GeneratedStudyPage({
           const question = group.questions.find((item) => item.bookWordId === word.id);
           return <div className={answer ? answer.correct ? 'is-correct' : 'is-wrong' : ''} key={word.id}>{!answer ? <Circle size={25}/> : answer.correct ? <CheckCircle2 size={25}/> : <CircleX size={25}/>}<strong>{word.word}</strong><span>{question ? exerciseLabels[question.type] : '练习题'}</span></div>;
         })}<p>{allAnswered ? '本组练习已完成' : '完成所有练习题后即可继续'}</p></section>
+        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: plan.id, groupIndex: group.index }} compact/>
       </aside>
     </div>
   </section>;
