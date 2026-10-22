@@ -7,6 +7,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AiModelConfigController } from './ai-model-config.controller';
 import { AiModelConfigService } from './ai-model-config.service';
+import { SystemBackupController } from './system-backup.controller';
 import { SystemUpdateController } from './system-update.controller';
 import { SystemUpdateService } from './system-update.service';
 
@@ -23,7 +24,12 @@ class AdminController {
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminController, AiModelConfigController, SystemUpdateController],
+  controllers: [
+    SystemBackupController,
+    AdminController,
+    AiModelConfigController,
+    SystemUpdateController,
+  ],
   providers: [AiModelConfigService, SystemUpdateService],
   exports: [AiModelConfigService],
 })

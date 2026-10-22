@@ -1,13 +1,16 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { SystemUpdateJob, SystemUpdateStatus } from '@lexloop/types';
+import type { RemoteBackupStatus, SystemUpdateJob, SystemUpdateStatus } from '@lexloop/types';
 import { request } from 'node:http';
 import { AuthService } from '../auth/auth.service';
+
+import type { BackupSettingsDto } from './system-backup.dto';
 
 type Actor = { sub: string; email: string };
 
@@ -56,6 +59,25 @@ export class SystemUpdateService {
     return this.call<SystemUpdateJob>('GET', `/jobs/${encodeURIComponent(id)}`);
   }
 
+  async backupStatus() {
+    try {
+      return await this.call<RemoteBackupStatus>('GET', '/backups');
+    } catch {
+      return { available: false, settings: null, error: '备份服务未连接，请部署新版运维服务。' };
+    }
+  }
+
+  async saveBackup(actorId: string, input: BackupSettingsDto) {
+    await this.auth.verifyPassword(actorId, input.password);
+    const { password, ...settings } = input;
+    return this.call<RemoteBackupStatus>('POST', '/backups/config', settings);
+  }
+
+  async runBackup(actorId: string, password: string) {
+    await this.auth.verifyPassword(actorId, password);
+    return this.call<RemoteBackupStatus>('POST', '/backups/run');
+  }
+
   private buildIdentity() {
     return {
       currentVersion: process.env.APP_VERSION ?? 'development',
@@ -101,6 +123,8 @@ export class SystemUpdateService {
               return reject(new ServiceUnavailableException('更新服务返回了无效响应'));
             }
             if ((response.statusCode ?? 500) >= 400) {
+              if (response.statusCode === 400)
+                return reject(new BadRequestException(parsed.message));
               if (response.statusCode === 409) return reject(new ConflictException(parsed.message));
               return reject(
                 new ServiceUnavailableException(parsed.message ?? '更新服务暂时不可用，请稍后再试'),

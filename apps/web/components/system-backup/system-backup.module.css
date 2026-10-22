@@ -1,0 +1,141 @@
+.panel {
+  padding: 24px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--border-color);
+}
+.panel h3 {
+  font-size: 22px;
+  margin: 0 0 12px;
+}
+.panel p,
+.panel small {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.panel p {
+  margin: 12px 0;
+}
+.status {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  margin: 20px 0;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  overflow-wrap: anywhere;
+}
+.status p,
+.error {
+  color: var(--border-color);
+  background: #fff4b9;
+  padding: 12px;
+  border-left: 4px solid var(--coral);
+}
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.panel label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+  min-width: 0;
+}
+.panel small {
+  font-weight: 400;
+}
+.panel input:not([type='checkbox']),
+.panel textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  color: inherit;
+  background: var(--soft);
+  font: inherit;
+}
+.panel input:not([type='checkbox']) {
+  min-height: 52px;
+}
+.panel textarea {
+  resize: vertical;
+}
+.panel input:focus-visible,
+.panel textarea:focus-visible,
+.panel button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+.full,
+.check {
+  grid-column: 1 / -1;
+}
+.panel .check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.check input {
+  width: 20px;
+  height: 20px;
+}
+.password {
+  margin: 20px 0;
+  max-width: 480px;
+}
+.panel footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.panel button {
+  padding: 12px 16px;
+  min-height: 44px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.panel button:first-child {
+  background: var(--teal);
+  color: var(--soft);
+  box-shadow: 2px 2px 0 var(--gold);
+}
+.panel button:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+.panel button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (max-width: 680px) {
+  .panel {
+    padding: 16px;
+  }
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  .panel footer button {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel button:hover:not(:disabled) {
+    transform: none;
+  }
+}

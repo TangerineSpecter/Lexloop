@@ -415,3 +415,26 @@ export type DailySentenceCurrent = {
   canRetry: boolean;
 };
 export type DailySentenceHistory = { items: DailySentenceItem[]; hasMore: boolean };
+
+export interface RemoteBackupSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  remotePath: string;
+  hostKey: string;
+  hasPrivateKey: boolean;
+  hasPassphrase: boolean;
+}
+
+export interface RemoteBackupStatus {
+  configurationError?: string | null;
+  available: boolean;
+  settings: RemoteBackupSettings | null;
+  running?: boolean;
+  lastAttemptAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastFile?: string | null;
+  error?: string | null;
+  stale?: boolean;
+}

@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { Tooltip } from './tooltip';
+import { SystemBackupPanel } from './system-backup/system-backup-panel';
 import { SystemUpdatePanel } from './system-update-panel';
 import { DailySentenceSettings } from './daily-sentence/daily-sentence-settings';
 
@@ -33,7 +34,7 @@ const DEEPSEEK_MODELS = [
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
-  const [tab, setTab] = useState<'models' | 'updates' | 'features'>('models');
+  const [tab, setTab] = useState<'models' | 'updates' | 'features' | 'backups'>('models');
   const [models, setModels] = useState<AiModel[]>([]);
   const [modal, setModal] = useState<AiModel | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
@@ -76,7 +77,24 @@ export function SystemSettings({ session }: { session: Session }) {
     <section className="system-settings">
       <h2>系统设置</h2>
       <div className="system-tabs" role="tablist">
-        <button className={tab === 'features' ? 'active' : ''} role="tab" aria-selected={tab === 'features'} onClick={() => setTab('features')}><Settings2 size={18} />功能开关</button>
+        <button
+          className={tab === 'backups' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'backups'}
+          onClick={() => setTab('backups')}
+        >
+          <Settings2 size={18} />
+          远端备份
+        </button>
+        <button
+          className={tab === 'features' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'features'}
+          onClick={() => setTab('features')}
+        >
+          <Settings2 size={18} />
+          功能开关
+        </button>
         <button
           className={tab === 'models' ? 'active' : ''}
           role="tab"
@@ -96,7 +114,11 @@ export function SystemSettings({ session }: { session: Session }) {
           系统更新
         </button>
       </div>
-      {tab === 'features' ? <DailySentenceSettings session={session} /> : tab === 'updates' ? (
+      {tab === 'backups' ? (
+        <SystemBackupPanel session={session} />
+      ) : tab === 'features' ? (
+        <DailySentenceSettings session={session} />
+      ) : tab === 'updates' ? (
         <SystemUpdatePanel session={session} />
       ) : (
         <>

@@ -15,6 +15,7 @@ import {
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { RemoteBackups } from './backup.mjs';
 import { evaluateUpdate, parseStableVersion, selectLatestRelease } from './core.mjs';
 
 const config = {
@@ -29,6 +30,8 @@ const config = {
   projectName: process.env.COMPOSE_PROJECT_NAME ?? 'lexloop',
   githubRepository: process.env.GITHUB_REPOSITORY ?? 'TangerineSpecter/Lexloop',
 };
+
+const remoteBackups = new RemoteBackups(config);
 
 const initialDeployment = {
   version: process.env.APP_VERSION ?? 'development',
@@ -558,6 +561,24 @@ function reply(response, statusCode, body) {
 
 const server = createServer(async (request, response) => {
   try {
+    if (request.url === '/backups' && request.method === 'GET') {
+      return reply(response, 200, remoteBackups.status());
+    }
+    if (request.url === '/backups/config' && request.method === 'POST') {
+      try {
+        return reply(response, 200, remoteBackups.save(await readJson(request)));
+      } catch (error) {
+        return reply(response, 400, { message: error.message });
+      }
+    }
+    if (request.url === '/backups/run' && request.method === 'POST') {
+      if (activeJob) return reply(response, 409, { message: '系统正在更新，请稍后备份' });
+      try {
+        return reply(response, 202, remoteBackups.start());
+      } catch (error) {
+        return reply(response, 409, { message: error.message });
+      }
+    }
     if (request.method === 'GET' && request.url === '/status') {
       return reply(response, 200, currentStatus());
     }
@@ -571,8 +592,12 @@ const server = createServer(async (request, response) => {
         : reply(response, 404, { message: '更新任务不存在' });
     }
     if (request.method === 'POST' && request.url === '/apply') {
-      if (activeJob) return reply(response, 409, { message: '已有更新任务正在执行' });
+      if (activeJob || remoteBackups.state.running)
+        return reply(response, 409, { message: '已有更新或备份任务正在执行' });
       const input = await readJson(request);
+      if (activeJob || remoteBackups.state.running) {
+        return reply(response, 409, { message: '已有更新或备份任务正在执行' });
+      }
       if (
         !parseStableVersion(input.targetVersion ?? '') ||
         !/^[0-9a-f]{40}$/.test(input.targetSha ?? '') ||
@@ -621,3 +646,9 @@ const backgroundCheck = () => {
 };
 setInterval(backgroundCheck, 6 * 60 * 60 * 1_000).unref();
 setTimeout(backgroundCheck, 5_000).unref();
+
+const scheduleBackup = () => {
+  if (!activeJob) void remoteBackups.tick();
+};
+setInterval(scheduleBackup, 60_000).unref();
+setTimeout(scheduleBackup, 10_000).unref();
