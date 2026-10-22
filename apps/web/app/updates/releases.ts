@@ -7,13 +7,30 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
-    version: '1.0.0',
+    version: '1.0.2',
+    date: '2026-10-22',
     items: [
       {
         title: '更新记录',
         entry: '首页右上角 → 更新记录',
         usage: '查看版本变化、功能入口和简短用法。',
       },
+    ],
+  },
+  {
+    version: '1.0.1',
+    date: '2026-10-22',
+    items: [
+      {
+        title: '安装端口设置',
+        entry: '服务器安装脚本 → --port 参数',
+        usage: '首次安装默认使用 12880，可指定其他端口；已有安装保留原端口。',
+      },
+    ],
+  },
+  {
+    version: '1.0.0',
+    items: [
       {
         title: '地下词环',
         entry: '左侧导航 → 地下词环',
