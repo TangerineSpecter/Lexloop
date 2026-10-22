@@ -440,3 +440,62 @@ export interface RemoteBackupStatus {
   error?: string | null;
   stale?: boolean;
 }
+
+export type NotebookSource = 'TRAVEL' | 'READING' | 'DAILY_SENTENCE' | 'MANUAL' | 'WORD';
+export interface NotebookWord {
+  id: string;
+  wordId: string;
+  text: string;
+  type: 'WORD' | 'PHRASE';
+  meaning: string | null;
+  example: string | null;
+  sourceScenario: string | null;
+  sourceType: NotebookSource;
+  state: string;
+  nextReviewAt: string | null;
+}
+export interface NotebookPage {
+  items: NotebookWord[];
+  hasMore: boolean;
+  total: number;
+}
+export type LabKind = 'READING' | 'GRAMMAR';
+export interface LabQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  topic?: string;
+  correctIndex?: number;
+  explanation?: string;
+}
+export interface GrammarEvidence {
+  id: string;
+  source: string;
+  original: string;
+  feedback: string;
+  corrected: string;
+}
+export interface LabContent {
+  title: string;
+  introduction: string;
+  sentences: Array<{ english: string; chinese: string; note: string }>;
+  targets: Array<{ id: string; text: string; meaning: string }>;
+  topics: Array<{ key: string; title: string; explanation: string; evidenceIds: string[] }>;
+  questions: LabQuestion[];
+}
+export interface LabLessonView {
+  id: string;
+  kind: LabKind;
+  status: 'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED';
+  content: LabContent | null;
+  evidence: GrammarEvidence[];
+  answers: number[] | null;
+  score: number | null;
+  error: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+}
+export interface LabHistory {
+  items: LabLessonView[];
+  hasMore: boolean;
+}

@@ -1,6 +1,8 @@
 // A headless Nest context run by apps/worker. Reuses server-side AI configuration
 // without starting HTTP, auth controllers, vocabulary seeds, or other API modules.
 import 'reflect-metadata';
+import { LabService } from './modules/learning-lab/lab.service';
+import { generateLab } from './modules/learning-lab/lab.processor';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -31,7 +33,7 @@ import { gradeOutput } from './modules/practice/output.processor';
         connection: { url: config.getOrThrow<string>('REDIS_URL') },
       }),
     }),
-    BullModule.registerQueue({ name: 'practice-output' }),
+    BullModule.registerQueue({ name: 'practice-output' }, { name: 'learning-lab' }),
   ],
   providers: [
     AiService,
@@ -39,6 +41,7 @@ import { gradeOutput } from './modules/practice/output.processor';
     DailySentenceService,
     DailySentenceSettingsService,
     OutputService,
+    LabService,
     PracticeEvidenceService,
     MistakesService,
   ],
@@ -96,6 +99,15 @@ async function bootstrap() {
     ),
   );
   outputWorker.on('error', () => console.error('Output queue connection error'));
+  const labWorker = new Worker('learning-lab', (job) => generateLab(job, app.get(LabService)), {
+    connection,
+    concurrency: 2,
+    limiter: { max: 6, duration: 60_000 },
+  });
+  labWorker.on('failed', (job) =>
+    console.error(JSON.stringify({ event: 'learning-lab.failed', id: job?.id })),
+  );
+  labWorker.on('error', () => console.error('Learning lab queue connection error'));
   // Five-minute checks recover downtime and interrupted reservations. The per-user
   // date and unread guards ensure only one successful sentence per day.
   await queue.upsertJobScheduler(
@@ -108,7 +120,7 @@ async function bootstrap() {
   const close = async () => {
     if (closing) return;
     closing = true;
-    await Promise.all([worker.close(), outputWorker.close()]);
+    await Promise.all([worker.close(), outputWorker.close(), labWorker.close()]);
     await queue.close();
     await app.close();
   };

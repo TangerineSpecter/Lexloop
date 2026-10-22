@@ -1,8 +1,10 @@
+import { CollectWordForm } from '../learning-lab/collect-word-form';
+import type { Session } from '../../lib/api';
 import type { DailySentenceItem } from '@lexloop/types';
 import { Bookmark, BookmarkCheck } from 'lucide-react';
 import styles from './daily-sentence.module.css';
 
-export function DailySentenceLesson({ item, saving, onUpdate }: { item: DailySentenceItem; saving: boolean; onUpdate: (update: { favorite?: boolean; difficulty?: 'EASY' | 'RIGHT' | 'HARD' }) => void }) {
+export function DailySentenceLesson({ item, session, saving, onUpdate }: { session: Session; item: DailySentenceItem; saving: boolean; onUpdate: (update: { favorite?: boolean; difficulty?: 'EASY' | 'RIGHT' | 'HARD' }) => void }) {
   const content = item.content;
   return <article className={styles.lesson}>
     <header className={styles.lessonHeader}>
@@ -11,6 +13,7 @@ export function DailySentenceLesson({ item, saving, onUpdate }: { item: DailySen
     </header>
     <p className={styles.english} lang="en">{content.english}</p>
     <p>{content.chinese}</p>
+    <CollectWordForm session={session} sourceType="DAILY_SENTENCE" source={`每日一句 · ${item.dateKey}`} example={content.english} />
     <section className={styles.section} aria-label="句子结构拆解">
       <h3>先看这句话怎么搭起来</h3>
       <div className={styles.chunks}>{content.chunks.map((chunk, index) => <div className={styles.chunk} key={index}>

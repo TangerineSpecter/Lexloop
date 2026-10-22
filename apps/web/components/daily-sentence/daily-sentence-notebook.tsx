@@ -80,7 +80,7 @@ export function DailySentenceNotebook({ session, initialId, onClose, onChanged }
       <button autoFocus className={styles.close} onClick={onClose} aria-label="关闭每日一句"><X size={22} /></button>
     </div>
     {error && <p className={styles.error} role="alert">{error}<button className={styles.button} onClick={() => setRevision(value => value + 1)}>重新加载</button></p>}
-    {selectedId ? loading ? <p role="status">正在读取解析…</p> : item && item.id === selectedId && <DailySentenceLesson item={item} saving={saving} onUpdate={data => void update(data)} /> : <>
+    {selectedId ? loading ? <p role="status">正在读取解析…</p> : item && item.id === selectedId && <DailySentenceLesson session={session} item={item} saving={saving} onUpdate={data => void update(data)} /> : <>
       <p className={styles.note}>成功生成的句子会保存在这里，回顾不会生成新内容。</p>
       <div className={styles.filters} role="group" aria-label="回顾筛选"><button className={styles.button} aria-pressed={!favorites} onClick={() => { setFavorites(false); setPage(1); }}>全部句子</button><button className={styles.button} aria-pressed={favorites} onClick={() => { setFavorites(true); setPage(1); }}>已收藏</button></div>
       {loading && page === 1 ? <p role="status">正在读取回顾…</p> : <>

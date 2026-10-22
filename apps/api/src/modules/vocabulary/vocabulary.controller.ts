@@ -1,7 +1,29 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CefrLevel, LexicalItemType } from '@prisma/client';
-import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VocabularyService } from './vocabulary.service';
 
@@ -11,7 +33,16 @@ class UpdateNewWordCountDto {
   @IsInt() @Min(5) @Max(40) defaultNewWordCount!: number;
 }
 
+class NotebookQuery {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000) page: number = 1;
+  @IsOptional() @IsString() @MaxLength(80) search: string = '';
+  @IsOptional() @IsIn(['TRAVEL', 'READING', 'DAILY_SENTENCE', 'MANUAL', 'WORD']) source?: string;
+}
+
 class PersonalVocabularyItemDto {
+  @IsOptional()
+  @IsIn(['TRAVEL', 'READING', 'DAILY_SENTENCE', 'MANUAL', 'WORD'])
+  sourceType?: string;
   @IsString() @MinLength(1) @MaxLength(120) text!: string;
   @IsEnum(LexicalItemType) type!: LexicalItemType;
   @IsString() @MinLength(1) @MaxLength(500) meaning!: string;
@@ -27,23 +58,103 @@ class PersonalVocabularyItemDto {
 export class VocabularyController {
   constructor(private readonly vocabulary: VocabularyService) {}
 
-  @Get('system') system(@Req() request: AuthenticatedRequest, @Query('category') category?: string) { return this.vocabulary.listSystemBooks(request.user.sub, category); }
-  @Get('learning') learning(@Req() request: AuthenticatedRequest) { return this.vocabulary.listLearningBooks(request.user.sub); }
-  @Get('personal') personal(@Req() request: AuthenticatedRequest) { return this.vocabulary.listPersonalItems(request.user.sub); }
-  @Post('personal/items') savePersonal(@Req() request: AuthenticatedRequest, @Body() dto: PersonalVocabularyItemDto) { return this.vocabulary.savePersonalItem(request.user.sub, dto); }
-  @Delete('personal') clearPersonal(@Req() request: AuthenticatedRequest) { return this.vocabulary.clearPersonalItems(request.user.sub); }
-  @Get('default') defaultBook(@Req() request: AuthenticatedRequest) { return this.vocabulary.getDefaultBook(request.user.sub); }
-  @Get('progress-summary') progressSummary(@Req() request: AuthenticatedRequest) { return this.vocabulary.getProgressSummary(request.user.sub); }
-  @Delete('learning-records') clearLearningRecords(@Req() request: AuthenticatedRequest) { return this.vocabulary.clearLearningRecords(request.user.sub); }
-  @Get('mastered') mastered(@Req() request: AuthenticatedRequest) { return this.vocabulary.listMasteredWords(request.user.sub); }
-  @Delete('mastered/:wordId') removeMastered(@Req() request: AuthenticatedRequest, @Param('wordId') wordId: string) { return this.vocabulary.removeMasteredWord(request.user.sub, wordId); }
-  @Get('learning-words') learningWords(@Req() request: AuthenticatedRequest) { return this.vocabulary.listLearningWords(request.user.sub); }
-  @Get('dashboard-words') dashboardWords(@Req() request: AuthenticatedRequest, @Query('newWordCount') newWordCount?: string) { return this.vocabulary.getDashboardWords(request.user.sub, newWordCount); }
-  @Patch('dashboard-settings') updateDashboardSettings(@Req() request: AuthenticatedRequest, @Body() dto: UpdateNewWordCountDto) { return this.vocabulary.updateDefaultNewWordCount(request.user.sub, dto.defaultNewWordCount); }
-  @Post('words/:bookWordId/review') addToReview(@Req() request: AuthenticatedRequest, @Param('bookWordId') bookWordId: string) { return this.vocabulary.addToReview(request.user.sub, bookWordId); }
-  @Post('words/:bookWordId/master') markMastered(@Req() request: AuthenticatedRequest, @Param('bookWordId') bookWordId: string) { return this.vocabulary.markMastered(request.user.sub, bookWordId); }
-  @Post('words/:bookWordId/defer') deferNewWord(@Req() request: AuthenticatedRequest, @Param('bookWordId') bookWordId: string) { return this.vocabulary.deferNewWord(request.user.sub, bookWordId); }
-  @Post('words/:bookWordId/defer-review') deferReview(@Req() request: AuthenticatedRequest, @Param('bookWordId') bookWordId: string) { return this.vocabulary.deferReview(request.user.sub, bookWordId); }
-  @Post('books/:bookId/start') start(@Req() request: AuthenticatedRequest, @Param('bookId') bookId: string) { return this.vocabulary.activateBook(request.user.sub, bookId); }
-  @Post('books/:bookId/continue') continue(@Req() request: AuthenticatedRequest, @Param('bookId') bookId: string) { return this.vocabulary.activateBook(request.user.sub, bookId); }
+  @Get('system') system(
+    @Req() request: AuthenticatedRequest,
+    @Query('category') category?: string,
+  ) {
+    return this.vocabulary.listSystemBooks(request.user.sub, category);
+  }
+  @Get('learning') learning(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.listLearningBooks(request.user.sub);
+  }
+  @Get('notebook') notebook(@Req() req: AuthenticatedRequest, @Query() dto: NotebookQuery) {
+    return this.vocabulary.notebook(req.user.sub, dto.page, dto.search.trim(), dto.source);
+  }
+  @Delete('personal/items/:id') removePersonal(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.vocabulary.removePersonalItem(req.user.sub, id);
+  }
+  @Get('personal') personal(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.listPersonalItems(request.user.sub);
+  }
+  @Post('personal/items') savePersonal(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: PersonalVocabularyItemDto,
+  ) {
+    return this.vocabulary.savePersonalItem(request.user.sub, dto);
+  }
+  @Delete('personal') clearPersonal(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.clearPersonalItems(request.user.sub);
+  }
+  @Get('default') defaultBook(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.getDefaultBook(request.user.sub);
+  }
+  @Get('progress-summary') progressSummary(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.getProgressSummary(request.user.sub);
+  }
+  @Delete('learning-records') clearLearningRecords(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.clearLearningRecords(request.user.sub);
+  }
+  @Get('mastered') mastered(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.listMasteredWords(request.user.sub);
+  }
+  @Delete('mastered/:wordId') removeMastered(
+    @Req() request: AuthenticatedRequest,
+    @Param('wordId') wordId: string,
+  ) {
+    return this.vocabulary.removeMasteredWord(request.user.sub, wordId);
+  }
+  @Get('learning-words') learningWords(@Req() request: AuthenticatedRequest) {
+    return this.vocabulary.listLearningWords(request.user.sub);
+  }
+  @Get('dashboard-words') dashboardWords(
+    @Req() request: AuthenticatedRequest,
+    @Query('newWordCount') newWordCount?: string,
+  ) {
+    return this.vocabulary.getDashboardWords(request.user.sub, newWordCount);
+  }
+  @Patch('dashboard-settings') updateDashboardSettings(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: UpdateNewWordCountDto,
+  ) {
+    return this.vocabulary.updateDefaultNewWordCount(request.user.sub, dto.defaultNewWordCount);
+  }
+  @Post('words/:bookWordId/review') addToReview(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookWordId') bookWordId: string,
+  ) {
+    return this.vocabulary.addToReview(request.user.sub, bookWordId);
+  }
+  @Post('words/:bookWordId/master') markMastered(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookWordId') bookWordId: string,
+  ) {
+    return this.vocabulary.markMastered(request.user.sub, bookWordId);
+  }
+  @Post('words/:bookWordId/defer') deferNewWord(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookWordId') bookWordId: string,
+  ) {
+    return this.vocabulary.deferNewWord(request.user.sub, bookWordId);
+  }
+  @Post('words/:bookWordId/defer-review') deferReview(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookWordId') bookWordId: string,
+  ) {
+    return this.vocabulary.deferReview(request.user.sub, bookWordId);
+  }
+  @Post('books/:bookId/start') start(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookId') bookId: string,
+  ) {
+    return this.vocabulary.activateBook(request.user.sub, bookId);
+  }
+  @Post('books/:bookId/continue') continue(
+    @Req() request: AuthenticatedRequest,
+    @Param('bookId') bookId: string,
+  ) {
+    return this.vocabulary.activateBook(request.user.sub, bookId);
+  }
 }

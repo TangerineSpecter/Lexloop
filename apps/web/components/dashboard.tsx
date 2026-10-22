@@ -1,4 +1,5 @@
 'use client';
+import { CollectWordForm } from './learning-lab/collect-word-form';
 
 import {
   ArrowLeft,
@@ -354,6 +355,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <Swords size={16} />
             <span>地下词环</span>
           </a>
+          <a className="nav-item" href="/dashboard/notebook"><BookOpen size={16}/><span>生词本与收藏</span></a>
+          <a className="nav-item" href="/dashboard/notebook?tab=reading"><BookOpen size={16}/><span>生词短文精读</span></a>
+          <a className="nav-item" href="/dashboard/notebook?tab=grammar"><Sparkles size={16}/><span>语法薄弱项专项</span></a>
           <a className="nav-item" href="/dashboard/practice?tab=output"><Sparkles size={16}/><span>学习专项与处方</span></a>
           <div className="nav-group">
             <a className="nav-item" href="#words">
@@ -1300,7 +1304,7 @@ function AccountSettings({
               <div>
                 <span>危险操作</span>
                 <h3 id="learning-danger-title">清理学习记录</h3>
-                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、旅行生词本、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
+                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、个人生词本、精读与语法专项记录、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
               </div>
               <button type="button" onClick={() => {
                 setClearMessage('');
@@ -2629,7 +2633,7 @@ function GeneratedStudyPage({
             </div>
             <h2>{group.title}</h2>
             <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
-            <GeneratedReadingContent key={group.index} sentences={group.sentences} words={words}/>
+            <GeneratedReadingContent session={session} key={group.index} sentences={group.sentences} words={words}/>
             <small>Powered by Lexloop AI</small>
           </article>
         </section>
@@ -2665,7 +2669,7 @@ function GeneratedStudyPage({
   </section>;
 }
 
-function GeneratedReadingContent({ sentences, words }: { sentences: ReadingSentence[]; words: Word[] }) {
+function GeneratedReadingContent({ sentences, words, session }: { sentences: ReadingSentence[]; words: Word[]; session: Session }) {
   type Detail = 'translation' | 'grammar' | 'simplified';
   const [sentenceMode, setSentenceMode] = useState(false);
   const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
@@ -2691,6 +2695,7 @@ function GeneratedReadingContent({ sentences, words }: { sentences: ReadingSente
       <button aria-label="简化全文" aria-pressed={fullDetail === 'simplified'} data-tip="简化全文" onClick={() => setFullDetail((value) => value === 'simplified' ? 'none' : 'simplified')}>✦</button>
       <button aria-label="朗读全文" data-tip="朗读全文" onClick={() => speak(sentences.map((sentence) => sentence.english).join(' '))}><Volume2 size={18}/></button>
     </div>
+    <CollectWordForm session={session} sourceType="READING" source="分组阅读" example={sentences[0]?.english ?? ''} />
     <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
       {sentences.map((sentence, index) => <article className={sentenceMode ? 'sentence-line' : ''} key={index}>
         <p>{sentenceMode && <b>{index + 1}. </b>}<HighlightedSentence text={sentence.english} words={words}/></p>

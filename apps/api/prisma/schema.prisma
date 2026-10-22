@@ -255,6 +255,7 @@ model User {
   aiCalls        AiCallAudit[]
   selectedAiModelId String?
   defaultNewWordCount Int @default(10)
+  learningRecordsVersion Int @default(0)
   selectedAiModel AiModelConfig? @relation("UserSelectedAiModel", fields: [selectedAiModelId], references: [id], onDelete: SetNull)
   vocabularyBooks UserVocabularyBook[]
   wordProgresses  UserWordProgress[]
@@ -281,6 +282,7 @@ model User {
   outputChallenges OutputChallenge[]
   confusionAttempts ConfusionAttempt[]
   dailySentences DailySentence[]
+  labLessons LabLesson[]
 }
 
 model SystemFeatureSetting {
@@ -356,6 +358,8 @@ model VocabularyBookWord {
   contextMeaning String?
   sourceScenario String?
   sourceExample String?
+  sourceType String @default("TRAVEL")
+  isCollected Boolean @default(true)
   book      VocabularyBook  @relation(fields: [bookId], references: [id], onDelete: Cascade)
   word      VocabularyWord  @relation(fields: [wordId], references: [id], onDelete: Cascade)
   progress  UserWordProgress[]
@@ -366,6 +370,30 @@ model VocabularyBookWord {
   @@unique([bookId, wordId])
   @@unique([bookId, position])
   @@index([wordId])
+}
+
+model LabLesson {
+  id String @id @default(cuid())
+  userId String
+  kind String
+  clientRequestId String
+  status String @default("QUEUED")
+  input Json
+  content Json?
+  answers Json?
+  score Int?
+  error String?
+  workerTokenHash String
+  leaseToken String?
+  processingStartedAt DateTime?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  submittedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, kind, createdAt])
+  @@index([userId, status, createdAt])
 }
 
 model UserVocabularyBook {

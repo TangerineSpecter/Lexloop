@@ -51,7 +51,7 @@ export class WeeklyService {
       SELECT DISTINCT to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM (
         SELECT "createdAt" FROM "WordReviewAttempt" WHERE "userId" = ${userId} AND "createdAt" >= ${start}
-        UNION ALL SELECT "createdAt" FROM "LearningEvent" WHERE "userId" = ${userId} AND "createdAt" >= ${start} AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED')
+        UNION ALL SELECT "createdAt" FROM "LearningEvent" WHERE "userId" = ${userId} AND "createdAt" >= ${start} AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED')
         UNION ALL SELECT "completedAt" AS "createdAt" FROM "ScenarioSession" WHERE "userId" = ${userId} AND "completedAt" >= ${start}
         UNION ALL SELECT "completedAt" AS "createdAt" FROM "AssessmentAttempt" WHERE "userId" = ${userId} AND "completedAt" >= ${start}
       ) activity

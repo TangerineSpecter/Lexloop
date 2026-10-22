@@ -24,6 +24,27 @@ export function PracticeEntries() {
         </strong>
         <span>看看这一周，下一步该练什么。</span>
       </a>
+      <a href="/dashboard/notebook">
+        <small>04 · COLLECT</small>
+        <strong>
+          生词本与收藏 <span aria-hidden="true">↗</span>
+        </strong>
+        <span>保留原句，统一收藏与复习。</span>
+      </a>
+      <a href="/dashboard/notebook?tab=reading">
+        <small>05 · READ</small>
+        <strong>
+          生词短文精读 <span aria-hidden="true">↗</span>
+        </strong>
+        <span>把收藏词放进短文，读懂再做题。</span>
+      </a>
+      <a href="/dashboard/notebook?tab=grammar">
+        <small>06 · GRAMMAR</small>
+        <strong>
+          语法薄弱项专项 <span aria-hidden="true">↗</span>
+        </strong>
+        <span>回访表达问题，讲解与变式练习。</span>
+      </a>
     </nav>
   );
 }
