@@ -1,0 +1,36 @@
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 2px solid #082877;
+  border-radius: 8px;
+  background: #fffefa;
+  color: #082877;
+  font:
+    700 13px/1.4 'DM Sans',
+    'PingFang SC',
+    sans-serif;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.link:hover {
+  background: #fff4b9;
+}
+
+.link:focus-visible {
+  outline: 3px solid #315eb6;
+  outline-offset: 3px;
+}
+
+.link:active {
+  background: #ffdf4d;
+}
+
+@media (max-width: 480px) {
+  .link ~ :global(.topbar-account) > span {
+    display: none;
+  }
+}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { clearSession, readSession, refreshSession, request, saveSession, type Session } from '../lib/api';
 import { Dashboard } from '../components/dashboard';
+import { UpdatesLink } from '../components/updates-link';
 
 export default function HomePage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -25,7 +26,7 @@ function Welcome() {
     <main className="welcome-page">
       <nav className="welcome-nav">
         <Link href="/" className="welcome-brand" aria-label="词环首页">词环 <i>LEXLOOP</i></Link>
-        <div className="welcome-nav-actions"><Link href="/login" className="ink-link">登录</Link><Link href="/register" className="nav-signup">开始学习 <ArrowUpRight size={16} /></Link></div>
+        <div className="welcome-nav-actions"><UpdatesLink /><Link href="/login" className="ink-link">登录</Link><Link href="/register" className="nav-signup">开始学习 <ArrowUpRight size={16} /></Link></div>
       </nav>
       <section className="welcome-hero">
         <div className="hero-copy">

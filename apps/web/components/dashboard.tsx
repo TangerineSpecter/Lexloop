@@ -50,6 +50,7 @@ import { Tooltip } from './tooltip';
 import { MistakesPage } from './mistakes-page';
 import { TutorPanel } from './tutor-panel';
 import { TravelScenarioPage } from './travel-scenario-page';
+import { UpdatesLink } from './updates-link';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -444,6 +445,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <BookOpen size={15} /> Lexloop · 词环
           </span>
           <div className="topbar-actions">
+            <UpdatesLink />
             <button
               className="topbar-account"
               onClick={() => setAccountMenuOpen((open) => !open)}
