@@ -4,7 +4,6 @@ set -euo pipefail
 
 readonly DEPLOY_ROOT=/opt/lexloop
 readonly REPOSITORY_URL=https://github.com/TangerineSpecter/Lexloop.git
-readonly VERSION_INPUT="${1:-}"
 readonly BARE_REPOSITORY="${DEPLOY_ROOT}/source/repo.git"
 readonly PRODUCTION_ENV="${DEPLOY_ROOT}/config/production.env"
 
@@ -12,6 +11,40 @@ fail() {
   echo "安装失败：$*" >&2
   exit 1
 }
+
+version_input=''
+requested_http_port="${HTTP_PORT:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --port)
+      [ "$#" -ge 2 ] || fail "--port 后需要提供端口号，例如 --port 12880。"
+      [ -n "$2" ] || fail "--port 后需要提供非空端口号。"
+      requested_http_port="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "用法：sudo ./deploy/install.sh [v1.2.0] [--port 12880]"
+      echo "首次安装默认使用 12880；重新安装保留已有端口，--port 可显式修改。"
+      exit 0
+      ;;
+    -*) fail "未知参数：$1" ;;
+    *)
+      [ -z "$version_input" ] || fail "只能指定一个版本号。"
+      version_input="$1"
+      shift
+      ;;
+  esac
+done
+readonly VERSION_INPUT="$version_input"
+
+validate_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 )) || \
+    fail "HTTP 端口必须是 1–65535 之间的整数。"
+}
+if [ -n "$requested_http_port" ]; then
+  validate_port "$requested_http_port"
+  requested_http_port="$((10#$requested_http_port))"
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
   fail "请使用 sudo 执行此脚本，以便创建 ${DEPLOY_ROOT} 和备份计划。"
@@ -100,6 +133,7 @@ if [ ! -d "$release_path" ]; then
 fi
 
 if [ ! -f "$PRODUCTION_ENV" ]; then
+  initial_http_port="${requested_http_port:-12880}"
   postgres_password="$(openssl rand -hex 24)"
   cat >"$PRODUCTION_ENV" <<EOF
 POSTGRES_USER=lexloop
@@ -113,9 +147,9 @@ AI_CONFIG_ENCRYPTION_KEY=$(openssl rand -hex 32)
 AI_API_KEY=
 AI_BASE_URL=https://api.deepseek.com
 AI_MODEL=deepseek-v4-flash
-WEB_ORIGIN=http://localhost
+WEB_ORIGIN=http://localhost:${initial_http_port}
 COOKIE_SECURE=false
-HTTP_PORT=80
+HTTP_PORT=${initial_http_port}
 NODE_IMAGE=${NODE_IMAGE:-node:22.14.0-bookworm-slim}
 DOCKER_CLI_IMAGE=${DOCKER_CLI_IMAGE:-docker:27.5.1-cli}
 POSTGRES_IMAGE=${POSTGRES_IMAGE:-pgvector/pgvector:0.8.0-pg16}
@@ -146,6 +180,31 @@ set -a
 # shellcheck disable=SC1090
 source "$PRODUCTION_ENV"
 set +a
+
+previous_http_port="${HTTP_PORT:-80}"
+HTTP_PORT="${requested_http_port:-${HTTP_PORT:-12880}}"
+validate_port "$HTTP_PORT"
+HTTP_PORT="$((10#$HTTP_PORT))"
+
+# Check before expensive builds. Docker may publish ports without a userspace listener.
+published_containers="$(docker ps --filter "publish=${HTTP_PORT}" --format '{{.Names}}')"
+if [ -n "${published_containers//lexloop-gateway/}" ]; then
+  fail "网关 HTTP 端口 ${HTTP_PORT} 已被容器占用：${published_containers}。请使用 --port <其他端口>。"
+fi
+if [ "$published_containers" != lexloop-gateway ]; then
+  tcp_tables=(/proc/net/tcp)
+  [ ! -r /proc/net/tcp6 ] || tcp_tables+=(/proc/net/tcp6)
+  port_hex="$(printf '%04X' "$HTTP_PORT")"
+  if awk -v port="$port_hex" '$4 == "0A" { split($2, address, ":"); if (address[2] == port) found=1 } END { exit !found }' "${tcp_tables[@]}"; then
+    fail "网关 HTTP 端口 ${HTTP_PORT} 已被占用。请使用 --port <其他端口>，例如 --port 12881。"
+  fi
+fi
+if [ "$WEB_ORIGIN" = http://localhost ] || [ "$WEB_ORIGIN" = "http://localhost:${previous_http_port}" ]; then
+  WEB_ORIGIN="http://localhost:${HTTP_PORT}"
+  set_env WEB_ORIGIN "$WEB_ORIGIN"
+fi
+set_env HTTP_PORT "$HTTP_PORT"
+export HTTP_PORT WEB_ORIGIN
 
 docker network inspect lexloop_internal >/dev/null 2>&1 || docker network create lexloop_internal >/dev/null
 compose=(docker compose --project-name lexloop --env-file "$PRODUCTION_ENV" \
