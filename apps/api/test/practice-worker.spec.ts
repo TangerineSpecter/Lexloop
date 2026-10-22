@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DelayedError } from 'bullmq';
 import { gradeOutput } from '../src/modules/practice/output.processor';
 
 const job = {
@@ -53,6 +54,27 @@ describe('output worker boundaries', () => {
     await gradeOutput(job as never, service as never);
     expect(fetch).not.toHaveBeenCalled();
     expect(service.complete).not.toHaveBeenCalled();
+  });
+  it('waits for an existing lease without consuming retries or calling the model', async () => {
+    const waitUntil = Date.now() + 120_000;
+    const service = {
+      claim: vi.fn().mockResolvedValue({ done: false, waitUntil }),
+      complete: vi.fn(),
+      fail: vi.fn(),
+    };
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const moveToDelayed = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      gradeOutput(
+        { ...job, attemptsMade: 2, token: 'queue-lock', moveToDelayed } as never,
+        service as never,
+      ),
+    ).rejects.toBeInstanceOf(DelayedError);
+    expect(moveToDelayed).toHaveBeenCalledWith(waitUntil, 'queue-lock');
+    expect(service.fail).not.toHaveBeenCalled();
+    expect(service.complete).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('releases failed leases for retry and never includes raw provider errors in queue failures', async () => {
     const service = {

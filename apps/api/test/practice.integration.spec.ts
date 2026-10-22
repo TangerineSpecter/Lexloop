@@ -88,6 +88,16 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       const id = submissions[0].id;
       const claim = await output.claim(id, token);
       expect(claim.done).toBe(false);
+      const occupied = await output.claim(id, token);
+      expect(occupied.done).toBe(false);
+      expect(occupied.waitUntil).toBeGreaterThan(Date.now());
+      expect(occupied).not.toHaveProperty('provider');
+      await prisma.outputSubmission.update({
+        where: { id },
+        data: { processingStartedAt: new Date(Date.now() - 121_000) },
+      });
+      const recovered = await output.claim(id, token);
+      expect(recovered.leaseToken).not.toBe(claim.leaseToken);
       const feedback = {
         grammarScore: 80,
         coherenceScore: 80,
@@ -101,8 +111,8 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
         })),
       };
       const completions = await Promise.allSettled([
-        output.complete(id, token, claim.leaseToken!, feedback),
-        output.complete(id, token, claim.leaseToken!, feedback),
+        output.complete(id, token, recovered.leaseToken!, feedback),
+        output.complete(id, token, recovered.leaseToken!, feedback),
       ]);
       expect(completions.some((result) => result.status === 'fulfilled')).toBe(true);
       expect(
@@ -126,6 +136,9 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       );
       expect(new Set(results.map((row) => row.id)).size).toBe(1);
       expect(results[0].correctCount).toBe(3);
+      const groups = await contrast.list(user.id);
+      expect(groups.find((group) => group.id === 'affect-effect')?.practiced).toBe(true);
+      expect(groups.filter((group) => group.practiced)).toHaveLength(1);
       expect(
         await prisma.wordReviewAttempt.count({
           where: { userId: user.id, questionType: 'CONFUSION' },

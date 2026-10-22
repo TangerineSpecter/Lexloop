@@ -1,9 +1,10 @@
-import type { Job } from 'bullmq';
+import { DelayedError, type Job } from 'bullmq';
 import type { OutputService } from './output.service';
 
 type Task = { submissionId: string; workerToken: string };
 type Claim = {
   done: boolean;
+  waitUntil?: number;
   leaseToken?: string;
   auditId?: string;
   provider?: { baseUrl: string; model: string; apiKey: string };
@@ -22,6 +23,10 @@ export async function gradeOutput(
   try {
     const claim = (await service.claim(submissionId, workerToken)) as Claim;
     if (claim.done) return { done: true };
+    if (claim.waitUntil !== undefined) {
+      await job.moveToDelayed(claim.waitUntil, job.token);
+      throw new DelayedError();
+    }
     leaseToken = claim.leaseToken;
     auditId = claim.auditId;
     if (!leaseToken || !claim.provider || !claim.messages) throw new Error('批改任务不完整');
@@ -50,7 +55,9 @@ export async function gradeOutput(
     await service.complete(submissionId, workerToken, leaseToken, feedback);
     await service.fail(submissionId, workerToken, leaseToken, true, auditId, true);
     return { done: true };
-  } catch {
+  } catch (error) {
+    // BullMQ treats this as a scheduled continuation, not a failed attempt.
+    if (error instanceof DelayedError) throw error;
     const final = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
     await service
       .fail(submissionId, workerToken, leaseToken, final, auditId, false)

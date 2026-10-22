@@ -30,11 +30,21 @@ export class ConfusionService {
         take: 80,
         select: { bookWord: { select: { word: { select: { text: true } } } } },
       }),
-      this.prisma.confusionAttempt.groupBy({ by: ['groupId'], where: { userId } }),
+      // One indexed existence lookup per catalog group, regardless of how many
+      // years of attempts the user has accumulated.
+      Promise.all(
+        CONFUSION_CATALOG.map((group) =>
+          this.prisma.confusionAttempt.findFirst({
+            where: { userId, groupId: group.id },
+            orderBy: { createdAt: 'desc' },
+            select: { groupId: true },
+          }),
+        ),
+      ),
     ]);
     const weakWords = new Set(weak.map((row) => row.bookWord.word.text.toLowerCase()));
     const learned = new Set(recent.map((row) => row.bookWord.word.text.toLowerCase()));
-    const practiced = new Set(previous.map((row) => row.groupId));
+    const practiced = new Set(previous.flatMap((row) => (row ? [row.groupId] : [])));
     return CONFUSION_CATALOG.map((group) => ({
       ...group,
       questions: group.questions.map(({ id, sentence }, index) => ({

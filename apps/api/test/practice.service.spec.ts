@@ -40,6 +40,20 @@ function outputFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('output ownership and exactly-once completion', () => {
+  it('defers a recovered job while another database lease still owns the submission', async () => {
+    const processingStartedAt = new Date();
+    const f = outputFixture({ processingStartedAt });
+    f.models.selectedProvider.mockResolvedValue({
+      provider: 'OPENAI_COMPATIBLE',
+      model: 'mock',
+      baseUrl: 'https://example.invalid',
+      apiKey: 'test-only',
+    });
+    const result = await f.service.claim('submission', token);
+    expect(result).toEqual({ done: false, waitUntil: processingStartedAt.getTime() + 120_000 });
+    expect(result).not.toHaveProperty('provider');
+    expect(f.evidence.record).not.toHaveBeenCalled();
+  });
   it('scopes public reads to the authenticated owner and never exposes task credentials', async () => {
     const f = outputFixture({ feedback: null, error: null });
     const result = await f.service.submission('owner', 'submission');
@@ -88,6 +102,30 @@ describe('output ownership and exactly-once completion', () => {
 });
 
 describe('contrast submission validation', () => {
+  it('checks practiced groups through bounded existence lookups without aggregating historical attempts', async () => {
+    const prisma = {
+      weaknessSignal: { findMany: vi.fn().mockResolvedValue([]) },
+      userWordProgress: { findMany: vi.fn().mockResolvedValue([]) },
+      confusionAttempt: {
+        findFirst: vi
+          .fn()
+          .mockImplementation(async ({ where }) =>
+            where.groupId === 'affect-effect' ? { groupId: where.groupId } : null,
+          ),
+      },
+    };
+    const service = new ConfusionService(prisma as never, {} as never);
+    const groups = await service.list('owner');
+    expect(prisma.confusionAttempt.findFirst).toHaveBeenCalledTimes(groups.length);
+    for (const group of groups)
+      expect(prisma.confusionAttempt.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'owner', groupId: group.id },
+        orderBy: { createdAt: 'desc' },
+        select: { groupId: true },
+      });
+    expect(groups.find((group) => group.id === 'affect-effect')?.practiced).toBe(true);
+    expect(groups.filter((group) => group.practiced)).toHaveLength(1);
+  });
   const answers = ['affect', 'effect', 'affect', 'effect'].map((selected, i) => ({
     questionId: `affect-effect-${i + 1}`,
     selected,

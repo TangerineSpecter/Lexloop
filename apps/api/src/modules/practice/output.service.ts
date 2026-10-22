@@ -310,7 +310,9 @@ export class OutputService {
         },
         data: { status: 'PROCESSING', leaseToken, processingStartedAt: new Date(), error: null },
       });
-      if (!claimed.count) throw new ConflictException('任务正在处理');
+      // A stalled BullMQ job can be recovered before its database lease expires.
+      // Wait for that lease instead of spending the model retry budget.
+      if (!claimed.count) return null;
       return tx.aiCallAudit.create({
         data: {
           userId: row.challenge.userId,
@@ -321,6 +323,14 @@ export class OutputService {
         },
       });
     });
+    if (!audit)
+      return {
+        done: false,
+        waitUntil: Math.max(
+          Date.now() + 1000,
+          (row.processingStartedAt?.getTime() ?? Date.now()) + 120_000,
+        ),
+      };
     const targets = row.challenge.targets as unknown as OutputTarget[];
     return {
       done: false,
