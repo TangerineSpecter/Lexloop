@@ -283,6 +283,33 @@ model User {
   confusionAttempts ConfusionAttempt[]
   dailySentences DailySentence[]
   labLessons LabLesson[]
+  microProgress MicroProgress?
+  microErrors MicroError[]
+}
+
+model MicroProgress {
+  userId String @id
+  completedKeys String[] @default([])
+  interpretationKey String?
+  interpretation String?
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MicroError {
+  id String @id @default(cuid())
+  userId String
+  lessonKey String
+  interpretation String
+  ownSentence String?
+  reviewCount Int @default(0)
+  dueAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonKey])
+  @@index([userId, dueAt])
 }
 
 model SystemFeatureSetting {

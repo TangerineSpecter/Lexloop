@@ -3,6 +3,11 @@ import styles from './practice-entries.module.css';
 export function PracticeEntries() {
   return (
     <nav className={styles.entries} aria-label="学习专项">
+      <a href="/dashboard/micro-stories">
+        <small>START · 60 SEC</small>
+        <strong>一分钟微故事 <span aria-hidden="true">↗</span></strong>
+        <span>从生活场景接着读，理解偏差留到下次复习。</span>
+      </a>
       <a href="/dashboard/practice?tab=output">
         <small>01 · WRITE</small>
         <strong>

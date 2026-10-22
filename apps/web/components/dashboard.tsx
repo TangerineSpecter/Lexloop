@@ -356,6 +356,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <span>地下词环</span>
           </a>
           <a className="nav-item" href="/dashboard/notebook"><BookOpen size={16}/><span>生词本与收藏</span></a>
+          <a className="nav-item" href="/dashboard/micro-stories"><BookOpen size={16}/><span>一分钟微故事</span></a>
           <a className="nav-item" href="/dashboard/notebook?tab=reading"><BookOpen size={16}/><span>生词短文精读</span></a>
           <a className="nav-item" href="/dashboard/notebook?tab=grammar"><Sparkles size={16}/><span>语法薄弱项专项</span></a>
           <a className="nav-item" href="/dashboard/practice?tab=output"><Sparkles size={16}/><span>学习专项与处方</span></a>
@@ -1304,7 +1305,7 @@ function AccountSettings({
               <div>
                 <span>危险操作</span>
                 <h3 id="learning-danger-title">清理学习记录</h3>
-                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、个人生词本、精读与语法专项记录、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
+                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、个人生词本、精读与语法专项记录、微故事进度及理解偏差、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
               </div>
               <button type="button" onClick={() => {
                 setClearMessage('');

@@ -1,0 +1,242 @@
+.page {
+  --border-color: #082877;
+  --soft: #fffefa;
+  --teal: #315eb6;
+  --gold: #ffdf4d;
+  --coral: #ff8351;
+  min-height: 100vh;
+  color: var(--border-color);
+  background: var(--soft) radial-gradient(rgba(8, 40, 119, 0.06) 0.65px, transparent 0.8px) 0 0/8px
+    8px;
+  font:
+    16px/1.65 'DM Sans',
+    'PingFang SC',
+    sans-serif;
+}
+.shell {
+  width: min(760px, calc(100% - 32px));
+  margin: auto;
+  padding: 28px 0 64px;
+}
+.heading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+.heading small {
+  font:
+    12px 'DM Mono',
+    monospace;
+  letter-spacing: 0.08em;
+}
+.heading h1 {
+  margin: 5px 0 8px;
+  font:
+    700 clamp(25px, 4vw, 38px)/1.4 'Noto Serif SC',
+    serif;
+  text-decoration: underline 6px var(--gold);
+  text-underline-offset: -3px;
+}
+.heading p {
+  margin: 0;
+}
+.heading a {
+  color: inherit;
+  font-weight: 700;
+  text-underline-offset: 4px;
+  white-space: nowrap;
+}
+.card {
+  border: 2px solid var(--border-color);
+  border-radius: 11px;
+  background: var(--soft);
+  box-shadow: 4px 4px 0 var(--border-color);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.cardHead {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 12px;
+}
+.cardHead h2,
+.card h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.tag {
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 3px 9px;
+  background: var(--gold);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.english {
+  font-size: clamp(20px, 3vw, 25px);
+  font-weight: 700;
+  line-height: 1.55;
+  margin: 22px 0;
+}
+.label {
+  display: block;
+  font-weight: 700;
+  margin: 15px 0 7px;
+}
+.page textarea,
+.page input:not([type='radio']) {
+  width: 100%;
+  box-sizing: border-box;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+  padding: 11px 13px;
+}
+.page textarea {
+  min-height: 80px;
+  resize: none;
+}
+.page input:not([type='radio']) {
+  min-height: 52px;
+}
+.answer {
+  border-left: 5px solid var(--coral);
+  background: #fff4b9;
+  padding: 10px 16px;
+  border-radius: 0 8px 8px 0;
+}
+.answer p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.pattern {
+  display: grid;
+  gap: 4px;
+  margin: 18px 0;
+  padding: 13px 15px;
+  background: #eaf2ff;
+  border: 2px dashed var(--border-color);
+  border-radius: 9px;
+}
+.pattern span {
+  font-size: 13px;
+  font-weight: 700;
+}
+.pattern strong {
+  font-size: 19px;
+}
+.pattern small {
+  font-size: 14px;
+}
+.choice {
+  border: 0;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.choice legend {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.choice label {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0 16px 8px 0;
+  cursor: pointer;
+}
+.choice input {
+  accent-color: var(--teal);
+  width: 17px;
+  height: 17px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.primary,
+.secondary,
+.error button {
+  min-height: 44px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 15px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.primary {
+  background: var(--teal);
+  color: var(--soft);
+  box-shadow: 3px 3px 0 var(--gold);
+}
+.secondary,
+.error button {
+  background: var(--soft);
+  color: var(--border-color);
+}
+.page button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.page button:not(:disabled):hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 var(--border-color);
+}
+.page :is(button, a, input, textarea):focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 3px;
+}
+.error {
+  color: var(--border-color);
+  background: #fff0e8;
+  border: 2px solid var(--coral);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.status {
+  font-weight: 700;
+}
+.history {
+  border-top: 2px solid var(--border-color);
+  margin-top: 26px;
+  padding-top: 16px;
+}
+.historyList {
+  display: grid;
+  gap: 12px;
+  margin-top: 15px;
+}
+.historyList article {
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px 15px;
+}
+.historyList p {
+  margin: 6px 0;
+}
+@media (max-width: 680px) {
+  .heading {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 16px;
+  }
+  .cardHead {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .actions button {
+    flex: 1 1 180px;
+  }
+}

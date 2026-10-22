@@ -283,7 +283,7 @@ export class ReportsService {
     return this.prisma.$queryRaw<Array<{ date: Date; count: number }>>`
       SELECT date_trunc('day', "createdAt") AS date, COUNT(*)::int AS count
       FROM "LearningEvent" WHERE "userId" = ${userId} AND "createdAt" >= ${start} AND "createdAt" < ${end}
-        AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED')
+        AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED', 'MICRO_STORY_COMPLETED')
       GROUP BY date_trunc('day', "createdAt")
     `;
   }
