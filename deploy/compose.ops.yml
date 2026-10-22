@@ -8,6 +8,7 @@ services:
       dockerfile: deploy/updater/Dockerfile
       args:
         DOCKER_CLI_IMAGE: ${DOCKER_CLI_IMAGE:-docker:27.5.1-cli}
+        NODE_IMAGE: ${NODE_IMAGE:-node:22.14.0-bookworm-slim}
     container_name: lexloop-updater
     restart: unless-stopped
     environment:
@@ -30,6 +31,18 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/lexloop:/opt/lexloop
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "const r=require('node:http').get({socketPath:process.env.UPDATER_SOCKET,path:'/status',timeout:3000},s=>{s.resume();if(s.statusCode!==200)process.exitCode=1});r.on('timeout',()=>r.destroy());r.on('error',()=>process.exitCode=1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks: [internal]
 
 networks:

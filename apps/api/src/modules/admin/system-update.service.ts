@@ -84,7 +84,7 @@ export class SystemUpdateService {
           socketPath: this.socketPath,
           path,
           method,
-          timeout: 15_000,
+          timeout: path === '/check' ? 75_000 : 15_000,
           headers: payload
             ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
             : undefined,

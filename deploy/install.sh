@@ -7,6 +7,20 @@ readonly REPOSITORY_URL=https://github.com/TangerineSpecter/Lexloop.git
 readonly BARE_REPOSITORY="${DEPLOY_ROOT}/source/repo.git"
 readonly PRODUCTION_ENV="${DEPLOY_ROOT}/config/production.env"
 
+install_phase='检查安装条件'
+report_exit() {
+  local result="$?"
+  if [ "$result" -ne 0 ]; then
+    echo "安装未完成，失败阶段：${install_phase}。更新服务和备份计划可能尚未就绪。" >&2
+    if declare -p compose >/dev/null 2>&1; then
+      "${compose[@]}" ps --all >&2 || true
+    fi
+    docker ps -a --filter name=lexloop-updater --format '{{.Names}} {{.Status}}' >&2 || true
+    echo "请检查上述容器日志；修复后可重新执行最新的 deploy/install.sh，保留已有配置和数据。" >&2
+  fi
+}
+trap report_exit EXIT
+
 fail() {
   echo "安装失败：$*" >&2
   exit 1
@@ -67,6 +81,7 @@ install -d -m 0700 "${DEPLOY_ROOT}/config" "${DEPLOY_ROOT}/backups" \
   "${DEPLOY_ROOT}/backups/daily" "${DEPLOY_ROOT}/backups/weekly" \
   "${DEPLOY_ROOT}/data/run" "${DEPLOY_ROOT}/data/updater"
 
+install_phase='同步并校验发布版本'
 if [ ! -d "$BARE_REPOSITORY" ]; then
   git clone --mirror "$REPOSITORY_URL" "$BARE_REPOSITORY"
 else
@@ -170,17 +185,17 @@ set_env() {
   fi
 }
 
-set_env APP_VERSION "$VERSION"
-set_env APP_COMMIT_SHA "$commit_sha"
-set_env APP_BUILD_TIME "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-set_env LEXLOOP_IMAGE_TAG "$image_tag"
-set_env CURRENT_RELEASE_PATH "$release_path"
-
 set -a
 # shellcheck disable=SC1090
 source "$PRODUCTION_ENV"
 set +a
 
+# Do not mark an attempted release as installed before its services are healthy.
+export APP_VERSION="$VERSION" APP_COMMIT_SHA="$commit_sha"
+export APP_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export LEXLOOP_IMAGE_TAG="$image_tag" CURRENT_RELEASE_PATH="$release_path"
+
+install_phase='校验网关端口'
 previous_http_port="${HTTP_PORT:-80}"
 HTTP_PORT="${requested_http_port:-${HTTP_PORT:-12880}}"
 validate_port "$HTTP_PORT"
@@ -211,11 +226,12 @@ compose=(docker compose --project-name lexloop --env-file "$PRODUCTION_ENV" \
   --file "$release_path/deploy/compose.prod.yml")
 
 echo "正在构建 Lexloop ${TAG}…"
+install_phase='校验 Compose 并构建应用镜像'
 "${compose[@]}" config --quiet
 "${compose[@]}" build web api worker migrate
+install_phase='启动数据库并执行迁移'
 "${compose[@]}" up -d postgres redis
 "${compose[@]}" run --rm migrate
-"${compose[@]}" up -d --no-build postgres redis web api worker gateway
 
 if [ ! -f "${DEPLOY_ROOT}/data/updater/update-state.json" ]; then
   cat >"${DEPLOY_ROOT}/data/updater/update-state.json" <<EOF
@@ -236,8 +252,19 @@ EOF
   chmod 0600 "${DEPLOY_ROOT}/data/updater/update-state.json"
 fi
 
+install_phase='启动并验证更新服务'
 docker compose --project-name lexloop-ops --env-file "$PRODUCTION_ENV" \
-  --file "$release_path/deploy/compose.ops.yml" up -d --build updater
+  --file "$release_path/deploy/compose.ops.yml" up -d --build --wait --wait-timeout 90 updater
+
+install_phase='注册每日备份计划'
+install -m 0755 "$release_path/deploy/backup.sh" "${DEPLOY_ROOT}/backup.sh"
+cat >/etc/cron.d/lexloop-backup <<EOF
+17 3 * * * root ${DEPLOY_ROOT}/backup.sh >>${DEPLOY_ROOT}/backups/backup.log 2>&1
+EOF
+chmod 0644 /etc/cron.d/lexloop-backup
+
+install_phase='启动并验证应用服务'
+"${compose[@]}" up -d --no-build --wait --wait-timeout 180 postgres redis web api worker gateway
 
 ready=0
 for _ in $(seq 1 90); do
@@ -249,12 +276,31 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 [ "$ready" -eq 1 ] || fail "服务未在 90 秒内通过健康检查，请运行 docker compose logs 检查。"
+curl --fail --silent --output /dev/null --max-time 10 "http://127.0.0.1:${HTTP_PORT}/" || \
+  fail "API 已就绪，但首页无法访问。"
 
-install -m 0755 "$release_path/deploy/backup.sh" "${DEPLOY_ROOT}/backup.sh"
-cat >/etc/cron.d/lexloop-backup <<EOF
-17 3 * * * root ${DEPLOY_ROOT}/backup.sh >>${DEPLOY_ROOT}/backups/backup.log 2>&1
-EOF
-chmod 0644 /etc/cron.d/lexloop-backup
+install_phase='验证 API 到更新服务的连接'
+"${compose[@]}" exec -T api node -e '
+const http = require("node:http");
+const req = http.get({socketPath: process.env.UPDATER_SOCKET, path: "/status", timeout: 5000}, res => {
+  let data = "";
+  res.on("data", chunk => data += chunk);
+  res.on("end", () => {
+    try {
+      const status = JSON.parse(data);
+      if (res.statusCode !== 200 || !status.updaterAvailable || status.currentSha !== process.env.APP_COMMIT_SHA) process.exitCode = 1;
+    } catch { process.exitCode = 1; }
+  });
+});
+req.on("timeout", () => req.destroy());
+req.on("error", () => process.exitCode = 1);
+'
+
+set_env APP_VERSION "$APP_VERSION"
+set_env APP_COMMIT_SHA "$APP_COMMIT_SHA"
+set_env APP_BUILD_TIME "$APP_BUILD_TIME"
+set_env LEXLOOP_IMAGE_TAG "$LEXLOOP_IMAGE_TAG"
+set_env CURRENT_RELEASE_PATH "$CURRENT_RELEASE_PATH"
 
 echo
 echo "Lexloop ${TAG} 已部署完成。"

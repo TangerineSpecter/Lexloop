@@ -50,7 +50,16 @@ if (activeJob) {
 
 function loadState() {
   try {
-    return JSON.parse(readFileSync(config.stateFile, 'utf8'));
+    const saved = JSON.parse(readFileSync(config.stateFile, 'utf8'));
+    // install.sh can repair/reinstall a release without going through runUpdate.
+    // Its validated production environment is the identity of the running release.
+    if (initialDeployment.sha !== 'unknown' && saved.deployment?.sha !== initialDeployment.sha) {
+      saved.deployment = initialDeployment;
+      saved.latest = null;
+      saved.checkedAt = null;
+      saved.checkError = null;
+    }
+    return saved;
   } catch {
     return {
       deployment: initialDeployment,
@@ -117,6 +126,8 @@ function runAsync(command, args, options = {}) {
       env: { ...process.env, ...options.env },
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: options.timeout,
+      killSignal: 'SIGKILL',
     });
     let output = '';
     const collect = (chunk) => {
@@ -142,15 +153,21 @@ function ensureRepository() {
   if (remote !== config.repository) throw new Error('部署仓库地址与受信任仓库不一致');
 }
 
-function fetchRepository() {
+async function fetchRepository() {
   ensureRepository();
-  git([
-    'fetch',
-    '--prune',
-    'origin',
-    `+refs/heads/${config.trustedBranch}:refs/remotes/origin/${config.trustedBranch}`,
-    '+refs/tags/v*:refs/tags/v*',
-  ]);
+  await runAsync(
+    'git',
+    [
+      '--git-dir',
+      config.bareRepository,
+      'fetch',
+      '--prune',
+      'origin',
+      `+refs/heads/${config.trustedBranch}:refs/remotes/origin/${config.trustedBranch}`,
+      '+refs/tags/v*:refs/tags/v*',
+    ],
+    { timeout: 60_000 },
+  );
 }
 
 function gitExitZero(args) {
@@ -164,8 +181,8 @@ function packageVersionAt(sha, path) {
   return JSON.parse(git(['show', `${sha}:${path}`])).version;
 }
 
-function discoverLatest() {
-  fetchRepository();
+async function discoverLatest() {
+  await fetchRepository();
   const tags = git(['for-each-ref', '--format=%(refname:short)', 'refs/tags/v*'])
     .split('\n')
     .filter(Boolean);
@@ -225,18 +242,24 @@ function currentStatus() {
   };
 }
 
+let pendingCheck = null;
 function performCheck() {
-  try {
-    state.latest = discoverLatest();
+  if (pendingCheck) return pendingCheck;
+  pendingCheck = (async () => {
+    try {
+      state.latest = await discoverLatest();
+      state.checkError = null;
+    } catch (error) {
+      state.latest = null;
+      state.checkError = sanitize(error instanceof Error ? error.message : error);
+    }
     state.checkedAt = new Date().toISOString();
-    state.checkError = null;
-  } catch (error) {
-    state.latest = null;
-    state.checkedAt = new Date().toISOString();
-    state.checkError = sanitize(error instanceof Error ? error.message : error);
-  }
-  persist();
-  return currentStatus();
+    persist();
+    return currentStatus();
+  })().finally(() => {
+    pendingCheck = null;
+  });
+  return pendingCheck;
 }
 
 function composeArgs(releasePath) {
@@ -319,7 +342,18 @@ async function verifyDeployment(target, job) {
     if (result.status === 0) {
       try {
         const health = JSON.parse(result.stdout.toString());
-        if (health.version === target.version && health.commitSha === target.sha) return;
+        if (health.version === target.version && health.commitSha === target.sha) {
+          await runAsync('curl', [
+            '--fail',
+            '--silent',
+            '--output',
+            '/dev/null',
+            '--max-time',
+            '3',
+            'http://gateway/',
+          ]);
+          return;
+        }
       } catch {
         // The gateway can become reachable before the new API is ready.
       }
@@ -330,8 +364,24 @@ async function verifyDeployment(target, job) {
   throw new Error('新版本在 60 秒内未通过健康检查');
 }
 
-function scheduleUpdaterRefresh(releasePath, env) {
+async function scheduleUpdaterRefresh(releasePath, env) {
+  // Replacing this container kills every process inside it, including a detached
+  // compose child. Let a separate, short-lived container finish the replacement.
   const args = [
+    'run',
+    '--detach',
+    '--rm',
+    '--name',
+    `lexloop-updater-refresh-${env.APP_COMMIT_SHA.slice(0, 12)}`,
+    '--volume',
+    '/var/run/docker.sock:/var/run/docker.sock',
+    '--volume',
+    '/opt/lexloop:/opt/lexloop',
+    '--env-file',
+    config.productionEnv,
+    '--entrypoint',
+    'docker',
+    `lexloop-updater:${env.LEXLOOP_IMAGE_TAG}`,
     'compose',
     '--project-name',
     'lexloop-ops',
@@ -341,15 +391,13 @@ function scheduleUpdaterRefresh(releasePath, env) {
     join(releasePath, 'deploy/compose.ops.yml'),
     'up',
     '--detach',
-    '--build',
+    '--no-build',
+    '--wait',
+    '--wait-timeout',
+    '90',
     'updater',
   ];
-  const child = spawn('docker', args, {
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env, ...env },
-  });
-  child.unref();
+  await runAsync('docker', args, { env });
 }
 
 async function runUpdate(job, target) {
@@ -361,7 +409,7 @@ async function runUpdate(job, target) {
   let switched = false;
   try {
     updateStage(job, 'CHECKING', '正在重新验证版本和提交关系…');
-    const status = performCheck();
+    const status = await performCheck();
     if (
       !status.updateAvailable ||
       status.latest?.version !== target.version ||
@@ -382,6 +430,21 @@ async function runUpdate(job, target) {
       [...composeArgs(releasePath), 'build', 'web', 'api', 'worker', 'migrate'],
       { env },
     );
+    await runAsync(
+      'docker',
+      [
+        'compose',
+        '--project-name',
+        'lexloop-ops',
+        '--env-file',
+        config.productionEnv,
+        '--file',
+        join(releasePath, 'deploy/compose.ops.yml'),
+        'build',
+        'updater',
+      ],
+      { env },
+    );
 
     updateStage(job, 'BACKING_UP', '正在创建更新前数据库备份…');
     createBackup(job);
@@ -390,6 +453,8 @@ async function runUpdate(job, target) {
     await runAsync('docker', [...composeArgs(releasePath), 'run', '--rm', 'migrate'], { env });
 
     updateStage(job, 'DEPLOYING', '正在切换 Web、API 与 Worker…');
+    // Compose can partially replace containers before reporting a failed dependency.
+    switched = true;
     await runAsync(
       'docker',
       [
@@ -397,6 +462,9 @@ async function runUpdate(job, target) {
         'up',
         '--detach',
         '--no-build',
+        '--wait',
+        '--wait-timeout',
+        '180',
         'postgres',
         'redis',
         'web',
@@ -406,13 +474,12 @@ async function runUpdate(job, target) {
       ],
       { env },
     );
-    switched = true;
 
     updateStage(job, 'VERIFYING', '正在验证首页、API 版本和容器状态…');
     await verifyDeployment(target, job);
 
-    state.deployment = deployment;
     saveProductionDeployment(deployment);
+    state.deployment = deployment;
     job.stage = 'SUCCEEDED';
     job.message = `已更新到 v${target.version} (${target.sha.slice(0, 12)})`;
     job.finishedAt = new Date().toISOString();
@@ -420,7 +487,12 @@ async function runUpdate(job, target) {
     recordHistory(job);
     persist();
     activeJob = null;
-    setTimeout(() => scheduleUpdaterRefresh(releasePath, env), 1_000).unref();
+    setTimeout(() => {
+      void scheduleUpdaterRefresh(releasePath, env).catch((error) => {
+        state.checkError = `应用已更新，但更新服务刷新失败：${sanitize(error)}`;
+        appendLog(job, state.checkError);
+      });
+    }, 1_000).unref();
   } catch (error) {
     const message = sanitize(error instanceof Error ? error.message : error);
     appendLog(job, `更新失败：${message}`);
@@ -434,6 +506,9 @@ async function runUpdate(job, target) {
             'up',
             '--detach',
             '--no-build',
+            '--wait',
+            '--wait-timeout',
+            '180',
             'web',
             'api',
             'worker',
@@ -441,6 +516,8 @@ async function runUpdate(job, target) {
           ],
           { env: releaseEnvironment(previous) },
         );
+        state.deployment = previous;
+        saveProductionDeployment(previous);
         appendLog(job, '上一版应用镜像已恢复；数据库不会自动回滚。');
       } catch (rollbackError) {
         appendLog(job, `应用镜像恢复失败：${sanitize(rollbackError)}`);
@@ -485,7 +562,7 @@ const server = createServer(async (request, response) => {
       return reply(response, 200, currentStatus());
     }
     if (request.method === 'POST' && request.url === '/check') {
-      return reply(response, 200, performCheck());
+      return reply(response, 200, await performCheck());
     }
     if (request.method === 'GET' && request.url?.startsWith('/jobs/')) {
       const id = request.url.slice('/jobs/'.length);
@@ -539,5 +616,8 @@ server.listen(config.socket, () => {
   console.log(`Lexloop updater listening on ${config.socket}`);
 });
 
-setInterval(() => performCheck(), 6 * 60 * 60 * 1_000).unref();
-setTimeout(() => performCheck(), 5_000).unref();
+const backgroundCheck = () => {
+  void performCheck().catch((error) => console.error(sanitize(error)));
+};
+setInterval(backgroundCheck, 6 * 60 * 60 * 1_000).unref();
+setTimeout(backgroundCheck, 5_000).unref();

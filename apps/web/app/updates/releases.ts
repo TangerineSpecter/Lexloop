@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.0.3',
+    date: '2026-10-22',
+    items: [
+      {
+        title: '安装与系统更新修复',
+        entry: '系统设置 → 系统更新',
+        usage:
+          '修复首次安装启动失败和更新服务不可用，增加安装健康检查与失败恢复。旧版更新服务无法启动时，需重新执行最新安装脚本修复一次。',
+      },
+    ],
+  },
+  {
     version: '1.0.2',
     date: '2026-10-22',
     items: [
