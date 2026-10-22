@@ -134,7 +134,10 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
+      AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY}
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:

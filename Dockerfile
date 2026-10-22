@@ -89,6 +89,9 @@ COPY --from=build /workspace/node_modules /workspace/node_modules
 COPY --from=build /workspace/apps/worker/node_modules ./node_modules
 COPY --from=build /workspace/apps/worker/dist ./dist
 COPY --from=build /workspace/apps/worker/package.json ./package.json
+COPY --from=build /workspace/apps/api/node_modules /workspace/apps/api/node_modules
+COPY --from=build /workspace/apps/api/dist /workspace/apps/api/dist
+COPY --from=build /workspace/apps/api/package.json /workspace/apps/api/package.json
 CMD ["node", "dist/main.js"]
 
 FROM build AS migrate

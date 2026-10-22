@@ -51,6 +51,7 @@ import { MistakesPage } from './mistakes-page';
 import { TutorPanel } from './tutor-panel';
 import { TravelScenarioPage } from './travel-scenario-page';
 import { UpdatesLink } from './updates-link';
+import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -494,6 +495,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
             </section>
 
+            <DailySentenceCard key={session.user.id} session={session} />
             <div className="learning-tabs" role="tablist" aria-label="学习内容">
               <button
                 role="tab"

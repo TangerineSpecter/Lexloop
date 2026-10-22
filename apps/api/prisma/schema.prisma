@@ -278,6 +278,34 @@ model User {
   adventureFloorProgresses UserFloorProgress[]
   inventoryItems InventoryItem[]
   adventureDailyQuests AdventureDailyQuest[]
+  dailySentences DailySentence[]
+}
+
+model SystemFeatureSetting {
+  key String @id
+  enabled Boolean @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model DailySentence {
+  id String @id @default(cuid())
+  userId String
+  dateKey String
+  status String @default("GENERATING")
+  content Json?
+  readAt DateTime?
+  favorite Boolean @default(false)
+  difficulty String?
+  attempts Int @default(0)
+  error String?
+  generationToken String?
+  generationStartedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey])
+  @@index([userId, status, readAt, createdAt])
 }
 
 model VocabularyBook {

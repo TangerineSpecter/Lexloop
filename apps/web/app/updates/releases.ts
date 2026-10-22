@@ -11,6 +11,11 @@ export const RELEASES: readonly Release[] = [
     date: '2026-10-22',
     items: [
       {
+        title: '每日一句',
+        entry: '学习进度首页 → 每日一句',
+        usage: '每日定时提前准备，未读保留；查看语法拆解和讲解，支持回顾、收藏与难度反馈。需先选择模型，管理员可在系统设置的功能开关中启停。',
+      },
+      {
         title: '安装与系统更新修复',
         entry: '系统设置 → 系统更新',
         usage:

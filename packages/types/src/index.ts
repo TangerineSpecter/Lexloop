@@ -389,3 +389,29 @@ export interface LearningHistoryResponse {
     scenarios: number;
   };
 }
+export type DailySentenceContent = {
+  english: string;
+  chinese: string;
+  level: string;
+  focus: string;
+  chunks: Array<{ text: string; role: string; phraseType: string; explanation: string }>;
+  explanations: Array<{ question: string; answer: string }>;
+  pattern: string;
+  usage: string;
+  example: { english: string; chinese: string };
+  learningReason: string;
+};
+export type DailySentenceItem = {
+  id: string;
+  dateKey: string;
+  content: DailySentenceContent;
+  readAt: string | null;
+  favorite: boolean;
+  difficulty: 'EASY' | 'RIGHT' | 'HARD' | null;
+};
+export type DailySentenceCurrent = {
+  item: DailySentenceItem | null;
+  state: 'READY' | 'GENERATING' | 'FAILED' | 'WAITING' | 'MODEL_REQUIRED' | 'DISABLED';
+  canRetry: boolean;
+};
+export type DailySentenceHistory = { items: DailySentenceItem[]; hasMore: boolean };

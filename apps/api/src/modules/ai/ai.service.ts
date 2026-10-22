@@ -43,7 +43,7 @@ export class AiService implements AiProvider {
     return response;
   }
 
-  async selectedChatCompletions(request: OpenAiChatCompletionRequest, userId: string): Promise<Response> {
+  async selectedChatCompletions(request: OpenAiChatCompletionRequest, userId: string, signal?: AbortSignal): Promise<Response> {
     const configured = await this.modelConfigs.selectedProvider(userId);
     if (!configured) {
       throw new ServiceUnavailableException('请先在阅读材料模型设置中选择可用的大模型');
@@ -54,6 +54,7 @@ export class AiService implements AiProvider {
         method: 'POST',
         headers: { Authorization: `Bearer ${configured.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...request, model: configured.model }),
+        signal,
       });
     } catch {
       throw new BadGatewayException('AI Provider 无法连接，请检查模型配置或稍后重试');
