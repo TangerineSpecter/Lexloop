@@ -1,3 +1,4 @@
+export type * from './practice';
 export type UserRole = 'USER' | 'ADMIN';
 
 export interface CurrentUser {
@@ -66,6 +67,7 @@ export interface PeriodActivityDay {
   studySeconds: number;
   scenarios: number;
   assessments: number;
+  practiceSessions?: number;
   today?: boolean;
 }
 

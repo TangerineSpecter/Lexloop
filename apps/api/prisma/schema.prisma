@@ -278,6 +278,8 @@ model User {
   adventureFloorProgresses UserFloorProgress[]
   inventoryItems InventoryItem[]
   adventureDailyQuests AdventureDailyQuest[]
+  outputChallenges OutputChallenge[]
+  confusionAttempts ConfusionAttempt[]
   dailySentences DailySentence[]
 }
 
@@ -541,6 +543,63 @@ model WordReviewAttempt {
 
   @@index([userId, bookWordId, createdAt])
   @@index([planItemId])
+  @@index([userId, createdAt])
+}
+
+enum OutputStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model OutputChallenge {
+  id          String   @id @default(cuid())
+  userId      String
+  challengeDate DateTime @db.Date
+  prompt      String
+  targets     Json
+  createdAt   DateTime @default(now())
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submissions OutputSubmission[]
+
+  @@unique([userId, challengeDate])
+}
+
+model OutputSubmission {
+  id          String @id @default(cuid())
+  challengeId String
+  clientRequestId String
+  answer      String @db.Text
+  status      OutputStatus @default(QUEUED)
+  workerTokenHash String
+  leaseToken  String?
+  processingStartedAt DateTime?
+  feedback    Json?
+  error       String?
+  responseTimeMs Int @default(0)
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  challenge   OutputChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, clientRequestId])
+  @@index([challengeId, createdAt])
+}
+
+model ConfusionAttempt {
+  id          String @id @default(cuid())
+  userId      String
+  groupId     String
+  clientRequestId String
+  correctCount Int
+  total       Int
+  answers     Json
+  createdAt   DateTime @default(now())
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, createdAt])
+  @@index([userId, groupId, createdAt])
 }
 
 // Mastery is tracked at the vocabulary-word level so a word stays mastered

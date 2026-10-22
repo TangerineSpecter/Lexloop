@@ -52,6 +52,7 @@ import { TutorPanel } from './tutor-panel';
 import { TravelScenarioPage } from './travel-scenario-page';
 import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
+import { PracticeEntries } from './practice/practice-entries';
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -250,6 +251,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'mistakes') setPage('mistakes');
+  }, []);
+
+  useEffect(() => {
     request<{ id: string; title: string; totalWords: number } | null>(
       '/vocabulary/default',
       {},
@@ -349,6 +354,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <Swords size={16} />
             <span>地下词环</span>
           </a>
+          <a className="nav-item" href="/dashboard/practice?tab=output"><Sparkles size={16}/><span>学习专项与处方</span></a>
           <div className="nav-group">
             <a className="nav-item" href="#words">
               <BookOpen size={16} />
@@ -496,6 +502,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             </section>
 
             <DailySentenceCard key={session.user.id} session={session} />
+            <PracticeEntries />
             <div className="learning-tabs" role="tablist" aria-label="学习内容">
               <button
                 role="tab"
@@ -1197,6 +1204,7 @@ function AccountSettings({
         { method: 'DELETE' },
         session.accessToken,
       );
+      try { localStorage.removeItem(`lexloop.output.draft.${session.user.id}`); } catch { /* Storage is optional. */ }
       onLearningReset();
       setClearDialogOpen(false);
       setClearMessage('学习记录已全部清除，可以重新开始学习。');
@@ -1315,7 +1323,7 @@ function AccountSettings({
             <h2 id="learning-clear-title">确认清理全部学习记录？</h2>
             <div>
               <strong>此操作无法撤销</strong>
-              <span>当前学习序列、旅行场景、水平画像、旅行生词、历史答题、复习时间、统计数据和已掌握状态都会被清空。</span>
+              <span>当前学习序列、输出挑战、易混词训练、旅行场景、水平画像、旅行生词、历史答题、复习时间、统计数据和已掌握状态都会被清空。</span>
               <small>账号、已添加词书、大模型配置、每日新词数量以及公共 AI 阅读材料与题目不会改变。</small>
             </div>
             {clearMessage && <p className="settings-clear-error">{clearMessage}</p>}

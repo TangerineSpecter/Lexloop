@@ -21,7 +21,7 @@ export class ReportsService {
     const end = endOfToday();
     const start = new Date(end.getTime() - days * DAY);
     const previousStart = new Date(start.getTime() - days * DAY);
-    const [attempts, previousAttempts, progresses, mastered, plans, scenarios, assessments] = await Promise.all([
+    const [attempts, previousAttempts, progresses, mastered, plans, scenarios, assessments, practiceDays] = await Promise.all([
       this.prisma.wordReviewAttempt.findMany({ where: { userId, createdAt: { gte: start, lt: end } }, include: { item: { include: { bookWord: { include: { word: true } } } } }, orderBy: { createdAt: 'asc' } }),
       this.prisma.wordReviewAttempt.count({ where: { userId, createdAt: { gte: previousStart, lt: start } } }),
       this.prisma.userWordProgress.findMany({ where: { userId }, include: { bookWord: { include: { word: true } } } }),
@@ -29,6 +29,7 @@ export class ReportsService {
       this.prisma.studyPlan.findMany({ where: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
       this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
       this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: start, lt: end } }, select: { completedAt: true } }),
+      this.practiceDays(userId, start, end),
     ]);
     const activity = Array.from({ length: days }, (_, index) => {
       const date = new Date(start.getTime() + index * DAY);
@@ -41,6 +42,7 @@ export class ReportsService {
         studySeconds: Math.round(daily.reduce((sum, attempt) => sum + (attempt.responseTimeMs ?? 0), 0) / 1000),
         scenarios: scenarios.filter(item => item.completedAt && item.completedAt >= date && item.completedAt < next).length,
         assessments: assessments.filter(item => item.completedAt && item.completedAt >= date && item.completedAt < next).length,
+        practiceSessions: practiceDays.filter(item => item.date >= date && item.date < next).reduce((sum, item) => sum + item.count, 0),
         today: index === days - 1,
       };
     });
@@ -263,12 +265,13 @@ export class ReportsService {
 
   private async currentStreak(userId: string) {
     const since = new Date(Date.now() - 366 * DAY);
-    const [attempts, scenarios, assessments] = await Promise.all([
+    const [attempts, scenarios, assessments, practiceDays] = await Promise.all([
       this.prisma.wordReviewAttempt.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } }),
       this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: since } }, select: { completedAt: true } }),
       this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: since } }, select: { completedAt: true } }),
+      this.practiceDays(userId, since, new Date()),
     ]);
-    const dates = [...attempts.map(item => item.createdAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt)].filter((value): value is Date => Boolean(value));
+    const dates = [...attempts.map(item => item.createdAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt), ...practiceDays.map(item => item.date)].filter((value): value is Date => Boolean(value));
     const days = new Set(dates.map(dateKey));
     let cursor = new Date();
     if (!days.has(dateKey(cursor))) cursor = new Date(cursor.getTime() - DAY);
@@ -276,9 +279,17 @@ export class ReportsService {
     while (days.has(dateKey(cursor))) { streak++; cursor = new Date(cursor.getTime() - DAY); }
     return streak;
   }
+  private practiceDays(userId: string, start: Date, end: Date) {
+    return this.prisma.$queryRaw<Array<{ date: Date; count: number }>>`
+      SELECT date_trunc('day', "createdAt") AS date, COUNT(*)::int AS count
+      FROM "LearningEvent" WHERE "userId" = ${userId} AND "createdAt" >= ${start} AND "createdAt" < ${end}
+        AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED')
+      GROUP BY date_trunc('day', "createdAt")
+    `;
+  }
 }
 
-function isActiveDay(day: { questions: number; scenarios: number; assessments: number }) { return day.questions > 0 || day.scenarios > 0 || day.assessments > 0; }
+function isActiveDay(day: { questions: number; scenarios: number; assessments: number; practiceSessions?: number }) { return day.questions > 0 || day.scenarios > 0 || day.assessments > 0 || (day.practiceSessions ?? 0) > 0; }
 function signalRows(progresses: Array<{ bookWordId: string; familiarity: number; reviewCount: number; bookWord: { word: { text: string } } }>, attempts: Array<{ bookWordId: string; isCorrect: boolean }>) { const rows: Signal[] = progresses.map(progress => { const rangeAttempts = attempts.filter(attempt => attempt.bookWordId === progress.bookWordId); return { word: progress.bookWord.word.text, attempts: rangeAttempts.length, correct: rangeAttempts.filter(attempt => attempt.isCorrect).length, familiarity: progress.familiarity, reviewCount: progress.reviewCount }; }); const withAttempts = rows.filter(row => row.attempts > 0); const rate = (row: Signal) => row.attempts ? row.correct / row.attempts * 100 : 0; return { reviews: [...rows].filter(row => row.reviewCount > 0).sort((a, b) => b.reviewCount - a.reviewCount).slice(0, 5).map(row => ({ word: row.word, count: row.reviewCount })), unfamiliar: [...rows].sort((a, b) => a.familiarity - b.familiarity).slice(0, 5).reverse().map(row => ({ word: row.word, rate: 100 - row.familiarity })), errorRate: [...withAttempts].sort((a, b) => rate(a) - rate(b)).slice(0, 10).map(row => ({ word: row.word, rate: 100 - rate(row) })), accuracy: [...withAttempts].sort((a, b) => rate(b) - rate(a)).slice(0, 10).map(row => ({ word: row.word, rate: rate(row) })) }; }
 function questionTypeRows(attempts: Array<{ questionType: string | null; isCorrect: boolean }>) { const grouped = new Map<string, { type: string; total: number; correct: number }>(); for (const item of attempts) { const type = item.questionType ?? 'OTHER'; const row = grouped.get(type) ?? { type, total: 0, correct: 0 }; row.total++; if (item.isCorrect) row.correct++; grouped.set(type, row); } return [...grouped.values()].sort((a, b) => a.correct / a.total - b.correct / b.total); }
 function profileDimensions(profile: { vocabularyScore: number; grammarScore: number; sentenceBuildingScore: number; taskCompletionScore: number; naturalnessScore: number; pronunciationScore?: number | null; listeningScore?: number | null; fluencyScore?: number | null } | null): CareerStatistics['profile']['dimensions'] { return { vocabulary: profile?.vocabularyScore ?? 0, grammar: profile?.grammarScore ?? 0, sentenceBuilding: profile?.sentenceBuildingScore ?? 0, taskCompletion: profile?.taskCompletionScore ?? 0, naturalness: profile?.naturalnessScore ?? 0, pronunciation: profile?.pronunciationScore ?? null, listening: profile?.listeningScore ?? null, fluency: profile?.fluencyScore ?? null }; }

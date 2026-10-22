@@ -18,6 +18,7 @@ import { VocabularyModule } from './modules/vocabulary/vocabulary.module';
 import { TravelModule } from './modules/travel/travel.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AdventureModule } from './modules/adventure/adventure.module';
+import { PracticeModule } from './modules/practice/practice.module';
 import { DailySentenceModule } from './modules/daily-sentence/daily-sentence.module';
 
 @Module({
@@ -25,7 +26,7 @@ import { DailySentenceModule } from './modules/daily-sentence/daily-sentence.mod
     ConfigModule.forRoot({ isGlobal: true, envFilePath: [resolve(process.cwd(), '../../.env'), '.env'], validationSchema: Joi.object({ DATABASE_URL: Joi.string().required(), REDIS_URL: Joi.string().required(), JWT_ACCESS_SECRET: Joi.string().min(24).required(), JWT_REFRESH_SECRET: Joi.string().min(24).required() }) }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     BullModule.forRootAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ connection: { url: config.getOrThrow<string>('REDIS_URL') } }) }),
-    PrismaModule, AuthModule, AdminModule, HealthModule, JobsModule, StudyModule, VocabularyModule, ContentModule, MistakesModule, ReportsModule, AiModule, TravelModule, AdventureModule, RagModule, DailySentenceModule,
+    PrismaModule, AuthModule, AdminModule, HealthModule, JobsModule, StudyModule, VocabularyModule, ContentModule, MistakesModule, ReportsModule, AiModule, TravelModule, AdventureModule, RagModule, DailySentenceModule, PracticeModule,
   ],
 })
 export class AppModule {}

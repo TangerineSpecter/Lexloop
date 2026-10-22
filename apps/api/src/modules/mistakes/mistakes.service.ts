@@ -84,7 +84,10 @@ export class MistakesService {
     return {
       ...this.serializeSignal(signal), bookWordId: signal.bookWordId, word: signal.bookWord.word.text,
       part: part(signal.bookWord.word.meaning), meaning: meaning(signal.bookWord.word.meaning), bookTitle: signal.bookWord.book.title,
-      attempts: attempts.map(attempt => ({ id: attempt.id, isCorrect: attempt.isCorrect, selectedAnswer: attempt.selectedAnswer, responseTimeMs: attempt.responseTimeMs, createdAt: attempt.createdAt, question: attempt.item?.question ?? null })),
+      attempts: attempts.map(attempt => {
+        const saved = attempt.selectedAnswer && typeof attempt.selectedAnswer === 'object' && !Array.isArray(attempt.selectedAnswer) ? attempt.selectedAnswer as Record<string, Prisma.JsonValue> : null;
+        return { id: attempt.id, isCorrect: attempt.isCorrect, selectedAnswer: saved?.answer ?? attempt.selectedAnswer, responseTimeMs: attempt.responseTimeMs, createdAt: attempt.createdAt, question: attempt.item?.question ?? saved?.question ?? null };
+      }),
     };
   }
 
@@ -108,6 +111,7 @@ export class MistakesService {
       const signals = await tx.weaknessSignal.findMany({ where: { userId, status: WeaknessStatus.ACTIVE, bookWordId: { in: bookWordIds } }, orderBy: [{ consecutiveCorrect: 'asc' }, { wrongCount: 'desc' }, { lastWrongAt: 'desc' }] });
       const selected = bookWordIds.map(bookWordId => signals.find(signal => signal.bookWordId === bookWordId)).filter(Boolean) as typeof signals;
       if (selected.length !== bookWordIds.length) throw new BadRequestException('所选单词不再是待巩固状态，请刷新后重试');
+      if (selected.some(signal => signal.questionType === 'OUTPUT' || signal.questionType === 'CONFUSION')) throw new BadRequestException('所选薄弱项包含每日输出或易混词辨析，请前往学习专项继续训练。');
       const plan = await tx.studyPlan.create({ data: { userId, purpose: StudyPlanPurpose.WEAKNESS, mode: StudyPlanMode.GROUP, status: StudyPlanStatus.GENERATING } });
       await tx.studyPlanItem.createMany({ data: selected.map((signal, index) => ({ planId: plan.id, bookWordId: signal.bookWordId, source: StudyPlanItemSource.REVIEW, groupIndex: Math.floor(index / 3), targetQuestionType: signal.questionType })) });
       return plan.id;

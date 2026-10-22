@@ -13,7 +13,7 @@ type ListResponse = { items: MistakeWord[]; page: number; total: number; hasMore
 type Question = { type?: string; prompt?: string; options?: string[]; correctAnswers?: string[]; explanation?: string; pairs?: Array<{ left?: string; right?: string }> };
 type MistakeDetail = Weakness & { bookWordId: string; word: string; part: string; meaning: string; bookTitle: string; attempts: Array<{ id: string; isCorrect: boolean; selectedAnswer: unknown; createdAt: string; question: Question | null }> };
 
-const labels: Record<string, string> = { WORD_MNEMONIC: '单词助记', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '单词匹配', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解' };
+const labels: Record<string, string> = { WORD_MNEMONIC: '单词助记', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '单词匹配', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解', OUTPUT: '每日输出', CONFUSION: '易混词辨析' };
 
 export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreated }: { session: Session; onBack: () => void; onOpenTutorSettings?: () => void; onPlanCreated: (plan: LearningPlan) => void }) {
   const [status, setStatus] = useState<MistakeStatus>('active');
@@ -69,6 +69,8 @@ export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreat
   };
   const createPlan = async () => {
     if (!selected.length) return;
+    const special = result?.items.filter(item => selected.includes(item.bookWordId)).flatMap(item => item.weaknesses).find(item => item.questionType === 'OUTPUT' || item.questionType === 'CONFUSION');
+    if (special) { window.location.assign(`/dashboard/practice?tab=${special.questionType === 'OUTPUT' ? 'output' : 'confusion'}`); return; }
     setLoading(true); setMessage('');
     try {
       const plan = await request<LearningPlan>('/mistakes/practice-plans', { method: 'POST', body: JSON.stringify({ bookWordIds: selected }) }, session.accessToken);

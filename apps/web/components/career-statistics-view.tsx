@@ -7,7 +7,7 @@ import { request, type Session } from '../lib/api';
 
 const dimensionLabels = { vocabulary: '词汇', grammar: '语法', sentenceBuilding: '句子组织', taskCompletion: '任务完成', naturalness: '表达自然度' } as const;
 const sourceLabels = { ASSESSMENT: '正式测评', SCENARIO: '场景校准', BACKFILLED_BASELINE: '历史基线' } as const;
-const questionLabels: Record<string, string> = { WORD_MNEMONIC: '词根联想', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '词义配对', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解', OTHER: '综合练习' };
+const questionLabels: Record<string, string> = { WORD_MNEMONIC: '词根联想', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '词义配对', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解', OUTPUT: '每日输出', CONFUSION: '易混词辨析', OTHER: '综合练习' };
 const categoryLabels: Record<string, string> = { AIRPORT: '机场', HOTEL: '酒店', RESTAURANT: '餐厅', SHOPPING: '购物', TRANSPORT: '交通', HELP: '求助' };
 
 export function CareerStatisticsView({ session, onNavigate }: { session: Session; onNavigate: (target: CareerActionTarget) => void }) {

@@ -7,6 +7,27 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.1.0',
+    date: '2026-10-22',
+    items: [
+      {
+        title: '每日输出挑战',
+        entry: '首页 → 每日输出挑战',
+        usage: '用近期学词写一小段英文，查看 AI 逐词与语法反馈，再重写巩固。',
+      },
+      {
+        title: '易混词对比训练',
+        entry: '首页 → 易混词对比训练',
+        usage: '选择推荐词组，完成语境填空，再对照规则与例句复盘。',
+      },
+      {
+        title: '每周学习处方',
+        entry: '首页 → 每周学习处方',
+        usage: '根据近 7 天记录查看三项学习建议，点击即可开始对应练习。',
+      },
+    ],
+  },
+  {
     version: '1.0.4',
     date: '2026-10-22',
     items: [

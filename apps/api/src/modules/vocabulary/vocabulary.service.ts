@@ -84,7 +84,7 @@ export class VocabularyService {
       select: { wordId: true },
     });
     const personalWordIds = [...new Set(personalWords.map(item => item.wordId))];
-    const [adventureQuests, adventureRuns, adventureFloorProgresses, inventoryItems, adventureProfiles, plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, profileSnapshots, analysisCache, progresses, masteredWords, learningEvents, personalBooks, orphanWords] = await this.prisma.$transaction([
+    const [adventureQuests, adventureRuns, adventureFloorProgresses, inventoryItems, adventureProfiles, plans, weaknesses, tutorConversations, tutorDailyUsages, travelPlans, scenarioSessions, assessments, skillProgresses, languageProfiles, scenarioDailyUsages, profileSnapshots, analysisCache, progresses, masteredWords, learningEvents, personalBooks, orphanWords, outputs, contrasts, attempts] = await this.prisma.$transaction([
       this.prisma.adventureDailyQuest.deleteMany({ where: { userId } }),
       this.prisma.dungeonRun.deleteMany({ where: { userId } }),
       this.prisma.userFloorProgress.deleteMany({ where: { userId } }),
@@ -107,10 +107,16 @@ export class VocabularyService {
       this.prisma.learningEvent.deleteMany({ where: { userId } }),
       this.prisma.vocabularyBook.deleteMany({ where: { ownerId: userId, kind: VocabularyBookKind.PERSONAL } }),
       this.prisma.vocabularyWord.deleteMany({ where: { id: { in: personalWordIds }, bookWords: { none: {} } } }),
+      this.prisma.outputChallenge.deleteMany({ where: { userId } }),
+      this.prisma.confusionAttempt.deleteMany({ where: { userId } }),
+      this.prisma.wordReviewAttempt.deleteMany({ where: { userId } }),
     ]);
     return {
       success: true,
       cleared: {
+        outputs: outputs.count,
+        contrasts: contrasts.count,
+        attempts: attempts.count,
         adventureQuests: adventureQuests.count,
         adventureRuns: adventureRuns.count,
         adventureFloorProgresses: adventureFloorProgresses.count,

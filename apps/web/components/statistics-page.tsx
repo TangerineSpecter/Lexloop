@@ -119,8 +119,8 @@ function StatisticsHeading({ onOpenHistory, range, setRange, setView, view }: { 
   </header>;
 }
 
-function activityLevel(day: PeriodActivityDay) { const score = day.questions + day.scenarios * 5 + day.assessments * 8; return score ? Math.min(4, Math.max(1, Math.ceil(score / 5))) : 0; }
-function activityDescription(day: PeriodActivityDay) { const parts = [day.questions ? `${day.questions} 道题` : '', day.scenarios ? `${day.scenarios} 次场景` : '', day.assessments ? `${day.assessments} 次测评` : ''].filter(Boolean); return parts.length ? parts.join(' · ') : '未学习'; }
+function activityLevel(day: PeriodActivityDay) { const score = day.questions + day.scenarios * 5 + day.assessments * 8 + (day.practiceSessions ?? 0) * 4; return score ? Math.min(4, Math.max(1, Math.ceil(score / 5))) : 0; }
+function activityDescription(day: PeriodActivityDay) { const parts = [day.questions ? `${day.questions} 道题` : '', day.scenarios ? `${day.scenarios} 次场景` : '', day.assessments ? `${day.assessments} 次测评` : '', day.practiceSessions ? `${day.practiceSessions} 次学习专项` : ''].filter(Boolean); return parts.length ? parts.join(' · ') : '未学习'; }
 function formatResponse(ms: number) { return ms ? ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}秒` : '暂无'; }
 function formatStudyTime(seconds: number) { if (!seconds) return '0分'; if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}分`; return `${Math.floor(seconds / 3600)}时`; }
 
