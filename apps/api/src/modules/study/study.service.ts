@@ -149,8 +149,8 @@ export class StudyService {
     const words = plan.items.map(item => ({
       id: item.bookWordId,
       word: item.bookWord.word.text,
-      part: part(item.bookWord.word.meaning),
-      meaning: meaning(item.bookWord.word.meaning),
+      part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
+      meaning: meaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
     }));
     const groupSpec = [...grouped.entries()].map(([index, items]) => ({
       index,
@@ -373,8 +373,8 @@ export class StudyService {
     const items = plan.items.map(item => ({
       id: item.bookWordId,
       word: item.bookWord.word.text,
-      part: part(item.bookWord.word.meaning),
-      meaning: meaning(item.bookWord.word.meaning),
+      part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
+      meaning: meaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
       source: item.source,
       groupIndex: item.groupIndex,
       question: item.question,

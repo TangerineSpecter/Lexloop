@@ -25,6 +25,7 @@ import {
   Utensils,
 } from 'lucide-react';
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { NotebookPage } from '@lexloop/types';
 import { request, type Session, userFacingError } from '../lib/api';
 
 type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
@@ -70,7 +71,7 @@ type Turn = { id: string; role: 'user' | 'assistant'; content: string; evaluatio
 type ScenarioSession = { id: string; templateId: string; level: CefrLevel; status: string; turnCount: number };
 type ScenarioStart = { session: ScenarioSession; template: Scenario; turns: Turn[] };
 type Report = { outcome: 'SUCCESS' | 'PARTIAL' | 'INCOMPLETE'; dimensions: Record<string, number>; rewrites: DeferredFeedback[]; grammarFrames: GrammarFrame[]; evidence: Array<{ objective: string; completed: boolean }>; vocabulary: VocabularyCandidate[]; recommendation: string };
-type PersonalItem = { id: string; text: string; type: string; meaning: string; example: string | null; sourceScenario: string | null; state: string };
+type PersonalItem = { id: string; text: string; type: string; meaning: string | null; example: string | null; sourceScenario: string | null; state: string };
 
 const categories: Array<{ key: Category | 'ALL'; label: string; icon: ReactNode; note: string }> = [
   { key: 'ALL', label: '全部路线', icon: <Compass />, note: '18 站' },
@@ -110,9 +111,9 @@ export function TravelScenarioPage({ session, onBack, startWithAssessment = fals
         request<Profile>('/proficiency/profile', {}, session.accessToken),
         request<TodayPlan>('/practice/today', {}, session.accessToken),
         request<Scenario[]>('/scenarios', {}, session.accessToken),
-        request<PersonalItem[]>('/vocabulary/personal', {}, session.accessToken),
+        request<NotebookPage>('/vocabulary/notebook?source=TRAVEL', {}, session.accessToken),
       ]);
-      setProfile(nextProfile); setPlan(nextPlan); setScenarios(nextScenarios); setPersonal(nextPersonal);
+      setProfile(nextProfile); setPlan(nextPlan); setScenarios(nextScenarios); setPersonal(nextPersonal.items);
     } catch (error) { setMessage(userFacingError(error, '旅行场景加载失败')); }
     finally { setLoading(false); }
   }, [session.accessToken]);
@@ -139,7 +140,7 @@ export function TravelScenarioPage({ session, onBack, startWithAssessment = fals
     try {
       const item = await request<PersonalItem>('/vocabulary/personal/items', { method: 'POST', body: JSON.stringify({ text: candidate.text, type: candidate.type, meaning: candidate.meaning, example: candidate.example, sourceScenario: scenarioTitle, cefrLevel: active?.session.level }) }, session.accessToken);
       setPersonal(current => [item, ...current.filter(value => value.text.toLowerCase() !== item.text.toLowerCase())]);
-      setMessage(`已把 “${candidate.text}” 放进旅行生词本和今日复习。`);
+      setMessage(`已把 “${candidate.text}” 放进个人生词本；新词已加入复习，重复收藏保留原有进度。`);
     } catch (error) { setMessage(userFacingError(error, '收藏失败')); }
   };
 
@@ -190,7 +191,7 @@ export function TravelScenarioPage({ session, onBack, startWithAssessment = fals
       </section>
 
       <section className="travel-wordbook">
-        <div><BookMarked/><span><small>MY TRAVEL PHRASES</small><b>旅行生词本</b></span></div>
+        <div><BookMarked/><span><small>MY TRAVEL PHRASES</small><b>旅行收藏</b></span><a href="/dashboard/notebook">打开完整生词本 →</a></div>
         {personal.length ? <div className="wordbook-strip">{personal.slice(0, 8).map(item => <article key={item.id}><small>{item.type === 'PHRASE' ? '口语块' : '单词'}</small><strong>{item.text}</strong><span>{item.meaning}</span></article>)}</div> : <p>在场景中点击“加入生词”，常用单词和整句表达都会回到你的复习计划里。</p>}
       </section>
     </div>
@@ -277,7 +278,7 @@ function ReportView({ report, scenario, onSave, onAgain, onDone, message }: { re
   return <div className="travel-report-page"><header><div className={`report-seal ${report.outcome.toLowerCase()}`}><CheckCircle2/><span>{report.outcome === 'SUCCESS' ? '任务完成' : report.outcome === 'PARTIAL' ? '部分完成' : '继续练习'}</span></div><p className="travel-kicker">TRIP NOTES · 场景复盘</p><h1>{scenario.title}</h1><p>{report.recommendation}</p></header>{message && <div className="travel-notice">{message}</div>}
     <section className="report-grid"><article className="report-score"><h2>这次表达怎么样</h2>{scoreEntries.map(([, label, score]) => <div key={label}><span>{label}</span><i><b style={{ width: `${score}%` }}/></i><em>{score}</em></div>)}</article><article className="report-goals"><h2>沟通目标</h2>{report.evidence.map(item => <p key={item.objective} className={item.completed ? 'done' : ''}>{item.completed ? <CheckCircle2/> : <Circle/>}{item.objective}</p>)}</article></section>
     <section className="rewrite-notes"><div className="travel-section-head"><div><span><MessageCircleMore/></span><div><small>SAY IT NATURALLY</small><h2>把它说得更自然</h2></div></div></div>{report.rewrites.length ? report.rewrites.map((item, index) => <article key={`${item.natural}-${index}`}><small>{item.type}</small><del>{item.original}</del><strong>{item.natural}</strong><p>{item.explanation}</p></article>) : <p className="empty-note">这次没有需要集中纠正的表达。换一个变体再练，看看能不能依然自然完成。</p>}</section>
-    <section className="report-bottom"><article><h2>最值得带走的句子骨架</h2>{report.grammarFrames.slice(0, 3).map(item => <div key={item.natural}><span>{item.intent}</span><b>{item.natural}</b><p>{item.explanation}</p></div>)}</article><article><h2>加入旅行生词本</h2>{report.vocabulary.length ? report.vocabulary.map(item => <button key={item.text} onClick={() => onSave(item)}><span><b>{item.text}</b><small>{item.meaning}</small></span><BookMarked/></button>) : <p>本次没有新的候选表达。</p>}</article></section>
+    <section className="report-bottom"><article><h2>最值得带走的句子骨架</h2>{report.grammarFrames.slice(0, 3).map(item => <div key={item.natural}><span>{item.intent}</span><b>{item.natural}</b><p>{item.explanation}</p></div>)}</article><article><h2>加入个人生词本</h2>{report.vocabulary.length ? report.vocabulary.map(item => <button key={item.text} onClick={() => onSave(item)}><span><b>{item.text}</b><small>{item.meaning}</small></span><BookMarked/></button>) : <p>本次没有新的候选表达。</p>}</article></section>
     <footer><button onClick={onDone}>回到场景地图</button><button className="travel-primary" onClick={onAgain}><RefreshCcw/> 换个变化再练</button></footer>
   </div>;
 }
