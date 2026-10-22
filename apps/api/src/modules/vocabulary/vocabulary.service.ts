@@ -181,10 +181,14 @@ export class VocabularyService {
       const contrasts = await tx.confusionAttempt.deleteMany({ where: { userId } });
       const attempts = await tx.wordReviewAttempt.deleteMany({ where: { userId } });
       const labLessons = await tx.labLesson.deleteMany({ where: { userId } });
+      const microErrors = await tx.microError.deleteMany({ where: { userId } });
+      const microProgress = await tx.microProgress.deleteMany({ where: { userId } });
       return {
         success: true,
         cleared: {
           labLessons: labLessons.count,
+          microErrors: microErrors.count,
+          microProgress: microProgress.count,
           outputs: outputs.count,
           contrasts: contrasts.count,
           attempts: attempts.count,
