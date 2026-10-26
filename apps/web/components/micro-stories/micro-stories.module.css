@@ -84,6 +84,40 @@
   line-height: 1.55;
   margin: 22px 0;
 }
+.audioControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+.audioButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.audioStatus,
+.audioUnavailable {
+  margin: 0;
+  color: var(--border-color);
+  font-size: 13px;
+  font-weight: 700;
+}
+.audioUnavailable {
+  margin: -8px 0 18px;
+  font-weight: 500;
+}
 .label {
   display: block;
   font-weight: 700;

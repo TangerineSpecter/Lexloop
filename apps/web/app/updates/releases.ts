@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.2.0',
+    date: '2026-10-26',
+    items: [
+      {
+        title: '微故事语音练习',
+        entry: '微故事 → 英文原文或到期复习句',
+        usage: '选择正常速度或 0.8 倍慢速播放，边听边跟读；语音由浏览器本地合成。',
+      },
+    ],
+  },
+  {
     version: '1.1.1',
     date: '2026-10-22',
     items: [

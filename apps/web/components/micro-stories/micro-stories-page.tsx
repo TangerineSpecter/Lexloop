@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { request, type Session, userFacingError } from '../../lib/api';
 import styles from './micro-stories.module.css';
+import { MicroStoryAudio } from './micro-story-audio';
 
 type Lesson = {
   key: string;
@@ -186,6 +187,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             <p className={styles.english} lang="en">
               {reviewCard.english}
             </p>
+            <MicroStoryAudio key={reviewCard.id} text={reviewCard.english} context="到期复习句" />
             {!reviewShown ? (
               <button
                 className={styles.secondary}
@@ -247,6 +249,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             <p className={styles.english} lang="en">
               {lesson.english}
             </p>
+            <MicroStoryAudio key={lesson.key} text={lesson.english} context="微故事原文" />
             {!lesson.reference ? (
               <>
                 <label className={styles.label} htmlFor="story-meaning">
