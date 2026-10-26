@@ -43,7 +43,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { request, type Session } from '../lib/api';
+import { browserTimeZone, request, type Session } from '../lib/api';
 import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
@@ -487,7 +487,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <div className="study-content">
             <h1>学习进度</h1>
             <section className="progress-grid">
-              <StreakCard />
+              <StreakCard session={session} />
               <Metric
                 title="词表总词数"
                 value={String(currentBook?.totalWords ?? 0)}
@@ -801,35 +801,22 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
   );
 }
 
-const checkInBursts = [
-  { x: '-104px', y: '-48px', turn: '-28deg', delay: '0ms' },
-  { x: '-66px', y: '-94px', turn: '-16deg', delay: '35ms' },
-  { x: '-16px', y: '-112px', turn: '12deg', delay: '10ms' },
-  { x: '44px', y: '-92px', turn: '34deg', delay: '45ms' },
-  { x: '98px', y: '-40px', turn: '58deg', delay: '0ms' },
-  { x: '106px', y: '34px', turn: '75deg', delay: '28ms' },
-  { x: '52px', y: '84px', turn: '104deg', delay: '15ms' },
-  { x: '-12px', y: '98px', turn: '132deg', delay: '52ms' },
-  { x: '-72px', y: '68px', turn: '158deg', delay: '20ms' },
-  { x: '-112px', y: '14px', turn: '188deg', delay: '40ms' },
-] as const;
+type LearningStreakSummary = { currentStreak: number; todayActive: boolean };
 
-function StreakCard() {
-  const [burst, setBurst] = useState(0);
-  const [celebrating, setCelebrating] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
-
-  const celebrate = () => {
-    setCheckedIn(true);
-    setBurst((value) => value + 1);
-    setCelebrating(true);
-  };
+function StreakCard({ session }: { session: Session }) {
+  const [summary, setSummary] = useState<LearningStreakSummary | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!celebrating) return;
-    const timer = window.setTimeout(() => setCelebrating(false), 800);
-    return () => window.clearTimeout(timer);
-  }, [burst, celebrating]);
+    let active = true;
+    request<LearningStreakSummary>(`/reports/streak?timeZone=${encodeURIComponent(browserTimeZone())}`, {}, session.accessToken)
+      .then(result => {
+        if (!isLearningStreakSummary(result)) throw new Error('Invalid learning streak response');
+        if (active) setSummary(result);
+      })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [session.accessToken]);
 
   return (
     <div className="streak-card-wrap">
@@ -837,57 +824,34 @@ function StreakCard() {
         <div className="streak-front">
           <div className="streak-content">
             <div className="card-heading">
-              <strong>学习连胜</strong>
-              <Trophy size={18} />
-              <CheckCircle2 size={18} />
+              <strong>连续学习</strong>
+              <Flame size={18} />
             </div>
-            <p>
-              每天坚持学习，就能持续积累「连胜」
-              <br />
-              你的「词汇量」和「外语水平」将迎来显著突破！
+            <p role="status">
+              {!summary ? failed ? '学习记录暂时无法加载。' : '正在读取真实学习记录…' : summary.todayActive ? '今天已有学习记录。' : '今天还没有已完成的学习活动。'}
             </p>
+            <a className="streak-start-link" href="/dashboard/micro-stories">
+              <BookOpen size={17} aria-hidden="true" />
+              <span>开始一分钟微故事</span>
+              <ChevronRight size={17} aria-hidden="true" />
+            </a>
           </div>
           <div className="streak-count">
-            <b>0</b>
-            <Flame size={26} />
-            <small>Today</small>
+            <b>{summary ? summary.currentStreak : '—'}</b>
+            <Flame size={26} aria-hidden="true" />
+            <small>连续天</small>
           </div>
         </div>
-        <div className="streak-back">
-          <button
-            className={`check-in-btn ${celebrating ? 'is-celebrating' : ''}`}
-            onClick={celebrate}
-            aria-label={checkedIn ? '已打卡，再次播放庆祝动画' : '立刻打卡'}
-          >
-            <CheckCircle2 size={32} />
-            <span>{checkedIn ? '打卡成功' : '立刻打卡'}</span>
-            <span className="sr-only" aria-live="polite">
-              {checkedIn ? '打卡成功，星星正在绽放' : ''}
-            </span>
-          </button>
-        </div>
       </article>
-      {celebrating && (
-        <span className="check-in-burst" aria-hidden="true" key={burst}>
-          {checkInBursts.map((star, index) => (
-            <i
-              key={index}
-              style={
-                {
-                  '--burst-x': star.x,
-                  '--burst-y': star.y,
-                  '--burst-turn': star.turn,
-                  '--burst-delay': star.delay,
-                } as React.CSSProperties
-              }
-            >
-              ✦
-            </i>
-          ))}
-        </span>
-      )}
     </div>
   );
+}
+
+function isLearningStreakSummary(value: unknown): value is LearningStreakSummary {
+  return typeof value === 'object' && value !== null &&
+    Number.isSafeInteger((value as LearningStreakSummary).currentStreak) &&
+    (value as LearningStreakSummary).currentStreak >= 0 &&
+    typeof (value as LearningStreakSummary).todayActive === 'boolean';
 }
 
 function AccountMenu({

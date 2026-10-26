@@ -3,7 +3,7 @@
 import { BookOpen, CalendarDays, CheckCircle2, Flame, ListChecks, RotateCcw, Trophy } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { CareerActionTarget, PeriodActivityDay, PeriodStatistics, RankingRow, StatisticsRange } from '@lexloop/types';
-import { request, type Session } from '../lib/api';
+import { browserTimeZone, request, type Session } from '../lib/api';
 import { CareerStatisticsView } from './career-statistics-view';
 
 type StatisticsView = 'period' | 'career';
@@ -23,7 +23,11 @@ export function StatisticsPage({ onBack, onNavigate, onOpenHistory, session }: {
     let cancelled = false;
     setStatistics(null);
     setLoadMessage('');
-    request<PeriodStatistics>(`/reports/statistics?range=${range}`, {}, session.accessToken)
+    request<PeriodStatistics>(
+      `/reports/statistics?range=${range}&timeZone=${encodeURIComponent(browserTimeZone())}`,
+      {},
+      session.accessToken,
+    )
       .then((snapshot) => {
         if (!cancelled) setStatistics(snapshot);
       })

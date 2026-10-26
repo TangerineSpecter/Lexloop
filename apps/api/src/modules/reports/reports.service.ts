@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { BadGatewayException, Injectable } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
 import {
   AiCallStatus, AssessmentItemType, CefrLevel, Prisma, ProfileConfidence, ProfileSnapshotSource,
   ScenarioOutcome, ScenarioSessionStatus, StudyPlanStatus, WeaknessStatus, WordProgressState,
@@ -17,7 +17,8 @@ type FiveDimensions = { vocabulary: number; grammar: number; sentenceBuilding: n
 export class ReportsService {
   constructor(private readonly prisma: PrismaService, private readonly ai: AiService) {}
 
-  async statistics(userId: string, days: number): Promise<PeriodStatistics> {
+  async statistics(userId: string, days: number, timeZone = 'UTC'): Promise<PeriodStatistics> {
+    timeZone = validateTimeZone(timeZone);
     const end = endOfToday();
     const start = new Date(end.getTime() - days * DAY);
     const previousStart = new Date(start.getTime() - days * DAY);
@@ -53,7 +54,7 @@ export class ReportsService {
     const signals = signalRows(progresses, attempts);
     const responseTimes = attempts.map(item => item.responseTimeMs).filter((value): value is number => value != null);
     return {
-      activeDays, activity, chart, currentStreak: await this.currentStreak(userId),
+      activeDays, activity, chart, currentStreak: await this.currentStreak(userId, timeZone),
       learnedWords: progresses.filter(item => item.firstLearnedAt).length,
       masteredWords: mastered,
       newWords: progresses.filter(item => item.firstLearnedAt && item.firstLearnedAt >= start && item.firstLearnedAt < end).length,
@@ -70,6 +71,10 @@ export class ReportsService {
       suggestion: signals.unfamiliar[0] ? `建议优先巩固 ${signals.unfamiliar[0].word}，它目前的陌生程度最高。` : '从一个单词或一次场景练习开始，建立今天的学习节奏。',
       rankings: signals,
     };
+  }
+
+  async streak(userId: string, timeZone = 'UTC') {
+    return this.streakSummary(userId, timeZone);
   }
 
   async history(userId: string, requestedPage = 1, requestedPageSize = 20): Promise<LearningHistoryResponse> {
@@ -263,21 +268,37 @@ export class ReportsService {
     if (rows.length) await this.prisma.languageProfileSnapshot.createMany({ data: rows, skipDuplicates: true });
   }
 
-  private async currentStreak(userId: string) {
-    const since = new Date(Date.now() - 366 * DAY);
-    const [attempts, scenarios, assessments, practiceDays] = await Promise.all([
+  private async currentStreak(userId: string, timeZone: string) {
+    return (await this.streakSummary(userId, timeZone)).currentStreak;
+  }
+
+  private async streakSummary(userId: string, requestedTimeZone: string) {
+    const timeZone = validateTimeZone(requestedTimeZone);
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const getDateKey = (date: Date) => dateKeyInTimeZone(formatter, date);
+    const now = new Date();
+    const since = new Date(now.getTime() - 367 * DAY);
+    const [attempts, scenarios, assessments, practiceDates] = await Promise.all([
       this.prisma.wordReviewAttempt.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } }),
       this.prisma.scenarioSession.findMany({ where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: since } }, select: { completedAt: true } }),
       this.prisma.assessmentAttempt.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: since } }, select: { completedAt: true } }),
-      this.practiceDays(userId, since, new Date()),
+      this.prisma.$queryRaw<Array<{ dateKey: string }>>`
+        SELECT TO_CHAR("createdAt" AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS "dateKey"
+        FROM "LearningEvent"
+        WHERE "userId" = ${userId} AND "createdAt" >= ${since} AND "createdAt" < ${now}
+          AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED', 'MICRO_STORY_COMPLETED')
+        GROUP BY TO_CHAR("createdAt" AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')
+      `,
     ]);
-    const dates = [...attempts.map(item => item.createdAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt), ...practiceDays.map(item => item.date)].filter((value): value is Date => Boolean(value));
-    const days = new Set(dates.map(dateKey));
-    let cursor = new Date();
-    if (!days.has(dateKey(cursor))) cursor = new Date(cursor.getTime() - DAY);
+    const eventDates = [...attempts.map(item => item.createdAt), ...scenarios.map(item => item.completedAt), ...assessments.map(item => item.completedAt)].filter((value): value is Date => Boolean(value));
+    const days = new Set([...eventDates.map(getDateKey), ...practiceDates.map(item => item.dateKey)]);
+    const today = getDateKey(now);
+    const todayActive = days.has(today);
+    const cursor = new Date(`${today}T00:00:00.000Z`);
+    if (!todayActive) cursor.setUTCDate(cursor.getUTCDate() - 1);
     let streak = 0;
-    while (days.has(dateKey(cursor))) { streak++; cursor = new Date(cursor.getTime() - DAY); }
-    return streak;
+    while (days.has(utcDateKey(cursor))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1); }
+    return { currentStreak: streak, todayActive };
   }
   private practiceDays(userId: string, start: Date, end: Date) {
     return this.prisma.$queryRaw<Array<{ date: Date; count: number }>>`
@@ -309,6 +330,18 @@ function average(values: number[]) { return values.length ? values.reduce((sum, 
 function startOfToday() { const date = new Date(); date.setHours(0, 0, 0, 0); return date; }
 function endOfToday() { const date = new Date(); date.setHours(24, 0, 0, 0); return date; }
 function dateKey(date: Date) { return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`; }
+function validateTimeZone(timeZone: string) {
+  const value = timeZone.trim() || 'UTC';
+  if (value.length > 100) throw new BadRequestException('Invalid time zone');
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone; }
+  catch { throw new BadRequestException('Invalid time zone'); }
+}
+function dateKeyInTimeZone(formatter: Intl.DateTimeFormat, date: Date) {
+  const parts = formatter.formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+function utcDateKey(date: Date) { return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`; }
 function weekDay(date: Date) { return `周${'日一二三四五六'[date.getDay()]}`; }
 function periodChart(activity: PeriodStatistics['activity'], start: Date, bucketCount: number) { const bucketSize = Math.ceil(activity.length / bucketCount); return Array.from({ length: bucketCount }, (_, index) => { const offset = index * bucketSize; const slice = activity.slice(offset, offset + bucketSize); const date = new Date(start.getTime() + offset * DAY); return { label: index === bucketCount - 1 ? '至今' : bucketCount === 12 ? `${date.getMonth() + 1}月` : `${date.getMonth() + 1}/${date.getDate()}`, words: slice.reduce((sum, day) => sum + day.words, 0), completed: slice.some(isActiveDay), today: index === bucketCount - 1 }; }); }
 

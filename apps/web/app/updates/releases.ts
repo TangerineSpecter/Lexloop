@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.3.0',
+    date: '2026-10-26',
+    items: [
+      {
+        title: '真实学习进度',
+        entry: '首页或学习统计 → 连续学习',
+        usage: '按浏览器所在时区显示已完成学习日和今日状态；首页可直接开始一分钟微故事。',
+      },
+    ],
+  },
+  {
     version: '1.2.0',
     date: '2026-10-26',
     items: [

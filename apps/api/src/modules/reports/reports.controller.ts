@@ -8,9 +8,14 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Get('statistics')
-  statistics(@Req() request: { user: { sub: string } }, @Query('range') range?: string) {
+  statistics(@Req() request: { user: { sub: string } }, @Query('range') range?: string, @Query('timeZone') timeZone?: string) {
     const days = range === '365d' ? 365 : range === '30d' ? 30 : 7;
-    return this.reports.statistics(request.user.sub, days);
+    return this.reports.statistics(request.user.sub, days, timeZone);
+  }
+
+  @Get('streak')
+  streak(@Req() request: { user: { sub: string } }, @Query('timeZone') timeZone?: string) {
+    return this.reports.streak(request.user.sub, timeZone);
   }
 
   @Get('career')

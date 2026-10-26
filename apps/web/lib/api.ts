@@ -46,6 +46,13 @@ export function readSession(): Session | null {
 export function clearSession() {
   localStorage.removeItem('lexloop.session');
 }
+export function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
 export function refreshSession() {
   return request<Session>('/auth/refresh', { method: 'POST' });
 }
