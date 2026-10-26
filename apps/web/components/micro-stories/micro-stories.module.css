@@ -84,6 +84,14 @@
   line-height: 1.55;
   margin: 22px 0;
 }
+.listenPrompt {
+  margin: 22px 0;
+  padding: 12px 14px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  font-weight: 700;
+}
 .audioControls {
   display: flex;
   align-items: center;

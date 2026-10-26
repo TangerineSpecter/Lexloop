@@ -49,9 +49,7 @@ export function MicroStoryAudio({ text, context }: MicroStoryAudioProps) {
 
   if (supported === null) return null;
   if (!supported)
-    return (
-      <p className={styles.audioUnavailable}>当前浏览器不支持语音播放，仍可先读原文再跟读。</p>
-    );
+    return <p className={styles.audioUnavailable}>当前浏览器不支持语音播放，可直接阅读原文。</p>;
 
   return (
     <div className={styles.audioControls} role="group" aria-label={`${context}语音播放`}>
