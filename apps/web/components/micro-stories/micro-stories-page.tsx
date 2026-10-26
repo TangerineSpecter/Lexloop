@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { request, type Session, userFacingError } from '../../lib/api';
+import {
+  clearReviewDraft,
+  clearStoryDraft,
+  readReviewDraft,
+  readStoryDraft,
+  saveReviewDraft,
+  saveStoryDraft,
+} from '../../lib/micro-story-drafts';
 import styles from './micro-stories.module.css';
 import { MicroStoryAudio } from './micro-story-audio';
 
@@ -37,6 +45,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const [current, setCurrent] = useState<Current | null>(null);
   const [interpretation, setInterpretation] = useState('');
   const [ownSentence, setOwnSentence] = useState('');
+  const [reviewAttempt, setReviewAttempt] = useState('');
   const [transcriptHidden, setTranscriptHidden] = useState(false);
   const [mismatch, setMismatch] = useState<boolean | null>(null);
   const [reviewShown, setReviewShown] = useState(false);
@@ -45,25 +54,29 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const [errorCards, setErrorCards] = useState<ErrorCard[] | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
-  async function load() {
-    const next = await request<Current>('/micro-stories/current', {}, session.accessToken);
+  function applyCurrent(next: Current) {
     setCurrent(next);
     setTranscriptHidden(false);
-    if (showErrors)
-      setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
-    setInterpretation(next.lesson?.interpretation ?? '');
-    setOwnSentence('');
+    const storyDraft = readStoryDraft(session.user.id, next.lesson?.key ?? null);
+    setInterpretation(next.lesson?.interpretation ?? storyDraft?.interpretation ?? '');
+    setOwnSentence(storyDraft?.ownSentence ?? '');
+    setReviewAttempt(next.review ? readReviewDraft(session.user.id, next.review.id) : '');
     setMismatch(null);
     setReviewShown(false);
+  }
+
+  async function load() {
+    const next = await request<Current>('/micro-stories/current', {}, session.accessToken);
+    applyCurrent(next);
+    if (showErrors)
+      setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
   }
   useEffect(() => {
     let active = true;
     request<Current>('/micro-stories/current', {}, session.accessToken)
       .then((next) => {
         if (!active) return;
-        setCurrent(next);
-        setTranscriptHidden(false);
-        setInterpretation(next.lesson?.interpretation ?? '');
+        applyCurrent(next);
       })
       .catch((cause) => {
         if (active) setError(userFacingError(cause));
@@ -108,6 +121,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
         },
         session.accessToken,
       );
+      clearStoryDraft(session.user.id);
       await load();
     } catch (cause) {
       setError(userFacingError(cause));
@@ -128,6 +142,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
         },
         session.accessToken,
       );
+      clearReviewDraft(session.user.id, current.review.id);
       await load();
     } catch (cause) {
       setError(userFacingError(cause));
@@ -192,16 +207,63 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             </p>
             <MicroStoryAudio key={reviewCard.id} text={reviewCard.english} context="到期复习句" />
             {!reviewShown ? (
-              <button
-                className={styles.secondary}
-                type="button"
-                onClick={() => setReviewShown(true)}
-              >
-                想好意思了，查看上次偏差
-              </button>
+              <>
+                <label className={styles.label} htmlFor="review-attempt">
+                  先不看上次记录，用自己的话重新写下这句话的意思
+                </label>
+                <textarea
+                  id="review-attempt"
+                  maxLength={500}
+                  rows={2}
+                  value={reviewAttempt}
+                  onChange={(event) => {
+                    const attempt = event.target.value;
+                    setReviewAttempt(attempt);
+                    saveReviewDraft(session.user.id, reviewCard.id, attempt);
+                  }}
+                  placeholder="先回想句子的意思，再和上次的理解比较"
+                />
+                <div className={styles.actions}>
+                  <button
+                    className={styles.secondary}
+                    type="button"
+                    disabled={busy || !reviewAttempt.trim()}
+                    onClick={() => setReviewShown(true)}
+                  >
+                    先试着回想，查看上次偏差
+                  </button>
+                  <button
+                    className={styles.secondary}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setReviewShown(true)}
+                  >
+                    跳过本次回想，查看上次偏差
+                  </button>
+                  {reviewAttempt && (
+                    <button
+                      className={styles.secondary}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setReviewAttempt('');
+                        clearReviewDraft(session.user.id, reviewCard.id);
+                      }}
+                    >
+                      清除本机回想草稿
+                    </button>
+                  )}
+                </div>
+              </>
             ) : (
               <>
                 <div className={styles.answer}>
+                  {reviewAttempt.trim() && (
+                    <p>
+                      <strong>这次我的回想：</strong>
+                      {reviewAttempt}
+                    </p>
+                  )}
                   <p>
                     <strong>上次我的理解：</strong>
                     {reviewCard.interpretation}
@@ -281,7 +343,15 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                   maxLength={500}
                   rows={2}
                   value={interpretation}
-                  onChange={(event) => setInterpretation(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setInterpretation(value);
+                    saveStoryDraft(session.user.id, {
+                      storyKey: lesson.key,
+                      interpretation: value,
+                      ownSentence,
+                    });
+                  }}
                   placeholder={
                     transcriptHidden
                       ? '先听一遍，用中文写下你听懂的内容'
@@ -297,10 +367,34 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                       id="own-sentence-before-reveal"
                       maxLength={280}
                       value={ownSentence}
-                      onChange={(event) => setOwnSentence(event.target.value)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setOwnSentence(value);
+                        saveStoryDraft(session.user.id, {
+                          storyKey: lesson.key,
+                          interpretation,
+                          ownSentence: value,
+                        });
+                      }}
                       placeholder="先试着表达，再看句型参考"
                     />
                   </>
+                )}
+                {(interpretation.trim() || ownSentence.trim()) && (
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.secondary}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setInterpretation('');
+                        setOwnSentence('');
+                        clearStoryDraft(session.user.id);
+                      }}
+                    >
+                      清除本机草稿
+                    </button>
+                  </div>
                 )}
                 <div className={styles.actions}>
                   <button
@@ -315,7 +409,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             ) : (
               <>
                 <div className={styles.answer}>
-                  {transcriptHidden && ownSentence.trim() && (
+                  {ownSentence.trim() && (
                     <p>
                       <strong>你的英文尝试：</strong>
                       <span lang="en">{ownSentence}</span>
@@ -331,6 +425,21 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                   </p>
                   <p>{lesson.explanation}</p>
                 </div>
+                {ownSentence.trim() && (
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.secondary}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setOwnSentence('');
+                        clearStoryDraft(session.user.id);
+                      }}
+                    >
+                      清除本机英文尝试草稿
+                    </button>
+                  </div>
+                )}
                 <div className={styles.pattern}>
                   <span>今天只练一个句型</span>
                   <strong lang="en">{lesson.frame}</strong>
@@ -368,7 +477,15 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                       id="own-sentence"
                       maxLength={280}
                       value={ownSentence}
-                      onChange={(event) => setOwnSentence(event.target.value)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setOwnSentence(value);
+                        saveStoryDraft(session.user.id, {
+                          storyKey: lesson.key,
+                          interpretation: lesson.interpretation ?? interpretation,
+                          ownSentence: value,
+                        });
+                      }}
                       placeholder="例如：I missed the train."
                     />
                     <div className={styles.actions}>
