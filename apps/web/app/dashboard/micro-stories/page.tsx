@@ -42,5 +42,5 @@ export default function MicroStoriesRoute() {
     return (
       <main className="min-h-screen grid place-items-center paper-grain">正在打开微故事…</main>
     );
-  return <MicroStoriesPage session={session} />;
+  return <MicroStoriesPage key={session.user.id} session={session} />;
 }

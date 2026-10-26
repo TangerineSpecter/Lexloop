@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browserTimeZone, request, type Session } from '../lib/api';
+import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
 import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
@@ -1174,6 +1175,7 @@ function AccountSettings({
         session.accessToken,
       );
       try { localStorage.removeItem(`lexloop.output.draft.${session.user.id}`); } catch { /* Storage is optional. */ }
+      clearMicroStoryDrafts(session.user.id);
       onLearningReset();
       setClearDialogOpen(false);
       setClearMessage('学习记录已全部清除，可以重新开始学习。');
