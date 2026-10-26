@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.4.0',
+    date: '2026-10-26',
+    items: [
+      {
+        title: '微故事先听后看',
+        entry: '一分钟微故事 → 先听后看原文',
+        usage: '可选收起英文先听故事，并在揭示前试着用英语复述；对照原文和句型，不做自动评分。',
+      },
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-10-26',
     items: [

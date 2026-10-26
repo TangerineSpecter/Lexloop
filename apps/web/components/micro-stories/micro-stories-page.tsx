@@ -37,6 +37,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const [current, setCurrent] = useState<Current | null>(null);
   const [interpretation, setInterpretation] = useState('');
   const [ownSentence, setOwnSentence] = useState('');
+  const [transcriptHidden, setTranscriptHidden] = useState(false);
   const [mismatch, setMismatch] = useState<boolean | null>(null);
   const [reviewShown, setReviewShown] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   async function load() {
     const next = await request<Current>('/micro-stories/current', {}, session.accessToken);
     setCurrent(next);
+    setTranscriptHidden(false);
     if (showErrors)
       setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
     setInterpretation(next.lesson?.interpretation ?? '');
@@ -60,6 +62,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
       .then((next) => {
         if (!active) return;
         setCurrent(next);
+        setTranscriptHidden(false);
         setInterpretation(next.lesson?.interpretation ?? '');
       })
       .catch((cause) => {
@@ -246,14 +249,32 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                 {lesson.level} · {current.completed + 1}/{current.total}
               </span>
             </div>
-            <p className={styles.english} lang="en">
-              {lesson.english}
-            </p>
+            {!lesson.reference && (
+              <button
+                className={styles.secondary}
+                type="button"
+                aria-pressed={transcriptHidden}
+                onClick={() => setTranscriptHidden((hidden) => !hidden)}
+              >
+                {transcriptHidden ? '显示英文原文' : '先听后看原文'}
+              </button>
+            )}
+            {transcriptHidden && !lesson.reference ? (
+              <p className={styles.listenPrompt} role="status">
+                先听原文，再用自己的话写下理解；查看解释后会显示英文原文。
+              </p>
+            ) : (
+              <p className={styles.english} lang="en">
+                {lesson.english}
+              </p>
+            )}
             <MicroStoryAudio key={lesson.key} text={lesson.english} context="微故事原文" />
             {!lesson.reference ? (
               <>
                 <label className={styles.label} htmlFor="story-meaning">
-                  你理解的意思是什么？可以只写一句中文。
+                  {transcriptHidden
+                    ? '听完后，你理解的意思是什么？'
+                    : '你理解的意思是什么？可以只写一句中文。'}
                 </label>
                 <textarea
                   id="story-meaning"
@@ -261,8 +282,26 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                   rows={2}
                   value={interpretation}
                   onChange={(event) => setInterpretation(event.target.value)}
-                  placeholder="先写下你的理解，再看参考解释"
+                  placeholder={
+                    transcriptHidden
+                      ? '先听一遍，用中文写下你听懂的内容'
+                      : '先写下你的理解，再看参考解释'
+                  }
                 />
+                {transcriptHidden && (
+                  <>
+                    <label className={styles.label} htmlFor="own-sentence-before-reveal">
+                      用英语写一句你听到的内容（可跳过，不会自动评分）
+                    </label>
+                    <input
+                      id="own-sentence-before-reveal"
+                      maxLength={280}
+                      value={ownSentence}
+                      onChange={(event) => setOwnSentence(event.target.value)}
+                      placeholder="先试着表达，再看句型参考"
+                    />
+                  </>
+                )}
                 <div className={styles.actions}>
                   <button
                     className={styles.primary}
@@ -276,6 +315,12 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             ) : (
               <>
                 <div className={styles.answer}>
+                  {transcriptHidden && ownSentence.trim() && (
+                    <p>
+                      <strong>你的英文尝试：</strong>
+                      <span lang="en">{ownSentence}</span>
+                    </p>
+                  )}
                   <p>
                     <strong>你的理解：</strong>
                     {lesson.interpretation}

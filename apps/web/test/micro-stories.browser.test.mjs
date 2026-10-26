@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'micro-stories play original and review audio and refresh the notebook after a new error',
+  'micro-stories support listening before revealing the text and refresh the notebook after a new error',
   {
     skip: !baseUrl,
     timeout: 30_000,
@@ -96,7 +96,7 @@ test(
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
       localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
-      window.microFixture = { index: 0, revealed: false, interpretation: '', errors: [], speechLog: [], speechCancelCount: 0 };
+      window.microFixture = { index: 0, revealed: false, failReveal: new URL(location.href).searchParams.has('fail-reveal'), interpretation: '', errors: [], speechLog: [], speechCancelCount: 0, requests: [] };
       const noSpeech = new URL(location.href).searchParams.has('no-speech');
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: noSpeech ? undefined : class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
       Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: { getVoices: () => [{ lang: 'en-US' }], cancel: () => { window.microFixture.speechCancelCount += 1; }, speak: utterance => { window.microFixture.speechLog.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate }); } } });
@@ -104,16 +104,18 @@ test(
       window.fetch = async (url, options = {}) => {
         const path = String(url);
         const f = window.microFixture;
+        if (path.includes('/api/v1/')) f.requests.push({ path, method: options.method ?? 'GET', authorization: new Headers(options.headers).get('Authorization') });
         const first = { key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: 'Tom misses the bus.', interpretation: f.revealed ? f.interpretation : null };
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'fixture' });
-        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: 2, lesson: f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: null, reviewCount: 0 } : null });
+        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: 2, lesson: f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
         if (path.includes('/api/v1/micro-stories/errors')) return Response.json(f.errors);
         if (path.includes('/api/v1/micro-stories/bus-01/interpret')) {
+          if (f.failReveal) { f.failReveal = false; return Response.json({ message: 'Fixture failure' }, { status: 500 }); }
           f.interpretation = JSON.parse(options.body).interpretation; f.revealed = true;
           return Response.json({ ...first, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' });
         }
         if (path.includes('/api/v1/micro-stories/bus-01/complete')) {
-          f.errors.push({ id: 'card1', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: null, dueAt: new Date().toISOString() });
+          f.errors.push({ id: 'card1', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: JSON.parse(options.body).ownSentence, dueAt: new Date().toISOString() });
           f.index = 1; return Response.json({ completed: 1, total: 2 });
         }
         if (path.includes('/api/v1/')) throw new Error('Unexpected API request: ' + path);
@@ -121,9 +123,68 @@ test(
       };
     `,
       });
-      await send('Page.navigate', { url: new URL('/dashboard/micro-stories', baseUrl).href });
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?fail-reveal=1', baseUrl).href,
+      });
       await until('document.querySelector("textarea")');
+      const requestsOnInitialLoad = await evaluate('window.microFixture.requests.length');
       await until('document.querySelector(`button[aria-label="按正常速度播放微故事原文"]`)');
+      const requestsBeforeEmptySubmit = await evaluate('window.microFixture.requests.length');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find(button => button.textContent.includes("查看解释")).disabled',
+        ),
+        true,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).click()`,
+      );
+      assert.equal(
+        await evaluate('window.microFixture.requests.length'),
+        requestsBeforeEmptySubmit,
+      );
+      assert.equal(
+        await evaluate(
+          'window.microFixture.requests.find(request => request.path.includes("/micro-stories/current")).authorization',
+        ),
+        'Bearer fixture',
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先听后看原文')).click()`,
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find(button => button.textContent.includes("显示英文原文"))?.getAttribute("aria-pressed")',
+        ),
+        'true',
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        false,
+      );
+      assert.equal(await evaluate('window.microFixture.requests.length'), requestsOnInitialLoad);
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?fail-reveal=1', baseUrl).href,
+      });
+      await until('document.querySelector("textarea")');
+      const requestsAfterRefresh = await evaluate('window.microFixture.requests.length');
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find(button => button.textContent.includes("先听后看原文"))?.getAttribute("aria-pressed")',
+        ),
+        'false',
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先听后看原文')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        false,
+      );
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
       );
@@ -132,6 +193,61 @@ test(
         lang: 'en-US',
         rate: 1,
       });
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('显示英文原文')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        true,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先听后看原文')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        false,
+      );
+      assert.equal(await evaluate('window.microFixture.requests.length'), requestsAfterRefresh);
+      await evaluate(`(() => {
+      const area = document.querySelector('textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(area, '想念公交车');
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      const sentence = document.querySelector('#own-sentence-before-reveal');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(sentence, 'I missed the train.');
+      sentence.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+      assert.equal(await evaluate('window.microFixture.requests.length'), requestsAfterRefresh);
+      await until(
+        `![...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).disabled`,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).click()`,
+      );
+      await until('document.body.textContent.includes("服务暂时不可用")');
+      assert.equal(await evaluate('document.body.textContent.includes("第 1 小段")'), true);
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        false,
+      );
+      assert.equal(await evaluate('document.querySelector("textarea").value'), '想念公交车');
+      assert.equal(
+        await evaluate(
+          'window.microFixture.requests.some(request => request.path.includes("/complete"))',
+        ),
+        false,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).click()`,
+      );
+      await until('document.body.textContent.includes("刚才的理解有偏差吗")');
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("I missed the train.")'),
+        true,
+      );
       await evaluate(`document.querySelector('button[aria-label="慢速播放微故事原文"]').click()`);
       assert.equal(await evaluate('window.microFixture.speechLog[1].rate'), 0.8);
       await evaluate(`document.querySelector('button[aria-label="停止播放微故事原文"]').click()`);
@@ -140,31 +256,47 @@ test(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('翻看记录')).click()`,
       );
       await until('document.body.textContent.includes("还没有标记过的理解偏差")');
-      await evaluate(`(() => {
-      const area = document.querySelector('textarea');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(area, '想念公交车');
-      area.dispatchEvent(new Event('input', { bubbles: true }));
-    })()`);
-      await until(
-        `![...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).disabled`,
-      );
-      await evaluate(
-        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解释')).click()`,
-      );
-      await until('document.body.textContent.includes("刚才的理解有偏差吗")');
       await evaluate(`document.querySelector('input[name="mismatch"][type="radio"]').click()`);
+      assert.equal(
+        await evaluate('document.querySelector("#own-sentence").value'),
+        'I missed the train.',
+      );
       await until('document.body.textContent.includes("读下一段")');
+      await evaluate(
+        `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
+      );
+      const cancelCountBeforeNext = await evaluate('window.microFixture.speechCancelCount');
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('读下一段')).click()`,
       );
       await until('document.body.textContent.includes("第 2 小段")');
+      assert.equal(
+        await evaluate('window.microFixture.speechCancelCount > ' + cancelCountBeforeNext),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom calls his boss.")'),
+        true,
+      );
+      await evaluate(
+        `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
+      );
+      assert.equal(await evaluate('window.microFixture.speechLog[3].text'), 'Tom calls his boss.');
       await until('document.querySelector(`button[aria-label="按正常速度播放到期复习句"]`)');
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放到期复习句"]').click()`,
       );
-      assert.equal(await evaluate('window.microFixture.speechLog[2].rate'), 1);
+      assert.equal(await evaluate('window.microFixture.speechLog[4].rate'), 1);
       await until(
         'document.querySelector("article") && document.querySelector("article").textContent.includes("想念公交车")',
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看上次偏差')).click()`,
+      );
+      await until('document.body.textContent.includes("上次造句")');
+      assert.equal(
+        await evaluate('document.body.textContent.includes("I missed the train.")'),
+        true,
       );
       assert.equal(await evaluate('window.microFixture.errors.length'), 1);
       await send('Page.navigate', {
@@ -174,6 +306,20 @@ test(
       assert.equal(
         await evaluate('Boolean(document.querySelector("button[aria-label*=播放微故事原文]"))'),
         false,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先听后看原文')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        false,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('显示英文原文')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
+        true,
       );
     } finally {
       socket?.close();
