@@ -3733,9 +3733,11 @@ button {
   background: #fff;
   box-shadow: var(--card-shadow);
   transition: all 0.4s cubic-bezier(0.81, -0.04, 0.38, 1.5);
-  cursor: pointer;
   position: relative;
   overflow: hidden;
+}
+.metric-card {
+  cursor: pointer;
 }
 .streak-card:hover,
 .metric-card:hover {
@@ -3745,13 +3747,14 @@ button {
 .streak-card-wrap {
   position: relative;
   min-width: 0;
-  min-height: 140px;
+  min-height: 168px;
 }
 .streak-card-wrap .streak-card {
   height: 100%;
 }
 .streak-card {
   padding: 0;
+  min-height: 168px;
   background: var(--teal);
   color: #fff;
 }
@@ -3769,143 +3772,42 @@ button {
 }
 
 .streak-front {
-  padding: 24px 28px;
+  padding: 18px 22px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 18px;
   width: 100%;
   height: 100%;
-  transition: all 0.4s cubic-bezier(0.81, -0.04, 0.38, 1.5);
-  opacity: 1;
   position: relative;
   z-index: 2;
 }
-.streak-card:hover .streak-front {
-  height: 0px;
-  opacity: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  transform: scale(0.8);
+.streak-content {
+  min-width: 0;
+  flex: 1;
 }
-.streak-back {
-  position: absolute;
-  inset: 0;
-  padding: 24px 28px;
-  display: flex;
-  justify-content: center;
+.streak-start-link {
+  display: inline-flex;
   align-items: center;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transition: all 0.4s cubic-bezier(0.81, -0.04, 0.38, 1.5);
-  transform: rotate(90deg) scale(-1);
-  background: var(--coral);
-  z-index: 3;
-  pointer-events: none;
-}
-.streak-card:hover .streak-back {
-  opacity: 1;
-  transform: rotate(0deg) scale(1);
-  pointer-events: auto;
-}
-.check-in-btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 32px;
-  border: 3px solid var(--border-color);
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 11px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
   background: var(--gold);
   color: var(--border-color);
-  font-size: 20px;
-  font-weight: 900;
-  border-radius: 50px;
-  box-shadow: 4px 4px 0 var(--border-color);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.81, -0.04, 0.38, 1.5);
-  position: relative;
-  isolation: isolate;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
 }
-.check-in-btn:hover {
-  transform: translate(-2px, -2px) scale(1.05);
-  box-shadow: 6px 6px 0 var(--border-color);
-  background: #fff;
+.streak-start-link:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--border-color);
+  background: #fffefa;
 }
-.check-in-btn:focus-visible {
+.streak-start-link:focus-visible {
   outline: 3px solid #fffefa;
   outline-offset: 3px;
-}
-.check-in-btn.is-celebrating {
-  animation: check-in-pop 0.42s cubic-bezier(0.2, 1.5, 0.45, 1);
-}
-.check-in-btn > svg,
-.check-in-btn > span:not(.check-in-burst) {
-  position: relative;
-  z-index: 2;
-}
-.check-in-burst {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  z-index: 4;
-}
-.check-in-burst i {
-  --burst-color: var(--gold);
-  position: absolute;
-  display: block;
-  color: var(--burst-color);
-  font-family: 'Noto Serif SC', serif;
-  font-size: 26px;
-  font-style: normal;
-  line-height: 1;
-  opacity: 0;
-  text-shadow: 2px 2px 0 var(--border-color);
-  animation: check-in-star 0.7s cubic-bezier(0.12, 0.75, 0.28, 1) var(--burst-delay) both;
-}
-.check-in-burst i:nth-child(3n) {
-  --burst-color: #fffefa;
-  font-size: 20px;
-}
-.check-in-burst i:nth-child(4n) {
-  --burst-color: var(--coral);
-  font-size: 18px;
-}
-@keyframes check-in-pop {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  35% {
-    transform: translate(2px, 2px) scale(0.92);
-  }
-  68% {
-    transform: translate(-3px, -3px) scale(1.08);
-  }
-}
-@keyframes check-in-star {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.15) rotate(0);
-  }
-  18% {
-    opacity: 1;
-  }
-  78% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y))) scale(0.72)
-      rotate(var(--burst-turn));
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .check-in-btn.is-celebrating {
-    animation: none;
-  }
-  .check-in-burst {
-    display: none;
-  }
 }
 .sr-only {
   position: absolute;
@@ -3935,13 +3837,14 @@ button {
   margin: 12px 0 0;
   color: #fff;
   opacity: 0.9;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.6;
   font-weight: 600;
-  max-width: 80%;
+  max-width: 100%;
 }
 .streak-count {
-  min-width: 80px;
+  flex: 0 0 84px;
+  min-width: 84px;
   display: grid;
   grid-template-columns: auto auto;
   align-content: start;
@@ -7540,7 +7443,7 @@ button {
     gap: 20px;
   }
   .streak-card {
-    min-height: 120px;
+    min-height: 168px;
   }
   .metric-card {
     min-height: 100px;
