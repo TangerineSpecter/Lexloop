@@ -120,7 +120,12 @@ export class StudyService {
       });
       const [review, defaultBook] = await Promise.all([
         tx.userWordProgress.findMany({
-          where: { userId, state: WordProgressState.REVIEWING, nextReviewAt: { lte: new Date() } },
+          where: {
+            userId,
+            state: WordProgressState.REVIEWING,
+            nextReviewAt: { lte: new Date() },
+            bookWord: { word: { masteredBy: { none: { userId } } } },
+          },
           orderBy: { nextReviewAt: 'asc' },
           select: { bookWordId: true },
         }),

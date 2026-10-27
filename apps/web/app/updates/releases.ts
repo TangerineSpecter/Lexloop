@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.19.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '已掌握词不再重复排期',
+        entry: '首页 → 标记掌握 → 复习计划',
+        usage:
+          '标记掌握后，同一个词不会从其他词书重新进入复习；取消掌握时，其他词书保留的原排期可继续使用。',
+      },
+    ],
+  },
+  {
     version: '1.18.0',
     date: '2026-10-27',
     items: [

@@ -439,7 +439,10 @@ export class VocabularyService {
       where: {
         userId,
         state: { in: [WordProgressState.LEARNING, WordProgressState.REVIEWING] },
-        bookWord: { book: { userBooks: { some: { userId } } } },
+        bookWord: {
+          book: { userBooks: { some: { userId } } },
+          word: { masteredBy: { none: { userId } } },
+        },
       },
       orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'desc' }],
       include: { bookWord: { include: { word: true, book: { select: { title: true } } } } },
@@ -488,7 +491,12 @@ export class VocabularyService {
       : user.defaultNewWordCount;
     const [reviewProgresses, defaultBook] = await Promise.all([
       this.prisma.userWordProgress.findMany({
-        where: { userId, state: WordProgressState.REVIEWING, nextReviewAt: { lte: new Date() } },
+        where: {
+          userId,
+          state: WordProgressState.REVIEWING,
+          nextReviewAt: { lte: new Date() },
+          bookWord: { word: { masteredBy: { none: { userId } } } },
+        },
         orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }],
         include: { bookWord: { include: { word: true } } },
       }),
