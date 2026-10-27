@@ -3,6 +3,7 @@
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, CircleAlert, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
+import { partitionMistakePracticeSelection } from '../lib/mistake-practice-selection';
 import type { LearningPlan } from './dashboard';
 import { TutorPanel } from './tutor-panel';
 
@@ -24,6 +25,7 @@ export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreat
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [showPracticeChoices, setShowPracticeChoices] = useState(false);
 
   const load = useCallback(async (resetSelection = false) => {
     setLoading(true); setMessage('');
@@ -67,16 +69,33 @@ export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreat
       setMessage(error instanceof Error ? error.message : '更新薄弱项状态失败');
     }
   };
+  const selectedPractice = partitionMistakePracticeSelection(result?.items ?? [], selected);
+  const hasSpecialPractice =
+    selectedPractice.outputWordIds.length > 0 || selectedPractice.confusionWordIds.length > 0;
+  const createPlanFor = async (bookWordIds: string[]) => {
+    if (!bookWordIds.length) return;
+    setLoading(true);
+    setMessage('');
+    try {
+      const plan = await request<LearningPlan>(
+        '/mistakes/practice-plans',
+        { method: 'POST', body: JSON.stringify({ bookWordIds }) },
+        session.accessToken,
+      );
+      onPlanCreated(plan);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '创建薄弱词专项失败');
+    } finally {
+      setLoading(false);
+    }
+  };
   const createPlan = async () => {
     if (!selected.length) return;
-    const special = result?.items.filter(item => selected.includes(item.bookWordId)).flatMap(item => item.weaknesses).find(item => item.questionType === 'OUTPUT' || item.questionType === 'CONFUSION');
-    if (special) { window.location.assign(`/dashboard/practice?tab=${special.questionType === 'OUTPUT' ? 'output' : 'confusion'}`); return; }
-    setLoading(true); setMessage('');
-    try {
-      const plan = await request<LearningPlan>('/mistakes/practice-plans', { method: 'POST', body: JSON.stringify({ bookWordIds: selected }) }, session.accessToken);
-      onPlanCreated(plan);
-    } catch (error) { setMessage(error instanceof Error ? error.message : '创建薄弱词专项失败'); }
-    finally { setLoading(false); }
+    if (hasSpecialPractice) {
+      setShowPracticeChoices(true);
+      return;
+    }
+    await createPlanFor(selectedPractice.standardWordIds);
   };
 
   return <section className="mistakes-page" aria-labelledby="mistakes-title">
@@ -87,6 +106,49 @@ export function MistakesPage({ session, onBack, onOpenTutorSettings, onPlanCreat
       {status === 'active' && <button className="mistakes-create" disabled={!selected.length || loading} onClick={() => void createPlan()}><Sparkles size={17}/>生成专项（{selected.length}）</button>}
     </div>
     {message && <p className="book-message" role="status">{message}</p>}
+    {showPracticeChoices && hasSpecialPractice && (
+      <section className="mistakes-practice-choices" aria-label="按题型选择专项">
+        <h2>这批薄弱项需要分开练</h2>
+        <p>
+          当前选择包含：每日输出 {selectedPractice.outputWordIds.length} 词；易混辨析{' '}
+          {selectedPractice.confusionWordIds.length} 词；普通题型{' '}
+          {selectedPractice.standardWordIds.length} 词。普通专项只会收到普通题型词。
+        </p>
+        <p>
+          每日输出和易混词训练使用各自的目标与推荐规则，不会把本页所选词自动设为练习目标。
+        </p>
+        <div>
+          {selectedPractice.standardWordIds.length > 0 && (
+            <button
+              className="is-primary"
+              disabled={loading}
+              onClick={() => void createPlanFor(selectedPractice.standardWordIds)}
+            >
+              只生成普通专项（{selectedPractice.standardWordIds.length} 词）
+            </button>
+          )}
+          {selectedPractice.outputWordIds.length > 0 && (
+            <button
+              disabled={loading}
+              onClick={() => window.location.assign('/dashboard/practice?tab=output')}
+            >
+              打开每日输出
+            </button>
+          )}
+          {selectedPractice.confusionWordIds.length > 0 && (
+            <button
+              disabled={loading}
+              onClick={() => window.location.assign('/dashboard/practice?tab=confusion')}
+            >
+              打开易混词训练
+            </button>
+          )}
+          <button disabled={loading} onClick={() => setShowPracticeChoices(false)}>
+            返回调整选择
+          </button>
+        </div>
+      </section>
+    )}
     {loading && !result ? <div className="mistakes-empty">正在读取薄弱词…</div> : !result?.items.length ? <div className="mistakes-empty"><Check size={34}/><strong>{status === 'active' ? '当前没有待巩固的单词' : '这里还没有记录'}</strong><p>完成练习后，错题会自动汇总到这里。</p></div> : <div className="mistakes-list">{result.items.map(item => {
       const checked = selected.includes(item.bookWordId);
       return <article key={item.bookWordId} className={checked ? 'is-selected' : ''}>

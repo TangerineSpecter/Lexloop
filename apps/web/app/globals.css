@@ -102,6 +102,52 @@
   color: var(--soft);
   box-shadow: 3px 3px 0 var(--gold);
 }
+.mistakes-practice-choices {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 11px;
+  background: #eaf2ff;
+}
+.mistakes-practice-choices h2,
+.mistakes-practice-choices p {
+  margin: 0;
+}
+.mistakes-practice-choices h2 {
+  font-size: 18px;
+}
+.mistakes-practice-choices p {
+  line-height: 1.55;
+}
+.mistakes-practice-choices > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mistakes-practice-choices button {
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: inherit;
+  font-weight: 800;
+}
+.mistakes-practice-choices button.is-primary {
+  background: var(--border-color);
+  color: var(--soft);
+  box-shadow: 3px 3px 0 var(--gold);
+}
+.mistakes-practice-choices button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.mistakes-practice-choices button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
 .mistakes-list {
   display: grid;
   gap: 14px;
