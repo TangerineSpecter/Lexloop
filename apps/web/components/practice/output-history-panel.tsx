@@ -1,19 +1,36 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { OutputHistoryItem } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
 import { FeedbackCard } from './feedback-card';
 import styles from './practice.module.css';
 
 export function OutputHistoryPanel({ session }: { session: Session }) {
+  return <OutputHistoryPanelForUser key={session.user.id} session={session} />;
+}
+
+function OutputHistoryPanelForUser({ session }: { session: Session }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
+  const [attempts, setAttempts] = useState<Record<string, string>>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const focusAfterUpdate = useRef<{ itemId: string; target: 'answer' | 'attempt' } | null>(null);
   const [result, setResult] = useState<{ items: OutputHistoryItem[]; hasMore: boolean } | null>(
     null,
   );
   const [message, setMessage] = useState('');
+  useEffect(() => {
+    const pending = focusAfterUpdate.current;
+    if (!pending) return;
+    const id =
+      pending.target === 'answer'
+        ? `output-history-answer-${pending.itemId}`
+        : `output-history-attempt-${pending.itemId}`;
+    document.getElementById(id)?.focus();
+    focusAfterUpdate.current = null;
+  }, [attempts, revealed]);
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -34,6 +51,15 @@ export function OutputHistoryPanel({ session }: { session: Session }) {
       cancelled = true;
     };
   }, [open, page, revision, session.accessToken]);
+  function reveal(itemId: string) {
+    focusAfterUpdate.current = { itemId, target: 'answer' };
+    setRevealed((current) => ({ ...current, [itemId]: true }));
+  }
+  function tryAgain(itemId: string) {
+    focusAfterUpdate.current = { itemId, target: 'attempt' };
+    setRevealed((current) => ({ ...current, [itemId]: false }));
+    setAttempts((current) => ({ ...current, [itemId]: '' }));
+  }
   return (
     <section className={styles.history}>
       <button
@@ -67,21 +93,94 @@ export function OutputHistoryPanel({ session }: { session: Session }) {
                   </strong>
                   <span>查看表达与反馈</span>
                 </summary>
-                <p>{item.prompt}</p>
-                <p className={styles.answerText}>{item.answer}</p>
-                {item.error && <p>{item.error}</p>}
-                {item.feedback && (
-                  <FeedbackCard
-                    feedback={item.feedback}
-                    daily={{
-                      id: item.id,
-                      date: item.date,
-                      prompt: item.prompt,
-                      targets: item.targets,
-                      remaining: 0,
-                      submissions: [],
-                    }}
-                  />
+                <p className={styles.historyPrompt}>{item.prompt}</p>
+                <div className={styles.targets} role="group" aria-label="本次目标词">
+                  {item.targets.map((target) => (
+                    <div key={target.bookWordId}>
+                      <strong>{target.word}</strong>
+                      <span>{target.meaning}</span>
+                    </div>
+                  ))}
+                </div>
+                <section className={styles.historyRecall} aria-label="回想练习">
+                  <h4>先试着重写（可跳过）</h4>
+                  <p className={styles.hint}>
+                    试写只暂存在当前页面，刷新或切换账号后清除；不会保存、批改或计入练习次数。
+                  </p>
+                  {revealed[item.id] ? (
+                    <>
+                      {attempts[item.id]?.trim() && (
+                        <div className={styles.example}>
+                          <h4>你的试写</h4>
+                          <p lang="en" className={styles.answerText}>
+                            {attempts[item.id]}
+                          </p>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.secondary}
+                        onClick={() => tryAgain(item.id)}
+                      >
+                        再试一次（先隐藏对照）
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <label className={styles.label} htmlFor={`output-history-attempt-${item.id}`}>
+                        你的新版本
+                      </label>
+                      <textarea
+                        id={`output-history-attempt-${item.id}`}
+                        rows={4}
+                        maxLength={1800}
+                        value={attempts[item.id] ?? ''}
+                        onChange={(event) =>
+                          setAttempts((current) => ({ ...current, [item.id]: event.target.value }))
+                        }
+                        placeholder="试着换一种表达，也可以留空直接查看原记录。"
+                      />
+                      <div className={styles.historyRecallActions}>
+                        <button
+                          type="button"
+                          className={styles.primary}
+                          disabled={!attempts[item.id]?.trim()}
+                          onClick={() => reveal(item.id)}
+                        >
+                          试写后查看对照
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondary}
+                          onClick={() => reveal(item.id)}
+                        >
+                          直接查看原记录
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </section>
+                {revealed[item.id] && (
+                  <>
+                    <h4 id={`output-history-answer-${item.id}`} tabIndex={-1}>
+                      上次回答
+                    </h4>
+                    <p className={styles.answerText}>{item.answer}</p>
+                    {item.error && <p>{item.error}</p>}
+                    {item.feedback && (
+                      <FeedbackCard
+                        feedback={item.feedback}
+                        daily={{
+                          id: item.id,
+                          date: item.date,
+                          prompt: item.prompt,
+                          targets: item.targets,
+                          remaining: 0,
+                          submissions: [],
+                        }}
+                      />
+                    )}
+                  </>
                 )}
               </details>
             ))

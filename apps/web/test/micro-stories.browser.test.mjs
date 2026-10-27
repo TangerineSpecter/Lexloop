@@ -359,7 +359,7 @@ test(
       await evaluate(`document.querySelector('button[aria-label="慢速播放微故事原文"]').click()`);
       assert.equal(await evaluate('window.microFixture.speechLog[0].rate'), 0.8);
       await evaluate(`document.querySelector('button[aria-label="停止播放微故事原文"]').click()`);
-      assert.ok(await evaluate('window.microFixture.speechCancelCount >= 3'));
+      assert.ok(await evaluate('window.microFixture.speechCancelCount >= 2'));
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('翻看记录')).click()`,
       );

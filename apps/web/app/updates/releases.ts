@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.6.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '历史输出先回想',
+        entry: '每日输出挑战 → 查看过去的输出记录',
+        usage:
+          '先看题目与目标词，自愿重写后再对照上次回答和反馈，也可直接查看；试写不会保存、批改或计入练习次数。',
+      },
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-10-26',
     items: [

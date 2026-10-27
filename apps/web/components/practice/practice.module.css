@@ -321,6 +321,30 @@
   margin-left: auto;
   font-size: 12px;
 }
+.historyPrompt {
+  padding: 12px;
+  background: #eaf2ff;
+  border-left: 4px solid var(--teal);
+  white-space: pre-wrap;
+}
+.historyRecall {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 2px dashed #08287740;
+}
+.historyRecall h4 {
+  margin: 6px 0;
+  font-size: 16px;
+}
+.historyRecall textarea {
+  min-height: 120px;
+  margin-bottom: 12px;
+}
+.historyRecallActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .contrastGrid {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
