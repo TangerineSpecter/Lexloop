@@ -192,6 +192,12 @@ test(
           window.studyPlansReadCount = 0;
           window.failStudyPlansReads = localStorage.getItem('lexloop.test.plan-read-failed') ? 0 : 1;
           window.studyPlanCreateAttempts = [];
+          window.studyPlanCreateResolvers = [];
+          window.resolveStudyPlanCreate = (response) => {
+            const resolve = window.studyPlanCreateResolvers.shift();
+            if (!resolve) throw new Error('No pending plan creation request');
+            resolve(response);
+          };
           window.studyPlanWrites = [];
           window.studySubmissionAttempts = [];
           window.studyAlerts = [];
@@ -224,6 +230,9 @@ test(
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
               window.studyPlanCreateAttempts.push(JSON.parse(options.body));
+              if (window.delayStudyPlanCreate) {
+                return new Promise((resolve) => window.studyPlanCreateResolvers.push(resolve));
+              }
               return Response.json(window.studyPlanResponse);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
@@ -272,6 +281,39 @@ test(
         'document.querySelector(".create") && !document.querySelector(".create").disabled',
       );
       assert.equal(await evaluate('window.studyPlanCreateAttempts.length'), 0);
+      await evaluate(`window.delayStudyPlanCreate = true;
+        document.querySelector('.create').click();
+        document.querySelector('.create').click();`);
+      await until('window.studyPlanCreateAttempts.length === 1');
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".create").textContent.includes("正在创建学习计划")',
+        ),
+        true,
+      );
+      await evaluate(
+        'window.resolveStudyPlanCreate(Response.json({ message: "创建计划测试失败" }, { status: 503 }))',
+      );
+      await until('!document.querySelector(".create").disabled');
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("创建计划测试失败")',
+      );
+      await evaluate(`document.querySelector('.create').click();
+        document.querySelector('.create').click();`);
+      await until('window.studyPlanCreateAttempts.length === 2');
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
+      await evaluate('window.resolveStudyPlanCreate(Response.json(window.studyPlanResponse))');
+      await until('document.querySelector(".plan-preview-layer")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("开始今天的挑战")',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+      assert.equal(await evaluate('window.generationAttempts?.length ?? 0'), 0);
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
       );

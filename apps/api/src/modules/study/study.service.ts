@@ -93,56 +93,60 @@ export class StudyService {
     if (!(await this.modelConfigs.selectedProvider(userId))) {
       throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     }
-    const existing = await this.prisma.studyPlan.findFirst({
-      where: {
-        userId,
-        purpose: StudyPlanPurpose.NORMAL,
-        OR: [
-          { status: StudyPlanStatus.GENERATING },
-          { status: StudyPlanStatus.ACTIVE, generatedContent: { not: Prisma.DbNull } },
-          { status: StudyPlanStatus.FAILED, createdAt: { gte: startOfToday() } },
-        ],
-      },
-      include: { items: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (existing?.items.length) return this.serializePlan(existing.id, userId);
+    const planId = await this.prisma.$transaction(async (tx) => {
+      // Serialize normal-plan creation per account across API processes. The
+      // existing-plan check must run after acquiring the transaction lock.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL
+      `);
+      const existing = await tx.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.NORMAL,
+          OR: [
+            { status: StudyPlanStatus.GENERATING },
+            { status: StudyPlanStatus.ACTIVE, generatedContent: { not: Prisma.DbNull } },
+            { status: StudyPlanStatus.FAILED, createdAt: { gte: startOfToday() } },
+          ],
+        },
+        include: { items: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing?.items.length) return existing.id;
 
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { defaultNewWordCount: true },
-    });
-    const [review, defaultBook] = await Promise.all([
-      this.prisma.userWordProgress.findMany({
-        where: { userId, state: WordProgressState.REVIEWING, nextReviewAt: { lte: new Date() } },
-        orderBy: { nextReviewAt: 'asc' },
-        select: { bookWordId: true },
-      }),
-      this.prisma.userVocabularyBook.findFirst({
-        where: { userId, isDefault: true },
-        select: { bookId: true },
-      }),
-    ]);
-    const newWordCount = requestedNewWordCount ?? user.defaultNewWordCount;
-    const newWords = defaultBook
-      ? await this.prisma.vocabularyBookWord.findMany({
-          where: {
-            bookId: defaultBook.bookId,
-            progress: { none: { userId } },
-            word: { masteredBy: { none: { userId } } },
-          },
-          orderBy: { position: 'asc' },
-          take: newWordCount,
-          select: { id: true },
-        })
-      : [];
-    const reviewIds = review.map((item) => item.bookWordId);
-    const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
-    const ids = shuffle([...reviewIds, ...newIds]);
-    if (!ids.length) throw new BadRequestException('当前没有可加入学习计划的单词');
-    const groups = buildGroups(ids, mode);
-
-    const plan = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { defaultNewWordCount: true },
+      });
+      const [review, defaultBook] = await Promise.all([
+        tx.userWordProgress.findMany({
+          where: { userId, state: WordProgressState.REVIEWING, nextReviewAt: { lte: new Date() } },
+          orderBy: { nextReviewAt: 'asc' },
+          select: { bookWordId: true },
+        }),
+        tx.userVocabularyBook.findFirst({
+          where: { userId, isDefault: true },
+          select: { bookId: true },
+        }),
+      ]);
+      const newWordCount = requestedNewWordCount ?? user.defaultNewWordCount;
+      const newWords = defaultBook
+        ? await tx.vocabularyBookWord.findMany({
+            where: {
+              bookId: defaultBook.bookId,
+              progress: { none: { userId } },
+              word: { masteredBy: { none: { userId } } },
+            },
+            orderBy: { position: 'asc' },
+            take: newWordCount,
+            select: { id: true },
+          })
+        : [];
+      const reviewIds = review.map((item) => item.bookWordId);
+      const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
+      const ids = shuffle([...reviewIds, ...newIds]);
+      if (!ids.length) throw new BadRequestException('当前没有可加入学习计划的单词');
+      const groups = buildGroups(ids, mode);
       const created = await tx.studyPlan.create({
         data: {
           userId,
@@ -163,9 +167,9 @@ export class StudyService {
           })),
         ),
       });
-      return created;
+      return created.id;
     });
-    return this.serializePlan(plan.id, userId);
+    return this.serializePlan(planId, userId);
   }
 
   async generatePlan(userId: string, planId: string) {

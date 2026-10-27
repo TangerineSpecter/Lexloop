@@ -1471,6 +1471,8 @@ function WordsPanel({
   });
   const [displayNewWordCount, setDisplayNewWordCount] = useState<number>();
   const [message, setMessage] = useState('');
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const creatingPlanRef = useRef(false);
   const newWordCount = displayNewWordCount ?? dashboardWords.defaultNewWordCount;
   const loadWords = useCallback(
     async (count?: number) => {
@@ -1505,6 +1507,29 @@ function WordsPanel({
   const reviewCount = dashboardWords.reviewWords.length;
   const totalWordCount = reviewCount + newWordCount;
   const reviewShare = totalWordCount ? `${(reviewCount / totalWordCount) * 100}%` : '0%';
+  const createPlan = async () => {
+    if (creatingPlanRef.current) return;
+    creatingPlanRef.current = true;
+    setCreatingPlan(true);
+    try {
+      const plan = await request<LearningPlan>(
+        '/study/plans',
+        {
+          method: 'POST',
+          body: JSON.stringify({ newWordCount: dashboardWords.newWords.length, mode }),
+        },
+        session.accessToken,
+      );
+      onCreatePlan(plan);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '创建学习计划失败';
+      setMessage(text);
+      if (text.includes('大模型')) setDrawer('reading');
+    } finally {
+      creatingPlanRef.current = false;
+      setCreatingPlan(false);
+    }
+  };
   return (
     <section className="words-panel">
       <header className="panel-top">
@@ -1553,26 +1578,15 @@ function WordsPanel({
           </button>
           <button
             className="create"
-            onClick={() =>
-              void request<LearningPlan>(
-                '/study/plans',
-                {
-                  method: 'POST',
-                  body: JSON.stringify({ newWordCount: dashboardWords.newWords.length, mode }),
-                },
-                session.accessToken,
-              )
-                .then(onCreatePlan)
-                .catch((error) => {
-                  const text = error instanceof Error ? error.message : '创建学习计划失败';
-                  setMessage(text);
-                  if (text.includes('大模型')) setDrawer('reading');
-                })
+            onClick={() => void createPlan()}
+            disabled={
+              creatingPlan ||
+              !planListReady ||
+              (!dashboardWords.newWords.length && !dashboardWords.reviewWords.length)
             }
-            disabled={!planListReady || (!dashboardWords.newWords.length && !dashboardWords.reviewWords.length)}
           >
             <Sparkles size={15} />
-            {planListReady ? '创建学习计划' : '先读取已有计划'}
+            {creatingPlan ? '正在创建学习计划…' : planListReady ? '创建学习计划' : '先读取已有计划'}
           </button>
           <Tooltip label="模型设置">
             <button
