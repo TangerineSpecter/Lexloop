@@ -123,6 +123,103 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       expect(
         await prisma.learningEvent.count({ where: { userId: user.id, type: 'OUTPUT_COMPLETED' } }),
       ).toBe(1);
+
+      const retryClientId = randomUUID();
+      const retryAnswer = 'The effect can affect my plans. I borrow a book.';
+      const retryQueue = {
+        add: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('isolated queue outage'))
+          .mockRejectedValueOnce(new Error('isolated queue outage'))
+          .mockResolvedValueOnce({ id: 'recovered' }),
+      };
+      const retryOutput = new OutputService(
+        prisma as never,
+        { get: () => 'Asia/Shanghai' } as never,
+        models as never,
+        evidence,
+        retryQueue as never,
+      );
+      const attemptsBeforeRetry = await prisma.wordReviewAttempt.count({
+        where: { userId: user.id, questionType: 'OUTPUT' },
+      });
+      const eventsBeforeRetry = await prisma.learningEvent.count({
+        where: { userId: user.id, type: 'OUTPUT_COMPLETED' },
+      });
+      await expect(
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+      ).rejects.toMatchObject({ status: 503 });
+      const firstFailed = await prisma.outputSubmission.findUniqueOrThrow({
+        where: {
+          challengeId_clientRequestId: { challengeId: daily.id, clientRequestId: retryClientId },
+        },
+      });
+      expect(firstFailed.status).toBe('FAILED');
+
+      await expect(
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+      ).rejects.toMatchObject({ status: 503 });
+      const secondFailed = await prisma.outputSubmission.findUniqueOrThrow({
+        where: { id: firstFailed.id },
+      });
+      expect(secondFailed.status).toBe('FAILED');
+      expect(secondFailed.answer).toBe(retryAnswer);
+      expect(secondFailed.responseTimeMs).toBe(4200);
+      expect(secondFailed.workerTokenHash).not.toBe(firstFailed.workerTokenHash);
+
+      const retries = await Promise.all([
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+      ]);
+      expect(new Set(retries.map((row) => row.id)).size).toBe(1);
+      expect(retries.map((row) => row.status)).toEqual(['QUEUED', 'QUEUED']);
+      expect(retryQueue.add).toHaveBeenCalledTimes(3);
+      const retryJobIds = retryQueue.add.mock.calls.map((call) => call[2].jobId);
+      expect(new Set(retryJobIds).size).toBe(3);
+      const retried = await prisma.outputSubmission.findUniqueOrThrow({
+        where: { id: firstFailed.id },
+      });
+      expect(retried.status).toBe('QUEUED');
+      expect(retried.answer).toBe(retryAnswer);
+      expect(retried.workerTokenHash).not.toBe(secondFailed.workerTokenHash);
+      const staleWorkerToken = retryQueue.add.mock.calls[0][1].workerToken;
+      const auditsBeforeStaleJob = await prisma.aiCallAudit.count({
+        where: { userId: user.id, purpose: 'daily-output' },
+      });
+      await expect(retryOutput.claim(firstFailed.id, staleWorkerToken)).rejects.toThrow();
+      expect(
+        await prisma.aiCallAudit.count({ where: { userId: user.id, purpose: 'daily-output' } }),
+      ).toBe(auditsBeforeStaleJob);
+
+      const expiredId = randomUUID();
+      await prisma.outputSubmission.create({
+        data: {
+          challengeId: daily.id,
+          clientRequestId: expiredId,
+          answer: retryAnswer,
+          status: 'FAILED',
+          workerTokenHash: 'expired-fixture',
+          createdAt: new Date(Date.now() - 16 * 60_000),
+        },
+      });
+      const expiredReplay = await retryOutput.submit(
+        user.id,
+        daily.id,
+        retryAnswer,
+        expiredId,
+        4200,
+      );
+      expect(expiredReplay.status).toBe('FAILED');
+      expect(retryQueue.add).toHaveBeenCalledTimes(3);
+      expect(
+        await prisma.wordReviewAttempt.count({
+          where: { userId: user.id, questionType: 'OUTPUT' },
+        }),
+      ).toBe(attemptsBeforeRetry);
+      expect(
+        await prisma.learningEvent.count({ where: { userId: user.id, type: 'OUTPUT_COMPLETED' } }),
+      ).toBe(eventsBeforeRetry);
+
       const contrast = new ConfusionService(prisma as never, evidence);
       const answers = ['effect', 'effect', 'affect', 'effect'].map((selected, index) => ({
         questionId: `affect-effect-${index + 1}`,

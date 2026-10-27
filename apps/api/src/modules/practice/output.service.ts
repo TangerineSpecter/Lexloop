@@ -194,7 +194,14 @@ export class OutputService {
     if (repeated) {
       if (repeated.answer !== answer)
         throw new ConflictException('提交编号已用于另一份回答，请重新提交');
-      return this.publicSubmission(repeated);
+      if (repeated.status !== 'FAILED') return this.publicSubmission(repeated);
+      if (!(await this.models.selectedProvider(userId)))
+        throw new BadRequestException('请先在首页阅读材料模型设置中选择可用模型，再提交批改。');
+      const retried = await this.retryFailed(userId, challengeId, clientRequestId, answer);
+      if (retried.enqueue) {
+        await this.enqueue(retried.row, retried.workerToken, `${retried.row.id}-${randomUUID()}`);
+      }
+      return this.publicSubmission(retried.row);
     }
     if (!(await this.models.selectedProvider(userId)))
       throw new BadRequestException('请先在首页阅读材料模型设置中选择可用模型，再提交批改。');
@@ -234,35 +241,90 @@ export class OutputService {
       return { row, enqueue: true };
     });
     if (result.enqueue) {
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          this.queue.add(
-            'grade-output',
-            { submissionId: result.row.id, workerToken },
-            {
-              jobId: result.row.id,
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 5000 },
-              removeOnComplete: { count: 200 },
-              removeOnFail: { count: 100 },
-            },
-          ),
-          new Promise((_, reject) => {
-            timeout = setTimeout(() => reject(new Error('queue timeout')), 5000);
-          }),
-        ]);
-      } catch {
-        await this.prisma.outputSubmission.updateMany({
-          where: { id: result.row.id, status: 'QUEUED' },
-          data: { status: 'FAILED', error: '批改队列暂时不可用，请稍后重新提交。' },
-        });
-        throw new ServiceUnavailableException('批改队列暂时不可用，请稍后重新提交。');
-      } finally {
-        clearTimeout(timeout);
-      }
+      await this.enqueue(result.row, workerToken, result.row.id);
     }
     return this.publicSubmission(result.row);
+  }
+
+  private async retryFailed(
+    userId: string,
+    challengeId: string,
+    clientRequestId: string,
+    answer: string,
+  ) {
+    const workerToken = randomBytes(32).toString('hex');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`output:${userId}`}))`,
+      );
+      const row = await tx.outputSubmission.findFirst({
+        where: { challengeId, clientRequestId, challenge: { userId } },
+      });
+      if (!row) throw new NotFoundException('输出记录不存在');
+      if (row.answer !== answer) throw new ConflictException('提交编号与回答不匹配');
+      if (row.status !== 'FAILED') return { row, enqueue: false as const, workerToken };
+      if (Date.now() - row.createdAt.getTime() > LIFETIME)
+        return { row, enqueue: false as const, workerToken };
+
+      const otherPending = await tx.outputSubmission.findFirst({
+        where: {
+          challengeId,
+          id: { not: row.id },
+          status: { in: ['QUEUED', 'PROCESSING'] },
+        },
+        select: { id: true },
+      });
+      if (otherPending) throw new ConflictException('已有回答正在批改，请稍后查看结果');
+
+      const claimed = await tx.outputSubmission.updateMany({
+        where: { id: row.id, status: 'FAILED' },
+        data: {
+          status: 'QUEUED',
+          workerTokenHash: hash(workerToken),
+          leaseToken: null,
+          processingStartedAt: null,
+          error: null,
+        },
+      });
+      if (!claimed.count) {
+        const current = await tx.outputSubmission.findUnique({ where: { id: row.id } });
+        if (!current) throw new NotFoundException('输出记录不存在');
+        return { row: current, enqueue: false as const, workerToken };
+      }
+      const queued = await tx.outputSubmission.findUnique({ where: { id: row.id } });
+      if (!queued) throw new NotFoundException('输出记录不存在');
+      return { row: queued, enqueue: true as const, workerToken };
+    });
+  }
+
+  private async enqueue(row: { id: string }, workerToken: string, jobId: string) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.queue.add(
+          'grade-output',
+          { submissionId: row.id, workerToken },
+          {
+            jobId,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: { count: 200 },
+            removeOnFail: { count: 100 },
+          },
+        ),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('queue timeout')), 5000);
+        }),
+      ]);
+    } catch {
+      await this.prisma.outputSubmission.updateMany({
+        where: { id: row.id, status: 'QUEUED', workerTokenHash: hash(workerToken) },
+        data: { status: 'FAILED', error: '批改队列暂时不可用，请稍后重新提交。' },
+      });
+      throw new ServiceUnavailableException('批改队列暂时不可用，请稍后重新提交。');
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async submission(userId: string, id: string) {

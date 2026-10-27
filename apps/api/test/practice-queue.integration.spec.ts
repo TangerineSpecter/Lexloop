@@ -66,4 +66,51 @@ describe.skipIf(!process.env.PRACTICE_TEST_REDIS_URL)('output lease recovery que
       await queue.close();
     }
   }, 15_000);
+
+  it('can run a retry under a fresh job id while the previous failed job is retained', async () => {
+    const connection = { url: process.env.PRACTICE_TEST_REDIS_URL! };
+    const prefix = `practice-test-${randomUUID()}`;
+    const queue = new Queue('practice-output', { connection, prefix });
+    const events = new QueueEvents('practice-output', { connection, prefix });
+    const worker = new Worker(
+      'practice-output',
+      async (job) => {
+        if (job.data.fail) throw new Error('simulated queue failure');
+        return { done: true };
+      },
+      { connection, prefix },
+    );
+    try {
+      await Promise.all([events.waitUntilReady(), worker.waitUntilReady()]);
+      const submissionId = `submission-${randomUUID()}`;
+      const failed = await queue.add(
+        'grade-output',
+        { fail: true },
+        { jobId: submissionId, attempts: 1, removeOnFail: false },
+      );
+      await expect(failed.waitUntilFinished(events, 10_000)).rejects.toThrow(
+        'simulated queue failure',
+      );
+      expect(await failed.getState()).toBe('failed');
+
+      const retry = await queue.add(
+        'grade-output',
+        { fail: false },
+        {
+          jobId: `${submissionId}-${randomUUID()}`,
+          attempts: 1,
+          removeOnComplete: false,
+        },
+      );
+      await expect(retry.waitUntilFinished(events, 10_000)).resolves.toEqual({ done: true });
+      expect(retry.id).not.toBe(failed.id);
+      expect(await failed.getState()).toBe('failed');
+      expect(await retry.getState()).toBe('completed');
+    } finally {
+      await worker.close();
+      await events.close();
+      await queue.obliterate({ force: true });
+      await queue.close();
+    }
+  }, 15_000);
 });
