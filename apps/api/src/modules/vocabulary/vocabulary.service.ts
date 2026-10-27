@@ -3,6 +3,7 @@ import {
   Prisma,
   CefrLevel,
   LexicalItemType,
+  StudyPlanStatus,
   VocabularyBookKind,
   VocabularyCategory,
   WordProgressState,
@@ -471,12 +472,52 @@ export class VocabularyService {
   }
 
   async removeMasteredWord(userId: string, wordId: string) {
-    await this.prisma.$transaction([
-      this.prisma.userMasteredWord.deleteMany({ where: { userId, wordId } }),
-      this.prisma.userWordProgress.deleteMany({
-        where: { userId, state: WordProgressState.MASTERED, bookWord: { wordId } },
-      }),
-    ]);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userMasteredWord.deleteMany({ where: { userId, wordId } });
+      const pendingPlanProgress = await tx.userWordProgress.findMany({
+        where: {
+          userId,
+          state: WordProgressState.MASTERED,
+          bookWord: {
+            wordId,
+            studyPlanItems: {
+              some: {
+                completedAt: null,
+                plan: {
+                  userId,
+                  status: {
+                    in: [
+                      StudyPlanStatus.GENERATING,
+                      StudyPlanStatus.ACTIVE,
+                      StudyPlanStatus.FAILED,
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      const pendingProgressIds = pendingPlanProgress.map((progress) => progress.id);
+      if (pendingProgressIds.length) {
+        await tx.userWordProgress.updateMany({
+          where: {
+            id: { in: pendingProgressIds },
+            state: WordProgressState.MASTERED,
+          },
+          data: { state: WordProgressState.LEARNING, nextReviewAt: null },
+        });
+      }
+      await tx.userWordProgress.deleteMany({
+        where: {
+          userId,
+          state: WordProgressState.MASTERED,
+          bookWord: { wordId },
+          ...(pendingProgressIds.length ? { id: { notIn: pendingProgressIds } } : {}),
+        },
+      });
+    });
     return { success: true };
   }
 

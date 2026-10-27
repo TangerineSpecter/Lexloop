@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.20.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '复习统计与掌握状态同步',
+        entry: '学习统计 → 记忆资产 / 已掌握单词',
+        usage:
+          '已掌握的词不再计入待复习统计；取消掌握时，未完成计划保留原有进度，可继续作答并更新排期。',
+      },
+    ],
+  },
+  {
     version: '1.19.0',
     date: '2026-10-27',
     items: [

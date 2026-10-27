@@ -161,7 +161,7 @@ export class ReportsService {
     const [user, attempts, progresses, masteredWords, plans, weaknesses, profile, snapshots, scenarios, assessments, skills, cache] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { createdAt: true } }),
       this.prisma.wordReviewAttempt.findMany({ where: { userId }, select: { isCorrect: true, responseTimeMs: true, questionType: true, createdAt: true } }),
-      this.prisma.userWordProgress.findMany({ where: { userId }, select: { state: true, nextReviewAt: true, firstLearnedAt: true } }),
+      this.prisma.userWordProgress.findMany({ where: { userId }, select: { state: true, nextReviewAt: true, firstLearnedAt: true, bookWord: { select: { word: { select: { masteredBy: { where: { userId }, select: { id: true } } } } } } } }),
       this.prisma.userMasteredWord.count({ where: { userId } }),
       this.prisma.studyPlan.findMany({ where: { userId, status: StudyPlanStatus.COMPLETED }, select: { completedAt: true } }),
       this.prisma.weaknessSignal.findMany({ where: { userId }, select: { status: true } }),
@@ -181,8 +181,9 @@ export class ReportsService {
     const responseTimes = attempts.map(item => item.responseTimeMs).filter((value): value is number => value != null);
     const typeRows = questionTypeRows(attempts);
     const learnedWords = progresses.filter(item => item.firstLearnedAt).length;
-    const dueWords = progresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt <= now).length;
-    const overdueWords = progresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt < startOfToday()).length;
+    const reviewableProgresses = progresses.filter(item => item.bookWord.word.masteredBy.length === 0);
+    const dueWords = reviewableProgresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt <= now).length;
+    const overdueWords = reviewableProgresses.filter(item => item.state === WordProgressState.REVIEWING && item.nextReviewAt && item.nextReviewAt < startOfToday()).length;
     const completedScenarios = scenarios.length;
     const successfulScenarios = scenarios.filter(item => item.report?.outcome === ScenarioOutcome.SUCCESS).length;
     const categoryRows = [...new Set(scenarios.map(item => item.template.category))].map(category => {
@@ -201,8 +202,8 @@ export class ReportsService {
       completedScenarios,
     };
     const memory = {
-      learningWords: progresses.filter(item => item.state === WordProgressState.LEARNING).length,
-      reviewingWords: progresses.filter(item => item.state === WordProgressState.REVIEWING).length,
+      learningWords: reviewableProgresses.filter(item => item.state === WordProgressState.LEARNING).length,
+      reviewingWords: reviewableProgresses.filter(item => item.state === WordProgressState.REVIEWING).length,
       dueWords, overdueWords,
       masteryRate: learnedWords ? Math.round(masteredWords / learnedWords * 100) : 0,
     };
