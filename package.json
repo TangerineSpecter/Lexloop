@@ -1,6 +1,6 @@
 {
   "name": "lexloop",
-  "version": "1.27.6",
+  "version": "1.27.7",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
@@ -10,6 +10,7 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "test:api:full": "node scripts/test-api-isolated.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "release": "node scripts/release.mjs",
