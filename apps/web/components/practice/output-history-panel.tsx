@@ -163,13 +163,13 @@ function OutputHistoryPanelForUser({ session }: { session: Session }) {
                 {revealed[item.id] && (
                   <>
                     <h4 id={`output-history-answer-${item.id}`} tabIndex={-1}>
-                      上次回答
+                      {item.feedback ? '上次回答与反馈' : '上次回答'}
                     </h4>
-                    <p className={styles.answerText}>{item.answer}</p>
                     {item.error && <p>{item.error}</p>}
-                    {item.feedback && (
+                    {item.feedback ? (
                       <FeedbackCard
                         feedback={item.feedback}
+                        originalAnswer={item.answer}
                         daily={{
                           id: item.id,
                           date: item.date,
@@ -179,6 +179,8 @@ function OutputHistoryPanelForUser({ session }: { session: Session }) {
                           submissions: [],
                         }}
                       />
+                    ) : (
+                      <p className={styles.answerText}>{item.answer}</p>
                     )}
                   </>
                 )}

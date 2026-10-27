@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'past output feedback supports optional recall before reveal and keeps attempts page-local',
+  'practice feedback preserves recall privacy and confusion answers recover after interruption',
   { skip: !baseUrl, timeout: 60_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-output-history-test-'));
@@ -97,7 +97,7 @@ test(
         assert.fail(`Timed out waiting for ${expression}`);
       };
       const target = (word, meaning, bookWordId) => ({ word, meaning, bookWordId });
-      const feedback = (bookWordId, correctedText) => ({
+      const feedback = (bookWordId, correctedText, missingWordId) => ({
         score: 72,
         grammarScore: 80,
         coherenceScore: 68,
@@ -105,16 +105,29 @@ test(
         comments: ['试着让句子里的因果关系更清楚。'],
         words: [
           { bookWordId, used: true, correct: true, feedback: '这个词在当前语境中使用恰当。' },
+          ...(missingWordId
+            ? [
+                {
+                  bookWordId: missingWordId,
+                  used: false,
+                  correct: false,
+                  feedback: '请把目标词作为完整单词放进句子。',
+                },
+              ]
+            : []),
         ],
       });
       const makeHistoryItem = (id, answer, correctedText) => ({
         id,
         date: '2026-10-26',
         prompt: '写一段关于如何解决小问题的英文。',
-        targets: [target('approach', '方法', `${id}-word`)],
+        targets: [
+          target('approach', '方法', `${id}-word`),
+          target('carefully', '仔细地', `${id}-carefully`),
+        ],
         answer,
         status: 'COMPLETED',
-        feedback: feedback(`${id}-word`, correctedText),
+        feedback: feedback(`${id}-word`, correctedText, `${id}-carefully`),
         error: null,
         createdAt: '2026-10-26T09:30:00.000Z',
       });
@@ -131,22 +144,80 @@ test(
         ),
       ];
       const userBItems = [
-        makeHistoryItem('history-b', 'Account B saved answer.', 'Account B corrected answer.'),
+        makeHistoryItem(
+          'history-b',
+          'Account B has its own approach.',
+          'Account B uses a careful approach.',
+        ),
       ];
       const daily = {
         id: 'today-challenge',
         date: '2026-10-27',
         prompt: '写一段关于一次旅行的英文。',
-        targets: [target('journey', '旅程', 'today-word')],
+        targets: [
+          target('journey', '旅程', 'today-word'),
+          target('art', '艺术；技艺', 'today-art-word'),
+        ],
         remaining: 3,
-        submissions: [],
+        submissions: [
+          {
+            id: 'today-submission',
+            answer: 'The party started early. Our journey lasted for two days.',
+            status: 'COMPLETED',
+            feedback: feedback(
+              'today-word',
+              'Our journey began after the party.',
+              'today-art-word',
+            ),
+            error: null,
+            createdAt: '2026-10-27T09:30:00.000Z',
+          },
+        ],
       };
+      const confusionGroups = [
+        {
+          id: 'confusion-a',
+          title: '到达地点',
+          note: 'arrive at 用于具体地点，arrive in 用于城市或国家。',
+          words: [],
+          questions: [
+            {
+              id: 'confusion-a-q1',
+              sentence: 'We ___ the station at eight.',
+              options: ['arrived at', 'arrived in'],
+            },
+            {
+              id: 'confusion-a-q2',
+              sentence: 'They ___ the city before sunset.',
+              options: ['arrived at', 'arrived in'],
+            },
+          ],
+          recommendation: '按语境辨析',
+          practiced: false,
+        },
+        {
+          id: 'confusion-b',
+          title: '借入与借出',
+          note: 'borrow 表示借入，lend 表示借出。',
+          words: [],
+          questions: [
+            {
+              id: 'confusion-b-q1',
+              sentence: 'Could I ___ your pen for a minute?',
+              options: ['borrow', 'lend'],
+            },
+          ],
+          recommendation: '换一组练习',
+          practiced: false,
+        },
+      ];
 
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-a', user: { id: 'user-a', email: 'fixture-a@example.invalid', displayName: 'Fixture A', role: 'USER' } }));
           window.outputApiWrites = [];
+          window.confusionFailNext = true;
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
@@ -154,18 +225,42 @@ test(
             if (path.includes('/api/v1/')) {
               if (method !== 'GET') {
                 window.outputApiWrites.push({ method, path });
+                if (path.includes('/api/v1/practice/confusion/') && path.endsWith('/attempts')) {
+                  if (window.confusionFailNext) {
+                    window.confusionFailNext = false;
+                    return Response.json({ message: 'Fixture submission failure' }, { status: 500 });
+                  }
+                  const payload = JSON.parse(options.body);
+                  return Response.json({
+                    id: 'confusion-attempt',
+                    groupId: 'confusion-a',
+                    correctCount: payload.answers.length,
+                    total: payload.answers.length,
+                    results: payload.answers.map((answer) => ({
+                      questionId: answer.questionId,
+                      selected: answer.selected,
+                      answer: answer.selected,
+                      correct: true,
+                      explanation: 'Fixture explanation',
+                    })),
+                  });
+                }
                 return Response.json({ message: 'Unexpected write in history recall fixture' }, { status: 500 });
               }
               if (path.includes('/api/v1/auth/me')) {
                 const user = JSON.parse(localStorage.getItem('lexloop.session') ?? '{}').user;
                 return Response.json({ id: user?.id });
               }
-              if (path.includes('/api/v1/practice/output/today')) return Response.json(${JSON.stringify(daily)});
+              if (path.includes('/api/v1/practice/output/today')) {
+                const user = JSON.parse(localStorage.getItem('lexloop.session') ?? '{}').user;
+                return Response.json(user?.id === 'user-b' ? { ...${JSON.stringify(daily)}, submissions: [] } : ${JSON.stringify(daily)});
+              }
               if (path.includes('/api/v1/practice/output/history')) {
                 const user = JSON.parse(localStorage.getItem('lexloop.session') ?? '{}').user;
                 return Response.json({ items: user?.id === 'user-b' ? ${JSON.stringify(userBItems)} : ${JSON.stringify(userAItems)}, hasMore: false });
               }
-              if (path.includes('/api/v1/practice/confusion')) return Response.json([]);
+              if (path.includes('/api/v1/practice/confusion/history')) return Response.json([]);
+              if (path.includes('/api/v1/practice/confusion')) return Response.json(${JSON.stringify(confusionGroups)});
               throw new Error('Unexpected API request in history recall fixture: ' + path);
             }
             return nativeFetch(url, options);
@@ -174,6 +269,65 @@ test(
       });
       await send('Page.navigate', { url: new URL('/dashboard/practice?tab=output', baseUrl).href });
       await until('document.querySelector("#output-answer")');
+      await until('document.querySelector("[aria-label=\\"表达对照\\"]")');
+      const currentComparison = await evaluate(
+        'document.querySelector("[aria-label=\\"表达对照\\"]").innerText',
+      );
+      assert.ok(currentComparison.includes('写一段关于一次旅行的英文。'));
+      assert.ok(currentComparison.includes('目标词：journey · art'));
+      assert.ok(
+        currentComparison.includes('The party started early. Our journey lasted for two days.'),
+      );
+      assert.ok(currentComparison.includes('Our journey began after the party.'));
+      const targetJourneyEvidence = await evaluate(
+        'document.querySelector("[data-target-word=journey]").innerText',
+      );
+      assert.ok(
+        targetJourneyEvidence.includes('The party started early. Our journey lasted for two days.'),
+      );
+      assert.ok(targetJourneyEvidence.includes('首个完整拼写片段'));
+      assert.equal(
+        await evaluate('document.querySelector("[data-target-word=journey] mark")?.textContent'),
+        'journey',
+      );
+      const targetArtEvidence = await evaluate(
+        'document.querySelector("[data-target-word=art]").innerText',
+      );
+      assert.ok(!targetArtEvidence.includes('party'));
+      assert.ok(targetArtEvidence.includes('未找到完全一致的拼写；词形变化或标点写法可能未匹配。'));
+      assert.equal(await evaluate('document.querySelector("[data-target-word=art] mark")'), null);
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("回到原文重写")).click()',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#output-answer").value'),
+        'The party started early. Our journey lasted for two days.',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until(
+        'getComputedStyle(document.querySelector("[aria-label=\\"表达对照\\"] > div")).gridTemplateColumns.split(" ").length === 1',
+      );
+      await evaluate(`(() => {
+        const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看回答与反馈'));
+        if (record) record.open = true;
+      })()`);
+      const todayRecordComparison = await evaluate(
+        '[...document.querySelectorAll("details")].find((item) => item.querySelector("summary")?.innerText.includes("查看回答与反馈")).querySelector("[aria-label=\\"表达对照\\"]").innerText',
+      );
+      assert.ok(todayRecordComparison.includes('写一段关于一次旅行的英文。'));
+      assert.ok(
+        todayRecordComparison.includes('The party started early. Our journey lasted for two days.'),
+      );
+      assert.ok(todayRecordComparison.includes('Our journey began after the party.'));
+      await evaluate(`(() => {
+        const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看回答与反馈'));
+        if (record) record.open = false;
+      })()`);
 
       const openHistory = async () => {
         await evaluate(`(() => {
@@ -183,7 +337,10 @@ test(
         await until('document.querySelectorAll("details").length >= 1');
       };
       const openFirstRecord = async () => {
-        await evaluate('document.querySelectorAll("details")[0].open = true');
+        await evaluate(`(() => {
+          const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看表达与反馈'));
+          if (record) record.open = true;
+        })()`);
         await until('document.querySelector("#output-history-attempt-history-a")');
       };
       const typeFirstAttempt = async (value) =>
@@ -194,7 +351,12 @@ test(
         })()`);
 
       await openHistory();
-      assert.equal(await evaluate('document.querySelectorAll("details").length'), 2);
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("details")].filter((item) => item.querySelector("summary")?.innerText.includes("查看表达与反馈")).length',
+        ),
+        2,
+      );
       await openFirstRecord();
       assert.equal(
         await evaluate(
@@ -221,6 +383,29 @@ test(
       const comparison = await evaluate('document.body.innerText');
       assert.ok(comparison.includes('I could approach the problem from another side.'));
       assert.ok(comparison.includes('I will approach the problem more carefully.'));
+      const savedComparison = await evaluate(
+        'document.querySelector("#output-history-answer-history-a").parentElement.querySelector("[aria-label=\\"表达对照\\"]").innerText',
+      );
+      assert.ok(savedComparison.includes('写一段关于如何解决小问题的英文。'));
+      assert.ok(savedComparison.includes('目标词：approach'));
+      assert.ok(savedComparison.includes('I will approach the problem slowly.'));
+      assert.ok(savedComparison.includes('I will approach the problem more carefully.'));
+      const approachEvidence = await evaluate(
+        'document.querySelector("#output-history-answer-history-a").parentElement.querySelector("[data-target-word=approach]").innerText',
+      );
+      assert.ok(approachEvidence.includes('I will approach the problem slowly.'));
+      assert.ok(approachEvidence.includes('首个完整拼写片段'));
+      const carefullyEvidence = await evaluate(
+        'document.querySelector("#output-history-answer-history-a").parentElement.querySelector("[data-target-word=carefully]").innerText',
+      );
+      assert.ok(carefullyEvidence.includes('未找到完全一致的拼写；词形变化或标点写法可能未匹配。'));
+      assert.ok(carefullyEvidence.includes('carefully'));
+      assert.equal(
+        await evaluate(
+          'getComputedStyle(document.querySelector("#output-history-answer-history-a").parentElement.querySelector("[aria-label=\\"表达对照\\"] > div")).gridTemplateColumns.split(" ").length',
+        ),
+        1,
+      );
       assert.equal(await evaluate('window.outputApiWrites.length'), 0);
       assert.equal(
         await evaluate(
@@ -255,7 +440,7 @@ test(
       await evaluate(
         '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("易混词对比训练")).click()',
       );
-      await until('document.body.innerText.includes("暂时没有可用词组")');
+      await until('document.querySelector("input[name=\\"confusion-a-q1\\"]")');
       await evaluate(
         '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("每日输出挑战")).click()',
       );
@@ -276,11 +461,158 @@ test(
       );
       await until('document.body.innerText.includes("I will approach the problem slowly.")');
 
+      // Unsubmitted confusion answers survive group switches, tab navigation, reloads, and a failed save.
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("易混词对比训练")).click()',
+      );
+      await until('document.querySelector("input[name=\\"confusion-a-q1\\"]")');
+      const groupADraftKey = 'lexloop.confusion.draft.user-a.confusion-a';
+      const groupBDraftKey = 'lexloop.confusion.draft.user-a.confusion-b';
+      await evaluate(
+        'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").click()',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked',
+        ),
+        true,
+      );
+      assert.ok(await evaluate(`localStorage.getItem(${JSON.stringify(groupADraftKey)})`));
+
+      await evaluate(
+        'document.querySelectorAll("aside[aria-label=\\"对比词组\\"] button")[1].click()',
+      );
+      await until('document.querySelector("input[name=\\"confusion-b-q1\\"]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-b-q1\\"][value=\\"borrow\\"]").checked',
+        ),
+        false,
+      );
+      await evaluate(
+        'document.querySelector("input[name=\\"confusion-b-q1\\"][value=\\"lend\\"]").click()',
+      );
+      assert.ok(await evaluate(`localStorage.getItem(${JSON.stringify(groupBDraftKey)})`));
+
+      await evaluate(
+        'document.querySelectorAll("aside[aria-label=\\"对比词组\\"] button")[0].click()',
+      );
+      await until(
+        'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("input[name=\\"confusion-a-q2\\"]:checked")'),
+        null,
+      );
+      await evaluate(
+        'document.querySelector("input[name=\\"confusion-a-q2\\"][value=\\"arrived in\\"]").click()',
+      );
+      const beforeConfusionSubmit = await evaluate('document.body.innerText');
+      assert.ok(!beforeConfusionSubmit.includes('正确答案：'));
+      assert.ok(!beforeConfusionSubmit.includes('Fixture explanation'));
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交并查看解析")).click()',
+      );
+      await until('window.outputApiWrites.some((item) => item.path.includes("/attempts"))');
+      await until('document.querySelector("[role=\\"alert\\"]")');
+      const afterFailedConfusionSubmit = await evaluate('document.body.innerText');
+      assert.ok(!afterFailedConfusionSubmit.includes('正确答案：'));
+      assert.ok(!afterFailedConfusionSubmit.includes('Fixture explanation'));
+      const failedSubmitDraft = await evaluate(
+        `JSON.parse(localStorage.getItem(${JSON.stringify(groupADraftKey)}))`,
+      );
+      assert.deepEqual(failedSubmitDraft.answers, {
+        'confusion-a-q1': 'arrived at',
+        'confusion-a-q2': 'arrived in',
+      });
+
+      await send('Page.reload');
+      await until(
+        'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked && document.querySelector("input[name=\\"confusion-a-q2\\"][value=\\"arrived in\\"]").checked',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-a-q2\\"][value=\\"arrived in\\"]").checked',
+        ),
+        true,
+      );
+      await evaluate(`(() => {
+        const key = ${JSON.stringify(groupADraftKey)};
+        const draft = JSON.parse(localStorage.getItem(key));
+        draft.snapshotId = 'fixture-other-tab-snapshot';
+        localStorage.setItem(key, JSON.stringify(draft));
+      })()`);
+      await evaluate('window.confusionFailNext = false');
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交并查看解析")).click()',
+      );
+      await until('document.body.innerText.includes("本组答对 2/2")');
+      assert.ok((await evaluate('document.body.innerText')).includes('Fixture explanation'));
+      assert.equal(
+        (await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(groupADraftKey)}))`))
+          .snapshotId,
+        'fixture-other-tab-snapshot',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("再练一轮")).click()',
+      );
+      await until(
+        'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked && document.querySelector("input[name=\\"confusion-a-q2\\"][value=\\"arrived in\\"]").checked',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交并查看解析")).click()',
+      );
+      await until('document.body.innerText.includes("本组答对 2/2")');
+      assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(groupADraftKey)})`), null);
+
+      await evaluate(
+        'document.querySelectorAll("aside[aria-label=\\"对比词组\\"] button")[1].click()',
+      );
+      await until('document.querySelector("input[name=\\"confusion-b-q1\\"]:checked")');
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("清除本机草稿")).click()',
+      );
+      assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(groupBDraftKey)})`), null);
+      await until(
+        '!document.querySelector("input[name=\\"confusion-b-q1\\"][value=\\"lend\\"]").checked',
+      );
+
+      await evaluate(
+        'document.querySelectorAll("aside[aria-label=\\"对比词组\\"] button")[0].click()',
+      );
+      await until('document.querySelector("input[name=\\"confusion-a-q1\\"]")');
+      await evaluate(
+        'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").click()',
+      );
+
       await evaluate(`(() => {
         const session = JSON.parse(localStorage.getItem('lexloop.session'));
         localStorage.setItem('lexloop.session', JSON.stringify({ ...session, accessToken: 'fixture-b', user: { ...session.user, id: 'user-b', email: 'fixture-b@example.invalid', displayName: 'Fixture B' } }));
       })()`);
       await send('Page.reload');
+      await until('document.querySelector("input[name=\\"confusion-a-q1\\"]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("input[name=\\"confusion-a-q1\\"][value=\\"arrived at\\"]").checked',
+        ),
+        false,
+      );
+      assert.ok(await evaluate(`localStorage.getItem(${JSON.stringify(groupADraftKey)})`));
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("每日输出挑战")).click()',
+      );
       await until('document.querySelector("#output-answer")');
       await openHistory();
       await evaluate('document.querySelectorAll("details")[0].open = true');
@@ -295,11 +627,14 @@ test(
       await evaluate(
         '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("直接查看原记录")).click()',
       );
-      await until('document.body.innerText.includes("Account B saved answer.")');
+      await until('document.body.innerText.includes("Account B has its own approach.")');
       assert.ok(
         !(await evaluate('document.body.innerText')).includes(
           'I will approach the problem slowly.',
         ),
+      );
+      assert.ok(
+        (await evaluate('document.body.innerText')).includes('Account B has its own approach.'),
       );
       assert.equal(await evaluate('window.outputApiWrites.length'), 0);
     } finally {

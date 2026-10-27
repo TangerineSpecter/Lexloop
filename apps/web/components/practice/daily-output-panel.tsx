@@ -261,6 +261,7 @@ export function DailyOutputPanel({ session }: { session: Session }) {
             <FeedbackCard
               feedback={latest.feedback}
               daily={daily}
+              originalAnswer={latest.answer}
               onRewrite={() => {
                 changeAnswer(latest.answer);
                 document.getElementById('output-answer')?.focus();
@@ -301,9 +302,12 @@ export function DailyOutputPanel({ session }: { session: Session }) {
                 </strong>
                 <span>查看回答与反馈</span>
               </summary>
-              <p className={styles.answerText}>{item.answer}</p>
               {item.error && <p className={styles.notice}>{item.error}</p>}
-              {item.feedback && <FeedbackCard feedback={item.feedback} daily={daily} />}
+              {item.feedback ? (
+                <FeedbackCard feedback={item.feedback} daily={daily} originalAnswer={item.answer} />
+              ) : (
+                <p className={styles.answerText}>{item.answer}</p>
+              )}
             </details>
           ))}
         </section>

@@ -3,6 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ContrastGroup, ContrastResult } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
+import {
+  clearConfusionDraft,
+  clearConfusionDraftIfMatches,
+  readConfusionDraftSnapshot,
+  saveConfusionDraft,
+} from '../../lib/confusion-drafts';
 import styles from './practice.module.css';
 
 type HistoryRow = {
@@ -14,6 +20,10 @@ type HistoryRow = {
   createdAt: string;
 };
 export function ConfusionPanel({ session }: { session: Session }) {
+  return <ConfusionPanelForUser key={session.user.id} session={session} />;
+}
+
+function ConfusionPanelForUser({ session }: { session: Session }) {
   const [groups, setGroups] = useState<ContrastGroup[]>([]);
   const [groupId, setGroupId] = useState('');
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -26,6 +36,7 @@ export function ConfusionPanel({ session }: { session: Session }) {
   const [revision, setRevision] = useState(0);
   const started = useRef(Date.now());
   const requestKey = useRef<{ payload: string; id: string } | null>(null);
+  const draftSnapshotId = useRef<string | null>(null);
   const group = groups.find((item) => item.id === groupId);
   useEffect(() => {
     let cancelled = false;
@@ -54,10 +65,23 @@ export function ConfusionPanel({ session }: { session: Session }) {
       cancelled = true;
     };
   }, [session.accessToken, revision]);
+  useEffect(() => {
+    if (!groupId || result) return;
+    const selected = groups.find((item) => item.id === groupId);
+    if (!selected) return;
+    const draft = readConfusionDraftSnapshot(session.user.id, selected.id, selected.questions);
+    draftSnapshotId.current = draft.snapshotId;
+    setAnswers(draft.answers);
+  }, [groupId, groups, result, session.user.id]);
   function choose(id: string) {
     if (busy) return;
     setGroupId(id);
-    setAnswers({});
+    const selected = groups.find((item) => item.id === id);
+    const draft = selected
+      ? readConfusionDraftSnapshot(session.user.id, id, selected.questions)
+      : { answers: {}, snapshotId: null };
+    draftSnapshotId.current = draft.snapshotId;
+    setAnswers(draft.answers);
     setResult(null);
     setShowNotes(false);
     setMessage('');
@@ -68,6 +92,10 @@ export function ConfusionPanel({ session }: { session: Session }) {
     if (!group || busy || result) return;
     const payload = group.questions.map((q) => ({ questionId: q.id, selected: answers[q.id] }));
     const signature = JSON.stringify({ groupId, payload });
+    const submittedSnapshotId = draftSnapshotId.current;
+    const submittedAnswers = Object.fromEntries(
+      payload.map(({ questionId, selected }) => [questionId, selected]),
+    );
     if (!requestKey.current || requestKey.current.payload !== signature)
       requestKey.current = { payload: signature, id: crypto.randomUUID() };
     setBusy(true);
@@ -85,6 +113,16 @@ export function ConfusionPanel({ session }: { session: Session }) {
         },
         session.accessToken,
       );
+      if (
+        clearConfusionDraftIfMatches(
+          session.user.id,
+          group.id,
+          group.questions,
+          submittedAnswers,
+          submittedSnapshotId,
+        )
+      )
+        draftSnapshotId.current = null;
       setResult(saved);
       setShowNotes(true);
       setHistory((current) =>
@@ -170,6 +208,9 @@ export function ConfusionPanel({ session }: { session: Session }) {
                 </button>
               </header>
               <p className={styles.hint}>{group.note}</p>
+              <p className={styles.hint}>
+                未提交的选择会按账号和词组尝试保存在本机，不同步到其他设备；成功提交后会清除草稿。
+              </p>
               {showNotes && (
                 <div className={styles.comparison}>
                   {group.words.map((word) => (
@@ -212,9 +253,16 @@ export function ConfusionPanel({ session }: { session: Session }) {
                             name={question.id}
                             checked={answers[question.id] === option}
                             value={option}
-                            onChange={() =>
-                              setAnswers((current) => ({ ...current, [question.id]: option }))
-                            }
+                            onChange={() => {
+                              const next = { ...answers, [question.id]: option };
+                              setAnswers(next);
+                              draftSnapshotId.current = saveConfusionDraft(
+                                session.user.id,
+                                group.id,
+                                group.questions,
+                                next,
+                              );
+                            }}
                           />
                           <span>{option}</span>
                         </label>
@@ -244,13 +292,29 @@ export function ConfusionPanel({ session }: { session: Session }) {
                   </button>
                 </div>
               ) : (
-                <button
-                  className={styles.primary}
-                  disabled={busy || group.questions.some((q) => !answers[q.id])}
-                  onClick={() => void submit()}
-                >
-                  {busy ? '正在保存…' : '提交并查看解析'}
-                </button>
+                <>
+                  <button
+                    className={styles.primary}
+                    disabled={busy || group.questions.some((q) => !answers[q.id])}
+                    onClick={() => void submit()}
+                  >
+                    {busy ? '正在保存…' : '提交并查看解析'}
+                  </button>
+                  {Object.keys(answers).length > 0 && (
+                    <button
+                      className={styles.secondary}
+                      disabled={busy}
+                      onClick={() => {
+                        setAnswers({});
+                        clearConfusionDraft(session.user.id, group.id);
+                        draftSnapshotId.current = null;
+                        requestKey.current = null;
+                      }}
+                    >
+                      清除本机草稿
+                    </button>
+                  )}
+                </>
               )}
             </section>
             <p className={styles.hint}>

@@ -280,6 +280,24 @@
 .wordFeedback span {
   font-size: 13px;
 }
+.wordEvidence {
+  padding: 8px 10px;
+  border-left: 3px solid var(--teal);
+  background: #eaf2ff;
+}
+.wordEvidence small {
+  color: #465f96;
+  font-size: 11px;
+}
+.wordEvidence p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+.wordEvidence mark {
+  padding: 0 2px;
+  color: inherit;
+  background: var(--gold);
+}
 .example {
   background: #eaf2ff;
   padding: 12px;
