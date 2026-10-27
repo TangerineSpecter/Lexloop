@@ -2519,40 +2519,34 @@ function GeneratedStudyPage({
   onOpenTutorSettings?: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, { selected: string[]; correct: boolean }>>({});
+  const [answers, setAnswers] = useState<Record<string, { selected: string[] }>>({});
   const [submitting, setSubmitting] = useState(false);
   const [finishedPlan, setFinishedPlan] = useState<LearningPlan | null>(null);
+  const [submittedPlan, setSubmittedPlan] = useState<LearningPlan | null>(null);
+  const [feedbackGroupIndex, setFeedbackGroupIndex] = useState<number | null>(null);
   const groupStartedAt = useRef(Date.now());
   if (!plan?.content?.groups?.length) {
     return <section className="plan-empty"><Sparkles size={32}/><strong>学习内容还没有生成好</strong><p>{plan?.generationError ?? '返回预习页等待生成完成后再开始挑战。'}</p><button onClick={onBack}>返回学习序列</button></section>;
   }
-  const firstPendingWord = plan.words.find((word) => !word.completed);
-  const currentGroupIndex = firstPendingWord?.groupIndex ?? Math.max(0, plan.content.groups.length - 1);
-  const group = plan.content.groups.find((item) => item.index === currentGroupIndex) ?? plan.content.groups[currentGroupIndex];
-  const words = plan.words.filter((word) => word.groupIndex === group.index);
+  const activePlan = submittedPlan?.id === plan.id ? submittedPlan : plan;
+  const firstPendingWord = activePlan.words.find((word) => !word.completed);
+  const currentGroupIndex = firstPendingWord?.groupIndex ?? Math.max(0, activePlan.content!.groups.length - 1);
+  const displayGroupIndex = feedbackGroupIndex ?? currentGroupIndex;
+  const group = activePlan.content!.groups.find((item) => item.index === displayGroupIndex) ?? activePlan.content!.groups[displayGroupIndex];
+  const words = activePlan.words.filter((word) => word.groupIndex === group.index);
+  const showingFeedback = feedbackGroupIndex !== null;
   const allAnswered = words.every((word) => word.id && answers[word.id]);
 
   const recordAnswer = (question: GeneratedQuestion, selected: string[]) => {
-    const expected = (question.type === 'WORD_MATCHING' && question.pairs?.length
-      ? question.pairs.map((pair) => `${pair.left}=>${pair.right}`)
-      : question.correctAnswers
-    ).slice().sort();
-    const actual = [...selected].sort();
-    setAnswers((current) => ({
-      ...current,
-      [question.bookWordId]: {
-        selected,
-        correct: expected.length === actual.length && expected.every((value, index) => value === actual[index]),
-      },
-    }));
+    setAnswers((current) => ({ ...current, [question.bookWordId]: { selected } }));
   };
   const completeGroup = async () => {
-    if (!allAnswered || submitting) return;
+    if (!allAnswered || submitting || showingFeedback) return;
     setSubmitting(true);
     try {
       const elapsed = Math.round((Date.now() - groupStartedAt.current) / Math.max(1, words.length));
       const updated = await request<LearningPlan>(
-        `/study/plans/${plan.id}/groups/${group.index}/complete`,
+        `/study/plans/${activePlan.id}/groups/${group.index}/complete`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -2568,27 +2562,30 @@ function GeneratedStudyPage({
         },
         session.accessToken,
       );
+      setSubmittedPlan(updated);
       onPlanUpdated(updated);
       if (updated.status === 'COMPLETED') setFinishedPlan(updated);
-      else {
-        setAnswers({});
-        groupStartedAt.current = Date.now();
-      }
+      setFeedbackGroupIndex(group.index);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : '提交本组结果失败，请重试');
     } finally {
       setSubmitting(false);
     }
   };
-  if (finishedPlan) {
+  if (finishedPlan && !showingFeedback) {
     const results = Object.fromEntries(finishedPlan.words.map((word) => [word.word, word.result === true]));
     return <GroupSettlement words={finishedPlan.words} results={results} summary={finishedPlan.summary} onBack={onBack}/>;
   }
+  const continueAfterFeedback = () => {
+    setFeedbackGroupIndex(null);
+    setAnswers({});
+    groupStartedAt.current = Date.now();
+  };
   return <section className="lesson-page">
     <header className="lesson-page-head">
       <button onClick={onBack}><ArrowLeft size={19}/>返回学习序列</button>
-      <div><span>{plan.purpose === 'weakness' ? '薄弱词专项' : `${modeLabel[plan.mode]} · 正常模式`}</span><strong>第 {group.index + 1} / {plan.groupCount} {plan.mode === 'individual' ? '篇' : '组'}</strong></div>
-      <b>{plan.completed}/{plan.wordCount} 已完成</b>
+      <div><span>{activePlan.purpose === 'weakness' ? '薄弱词专项' : `${modeLabel[activePlan.mode]} · 正常模式`}</span><strong>第 {group.index + 1} / {activePlan.groupCount} {activePlan.mode === 'individual' ? '篇' : '组'}</strong></div>
+      <b>{activePlan.completed}/{activePlan.wordCount} 已完成</b>
     </header>
     <div className="lesson-layout">
       <main>
@@ -2615,11 +2612,14 @@ function GeneratedStudyPage({
               word={word}
               toneIndex={index}
               answer={answers[question.bookWordId]}
+              revealed={showingFeedback}
               onAnswer={(selected) => recordAnswer(question, selected)}
             />;
           })}
-          <button className="check-matches" disabled={!allAnswered || submitting} onClick={() => void completeGroup()}>
-            {submitting ? '正在记录学习结果…' : group.index + 1 === plan.groupCount ? '完成挑战并查看总结' : `完成本${plan.mode === 'individual' ? '篇' : '组'}，继续下一${plan.mode === 'individual' ? '篇' : '组'}`}
+          <button className="check-matches" disabled={!showingFeedback && (!allAnswered || submitting)} onClick={() => showingFeedback ? continueAfterFeedback() : void completeGroup()}>
+            {showingFeedback
+              ? finishedPlan ? '查看今日总结' : `继续下一${activePlan.mode === 'individual' ? '篇' : '组'}`
+              : submitting ? '正在记录学习结果…' : '提交本组并查看答案'}
           </button>
         </section>
       </main>
@@ -2628,9 +2628,12 @@ function GeneratedStudyPage({
         <section className="exercise-progress"><h2>练习题</h2>{words.map((word) => {
           const answer = word.id ? answers[word.id] : undefined;
           const question = group.questions.find((item) => item.bookWordId === word.id);
-          return <div className={answer ? answer.correct ? 'is-correct' : 'is-wrong' : ''} key={word.id}>{!answer ? <Circle size={25}/> : answer.correct ? <CheckCircle2 size={25}/> : <CircleX size={25}/>}<strong>{word.word}</strong><span>{question ? exerciseLabels[question.type] : '练习题'}</span></div>;
-        })}<p>{allAnswered ? '本组练习已完成' : '完成所有练习题后即可继续'}</p></section>
-        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: plan.id, groupIndex: group.index }} compact onOpenSettings={onOpenTutorSettings}/>
+          const questionAnswer = answer && showingFeedback && question
+            ? gradeGeneratedAnswer(question, answer.selected)
+            : undefined;
+          return <div className={questionAnswer === undefined ? '' : questionAnswer ? 'is-correct' : 'is-wrong'} key={word.id}>{questionAnswer === undefined ? <Circle size={25}/> : questionAnswer ? <CheckCircle2 size={25}/> : <CircleX size={25}/>}<strong>{word.word}</strong><span>{question ? exerciseLabels[question.type] : '练习题'}</span></div>;
+        })}<p>{showingFeedback ? '答案与解析已揭晓，可以结合刚才的选择回顾。' : allAnswered ? '本组已作答，提交后查看答案与解析。' : '完成所有练习题后即可提交'}</p></section>
+        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: activePlan.id, groupIndex: group.index }} compact onOpenSettings={onOpenTutorSettings}/>
       </aside>
     </div>
   </section>;
@@ -2692,21 +2695,33 @@ function HighlightedSentence({ text, words }: { text: string; words: Word[] }) {
   })}</>;
 }
 
+function gradeGeneratedAnswer(question: GeneratedQuestion, selected: string[]) {
+  const expected = (question.type === 'WORD_MATCHING' && question.pairs?.length
+    ? question.pairs.map((pair) => `${pair.left}=>${pair.right}`)
+    : question.correctAnswers ?? []
+  ).slice().sort();
+  const actual = [...selected].sort();
+  return expected.length === actual.length && expected.every((value, index) => value === actual[index]);
+}
+
 function GeneratedQuestionCard({
   question,
   word,
   toneIndex,
   answer,
+  revealed,
   onAnswer,
 }: {
   question: GeneratedQuestion;
   word: Word;
   toneIndex: number;
-  answer?: { selected: string[]; correct: boolean };
+  answer?: { selected: string[] };
+  revealed: boolean;
   onAnswer: (selected: string[]) => void;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
   const isMultiple = question.type === 'WORD_MNEMONIC';
+  const correct = Boolean(answer && revealed && gradeGeneratedAnswer(question, answer.selected));
   const submit = (option?: string) => {
     const next = option ? [option] : selected;
     if (next.length) onAnswer(next);
@@ -2715,34 +2730,36 @@ function GeneratedQuestionCard({
     ? question.explanation
     : question.type === 'WORD_MATCHING' && question.pairs?.length
       ? `正确配对为：${question.pairs.map((pair) => `${pair.left} 对应 ${pair.right}`).join('；')}。`
-      : `正确答案为：${question.correctAnswers.join('、')}。请结合文章语境和单词释义理解本题。`;
+      : `正确答案为：${question.correctAnswers?.join('、') ?? '交卷后揭晓'}。请结合文章语境和单词释义理解本题。`;
   return <article className="exercise-card generated-question">
     <span className="exercise-kind">{exerciseLabels[question.type]}</span>
     <h3><mark style={wordTone(toneIndex)}>{word.word}</mark>　{question.prompt}</h3>
     {question.type === 'WORD_MATCHING' && question.pairs?.length ? (
-      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} onAnswer={onAnswer}/>
+      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} revealed={revealed} onAnswer={onAnswer}/>
     ) : (
       <div className="answer-options">{question.options.map((option, index) => {
         const checked = selected.includes(option);
-        const isCorrectOption = question.correctAnswers.includes(option);
-        const resultClass = !answer ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
+        const isCorrectOption = question.correctAnswers?.includes(option) ?? false;
+        const resultClass = !revealed ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
         return <button key={option} disabled={Boolean(answer)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
           if (isMultiple) setSelected((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option]);
           else {
             setSelected([option]);
             submit(option);
           }
-        }}>{option}{answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{answer && checked && !isCorrectOption ? ' ×' : ''}{answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}</button>;
+        }}>{option}{revealed && answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{revealed && answer && checked && !isCorrectOption ? ' ×' : ''}{revealed && answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}</button>;
       })}</div>
     )}
     {isMultiple && !answer && <button className="check-matches" disabled={!selected.length} onClick={() => submit()}>提交多选答案</button>}
-    {answer && <><strong className={answer.correct ? 'answer-feedback success' : 'answer-feedback'}>{answer.correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
+    {answer && !revealed && <p role="status" className="question-answer">答案已记录，提交本组后查看对错与解析。</p>}
+    {answer && revealed && <><strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>{correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
   </article>;
 }
 
-function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
+function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
   pairs: NonNullable<GeneratedQuestion['pairs']>;
-  answer?: { selected: string[]; correct: boolean };
+  answer?: { selected: string[] };
+  revealed: boolean;
   onAnswer: (selected: string[]) => void;
 }) {
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
@@ -2788,12 +2805,23 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [answer, pairs.length, selectedPhrase]);
+  const displayedMatches = revealed && answer
+    ? Object.fromEntries(pairs.map((pair, index) => {
+        const match = answer.selected
+          .map((value) => {
+            const separator = value.lastIndexOf('=>');
+            return separator < 0 ? null : { left: value.slice(0, separator), right: value.slice(separator + 2) };
+          })
+          .find((value) => value?.right === pair.right);
+        return [index, match?.left ?? ''];
+      }))
+    : matches;
   const selectedAnswers = Object.entries(matches).map(([index, phrase]) => `${phrase}=>${pairs[Number(index)].right}`);
   return <div ref={matchingRootRef} className="generated-matching matching-exercise">
     <p className="matching-instruction">英文短语 · 点击选中后可按键盘数字插入对应释义槽</p>
     <div className="match-phrases">
       {phraseOptions.map((pair) => {
-        const isMatched = Object.values(matches).includes(pair.left);
+        const isMatched = Object.values(displayedMatches).includes(pair.left);
         return <button key={pair.left} disabled={Boolean(answer) || isMatched} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`} onClick={() => choosePhrase(pair.left)}>
           {pair.left}
         </button>;
@@ -2802,14 +2830,14 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
     <p className="matching-instruction">释义 - 可先点释义，也可先点单词</p>
     <div className="match-definitions">
       {pairs.map((pair, index) => {
-        const phrase = matches[index];
+        const phrase = displayedMatches[index];
         const correct = phrase === pair.left;
-        return <button key={`${pair.right}-${index}`} disabled={Boolean(answer)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${answer ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
+        return <button key={`${pair.right}-${index}`} disabled={Boolean(answer)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${revealed && answer ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
           <span className="match-definition-copy">
             <strong>{pair.right}</strong>
             <small>{pair.tip?.trim() || '侧重于理解该描述强调的语义维度。'}</small>
           </span>
-          {answer && phrase && !correct ? <span className="match-answer-review">
+          {revealed && answer && phrase && !correct ? <span className="match-answer-review">
             <b className="match-answer-review-wrong">你的答案：{phrase}</b>
             <b className="match-answer-review-correct">正确答案：{pair.left}</b>
           </span> : phrase ? <b>{phrase}</b> : <em>{selectedPhrase ? '插入此处' : '选择此处'}</em>}
@@ -2817,6 +2845,7 @@ function GeneratedMatchingQuestion({ pairs, answer, onAnswer }: {
       })}
     </div>
     {!answer && <button className="check-matches" disabled={Object.keys(matches).length !== pairs.length} onClick={() => onAnswer(selectedAnswers)}>提交匹配答案</button>}
+    {answer && !revealed && <p role="status" className="question-answer">答案已记录，提交本组后查看对错与解析。</p>}
   </div>;
 }
 

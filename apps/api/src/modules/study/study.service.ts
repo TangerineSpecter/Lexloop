@@ -6,6 +6,7 @@ import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
+import { publicStudyContent, publicStudyQuestion } from './study-content';
 
 const DAY = 86_400_000;
 const startOfToday = () => { const date = new Date(); date.setHours(0, 0, 0, 0); return date; };
@@ -370,6 +371,17 @@ export class StudyService {
       },
     });
     if (!plan) throw new NotFoundException('学习计划不存在');
+    const itemsByGroup = new Map<number, typeof plan.items>();
+    for (const item of plan.items) {
+      const groupItems = itemsByGroup.get(item.groupIndex) ?? [];
+      groupItems.push(item);
+      itemsByGroup.set(item.groupIndex, groupItems);
+    }
+    const submittedGroups = new Set(
+      [...itemsByGroup]
+        .filter(([, groupItems]) => groupItems.length > 0 && groupItems.every((item) => item.completedAt))
+        .map(([groupIndex]) => groupIndex),
+    );
     const items = plan.items.map(item => ({
       id: item.bookWordId,
       word: item.bookWord.word.text,
@@ -377,7 +389,7 @@ export class StudyService {
       meaning: meaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
       source: item.source,
       groupIndex: item.groupIndex,
-      question: item.question,
+      question: publicStudyQuestion(item.question, submittedGroups.has(item.groupIndex)),
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
@@ -403,7 +415,7 @@ export class StudyService {
       wordCount: items.length,
       groupCount: new Set(items.map(item => item.groupIndex)).size,
       completed: items.filter(item => item.completed).length,
-      content: plan.generatedContent,
+      content: publicStudyContent(plan.generatedContent, submittedGroups),
       summary: {
         totalQuestions: attempts.length,
         correctQuestions: attempts.filter(attempt => attempt.isCorrect).length,
