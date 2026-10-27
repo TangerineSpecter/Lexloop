@@ -141,6 +141,7 @@ test(
         source: `
           const makePlan = (id, word, status = 'FAILED') => ({
             id, mode: 'group', purpose: 'normal', status,
+            blocksNewPlanCreation: false,
             wordCount: 1, groupCount: 1, completed: 0,
             createdAt: new Date().toISOString(), completedAt: null,
             generationError: status === 'FAILED' ? 'fixture failure' : null,
@@ -150,6 +151,13 @@ test(
           });
           const firstSession = { accessToken: 'first-fixture', user: { id: 'study-user', email: 'first@example.invalid', displayName: 'First user', role: 'USER' } };
           const secondSession = { accessToken: 'second-fixture', user: { id: 'second-study-user', email: 'second@example.invalid', displayName: 'Second user', role: 'USER' } };
+          const secondActivePlan = makePlan('second-active', 'focused', 'ACTIVE');
+          secondActivePlan.blocksNewPlanCreation = true;
+          secondActivePlan.wordCount = 2;
+          secondActivePlan.words = [
+            { ...secondActivePlan.words[0], source: 'REVIEW' },
+            { ...secondActivePlan.words[0], id: 'second-active-new', word: 'steady', source: 'NEW' },
+          ];
           localStorage.setItem('lexloop.session', JSON.stringify(firstSession));
           window.planLists = {
             'study-user': [
@@ -158,7 +166,7 @@ test(
               makePlan('preview-c', 'calm'),
               makePlan('preview-account', 'useful'),
             ],
-            'second-study-user': [],
+            'second-study-user': [secondActivePlan],
           };
           window.generationAttempts = [];
           window.studyPlanCreateBodies = [];
@@ -380,12 +388,29 @@ test(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
       );
       await until(
-        'document.querySelector(".review-session-control output")?.textContent.includes("3 / 3")',
+        'document.querySelector(".review-session-control strong")?.textContent.includes("先完成当前学习计划")',
       );
+      assert.equal(
+        await evaluate('document.querySelector("#review-session-count") === null'),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".review-session-control p")?.textContent.includes("1 个复习词和 1 个新词")',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".toolbar button.create").click()');
+      await until('document.querySelector(".plan-preview-layer")');
+      assert.equal(
+        await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
+        'focused',
+      );
+      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
+      await evaluate('document.querySelector(".plan-preview-scrim").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
       await clickHistory();
-      await until(
-        'document.querySelector(".plan-empty")?.innerText.includes("今天还没有学习记录")',
-      );
+      await until('document.querySelectorAll(".history-grid article").length === 1');
       await resolvePlan(
         'preview-account',
         'ACTIVE',
@@ -393,7 +418,7 @@ test(
       );
       await delay(200);
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
-      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 0);
+      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 1);
       assert.deepEqual(browserErrors, []);
     } finally {
       socket?.close();

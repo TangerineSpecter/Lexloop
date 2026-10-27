@@ -1,6 +1,6 @@
 {
   "name": "@lexloop/worker",
-  "version": "1.26.0",
+  "version": "1.27.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/main.ts",
@@ -10,6 +10,14 @@
     "typecheck": "tsc --noEmit",
     "test": "echo 'No worker tests yet'"
   },
-  "dependencies": { "bullmq": "^5.34.6", "dotenv": "^16.4.7", "ioredis": "^5.4.2" },
-  "devDependencies": { "@types/node": "^22.10.2", "tsx": "^4.19.2", "typescript": "^5.7.2" }
+  "dependencies": {
+    "bullmq": "^5.34.6",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
 }

@@ -124,6 +124,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           .map((item) => item.id);
         expect(firstPlan.words.map((word) => word.id).sort()).toEqual(expectedFirst.sort());
         expect(firstPlan.wordCount).toBe(2);
+        const reusedPlan = await service.createPlan(users[0].id, 0, 'group', 0);
+        expect(reusedPlan.id).toBe(firstPlan.id);
+        expect(reusedPlan.words.map((word) => word.id).sort()).toEqual(expectedFirst.sort());
+        expect(await prisma.studyPlan.count({ where: { userId: users[0].id } })).toBe(1);
         expect(await prisma.wordReviewAttempt.count({ where: { userId: users[0].id } })).toBe(0);
         expect(
           await prisma.userWordProgress.findMany({
@@ -140,6 +144,38 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(
           await prisma.studyPlanItem.count({ where: { planId: firstPlan.id, source: 'REVIEW' } }),
         ).toBe(2);
+        expect(
+          (await service.listPlans(users[0].id)).find((plan) => plan.id === firstPlan.id)
+            ?.blocksNewPlanCreation,
+        ).toBe(true);
+        await prisma.studyPlan.update({
+          where: { id: firstPlan.id },
+          data: {
+            status: 'ACTIVE',
+            generatedContent: { groups: [] },
+            generatedAt: new Date(now),
+          },
+        });
+        expect(
+          (await service.listPlans(users[0].id)).find((plan) => plan.id === firstPlan.id)
+            ?.blocksNewPlanCreation,
+        ).toBe(true);
+        await prisma.studyPlan.update({
+          where: { id: firstPlan.id },
+          data: { status: 'FAILED', createdAt: new Date(now) },
+        });
+        expect(
+          (await service.listPlans(users[0].id)).find((plan) => plan.id === firstPlan.id)
+            ?.blocksNewPlanCreation,
+        ).toBe(true);
+        await prisma.studyPlan.update({
+          where: { id: firstPlan.id },
+          data: { createdAt: new Date(now - 2 * 86_400_000) },
+        });
+        expect(
+          (await service.listPlans(users[0].id)).find((plan) => plan.id === firstPlan.id)
+            ?.blocksNewPlanCreation,
+        ).toBe(false);
         expect(ai.generateForUser).not.toHaveBeenCalled();
         await expect(service.createPlan(users[0].id, 0, 'group', 41)).rejects.toThrow(
           '本次复习数量必须在 0 到 40 之间',
@@ -147,7 +183,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         await prisma.studyPlan.update({
           where: { id: firstPlan.id },
-          data: { status: 'COMPLETED' },
+          data: { status: 'COMPLETED', createdAt: new Date(now) },
         });
         await prisma.userWordProgress.updateMany({
           where: { userId: users[0].id, bookWordId: { in: expectedFirst } },

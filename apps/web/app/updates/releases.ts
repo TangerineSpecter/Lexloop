@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '已有计划会按原词汇继续',
+        entry: '首页 → 今日学习计划',
+        usage: '进行中的计划会显示实际复习和新词数；完成后再选择下一份计划的复习数量。',
+      },
+    ],
+  },
+  {
     version: '1.26.0',
     date: '2026-10-27',
     items: [

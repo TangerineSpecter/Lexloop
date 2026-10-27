@@ -581,6 +581,12 @@ export class StudyService {
         : [],
     }));
     const attempts = plan.items.flatMap((item) => item.attempts);
+    const blocksNewPlanCreation =
+      plan.purpose === StudyPlanPurpose.NORMAL &&
+      items.length > 0 &&
+      (plan.status === StudyPlanStatus.GENERATING ||
+        (plan.status === StudyPlanStatus.ACTIVE && plan.generatedContent !== null) ||
+        (plan.status === StudyPlanStatus.FAILED && plan.createdAt >= startOfToday()));
     const typeStats = Object.values(
       attempts.reduce<Record<string, { type: string; total: number; correct: number }>>(
         (result, attempt) => {
@@ -599,6 +605,7 @@ export class StudyService {
       mode: plan.mode.toLowerCase(),
       purpose: plan.purpose.toLowerCase(),
       status: plan.status,
+      blocksNewPlanCreation,
       generationError: plan.generationError,
       generatedAt: plan.generatedAt,
       createdAt: plan.createdAt,

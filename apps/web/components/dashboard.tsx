@@ -127,6 +127,7 @@ export type LearningPlan = {
     typeStats: Array<{ type: string; total: number; correct: number }>;
   };
   status: 'GENERATING' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
+  blocksNewPlanCreation?: boolean;
   createdAt: string;
   completedAt?: string | null;
 };
@@ -703,6 +704,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 session={session}
                 bookId={currentBook?.id ?? null}
                 onCreatePlan={openPlanPreview}
+                existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
+                onOpenExistingPlan={openPlanPreview}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
               />
@@ -1644,12 +1647,16 @@ function WordsPanel({
   session,
   bookId,
   onCreatePlan,
+  existingPlan,
+  onOpenExistingPlan,
   planListReady,
   onProgressChanged,
 }: {
   session: Session;
   bookId: string | null;
   onCreatePlan: (plan: LearningPlan) => void;
+  existingPlan: LearningPlan | null;
+  onOpenExistingPlan: (plan: LearningPlan) => void;
   planListReady: boolean;
   onProgressChanged: () => void;
 }) {
@@ -1724,13 +1731,30 @@ function WordsPanel({
   };
   const reviewCount = visibleDashboardWords.reviewWords.length;
   const reviewLimit = Math.min(reviewCount, MAX_DAILY_REVIEW_WORDS);
+  const existingReviewCount =
+    existingPlan?.words.filter((word) => word.source === 'REVIEW').length ?? 0;
+  const existingNewWordCount =
+    existingPlan?.words.filter((word) => word.source === 'NEW').length ?? 0;
   const selectedReviewCount = Math.min(
-    reviewSelection?.scope === reviewScope ? reviewSelection.count : reviewLimit,
-    reviewLimit,
+    existingPlan
+      ? existingReviewCount
+      : reviewSelection?.scope === reviewScope
+        ? reviewSelection.count
+        : reviewLimit,
+    existingPlan ? existingReviewCount : reviewLimit,
   );
-  const totalWordCount = selectedReviewCount + visibleDashboardWords.newWords.length;
+  const selectedNewWordCount = existingPlan
+    ? existingNewWordCount
+    : visibleDashboardWords.newWords.length;
+  const totalWordCount = existingPlan
+    ? existingPlan.wordCount
+    : selectedReviewCount + selectedNewWordCount;
   const reviewShare = totalWordCount ? `${(selectedReviewCount / totalWordCount) * 100}%` : '0%';
   const createPlan = async () => {
+    if (existingPlan) {
+      onOpenExistingPlan(existingPlan);
+      return;
+    }
     if (creatingPlanRef.current || !bookWordsReady) return;
     creatingPlanRef.current = true;
     setCreatingPlan(true);
@@ -1766,14 +1790,18 @@ function WordsPanel({
         </div>
         <div
           className="panel-progress"
-          aria-label={`今日学习构成：本次复习 ${selectedReviewCount} 词，共有 ${reviewCount} 词到期，新单词 ${visibleDashboardWords.newWords.length} 词`}
+          aria-label={
+            existingPlan
+              ? `当前计划：复习 ${selectedReviewCount} 词，新单词 ${selectedNewWordCount} 词`
+              : `今日学习构成：本次复习 ${selectedReviewCount} 词，共有 ${reviewCount} 词到期，新单词 ${selectedNewWordCount} 词`
+          }
         >
           <div className="panel-progress-labels">
             <span className="is-review">
-              本次复习 <b>{selectedReviewCount}</b>
+              {existingPlan ? '当前计划复习' : '本次复习'} <b>{selectedReviewCount}</b>
             </span>
             <span className="is-new">
-              新单词 <b>{visibleDashboardWords.newWords.length}</b>
+              新单词 <b>{selectedNewWordCount}</b>
             </span>
             <strong>
               {totalWordCount}
@@ -1808,13 +1836,21 @@ function WordsPanel({
             onClick={() => void createPlan()}
             disabled={
               creatingPlan ||
-              !bookWordsReady ||
               !planListReady ||
-              (!visibleDashboardWords.newWords.length && selectedReviewCount === 0)
+              (!existingPlan && !bookWordsReady) ||
+              (!existingPlan && !visibleDashboardWords.newWords.length && selectedReviewCount === 0)
             }
           >
-            <Sparkles size={15} />
-            {creatingPlan ? '正在创建学习计划…' : planListReady ? '创建学习计划' : '先读取已有计划'}
+            {existingPlan?.status === 'FAILED' ? <Sparkles size={15} /> : <BookOpen size={15} />}
+            {creatingPlan
+              ? '正在创建学习计划…'
+              : !planListReady
+                ? '先读取已有计划'
+                : existingPlan?.status === 'FAILED'
+                  ? '打开并重试当前计划'
+                  : existingPlan
+                    ? '打开当前学习计划'
+                    : '创建学习计划'}
           </button>
           <Tooltip label="模型设置">
             <button
@@ -1827,7 +1863,22 @@ function WordsPanel({
           </Tooltip>
         </div>
       </header>
-      {reviewCount > 0 && (
+      {existingPlan ? (
+        <div className="review-session-control" role="status">
+          <strong>
+            {existingPlan.status === 'FAILED'
+              ? '今天的计划生成失败'
+              : existingPlan.status === 'GENERATING'
+                ? '已有计划正在生成'
+                : '先完成当前学习计划'}
+          </strong>
+          <p>
+            当前计划包含 {existingReviewCount} 个复习词和 {existingNewWordCount}{' '}
+            个新词；打开它不会创建新计划或改变词汇数量。
+            {existingPlan.status !== 'FAILED' && ' 完成后可再选择下一次的复习数量。'}
+          </p>
+        </div>
+      ) : reviewCount > 0 ? (
         <div className="review-session-control">
           <label htmlFor="review-session-count">本次复习数量</label>
           <input
@@ -1853,7 +1904,7 @@ function WordsPanel({
               ` 每份计划最多安排 ${MAX_DAILY_REVIEW_WORDS} 个复习词。`}
           </p>
         </div>
-      )}
+      ) : null}
       {message && <p className="book-message">{message}</p>}
       {wordsLoadStatus === 'loading' && (
         <p className="book-message" role="status">
