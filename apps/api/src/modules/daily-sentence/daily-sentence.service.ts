@@ -24,6 +24,7 @@ const publicItem = (row: DailySentence): DailySentenceItem => ({
   readAt: row.readAt?.toISOString() ?? null,
   favorite: row.favorite,
   difficulty: row.difficulty as DailySentenceItem['difficulty'],
+  difficultyTimestampReliable: row.difficultyTimestampReliable,
 });
 
 @Injectable()
@@ -112,7 +113,9 @@ export class DailySentenceService {
       where: { id, userId, status: 'READY' },
       data: {
         ...data,
-        ...(data.difficulty !== undefined ? { difficultyUpdatedAt: new Date() } : {}),
+        ...(data.difficulty !== undefined
+          ? { difficultyUpdatedAt: new Date(), difficultyTimestampReliable: true }
+          : {}),
       },
     });
     if (!result.count) throw new NotFoundException('这条每日一句不存在');
@@ -272,6 +275,7 @@ export class DailySentenceService {
             status: 'READY',
             difficulty: { not: null },
             difficultyUpdatedAt: { not: null },
+            difficultyTimestampReliable: true,
           },
           orderBy: [{ difficultyUpdatedAt: 'desc' }, { dateKey: 'desc' }],
           select: { difficulty: true },

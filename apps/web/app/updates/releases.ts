@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.23.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '旧难度反馈保留，但不再假定评价时间',
+        entry: '每日一句 → 回顾与收藏 → 反馈难度',
+        usage: '旧评价仍显示；重新点选后才会用于调整后续句子。已读和收藏不会更新评价时间。',
+      },
+    ],
+  },
+  {
     version: '1.22.0',
     date: '2026-10-27',
     items: [

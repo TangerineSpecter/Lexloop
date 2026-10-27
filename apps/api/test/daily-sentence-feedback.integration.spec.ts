@@ -33,7 +33,7 @@ const generatedContent = {
 afterEach(() => vi.useRealTimers());
 
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty feedback', () => {
-  it('uses each learner’s latest explicit rating even when its sentence is outside recent history', async () => {
+  it('uses only ratings with a reliable selection time and keeps legacy ratings intact', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-27T03:00:00.000Z'));
     const prisma = new PrismaClient({
@@ -113,17 +113,24 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
         { get: vi.fn().mockResolvedValue({ enabled: true }) } as never,
       );
 
+      expect(
+        await prisma.dailySentence.findUniqueOrThrow({
+          where: { id: oldSentence.id },
+          select: { difficulty: true, difficultyTimestampReliable: true },
+        }),
+      ).toEqual({ difficulty: 'RIGHT', difficultyTimestampReliable: false });
       await service.update(users[0].id, oldSentence.id, { difficulty: 'HARD' });
       const ratedAt = await prisma.dailySentence.findUniqueOrThrow({
         where: { id: oldSentence.id },
-        select: { difficultyUpdatedAt: true },
+        select: { difficultyUpdatedAt: true, difficultyTimestampReliable: true },
       });
+      expect(ratedAt.difficultyTimestampReliable).toBe(true);
       vi.setSystemTime(new Date(now.getTime() + 60 * 60 * 1000));
       await service.update(users[0].id, oldSentence.id, { favorite: true });
       expect(
         await prisma.dailySentence.findUniqueOrThrow({
           where: { id: oldSentence.id },
-          select: { difficultyUpdatedAt: true },
+          select: { difficultyUpdatedAt: true, difficultyTimestampReliable: true },
         }),
       ).toEqual(ratedAt);
 
@@ -134,8 +141,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
 
       await service.generate(users[1].id, '2026-10-27');
       const secondPrompt = ai.selectedChatCompletions.mock.calls[1][0].messages[1].content;
-      expect(secondPrompt).toContain('"difficultyFeedback":"EASY"');
+      expect(secondPrompt).toContain('"difficultyFeedback":null');
       expect(secondPrompt).not.toContain('"difficultyFeedback":"HARD"');
+      expect(secondPrompt).not.toContain('"difficultyFeedback":"EASY"');
       expect(ai.selectedChatCompletions).toHaveBeenCalledTimes(2);
     } finally {
       if (userIds.length) {

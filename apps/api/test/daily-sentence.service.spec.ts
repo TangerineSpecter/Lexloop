@@ -47,6 +47,7 @@ const row = {
   readAt: null,
   favorite: false,
   difficulty: null,
+  difficultyTimestampReliable: false,
   attempts: 1,
   generationToken: 'token',
 };
@@ -271,7 +272,11 @@ describe('daily sentence scheduling and content', () => {
     prisma.dailySentence.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ ...row, difficulty: 'HARD' } as never);
+      .mockResolvedValueOnce({
+        ...row,
+        difficulty: 'HARD',
+        difficultyTimestampReliable: true,
+      } as never);
     await service.generate('user', '2026-10-22');
     const prompt = ai.selectedChatCompletions.mock.calls[0][0].messages[1].content;
     expect(prompt).toContain('"difficultyFeedback":"HARD"');
@@ -282,6 +287,7 @@ describe('daily sentence scheduling and content', () => {
           status: 'READY',
           difficulty: { not: null },
           difficultyUpdatedAt: { not: null },
+          difficultyTimestampReliable: true,
         },
         orderBy: [{ difficultyUpdatedAt: 'desc' }, { dateKey: 'desc' }],
       }),
@@ -318,7 +324,12 @@ describe('daily sentence scheduling and content', () => {
     await service.update('user', 'sentence', { favorite: true, difficulty: 'HARD' });
     expect(prisma.dailySentence.updateMany).toHaveBeenCalledWith({
       where: { id: 'sentence', userId: 'user', status: 'READY' },
-      data: { favorite: true, difficulty: 'HARD', difficultyUpdatedAt: expect.any(Date) },
+      data: {
+        favorite: true,
+        difficulty: 'HARD',
+        difficultyUpdatedAt: expect.any(Date),
+        difficultyTimestampReliable: true,
+      },
     });
     await service.update('user', 'sentence', { favorite: false });
     expect(prisma.dailySentence.updateMany).toHaveBeenLastCalledWith({

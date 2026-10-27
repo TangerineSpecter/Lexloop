@@ -410,6 +410,7 @@ export type DailySentenceItem = {
   readAt: string | null;
   favorite: boolean;
   difficulty: 'EASY' | 'RIGHT' | 'HARD' | null;
+  difficultyTimestampReliable: boolean;
 };
 export type DailySentenceCurrent = {
   item: DailySentenceItem | null;

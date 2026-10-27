@@ -1,0 +1,177 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { test } from 'node:test';
+
+const baseUrl = process.env.LAB_BROWSER_TEST_URL;
+
+test(
+  'legacy daily sentence feedback stays visible until the learner reselects it',
+  { skip: !baseUrl, timeout: 30_000 },
+  async () => {
+    const profile = await mkdtemp(join(tmpdir(), 'lexloop-daily-feedback-test-'));
+    const browser = spawn(
+      process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
+      [
+        '--headless',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--remote-debugging-port=0',
+        '--remote-debugging-address=127.0.0.1',
+        `--user-data-dir=${profile}`,
+        'about:blank',
+      ],
+      { stdio: 'ignore' },
+    );
+    let launchError;
+    let closed = false;
+    browser.on('error', (error) => (launchError = error));
+    browser.on('close', () => (closed = true));
+    let socket;
+    const waiting = new Map();
+    let sequence = 0;
+    try {
+      let port;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (launchError) throw launchError;
+        try {
+          port = Number(
+            (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0],
+          );
+          break;
+        } catch {
+          await delay(100);
+        }
+      }
+      assert.ok(port, 'Chromium did not start');
+      const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+      socket = new WebSocket(targets[0].webSocketDebuggerUrl);
+      await new Promise((resolve, reject) => {
+        socket.addEventListener('open', resolve, { once: true });
+        socket.addEventListener('error', reject, { once: true });
+      });
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data);
+        if (!message.id) return;
+        const pending = waiting.get(message.id);
+        if (!pending) return;
+        waiting.delete(message.id);
+        if (message.error) pending.reject(new Error(message.error.message));
+        else pending.resolve(message.result);
+      });
+      const send = (method, params = {}) =>
+        new Promise((resolve, reject) => {
+          const id = ++sequence;
+          waiting.set(id, { resolve, reject });
+          socket.send(JSON.stringify({ id, method, params }));
+        });
+      const evaluate = async (expression) => {
+        const result = await send('Runtime.evaluate', {
+          expression,
+          returnByValue: true,
+          awaitPromise: true,
+        });
+        if (result.exceptionDetails)
+          throw new Error(
+            result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
+          );
+        return result.result.value;
+      };
+      const until = async (expression) => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          try {
+            if (await evaluate(`Boolean(${expression})`)) return;
+          } catch {
+            // Navigation can briefly invalidate the current execution context.
+          }
+          await delay(100);
+        }
+        assert.fail(`Timed out waiting for ${expression}`);
+      };
+
+      await send('Page.enable');
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `
+          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          window.legacySentence = {
+            id: 'legacy-sentence', dateKey: '2026-10-01', readAt: null, favorite: false,
+            difficulty: 'HARD', difficultyTimestampReliable: false,
+            content: {
+              english: 'She walks home.', chinese: '她步行回家。', level: 'A1', focus: '用一般现在时说日常习惯',
+              chunks: [{ text: 'She walks home.', role: '主句', phraseType: '句子', explanation: '说明她平时做什么。' }],
+              explanations: [{ question: '为什么用 walks？', answer: '主语是 she，描述日常习惯时动词加 s。' }],
+              pattern: 'She + 动词-s', usage: '描述她的日常习惯。',
+              example: { english: 'He reads after dinner.', chinese: '他晚饭后阅读。' },
+              learningReason: '练习一般现在时。'
+            }
+          };
+          window.feedbackRequests = [];
+          window.dailyFeedbackFieldset = () => [...document.querySelectorAll('fieldset')].find(fieldset => fieldset.querySelector('legend')?.textContent.includes('这句对你来说怎么样？'));
+          const nativeFetch = window.fetch;
+          window.fetch = async (url, options = {}) => {
+            const path = String(url);
+            if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'fixture' });
+            if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 1, todayActive: true });
+            if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+            if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
+            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
+            if (path.includes('/api/v1/study/plans')) return Response.json([]);
+            if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'READY', item: window.legacySentence, canRetry: false });
+            if (path.endsWith('/api/v1/daily-sentences/legacy-sentence/read')) {
+              window.legacySentence = { ...window.legacySentence, readAt: '2026-10-27T00:00:00.000Z' };
+              return Response.json(window.legacySentence);
+            }
+            if (path.endsWith('/api/v1/daily-sentences/legacy-sentence') && options.method === 'PATCH') {
+              const patch = JSON.parse(options.body);
+              window.feedbackRequests.push(patch);
+              window.legacySentence = { ...window.legacySentence, ...patch, difficultyTimestampReliable: true };
+              return Response.json(window.legacySentence);
+            }
+            if (path.endsWith('/api/v1/daily-sentences/legacy-sentence')) return Response.json(window.legacySentence);
+            if (path.includes('/api/v1/')) throw new Error('Unexpected API request: ' + path);
+            return nativeFetch(url, options);
+          };
+        `,
+      });
+
+      await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await until('document.querySelector("#daily-sentence-heading")');
+      await until(`document.querySelector('[aria-label^="查看每日一句解析"]')`);
+      await evaluate(`document.querySelector('[aria-label^="查看每日一句解析"]').click()`);
+      await until(
+        'window.dailyFeedbackFieldset()?.querySelector("p[role=status]")?.textContent.includes("无法确认当时的选择时间")',
+      );
+      assert.equal(
+        await evaluate(
+          'window.dailyFeedbackFieldset()?.querySelector("button[aria-pressed=true]")?.textContent',
+        ),
+        '有点难',
+      );
+
+      await evaluate(
+        'window.dailyFeedbackFieldset()?.querySelector("button[aria-pressed=true]")?.click()',
+      );
+      await until(
+        'window.feedbackRequests.length === 1 && !window.dailyFeedbackFieldset()?.querySelector("p[role=status]")',
+      );
+      assert.deepEqual(await evaluate('window.feedbackRequests[0]'), { difficulty: 'HARD' });
+      assert.equal(await evaluate('window.legacySentence.difficultyTimestampReliable'), true);
+      assert.equal(
+        await evaluate(
+          'window.dailyFeedbackFieldset()?.querySelector("button[aria-pressed=true]")?.textContent',
+        ),
+        '有点难',
+      );
+    } finally {
+      socket?.close();
+      browser.kill('SIGTERM');
+      for (let attempt = 0; attempt < 50 && !closed; attempt++) await delay(100);
+      if (!closed) browser.kill('SIGKILL');
+      await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  },
+);
