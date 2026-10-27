@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'dashboard displays the saved learning streak without pretending that a click is a check-in',
+  'dashboard keeps streak and progress summaries honest through loading, failure and retries',
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-streak-test-'));
@@ -93,17 +93,57 @@ test(
         }
         assert.fail(`Timed out waiting for ${expression}`);
       };
+      const untilProgressRequestsSettle = async (expectedUserId) => {
+        let previousCount = -1;
+        let stableChecks = 0;
+        for (let attempt = 0; attempt < 40; attempt++) {
+          const state = await evaluate(`({
+            requestCount: window.progressFixture.requests.length,
+            pendingCount: window.progressFixture.resolvers.length,
+            allBelongToExpectedUser: window.progressFixture.requests.every(({ userId }) => userId === ${JSON.stringify(expectedUserId)}),
+          })`);
+          if (
+            state.requestCount > 0 &&
+            state.requestCount === state.pendingCount &&
+            state.allBelongToExpectedUser &&
+            state.pendingCount === previousCount
+          ) {
+            stableChecks++;
+            if (stableChecks >= 3) return state;
+          } else {
+            stableChecks = 0;
+          }
+          previousCount = state.pendingCount;
+          await delay(100);
+        }
+        assert.fail(
+          `Progress requests did not settle: ${JSON.stringify(await evaluate(`({ requests: window.progressFixture.requests, pending: window.progressFixture.resolvers.map(({ index }) => index) })`))}`,
+        );
+      };
       await send('Page.enable');
       await send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Shanghai' });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-      localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+      if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
       const query = new URL(location.href).searchParams;
       window.streakFixture = { currentStreak: query.has('streak-empty') ? 0 : 4, todayActive: query.has('today-active'), failed: query.has('streak-error'), loading: query.has('streak-loading'), requests: [] };
+      window.progressFixture = {
+        failAll: query.has('progress-error'),
+        holdInitialRequests: query.has('progress-race'),
+        holdUserB: query.has('progress-user-b-loading'),
+        requests: [],
+        resolvers: [],
+        resolve: (index, response) => {
+          const request = window.progressFixture.resolvers.find((item) => item.index === index);
+          if (!request) throw new Error('No pending progress request at index ' + index);
+          window.progressFixture.resolvers = window.progressFixture.resolvers.filter((item) => item !== request);
+          request.resolve(response);
+        },
+      };
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
-        if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'fixture' });
+        if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
         if (path.includes('/api/v1/reports/streak')) {
           window.streakFixture.requests.push({ method: options.method ?? 'GET', url: path });
           if (window.streakFixture.failed) throw new Error('Fixture failure');
@@ -111,7 +151,21 @@ test(
           return Response.json({ currentStreak: window.streakFixture.currentStreak, todayActive: window.streakFixture.todayActive });
         }
         if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
-        if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
+        if (path.includes('/api/v1/vocabulary/progress-summary')) {
+          const userId = JSON.parse(localStorage.getItem('lexloop.session')).user.id;
+          const index = window.progressFixture.requests.length;
+          window.progressFixture.requests.push({ userId, index });
+          if (window.progressFixture.failAll) return Response.json({ message: 'Fixture progress unavailable' }, { status: 503 });
+          if (
+            (window.progressFixture.holdInitialRequests && userId === 'fixture') ||
+            (window.progressFixture.holdUserB && userId === 'user-b')
+          ) {
+            return new Promise((resolve) => window.progressFixture.resolvers.push({ index, resolve }));
+          }
+          return Response.json(userId === 'user-b'
+            ? { totalWords: 10, masteredWords: 7, progress: 70 }
+            : { totalWords: 10, masteredWords: 3, progress: 30 });
+        }
         if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 5, reviewWords: [], newWords: [] });
         if (path.includes('/api/v1/study/plans')) return Response.json([]);
         if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
@@ -124,6 +178,15 @@ test(
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector(".streak-count b")?.textContent === "4"');
       await until('document.body.textContent.includes("今天还没有已完成的学习活动")');
+      await until(
+        'document.querySelectorAll(".progress-grid .metric-card")[1]?.querySelector(".metric-front b")?.textContent === "3"',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll(".progress-grid .metric-card")[1].querySelector(".metric-front small")?.textContent',
+        ),
+        '学习进度 30.0%',
+      );
       assert.equal(
         await evaluate('document.querySelector(".streak-start-link")?.getAttribute("href")'),
         '/dashboard/micro-stories',
@@ -158,6 +221,142 @@ test(
       await until('document.body.textContent.includes("学习记录暂时无法加载")');
       assert.equal(await evaluate('document.querySelector(".streak-count b").textContent'), '—');
       assert.equal(await evaluate('document.body.textContent.includes("打卡成功")'), false);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?progress-race=1', baseUrl).href,
+      });
+      await until(
+        'location.search.includes("progress-race") && document.readyState === "complete"',
+      );
+      await send('Page.reload');
+      await until('window.progressFixture?.holdInitialRequests');
+      await untilProgressRequestsSettle('fixture');
+      const progressCard = 'document.querySelectorAll(".progress-grid .metric-card")[1]';
+      await until(`${progressCard}.querySelector(".metric-front b")?.textContent === "—"`);
+      assert.equal(
+        await evaluate(
+          `${progressCard}.querySelector(".metric-front small")?.textContent.includes("正在读取学习统计")`,
+        ),
+        true,
+      );
+      const latestProgressIndex = await evaluate('window.progressFixture.requests.at(-1).index');
+      await evaluate(
+        `window.progressFixture.resolve(${latestProgressIndex}, Response.json({ totalWords: 10, masteredWords: 5, progress: 50 }))`,
+      );
+      await until(`${progressCard}.querySelector(".metric-front b")?.textContent === "5"`);
+      await evaluate(`for (const pending of [...window.progressFixture.resolvers]) {
+        window.progressFixture.resolve(pending.index, Response.json({ totalWords: 10, masteredWords: 9, progress: 90 }));
+      }`);
+      await delay(100);
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front b")?.textContent`),
+        '5',
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?progress-error=1', baseUrl).href,
+      });
+      await until(
+        'location.search.includes("progress-error") && document.readyState === "complete"',
+      );
+      await send('Page.reload');
+      await until('window.progressFixture?.failAll');
+      await until(`${progressCard}.querySelector(".metric-detail-error button")`);
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front b")?.textContent`),
+        '—',
+      );
+      assert.equal(
+        await evaluate(
+          `${progressCard}.querySelector(".metric-front small")?.textContent.includes("0.0%")`,
+        ),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          `${progressCard}.querySelector(".metric-detail-error [role=alert]")?.textContent`,
+        ),
+        '统计暂时无法加载',
+      );
+      await evaluate(
+        'document.querySelector(".metric-detail-error button").focus({ focusVisible: true })',
+      );
+      assert.equal(
+        await evaluate(
+          'getComputedStyle(document.querySelector(".metric-detail-error button")).outlineWidth',
+        ),
+        '3px',
+      );
+      const retryPoint = await evaluate(`(() => {
+        const { x, y, width, height } = document.querySelector('.metric-detail-error button').getBoundingClientRect();
+        return { x: x + width / 2, y: y + height / 2 };
+      })()`);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: retryPoint.x,
+        y: retryPoint.y,
+      });
+      await delay(450);
+      assert.equal(
+        await evaluate(`getComputedStyle(${progressCard}.querySelector('.metric-front')).opacity`),
+        '1',
+      );
+      await evaluate('window.progressFixture.failAll = false');
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        button: 'left',
+        x: retryPoint.x,
+        y: retryPoint.y,
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        button: 'left',
+        x: retryPoint.x,
+        y: retryPoint.y,
+        clickCount: 1,
+      });
+      await until(`${progressCard}.querySelector(".metric-front b")?.textContent === "3"`);
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front small")?.textContent`),
+        '学习进度 30.0%',
+      );
+
+      await evaluate(`const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.user.id = 'user-b';
+        localStorage.setItem('lexloop.session', JSON.stringify(session));`);
+      await send('Page.navigate', {
+        url: new URL('/dashboard?progress-user-b-loading=1', baseUrl).href,
+      });
+      await until(
+        'location.search.includes("progress-user-b-loading") && document.readyState === "complete"',
+      );
+      await send('Page.reload');
+      await until('window.progressFixture?.holdUserB');
+      await untilProgressRequestsSettle('user-b');
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front b")?.textContent`),
+        '—',
+      );
+      const latestUserProgressIndex = await evaluate(
+        'window.progressFixture.requests.at(-1).index',
+      );
+      await evaluate(
+        `window.progressFixture.resolve(${latestUserProgressIndex}, Response.json({ totalWords: 10, masteredWords: 7, progress: 70 }))`,
+      );
+      await until(`${progressCard}.querySelector(".metric-front b")?.textContent === "7"`);
+      await evaluate(`for (const pending of [...window.progressFixture.resolvers]) {
+        window.progressFixture.resolve(pending.index, Response.json({ totalWords: 10, masteredWords: 9, progress: 90 }));
+      }`);
+      await delay(100);
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front b")?.textContent`),
+        '7',
+      );
+      assert.equal(
+        await evaluate(`${progressCard}.querySelector(".metric-front small")?.textContent`),
+        '学习进度 70.0%',
+      );
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

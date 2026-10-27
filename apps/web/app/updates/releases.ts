@@ -7,6 +7,29 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.18.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '进度统计可重试',
+        entry: '首页 → 学习进度 → 已掌握词数',
+        usage:
+          '统计读取失败时会明确提示并提供重试；只有成功读取后才显示数字，避免把加载失败误看成零进度。',
+      },
+    ],
+  },
+  {
+    version: '1.17.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '切换词表后同步单词列表',
+        entry: '首页 → 切换词表 → 单词列表',
+        usage: '只展示当前词表的词汇；加载失败可重试，不会用旧词表的内容创建学习计划。',
+      },
+    ],
+  },
+  {
     version: '1.6.0',
     date: '2026-10-27',
     items: [

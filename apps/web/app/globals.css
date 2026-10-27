@@ -3991,6 +3991,49 @@ button {
   align-self: flex-start;
   box-shadow: 2px 2px 0 var(--border-color);
 }
+.metric-front small.metric-detail-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.metric-detail-error [role='alert'] {
+  color: #b43c21;
+}
+.metric-detail-error button {
+  border: 0;
+  border-radius: 3px;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--border-color);
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.metric-detail-error button:hover {
+  text-decoration-thickness: 2px;
+}
+.metric-detail-error button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 2px;
+}
+.metric-card.has-detail-action:hover {
+  transform: none;
+  box-shadow: var(--card-shadow);
+}
+.metric-card.has-detail-action:hover .metric-front {
+  height: 100%;
+  opacity: 1;
+  padding-top: 24px;
+  padding-bottom: 24px;
+  transform: none;
+}
+.metric-card.has-detail-action:hover .metric-back {
+  opacity: 0;
+  transform: rotate(90deg) scale(-1);
+  pointer-events: none;
+}
 .learning-tabs {
   display: flex;
   gap: 10px;

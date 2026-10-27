@@ -131,6 +131,12 @@ export type LearningPlan = {
   completedAt?: string | null;
 };
 type StudyPlanListStatus = 'loading' | 'ready' | 'error';
+type ProgressSummary = { totalWords: number; masteredWords: number; progress: number };
+type ProgressSummaryState = {
+  ownerId: string;
+  status: 'loading' | 'ready' | 'failed';
+  summary: ProgressSummary | null;
+};
 type LearningWord = Omit<Word, 'state'> & {
   state: 'LEARNING' | 'REVIEWING';
   accuracy: number;
@@ -278,11 +284,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     title: string;
     totalWords: number;
   } | null>(null);
-  const [progressSummary, setProgressSummary] = useState({
-    totalWords: 0,
-    masteredWords: 0,
-    progress: 0,
+  const [progressSummaryState, setProgressSummaryState] = useState<ProgressSummaryState>({
+    ownerId: session.user.id,
+    status: 'loading',
+    summary: null,
   });
+  const [progressSummaryAttempt, setProgressSummaryAttempt] = useState(0);
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const currentUserIdRef = useRef(session.user.id);
@@ -290,6 +297,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const visiblePlans = plansOwnerId === session.user.id ? plans : [];
   const visiblePlansStatus = plansOwnerId === session.user.id ? plansLoadStatus : 'loading';
   const visiblePreviewPlan = previewOwnerId === session.user.id ? previewPlan : null;
+  const visibleProgressSummaryState =
+    progressSummaryState.ownerId === session.user.id
+      ? progressSummaryState
+      : { ownerId: session.user.id, status: 'loading' as const, summary: null };
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
   const openPlanPreview = (plan: LearningPlan) => {
@@ -316,14 +327,33 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [session.accessToken]);
 
   useEffect(() => {
-    request<{ totalWords: number; masteredWords: number; progress: number }>(
-      '/vocabulary/progress-summary',
-      {},
-      session.accessToken,
-    )
-      .then(setProgressSummary)
-      .catch(() => setProgressSummary({ totalWords: 0, masteredWords: 0, progress: 0 }));
-  }, [session.accessToken, plans, progressRevision]);
+    let active = true;
+    const ownerId = session.user.id;
+    setProgressSummaryState({ ownerId, status: 'loading', summary: null });
+    request<ProgressSummary>('/vocabulary/progress-summary', {}, session.accessToken)
+      .then((summary) => {
+        if (!active || currentUserIdRef.current !== ownerId) return;
+        if (
+          !Number.isFinite(summary.totalWords) ||
+          !Number.isFinite(summary.masteredWords) ||
+          !Number.isFinite(summary.progress)
+        ) {
+          throw new Error('学习统计数据无效');
+        }
+        setProgressSummaryState({ ownerId, status: 'ready', summary });
+      })
+      .catch(() => {
+        if (!active || currentUserIdRef.current !== ownerId) return;
+        setProgressSummaryState({ ownerId, status: 'failed', summary: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [session.accessToken, session.user.id, plans, progressRevision, progressSummaryAttempt]);
+
+  const retryProgressSummary = () => {
+    setProgressSummaryAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -603,8 +633,33 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
               <Metric
                 title="已掌握词数"
-                value={String(progressSummary.masteredWords)}
-                detail={`学习进度 ${progressSummary.progress.toFixed(1)}%`}
+                value={
+                  visibleProgressSummaryState.status === 'ready' &&
+                  visibleProgressSummaryState.summary
+                    ? String(visibleProgressSummaryState.summary.masteredWords)
+                    : '—'
+                }
+                detail={
+                  visibleProgressSummaryState.status === 'ready' &&
+                  visibleProgressSummaryState.summary ? (
+                    `学习进度 ${visibleProgressSummaryState.summary.progress.toFixed(1)}%`
+                  ) : visibleProgressSummaryState.status === 'failed' ? (
+                    <>
+                      <span role="alert">统计暂时无法加载</span>
+                      <button type="button" onClick={retryProgressSummary}>
+                        重试
+                      </button>
+                    </>
+                  ) : (
+                    <span role="status">正在读取学习统计…</span>
+                  )
+                }
+                detailClassName={
+                  visibleProgressSummaryState.status === 'failed' ? 'metric-detail-error' : ''
+                }
+                className={
+                  visibleProgressSummaryState.status === 'failed' ? 'has-detail-action' : ''
+                }
                 backIcon={<Flame size={42} />}
                 backText="千里之行始于足下"
                 backColor="var(--coral)"
@@ -1551,23 +1606,30 @@ function Metric({
   title,
   value,
   detail,
+  detailClassName,
+  className,
   backIcon,
   backText,
   backColor,
 }: {
   title: string;
   value: string;
-  detail: string;
+  detail: React.ReactNode;
+  detailClassName?: string;
+  className?: string;
   backIcon?: React.ReactNode;
   backText?: string;
   backColor?: string;
 }) {
   return (
-    <article className="metric-card" style={{ '--back-color': backColor } as React.CSSProperties}>
+    <article
+      className={`metric-card ${className ?? ''}`}
+      style={{ '--back-color': backColor } as React.CSSProperties}
+    >
       <div className="metric-front">
         <span>{title}</span>
         <b>{value}</b>
-        <small>{detail}</small>
+        <small className={detailClassName}>{detail}</small>
       </div>
       <div className="metric-back">
         {backIcon}
