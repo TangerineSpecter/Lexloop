@@ -109,6 +109,24 @@ test(
               learningReason: '练习一般现在时。'
             }
           };
+          window.olderSentence = {
+            id: 'older-feedback', dateKey: '2026-09-30', readAt: '2026-10-01T00:00:00.000Z', favorite: false,
+            difficulty: 'EASY', difficultyTimestampReliable: false,
+            content: {
+              english: 'They walk to work.', chinese: '他们步行上班。', level: 'A1', focus: '用一般现在时说习惯',
+              chunks: [{ text: 'They walk to work.', role: '主句', phraseType: '句子', explanation: '说明日常习惯。' }],
+              explanations: [{ question: '为什么用 walk？', answer: '主语是 they，动词使用原形。' }],
+              pattern: 'They + 动词原形', usage: '描述他们平时的习惯。',
+              example: { english: 'We walk to school.', chinese: '我们步行上学。' },
+              learningReason: '练习日常习惯。'
+            }
+          };
+          window.reliableSentence = {
+            ...window.olderSentence, id: 'reliable-feedback', dateKey: '2026-10-02', difficultyTimestampReliable: true,
+            content: { ...window.olderSentence.content, english: 'He walks to work.' }
+          };
+          window.historyRequests = [];
+          window.failFilteredHistoryOnce = true;
           window.feedbackRequests = [];
           window.dailyFeedbackFieldset = () => [...document.querySelectorAll('fieldset')].find(fieldset => fieldset.querySelector('legend')?.textContent.includes('这句对你来说怎么样？'));
           const nativeFetch = window.fetch;
@@ -121,15 +139,36 @@ test(
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/study/plans')) return Response.json([]);
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'READY', item: window.legacySentence, canRetry: false });
+            if (path.includes('/api/v1/daily-sentences?page=')) {
+              const url = new URL(path, location.origin);
+              const needsReview = url.searchParams.get('needsDifficultyReview') === 'true';
+              window.historyRequests.push(path);
+              if (needsReview && window.failFilteredHistoryOnce) {
+                window.failFilteredHistoryOnce = false;
+                return Response.json({ message: 'Fixture history failure' }, { status: 500 });
+              }
+              const entries = [window.olderSentence, window.reliableSentence];
+              return Response.json({ items: needsReview ? entries.filter(entry => entry.difficulty && !entry.difficultyTimestampReliable) : entries, hasMore: false });
+            }
             if (path.endsWith('/api/v1/daily-sentences/legacy-sentence/read')) {
               window.legacySentence = { ...window.legacySentence, readAt: '2026-10-27T00:00:00.000Z' };
               return Response.json(window.legacySentence);
             }
+            if (path.endsWith('/api/v1/daily-sentences/older-feedback/read')) {
+              window.olderSentence = { ...window.olderSentence, readAt: '2026-10-27T00:00:00.000Z' };
+              return Response.json(window.olderSentence);
+            }
+            if (path.endsWith('/api/v1/daily-sentences/older-feedback') && options.method !== 'PATCH') return Response.json(window.olderSentence);
             if (path.endsWith('/api/v1/daily-sentences/legacy-sentence') && options.method === 'PATCH') {
               const patch = JSON.parse(options.body);
               window.feedbackRequests.push(patch);
               window.legacySentence = { ...window.legacySentence, ...patch, difficultyTimestampReliable: true };
               return Response.json(window.legacySentence);
+            }
+            if (path.endsWith('/api/v1/daily-sentences/older-feedback') && options.method === 'PATCH') {
+              const patch = JSON.parse(options.body);
+              window.olderSentence = { ...window.olderSentence, ...patch, difficultyTimestampReliable: true };
+              return Response.json(window.olderSentence);
             }
             if (path.endsWith('/api/v1/daily-sentences/legacy-sentence')) return Response.json(window.legacySentence);
             if (path.includes('/api/v1/')) throw new Error('Unexpected API request: ' + path);
@@ -165,6 +204,67 @@ test(
           'window.dailyFeedbackFieldset()?.querySelector("button[aria-pressed=true]")?.textContent',
         ),
         '有点难',
+      );
+
+      await evaluate(
+        `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('回顾与收藏')).click()`,
+      );
+      await until('document.querySelector("dialog")?.textContent.includes("全部句子")');
+      await evaluate(
+        `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('待重新确认')).click()`,
+      );
+      await until(
+        'document.querySelector("dialog [role=alert]")?.textContent.includes("服务暂时不可用")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog").textContent.includes("没有待重新确认的旧难度反馈")',
+        ),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog").textContent.includes("They walk to work.")',
+        ),
+        false,
+      );
+      assert.equal(
+        await evaluate('window.historyRequests.at(-1).includes("needsDifficultyReview=true")'),
+        true,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('重新加载')).click()`,
+      );
+      await until('document.querySelector("dialog").textContent.includes("待重新确认：太简单")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog").textContent.includes("He walks to work.")',
+        ),
+        false,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('They walk to work.')).click()`,
+      );
+      await until(
+        'window.dailyFeedbackFieldset()?.querySelector("p[role=status]")?.textContent.includes("无法确认当时的选择时间")',
+      );
+      await evaluate(
+        'window.dailyFeedbackFieldset()?.querySelector("button[aria-pressed=true]")?.click()',
+      );
+      await until(
+        'window.olderSentence.difficultyTimestampReliable && !window.dailyFeedbackFieldset()?.querySelector("p[role=status]")',
+      );
+      await evaluate(
+        `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('回顾与收藏')).click()`,
+      );
+      await until(
+        'document.querySelector("dialog").textContent.includes("没有待重新确认的旧难度反馈")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog").textContent.includes("They walk to work.")',
+        ),
+        false,
       );
     } finally {
       socket?.close();

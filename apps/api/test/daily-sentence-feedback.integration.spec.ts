@@ -71,7 +71,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
       userIds.push(...users.map((user) => user.id));
 
       for (const [userIndex, user] of users.entries()) {
-        for (let offset = 0; offset < 12; offset++) {
+        for (let offset = 0; offset < 22; offset++) {
           const date = new Date(Date.UTC(2026, 9, 12 - offset, 12));
           const dateKey = date.toISOString().slice(0, 10);
           await prisma.dailySentence.create({
@@ -88,6 +88,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
               },
               readAt: new Date(date.getTime() + 60 * 60 * 1000),
               difficulty: userIndex === 0 ? 'RIGHT' : 'EASY',
+              difficultyTimestampReliable: userIndex === 0 && offset === 0,
               difficultyUpdatedAt: new Date(date.getTime() + 30 * 60 * 1000),
               attempts: 1,
             },
@@ -97,6 +98,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
 
       const oldSentence = await prisma.dailySentence.findFirstOrThrow({
         where: { userId: users[0].id, dateKey: '2026-10-01' },
+        select: { id: true },
+      });
+      const reliableSentence = await prisma.dailySentence.findFirstOrThrow({
+        where: { userId: users[0].id, dateKey: '2026-10-12' },
         select: { id: true },
       });
       const now = new Date();
@@ -119,7 +124,26 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('daily sentence difficulty f
           select: { difficulty: true, difficultyTimestampReliable: true },
         }),
       ).toEqual({ difficulty: 'RIGHT', difficultyTimestampReliable: false });
+
+      const oldFeedback = await service.history(users[0].id, 1, false, true);
+      expect(oldFeedback.items).toHaveLength(20);
+      expect(oldFeedback.hasMore).toBe(true);
+      expect(
+        oldFeedback.items.every((item) => item.difficulty && !item.difficultyTimestampReliable),
+      ).toBe(true);
+      expect(oldFeedback.items.map((item) => item.id)).not.toContain(reliableSentence.id);
+      const remainingOldFeedback = await service.history(users[0].id, 2, false, true);
+      expect(remainingOldFeedback.items).toHaveLength(1);
+      expect(remainingOldFeedback.hasMore).toBe(false);
+      const otherUsersOldFeedback = await service.history(users[1].id, 1, false, true);
+      expect(otherUsersOldFeedback.items).toHaveLength(20);
+      expect(otherUsersOldFeedback.hasMore).toBe(true);
+      expect(otherUsersOldFeedback.items.map((item) => item.id)).not.toContain(oldSentence.id);
+
       await service.update(users[0].id, oldSentence.id, { difficulty: 'HARD' });
+      const afterReselect = await service.history(users[0].id, 1, false, true);
+      expect(afterReselect.items).toHaveLength(20);
+      expect(afterReselect.hasMore).toBe(false);
       const ratedAt = await prisma.dailySentence.findUniqueOrThrow({
         where: { id: oldSentence.id },
         select: { difficultyUpdatedAt: true, difficultyTimestampReliable: true },

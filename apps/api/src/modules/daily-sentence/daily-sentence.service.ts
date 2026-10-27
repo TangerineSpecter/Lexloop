@@ -78,9 +78,21 @@ export class DailySentenceService {
     };
   }
 
-  async history(userId: string, page: number, favorites: boolean): Promise<DailySentenceHistory> {
+  async history(
+    userId: string,
+    page: number,
+    favorites: boolean,
+    needsDifficultyReview = false,
+  ): Promise<DailySentenceHistory> {
     const rows = await this.prisma.dailySentence.findMany({
-      where: { userId, status: 'READY', ...(favorites ? { favorite: true } : {}) },
+      where: {
+        userId,
+        status: 'READY',
+        ...(favorites ? { favorite: true } : {}),
+        ...(needsDifficultyReview
+          ? { difficulty: { not: null }, difficultyTimestampReliable: false }
+          : {}),
+      },
       orderBy: { dateKey: 'desc' },
       skip: (page - 1) * 20,
       take: 21,

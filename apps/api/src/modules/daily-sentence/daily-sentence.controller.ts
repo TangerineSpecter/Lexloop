@@ -13,15 +13,46 @@ type AuthRequest = { user: { sub: string } };
 @UseGuards(JwtAuthGuard)
 @Controller('daily-sentences')
 export class DailySentenceController {
-  constructor(private readonly sentences: DailySentenceService, @InjectQueue(DAILY_SENTENCE_QUEUE) private readonly queue: Queue) {}
-  @Get('current') current(@Req() req: AuthRequest) { return this.sentences.current(req.user.sub); }
-  @Get() history(@Req() req: AuthRequest, @Query() query: HistoryQuery) { return this.sentences.history(req.user.sub, query.page, query.favorites === 'true'); }
+  constructor(
+    private readonly sentences: DailySentenceService,
+    @InjectQueue(DAILY_SENTENCE_QUEUE) private readonly queue: Queue,
+  ) {}
+  @Get('current') current(@Req() req: AuthRequest) {
+    return this.sentences.current(req.user.sub);
+  }
+  @Get() history(@Req() req: AuthRequest, @Query() query: HistoryQuery) {
+    return this.sentences.history(
+      req.user.sub,
+      query.page,
+      query.favorites === 'true',
+      query.needsDifficultyReview === 'true',
+    );
+  }
   @Post('retry') async retry(@Req() req: AuthRequest) {
     const dateKey = await this.sentences.retryable(req.user.sub);
-    await this.queue.add('generate', { userId: req.user.sub, dateKey }, { jobId: `retry-${dateKey}-${req.user.sub}`, attempts: 1, removeOnComplete: true, removeOnFail: true });
+    await this.queue.add(
+      'generate',
+      { userId: req.user.sub, dateKey },
+      {
+        jobId: `retry-${dateKey}-${req.user.sub}`,
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    );
     return { queued: true };
   }
-  @Get(':id') detail(@Req() req: AuthRequest, @Param('id') id: string) { return this.sentences.detail(req.user.sub, id); }
-  @Post(':id/read') read(@Req() req: AuthRequest, @Param('id') id: string) { return this.sentences.read(req.user.sub, id); }
-  @Patch(':id') update(@Req() req: AuthRequest, @Param('id') id: string, @Body() dto: UpdateSentenceDto) { return this.sentences.update(req.user.sub, id, dto); }
+  @Get(':id') detail(@Req() req: AuthRequest, @Param('id') id: string) {
+    return this.sentences.detail(req.user.sub, id);
+  }
+  @Post(':id/read') read(@Req() req: AuthRequest, @Param('id') id: string) {
+    return this.sentences.read(req.user.sub, id);
+  }
+  @Patch(':id') update(
+    @Req() req: AuthRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateSentenceDto,
+  ) {
+    return this.sentences.update(req.user.sub, id, dto);
+  }
 }

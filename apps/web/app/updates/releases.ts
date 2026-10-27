@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.25.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '快速找到待重新确认的旧难度反馈',
+        entry: '每日一句 → 回顾与收藏 → 待重新确认',
+        usage: '只列出时间无法确认的旧反馈；重新点选后该记录移出列表，系统不推断历史时间。',
+      },
+    ],
+  },
+  {
     version: '1.23.0',
     date: '2026-10-27',
     items: [

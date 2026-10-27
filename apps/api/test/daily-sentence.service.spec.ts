@@ -2,7 +2,7 @@ import { BadGatewayException, NotFoundException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { UpdateSentenceDto } from '../src/modules/daily-sentence/daily-sentence.dto';
+import { HistoryQuery, UpdateSentenceDto } from '../src/modules/daily-sentence/daily-sentence.dto';
 import { DailySentenceService } from '../src/modules/daily-sentence/daily-sentence.service';
 import {
   dailySentenceClock,
@@ -95,6 +95,17 @@ afterEach(() => {
 });
 
 describe('daily sentence scheduling and content', () => {
+  it('validates the legacy feedback history filter', async () => {
+    for (const needsDifficultyReview of ['true', 'false']) {
+      expect(
+        await validate(plainToInstance(HistoryQuery, { page: '1', needsDifficultyReview })),
+      ).toHaveLength(0);
+    }
+    expect(
+      await validate(plainToInstance(HistoryQuery, { page: '1', needsDifficultyReview: 'yes' })),
+    ).not.toHaveLength(0);
+  });
+
   it('rejects null and malformed interaction fields before database writes', async () => {
     for (const value of [
       { favorite: null },
@@ -351,6 +362,30 @@ describe('daily sentence scheduling and content', () => {
       expect.objectContaining({
         where: { userId: 'user', status: 'READY', favorite: true },
         skip: 20,
+        take: 21,
+      }),
+    );
+    expect(ai.selectedChatCompletions).not.toHaveBeenCalled();
+    expect(prisma.dailySentence.updateMany).not.toHaveBeenCalled();
+  });
+  it('filters only rated history whose selection time is unreliable', async () => {
+    const { prisma, service, ai } = harness();
+    prisma.dailySentence.findMany.mockResolvedValue([{ ...row, difficulty: 'HARD' }] as never);
+
+    const result = await service.history('owner', 1, false, true);
+
+    expect(result.items).toMatchObject([
+      { difficulty: 'HARD', difficultyTimestampReliable: false },
+    ]);
+    expect(prisma.dailySentence.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'owner',
+          status: 'READY',
+          difficulty: { not: null },
+          difficultyTimestampReliable: false,
+        },
+        skip: 0,
         take: 21,
       }),
     );
