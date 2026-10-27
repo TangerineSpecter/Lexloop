@@ -327,6 +327,7 @@ model DailySentence {
   readAt DateTime?
   favorite Boolean @default(false)
   difficulty String?
+  difficultyUpdatedAt DateTime?
   attempts Int @default(0)
   error String?
   generationToken String?
@@ -337,6 +338,7 @@ model DailySentence {
 
   @@unique([userId, dateKey])
   @@index([userId, status, readAt, createdAt])
+  @@index([userId, status, difficultyUpdatedAt])
 }
 
 model VocabularyBook {
