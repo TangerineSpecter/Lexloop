@@ -113,6 +113,80 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     frame: 'I feel ready because ___.',
     example: 'I feel ready because I have my notes.',
   },
+  {
+    key: 'weekend-01',
+    series: '周末约朋友',
+    part: 1,
+    level: 'A2',
+    english:
+      'Maya wants to see a friend this weekend. She texts Leo to ask if he is free on Saturday.',
+    reference: 'Maya 想这周末见一位朋友。她发消息问 Leo 周六有没有空。',
+    explanation: 'ask if... 是“询问是否……”；be free 在安排见面时表示“有空”。',
+    frame: 'Are you free on ___?',
+    example: 'Are you free on Friday?',
+  },
+  {
+    key: 'weekend-02',
+    series: '周末约朋友',
+    part: 2,
+    level: 'A2',
+    english:
+      "Leo can't meet in the morning because he has a dentist appointment. He suggests meeting after lunch instead.",
+    reference: 'Leo 早上没法见面，因为他约了看牙医。他提议改到午饭后见。',
+    explanation: 'suggest + 动词-ing 表示提议做某事；instead 表示改做另一种安排。',
+    frame: 'How about meeting ___ instead?',
+    example: 'How about meeting after work instead?',
+  },
+  {
+    key: 'weekend-03',
+    series: '周末约朋友',
+    part: 3,
+    level: 'A2',
+    english:
+      'They meet outside the library at two. After choosing a café, they catch up over coffee.',
+    reference: '他们两点在图书馆外碰面。选好一家咖啡馆后，他们边喝咖啡边聊近况。',
+    explanation: 'catch up 在这里指“聊聊彼此近况”；over coffee 表示边喝咖啡边聊。',
+    frame: "Let's catch up over ___.",
+    example: "Let's catch up over lunch.",
+  },
+  {
+    key: 'home-repair-01',
+    series: '家里维修',
+    part: 1,
+    level: 'A2',
+    english:
+      "A pipe under Ben's sink is leaking. He calls the building manager and explains that water is dripping onto the floor.",
+    reference: 'Ben 水槽下面的一根管子在漏水。他给楼栋管理员打电话，说明水正滴到地板上。',
+    explanation:
+      'is leaking 和 is dripping 用现在进行时，表示漏水正在发生；explain that... 引出具体情况。',
+    frame: 'Something is leaking in ___.',
+    example: 'Something is leaking in the bathroom.',
+  },
+  {
+    key: 'home-repair-02',
+    series: '家里维修',
+    part: 2,
+    level: 'A2',
+    english:
+      'The manager asks when someone can come by. Ben says he will be home after six but asks them to call first.',
+    reference: '管理员问什么时候可以派人上门。Ben 说他六点后在家，但请对方先打电话。',
+    explanation:
+      'when someone can come by 是嵌入式问句，语序用“主语 + can”；come by 在这里指上门一趟。',
+    frame: 'Could someone come by ___?',
+    example: 'Could someone come by tomorrow morning?',
+  },
+  {
+    key: 'home-repair-03',
+    series: '家里维修',
+    part: 3,
+    level: 'A2',
+    english:
+      'The repair worker tightens a loose connection and shows Ben how to turn off the water. Ben takes a photo of the valve so he can find it again.',
+    reference: '维修人员拧紧了松动的接头，还教 Ben 怎么关水。Ben 给阀门拍了张照片，方便下次找到。',
+    explanation: 'show someone how to... 表示教某人怎么做；so he can... 说明拍照的目的。',
+    frame: 'Could you show me how to ___?',
+    example: 'Could you show me how to reset the router?',
+  },
 ];
 
 export function storyByKey(key: string) {

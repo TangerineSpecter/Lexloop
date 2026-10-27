@@ -107,6 +107,7 @@ test(
         source: `
       const params = new URL(location.href).searchParams;
       const fixtureUser = params.get('user') || 'fixture';
+      const completedOriginal = params.has('completed-original');
       const fixtureKey = 'micro-fixture.' + fixtureUser;
       const savedFixture = JSON.parse(sessionStorage.getItem(fixtureKey) || 'null') || {};
       localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: fixtureUser, email: fixtureUser + '@example.invalid', displayName: 'Fixture', role: 'USER' } }));
@@ -119,7 +120,7 @@ test(
           return nativeSetItem.call(this, key, value);
         };
       }
-      window.microFixture = { index: savedFixture.index || 0, revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [] };
+      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [] };
       const persistFixture = () => sessionStorage.setItem(fixtureKey, JSON.stringify({ index: window.microFixture.index, revealed: window.microFixture.revealed, interpretation: window.microFixture.interpretation, errors: window.microFixture.errors, reviewDone: window.microFixture.reviewDone }));
       const noSpeech = params.has('no-speech');
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: noSpeech ? undefined : class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
@@ -130,8 +131,9 @@ test(
         const f = window.microFixture;
         if (path.includes('/api/v1/')) f.requests.push({ path, method: options.method ?? 'GET', authorization: new Headers(options.headers).get('Authorization') });
         const first = { key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: 'Tom misses the bus.', interpretation: f.revealed ? f.interpretation : null };
+        const continuation = { key: 'weekend-01', series: '周末约朋友', part: 1, level: 'A2', english: 'Maya wants to see a friend this weekend. She texts Leo to ask if he is free on Saturday.', interpretation: null };
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: fixtureUser });
-        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: 2, lesson: f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
+        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
         if (path.includes('/api/v1/micro-stories/errors')) return Response.json(f.errors);
         if (path.includes('/api/v1/micro-stories/bus-01/interpret')) {
           if (f.failReveal) { f.failReveal = false; sessionStorage.setItem(fixtureKey + '.reveal-failed', '1'); return Response.json({ message: 'Fixture failure' }, { status: 500 }); }
@@ -514,6 +516,16 @@ test(
       assert.equal(
         await evaluate('document.body.textContent.includes("Tom calls his boss.")'),
         true,
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?completed-original=1&user=finished', baseUrl).href,
+      });
+      await until('document.body.textContent.includes("Maya wants to see a friend this weekend.")');
+      assert.equal(await evaluate('document.body.textContent.includes("10/15")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("周末约朋友")'), true);
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Maya 想这周末见一位朋友")'),
+        false,
       );
     } finally {
       socket?.close();

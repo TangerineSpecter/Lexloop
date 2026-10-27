@@ -135,6 +135,47 @@ describe('one-minute stories', () => {
     expect(new Set(MICRO_STORIES.map((story) => story.key)).size).toBe(MICRO_STORIES.length);
   });
 
+  it('preserves the first nine story keys and continues learners onto new A2 scenes', async () => {
+    const originalKeys = [
+      'bus-01',
+      'bus-02',
+      'bus-03',
+      'cafe-01',
+      'cafe-02',
+      'cafe-03',
+      'meeting-01',
+      'meeting-02',
+      'meeting-03',
+    ];
+    expect(MICRO_STORIES.slice(0, originalKeys.length).map((story) => story.key)).toEqual(
+      originalKeys,
+    );
+    expect(MICRO_STORIES).toHaveLength(15);
+    expect(MICRO_STORIES.slice(originalKeys.length).map((story) => story.key)).toEqual([
+      'weekend-01',
+      'weekend-02',
+      'weekend-03',
+      'home-repair-01',
+      'home-repair-02',
+      'home-repair-03',
+    ]);
+    expect(
+      MICRO_STORIES.slice(originalKeys.length).every(
+        (story) => story.level === 'A2' && story.english && story.reference && story.example,
+      ),
+    ).toBe(true);
+
+    const f = fixture();
+    f.progress.completedKeys = originalKeys;
+    const next = await f.service.current('owner');
+    expect(next).toMatchObject({
+      completed: 9,
+      total: 15,
+      lesson: { key: 'weekend-01', level: 'A2', interpretation: null },
+    });
+    expect(next.lesson).not.toHaveProperty('reference');
+  });
+
   it('keeps the next unread story stable when content is reordered or inserted', () => {
     const reordered = [MICRO_STORIES[2], MICRO_STORIES[0], MICRO_STORIES[1]];
     expect(nextStory(reordered, ['bus-01'], 'bus-02')?.key).toBe('bus-02');
