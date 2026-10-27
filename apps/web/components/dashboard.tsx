@@ -251,6 +251,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [plansLoadStatus, setPlansLoadStatus] = useState<StudyPlanListStatus>('loading');
   const [plansLoadAttempt, setPlansLoadAttempt] = useState(0);
   const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
+  const [previewOwnerId, setPreviewOwnerId] = useState(session.user.id);
   const [lessonPlanId, setLessonPlanId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
@@ -268,10 +269,17 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [progressSummary, setProgressSummary] = useState({ totalWords: 0, masteredWords: 0, progress: 0 });
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const currentUserIdRef = useRef(session.user.id);
+  currentUserIdRef.current = session.user.id;
   const visiblePlans = plansOwnerId === session.user.id ? plans : [];
   const visiblePlansStatus = plansOwnerId === session.user.id ? plansLoadStatus : 'loading';
+  const visiblePreviewPlan = previewOwnerId === session.user.id ? previewPlan : null;
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
+  const openPlanPreview = (plan: LearningPlan) => {
+    setPreviewOwnerId(session.user.id);
+    setPreviewPlan(plan);
+  };
   const retryPlanLoad = () => {
     setPlansLoadStatus('loading');
     setPlansLoadAttempt((attempt) => attempt + 1);
@@ -340,6 +348,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setActiveTab('words');
     setLessonPlanId(null);
     setPreviewPlan(null);
+    setPreviewOwnerId(session.user.id);
   }, [session.user.id]);
 
   return (
@@ -593,7 +602,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             {activeTab === 'words' && (
               <WordsPanel
                 session={session}
-                onCreatePlan={(plan) => setPreviewPlan(plan)}
+                onCreatePlan={openPlanPreview}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
               />
@@ -608,7 +617,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <LearningHistory
                 plans={visiblePlans}
                 onContinue={(id) => setLessonPlanId(id)}
-                onRetry={setPreviewPlan}
+                onRetry={openPlanPreview}
               />
             )}
           </div>
@@ -619,7 +628,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         ) : page === 'mistakes' ? (
           <MistakesPage session={session} onBack={() => setPage('study')} onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined} onPlanCreated={(plan) => {
             setPlans((current) => [plan, ...current.filter(item => item.id !== plan.id)]);
-            setPreviewPlan(plan);
+            openPlanPreview(plan);
           }}/>
         ) : page === 'mastered' ? (
           <MasteredWordsPage
@@ -665,23 +674,37 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       {bookPickerOpen && (
         <BookPicker session={session} onClose={closeBookPicker} onActivated={setCurrentBook} />
       )}
-      {previewPlan && (
+      {visiblePreviewPlan && (
         <PlanPreview
-          plan={previewPlan}
+          key={`${previewOwnerId}:${visiblePreviewPlan.id}`}
+          plan={visiblePreviewPlan}
           session={session}
           onPlanUpdated={(updated) => {
-            setPreviewPlan(updated);
-            setPlans((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+            if (currentUserIdRef.current !== previewOwnerId) return;
+            setPlans((current) => {
+              if (currentUserIdRef.current !== previewOwnerId) return current;
+              return [updated, ...current.filter((item) => item.id !== updated.id)];
+            });
+            setPreviewPlan((current) => {
+              if (currentUserIdRef.current !== previewOwnerId || current?.id !== updated.id) {
+                return current;
+              }
+              return updated;
+            });
           }}
           onClose={() => setPreviewPlan(null)}
           onStart={() => {
-            setPlans((current) => [
-              { ...previewPlan },
-              ...current.filter((plan) => plan.id !== previewPlan.id),
-            ]);
+            if (currentUserIdRef.current !== previewOwnerId) return;
+            setPlans((current) => {
+              if (currentUserIdRef.current !== previewOwnerId) return current;
+              return [
+                { ...visiblePreviewPlan },
+                ...current.filter((plan) => plan.id !== visiblePreviewPlan.id),
+              ];
+            });
             setPreviewPlan(null);
             setPage('study');
-            setLessonPlanId(previewPlan.id);
+            setLessonPlanId(visiblePreviewPlan.id);
           }}
         />
       )}
@@ -2095,6 +2118,7 @@ function PlanPreview({
   const [generating, setGenerating] = useState(plan.status === 'GENERATING');
   const [generationMessage, setGenerationMessage] = useState('');
   const generationStartedRef = useRef(false);
+  const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
   const previous = () => setIndex((current) => Math.max(0, current - 1));
   const next = () => setIndex((current) => Math.min(plan.wordCount - 1, current + 1));
@@ -2120,7 +2144,14 @@ function PlanPreview({
     return () => document.removeEventListener('keydown', handleKeydown);
   }, [onClose, plan.wordCount]);
 
+  const refreshPlan = useCallback(async () => {
+    const plans = await request<LearningPlan[]>('/study/plans', {}, session.accessToken);
+    return plans.find((item) => item.id === plan.id) ?? null;
+  }, [plan.id, session.accessToken]);
+
   const generate = useCallback(async () => {
+    if (generationRequestInFlightRef.current) return;
+    generationRequestInFlightRef.current = true;
     setGenerating(true);
     setGenerationMessage('');
     try {
@@ -2132,10 +2163,16 @@ function PlanPreview({
       onPlanUpdated(updated);
     } catch (error) {
       setGenerationMessage(error instanceof Error ? error.message : '学习计划生成失败，请重试');
+      void refreshPlan()
+        .then((updated) => {
+          if (updated) onPlanUpdated(updated);
+        })
+        .catch(() => undefined);
     } finally {
+      generationRequestInFlightRef.current = false;
       setGenerating(false);
     }
-  }, [onPlanUpdated, plan.id, session.accessToken]);
+  }, [onPlanUpdated, plan.id, refreshPlan, session.accessToken]);
 
   useEffect(() => {
     if (plan.status === 'GENERATING' && !generationStartedRef.current) {
@@ -2148,11 +2185,9 @@ function PlanPreview({
     if (plan.status !== 'GENERATING' || generating) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void request<LearningPlan[]>('/study/plans', {}, session.accessToken)
-        .then((plans) => {
-          if (cancelled) return;
-          const updated = plans.find((item) => item.id === plan.id);
-          if (updated) onPlanUpdated(updated);
+      void refreshPlan()
+        .then((updated) => {
+          if (!cancelled && updated) onPlanUpdated(updated);
         })
         .catch((error) => {
           if (!cancelled) {
@@ -2164,7 +2199,7 @@ function PlanPreview({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [generating, onPlanUpdated, plan.id, plan.status, session.accessToken]);
+  }, [generating, onPlanUpdated, plan.id, plan.status, refreshPlan, session.accessToken]);
 
   return (
     <div
