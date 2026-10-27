@@ -54,7 +54,7 @@ export function PracticePage({ session }: { session: Session }) {
         </nav>
         {ready &&
           (tab === 'output' ? (
-            <DailyOutputPanel session={session} />
+            <DailyOutputPanel key={session.user.id} session={session} />
           ) : tab === 'confusion' ? (
             <ConfusionPanel session={session} />
           ) : (

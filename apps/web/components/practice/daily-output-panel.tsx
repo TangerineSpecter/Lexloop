@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DailyOutput, OutputFeedback, OutputSubmissionView } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
+import {
+  clearOutputDraftSubmissionIfMatches,
+  readOutputDraft,
+  saveOutputDraft,
+} from '../../lib/output-drafts';
 import styles from './practice.module.css';
 import { FeedbackCard } from './feedback-card';
 import { OutputHistoryPanel } from './output-history-panel';
@@ -14,10 +19,18 @@ export function DailyOutputPanel({ session }: { session: Session }) {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(true);
   const [pollRevision, setPollRevision] = useState(0);
   const started = useRef(Date.now());
-  const submissionKey = useRef<{ answer: string; id: string } | null>(null);
-  const draftKey = `lexloop.output.draft.${session.user.id}`;
+  const submitting = useRef(false);
+  const loadedDraftIdentity = useRef<{ challengeId: string; date: string } | null>(null);
+  const submissionKey = useRef<{
+    userId: string;
+    challengeId: string;
+    date: string;
+    answer: string;
+    id: string;
+  } | null>(null);
   const load = useCallback(async () => {
     const result = await request<DailyOutput | null>(
       '/practice/output/today',
@@ -35,18 +48,42 @@ export function DailyOutputPanel({ session }: { session: Session }) {
         setDaily(result);
         setLoaded(true);
         if (result) {
-          try {
-            const draft = JSON.parse(
-              localStorage.getItem(`lexloop.output.draft.${session.user.id}`) ?? 'null',
-            );
-            setAnswer(
-              draft?.date === result.date && typeof draft.answer === 'string'
-                ? draft.answer.slice(0, 1800)
-                : '',
-            );
-          } catch {
-            /* Storage is optional. */
+          const identity = {
+            userId: session.user.id,
+            challengeId: result.id,
+            date: result.date,
+          };
+          const restored = readOutputDraft(identity);
+          const previousIdentity = loadedDraftIdentity.current;
+          const sameChallenge =
+            previousIdentity?.challengeId === result.id && previousIdentity.date === result.date;
+          const restoredAnswer = sameChallenge ? answer : restored.answer;
+          setAnswer(restoredAnswer);
+          setDraftSaved(restored.storageAvailable);
+          loadedDraftIdentity.current = { challengeId: result.id, date: result.date };
+
+          const currentKey = submissionKey.current;
+          if (
+            currentKey &&
+            currentKey.userId === session.user.id &&
+            currentKey.challengeId === result.id &&
+            currentKey.date === result.date &&
+            currentKey.answer === restoredAnswer.trim()
+          ) {
+            // Keep the in-memory request identity when storage is unavailable.
+          } else {
+            submissionKey.current = restored.submission
+              ? {
+                  ...identity,
+                  answer: restored.submission.answer,
+                  id: restored.submission.id,
+                }
+              : null;
           }
+        } else {
+          setAnswer('');
+          submissionKey.current = null;
+          loadedDraftIdentity.current = null;
         }
       })
       .catch((error) => {
@@ -117,37 +154,77 @@ export function DailyOutputPanel({ session }: { session: Session }) {
 
   const changeAnswer = (text: string) => {
     setAnswer(text);
-    try {
-      if (draftKey)
-        localStorage.setItem(draftKey, JSON.stringify({ date: daily?.date, answer: text }));
-    } catch {
-      /* Keep the in-memory draft. */
-    }
+    if (!daily) return;
+    const identity = { userId: session.user.id, challengeId: daily.id, date: daily.date };
+    const currentKey = submissionKey.current;
+    const matchingSubmission =
+      currentKey &&
+      currentKey.userId === identity.userId &&
+      currentKey.challengeId === identity.challengeId &&
+      currentKey.date === identity.date &&
+      currentKey.answer === text.trim()
+        ? { answer: currentKey.answer, id: currentKey.id }
+        : null;
+    if (!matchingSubmission) submissionKey.current = null;
+    setDraftSaved(saveOutputDraft(identity, text, matchingSubmission));
   };
   async function submit() {
-    if (!daily || busy || pending) return;
+    if (!daily || busy || submitting.current || pending) return;
+    submitting.current = true;
     setBusy(true);
     setMessage('');
-    if (!submissionKey.current || submissionKey.current.answer !== answer.trim())
-      submissionKey.current = { answer: answer.trim(), id: crypto.randomUUID() };
+    const identity = { userId: session.user.id, challengeId: daily.id, date: daily.date };
+    const submittedAnswer = answer.trim();
+    let currentKey = submissionKey.current;
+    if (
+      !currentKey ||
+      currentKey.userId !== identity.userId ||
+      currentKey.challengeId !== identity.challengeId ||
+      currentKey.date !== identity.date ||
+      currentKey.answer !== submittedAnswer
+    ) {
+      const restored = readOutputDraft(identity);
+      const submission = restored.answer.trim() === submittedAnswer ? restored.submission : null;
+      currentKey = {
+        ...identity,
+        answer: submittedAnswer,
+        id: submission?.id ?? crypto.randomUUID(),
+      };
+      submissionKey.current = currentKey;
+    }
+    const requestIdentity = { answer: currentKey.answer, id: currentKey.id };
+    setDraftSaved(saveOutputDraft(identity, answer, requestIdentity));
     try {
-      await request(
+      const submitted = await request<OutputSubmissionView>(
         `/practice/output/${daily.id}/submissions`,
         {
           method: 'POST',
           body: JSON.stringify({
-            answer: answer.trim(),
-            clientRequestId: submissionKey.current.id,
+            answer: submittedAnswer,
+            clientRequestId: currentKey.id,
             responseTimeMs: Math.min(3_600_000, Date.now() - started.current),
           }),
         },
         session.accessToken,
       );
       await load();
-      submissionKey.current = null;
+      const expired = submitted.status === 'FAILED' && /超时|过期/.test(submitted.error ?? '');
+      if (submitted.status === 'COMPLETED' || expired) {
+        if (submissionKey.current?.id === requestIdentity.id) submissionKey.current = null;
+        const cleared = clearOutputDraftSubmissionIfMatches(identity, requestIdentity);
+        if (cleared) setDraftSaved(true);
+      }
+      if (submitted.status === 'FAILED') {
+        setMessage(
+          expired
+            ? '这份批改任务已超过 15 分钟有效期，原文已保留；再次点击提交会创建新的批改任务。'
+            : submitted.error || '这次批改未完成，原文已保留；可以再次提交。',
+        );
+      }
     } catch (error) {
       setMessage(userFacingError(error));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -220,7 +297,13 @@ export function DailyOutputPanel({ session }: { session: Session }) {
             <span>
               {answer.match(/[a-z]+/gi)?.length ?? 0} 个英文词 · {answer.length}/1800 字符
             </span>
-            <span>草稿保存在本机</span>
+            <span>
+              {!draftSaved
+                ? '本机保存不可用，刷新后可能丢失'
+                : answer
+                  ? '草稿保存在本机'
+                  : '输入会保存在本机'}
+            </span>
           </div>
           {message && (
             <p className={styles.notice} role="alert">
