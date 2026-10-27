@@ -189,6 +189,29 @@ test(
             };
           };
           window.studyPlanResponse = makePlan(0);
+          window.planCreateResponse = {
+            ...makePlan(0),
+            id: 'plan-book-b',
+            wordCount: 2,
+            words: [
+              { id: 'book-b-word-1', word: 'adapt', part: 'vt.', meaning: '适应', source: 'NEW', groupIndex: 0, completed: false, nextReviewAt: null, activeWeaknesses: [] },
+              { id: 'book-b-word-2', word: 'consider', part: 'vt.', meaning: '考虑', source: 'NEW', groupIndex: 0, completed: false, nextReviewAt: null, activeWeaknesses: [] },
+            ],
+          };
+          window.defaultBook = { id: 'book-a', title: 'Book A', totalWords: 10 };
+          window.learningBooks = [
+            { id: 'book-a', title: 'Book A', totalWords: 10, learnedWords: 0, isLearning: true, isDefault: true, categoryLabel: '通用' },
+            { id: 'book-b', title: 'Book B', totalWords: 20, learnedWords: 0, isLearning: true, isDefault: false, categoryLabel: '通用' },
+          ];
+          window.dashboardWordReads = [];
+          window.dashboardWordResolvers = [];
+          window.delayNextDashboardWords = false;
+          window.failBookBWordReads = 1;
+          window.resolveDashboardWordRead = (bookId, response) => {
+            const index = window.dashboardWordResolvers.findIndex((item) => item.bookId === bookId);
+            if (index < 0) throw new Error('No pending word-list request for ' + bookId);
+            window.dashboardWordResolvers.splice(index, 1)[0].resolve(response);
+          };
           window.studyPlansReadCount = 0;
           window.failStudyPlansReads = localStorage.getItem('lexloop.test.plan-read-failed') ? 0 : 1;
           window.studyPlanCreateAttempts = [];
@@ -210,9 +233,33 @@ test(
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
-            if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+            if (path.includes('/api/v1/vocabulary/default')) return Response.json(window.defaultBook);
+            if (path.endsWith('/api/v1/vocabulary/learning')) return Response.json(window.learningBooks);
+            if (path.endsWith('/api/v1/vocabulary/system')) return Response.json({ categories: [], books: [] });
+            const bookActivation = path.split('/api/v1/vocabulary/books/')[1]?.split('/');
+            if (bookActivation?.length === 2 && ['start', 'continue'].includes(bookActivation[1]) && method === 'POST') {
+              window.defaultBook = bookActivation[0] === 'book-b'
+                ? { id: 'book-b', title: 'Book B', totalWords: 20 }
+                : { id: 'book-a', title: 'Book A', totalWords: 10 };
+              return Response.json(window.defaultBook);
+            }
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
-            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 1, reviewWords: [], newWords: [{ id: 'word-new', word: 'take', part: 'vt.', meaning: '拿；取' }] });
+            if (path.includes('/api/v1/vocabulary/dashboard-words')) {
+              const bookId = window.defaultBook?.id ?? null;
+              const newWordCount = new URL(path, location.href).searchParams.get('newWordCount');
+              window.dashboardWordReads.push({ bookId, newWordCount });
+              if (window.delayNextDashboardWords) {
+                window.delayNextDashboardWords = false;
+                return new Promise((resolve) => window.dashboardWordResolvers.push({ bookId, resolve }));
+              }
+              if (bookId === 'book-b' && window.failBookBWordReads > 0) {
+                window.failBookBWordReads--;
+                return Response.json({ message: '切换词表后单词加载失败' }, { status: 503 });
+              }
+              return Response.json(bookId === 'book-b'
+                ? { defaultNewWordCount: 2, reviewWords: [], newWords: [{ id: 'book-b-word-1', word: 'adapt', part: 'vt.', meaning: '适应' }, { id: 'book-b-word-2', word: 'consider', part: 'vt.', meaning: '考虑' }] }
+                : { defaultNewWordCount: 1, reviewWords: [], newWords: [{ id: 'word-new', word: 'take', part: 'vt.', meaning: '拿；取' }] });
+            }
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], hasMore: false });
             if (path.includes('/api/v1/mistakes?')) {
@@ -233,7 +280,7 @@ test(
               if (window.delayStudyPlanCreate) {
                 return new Promise((resolve) => window.studyPlanCreateResolvers.push(resolve));
               }
-              return Response.json(window.studyPlanResponse);
+              return Response.json(window.planCreateResponse);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
               window.studyPlansReadCount++;
@@ -281,6 +328,47 @@ test(
         'document.querySelector(".create") && !document.querySelector(".create").disabled',
       );
       assert.equal(await evaluate('window.studyPlanCreateAttempts.length'), 0);
+      await evaluate(`window.delayNextDashboardWords = true;
+        document.querySelector('.add-three-words').click();`);
+      await until('window.dashboardWordResolvers.some((item) => item.bookId === "book-a")');
+      await evaluate('document.querySelector(".switch-book").click()');
+      await until('document.querySelector(".book-drawer")');
+      await until(
+        '[...document.querySelectorAll(".book-choice")].some((card) => card.textContent.includes("Book B"))',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book B")).querySelector("button").click()',
+      );
+      await until(
+        'window.dashboardWordReads.some((item) => item.bookId === "book-b") && document.querySelector(".words-load-error")',
+      );
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent)',
+        ),
+        [],
+      );
+      await evaluate('document.querySelector(".book-drawer header button").click()');
+      await until('document.querySelector(".book-drawer") === null');
+      await evaluate('document.querySelector(".words-load-error button").click()');
+      await until(
+        'document.querySelectorAll(".word-row strong").length === 2 && document.querySelector(".word-row strong")?.textContent === "adapt"',
+      );
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), false);
+      await evaluate(`window.resolveDashboardWordRead("book-a", Response.json({
+        defaultNewWordCount: 1,
+        reviewWords: [],
+        newWords: [{ id: 'stale-word', word: 'stale-a-word', part: 'adj.', meaning: '过期内容' }],
+      }))`);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent)',
+        ),
+        ['adapt', 'consider'],
+      );
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), false);
       await evaluate(`window.delayStudyPlanCreate = true;
         document.querySelector('.create').click();
         document.querySelector('.create').click();`);
@@ -302,9 +390,14 @@ test(
       await evaluate(`document.querySelector('.create').click();
         document.querySelector('.create').click();`);
       await until('window.studyPlanCreateAttempts.length === 2');
+      assert.equal(await evaluate('window.studyPlanCreateAttempts[1].newWordCount'), 2);
       assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
-      await evaluate('window.resolveStudyPlanCreate(Response.json(window.studyPlanResponse))');
+      await evaluate('window.resolveStudyPlanCreate(Response.json(window.planCreateResponse))');
       await until('document.querySelector(".plan-preview-layer")');
+      assert.equal(
+        await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
+        'adapt',
+      );
       assert.equal(
         await evaluate(
           'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("开始今天的挑战")',

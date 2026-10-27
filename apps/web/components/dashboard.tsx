@@ -166,9 +166,13 @@ const WORD_TONES = [
 ] as const;
 
 function splitPlanWords(words: Word[]) {
-  const indexes = [...new Set(words.map((word, index) => word.groupIndex ?? Math.floor(index / GROUP_WORD_LIMIT)))];
+  const indexes = [
+    ...new Set(words.map((word, index) => word.groupIndex ?? Math.floor(index / GROUP_WORD_LIMIT))),
+  ];
   return indexes.map((groupIndex) =>
-    words.filter((word, index) => (word.groupIndex ?? Math.floor(index / GROUP_WORD_LIMIT)) === groupIndex),
+    words.filter(
+      (word, index) => (word.groupIndex ?? Math.floor(index / GROUP_WORD_LIMIT)) === groupIndex,
+    ),
   );
 }
 function wordTone(index: number) {
@@ -256,9 +260,17 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [page, setPage] = useState<'study' | 'travel' | 'assessment' | 'learning' | 'mistakes' | 'mastered' | 'history' | 'statistics' | 'settings'>(
-    'study',
-  );
+  const [page, setPage] = useState<
+    | 'study'
+    | 'travel'
+    | 'assessment'
+    | 'learning'
+    | 'mistakes'
+    | 'mastered'
+    | 'history'
+    | 'statistics'
+    | 'settings'
+  >('study');
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
   const [currentBook, setCurrentBook] = useState<{
@@ -266,7 +278,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     title: string;
     totalWords: number;
   } | null>(null);
-  const [progressSummary, setProgressSummary] = useState({ totalWords: 0, masteredWords: 0, progress: 0 });
+  const [progressSummary, setProgressSummary] = useState({
+    totalWords: 0,
+    masteredWords: 0,
+    progress: 0,
+  });
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const currentUserIdRef = useRef(session.user.id);
@@ -304,7 +320,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       '/vocabulary/progress-summary',
       {},
       session.accessToken,
-    ).then(setProgressSummary).catch(() => setProgressSummary({ totalWords: 0, masteredWords: 0, progress: 0 }));
+    )
+      .then(setProgressSummary)
+      .catch(() => setProgressSummary({ totalWords: 0, masteredWords: 0, progress: 0 }));
   }, [session.accessToken, plans, progressRevision]);
 
   useEffect(() => {
@@ -402,7 +420,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           </button>
           <button
             className={`nav-item nav-button ${page === 'travel' || page === 'assessment' ? 'active' : ''}`}
-            onClick={() => { setPage('travel'); setSidebarOpen(false); }}
+            onClick={() => {
+              setPage('travel');
+              setSidebarOpen(false);
+            }}
           >
             <PlaneTakeoff size={16} />
             <span>场景口语</span>
@@ -411,11 +432,26 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <Swords size={16} />
             <span>地下词环</span>
           </a>
-          <a className="nav-item" href="/dashboard/notebook"><BookOpen size={16}/><span>生词本与收藏</span></a>
-          <a className="nav-item" href="/dashboard/micro-stories"><BookOpen size={16}/><span>一分钟微故事</span></a>
-          <a className="nav-item" href="/dashboard/notebook?tab=reading"><BookOpen size={16}/><span>生词短文精读</span></a>
-          <a className="nav-item" href="/dashboard/notebook?tab=grammar"><Sparkles size={16}/><span>语法薄弱项专项</span></a>
-          <a className="nav-item" href="/dashboard/practice?tab=output"><Sparkles size={16}/><span>学习专项与处方</span></a>
+          <a className="nav-item" href="/dashboard/notebook">
+            <BookOpen size={16} />
+            <span>生词本与收藏</span>
+          </a>
+          <a className="nav-item" href="/dashboard/micro-stories">
+            <BookOpen size={16} />
+            <span>一分钟微故事</span>
+          </a>
+          <a className="nav-item" href="/dashboard/notebook?tab=reading">
+            <BookOpen size={16} />
+            <span>生词短文精读</span>
+          </a>
+          <a className="nav-item" href="/dashboard/notebook?tab=grammar">
+            <Sparkles size={16} />
+            <span>语法薄弱项专项</span>
+          </a>
+          <a className="nav-item" href="/dashboard/practice?tab=output">
+            <Sparkles size={16} />
+            <span>学习专项与处方</span>
+          </a>
           <div className="nav-group">
             <a className="nav-item" href="#words">
               <BookOpen size={16} />
@@ -536,7 +572,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             session={session}
             onBack={() => setLessonPlanId(null)}
             onOpenMistakes={() => setPage('mistakes')}
-            onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined}
+            onOpenTutorSettings={
+              session.user.role === 'ADMIN'
+                ? () => {
+                    setSettingsSection('system');
+                    setPage('settings');
+                  }
+                : undefined
+            }
             onPlanUpdated={(updated) =>
               setPlans((current) =>
                 current.map((plan) =>
@@ -602,6 +645,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             {activeTab === 'words' && (
               <WordsPanel
                 session={session}
+                bookId={currentBook?.id ?? null}
                 onCreatePlan={openPlanPreview}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
@@ -609,7 +653,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             )}
             {activeTab === 'plan' && visiblePlansStatus === 'ready' && (
               <PlanPanel
-                plan={visiblePlans.find((plan) => plan.status === 'ACTIVE' || plan.status === 'GENERATING') ?? null}
+                plan={
+                  visiblePlans.find(
+                    (plan) => plan.status === 'ACTIVE' || plan.status === 'GENERATING',
+                  ) ?? null
+                }
                 onContinue={(id) => setLessonPlanId(id)}
               />
             )}
@@ -622,14 +670,30 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             )}
           </div>
         ) : page === 'travel' || page === 'assessment' ? (
-          <TravelScenarioPage session={session} startWithAssessment={page === 'assessment'} onBack={() => setPage('study')} />
+          <TravelScenarioPage
+            session={session}
+            startWithAssessment={page === 'assessment'}
+            onBack={() => setPage('study')}
+          />
         ) : page === 'learning' ? (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
         ) : page === 'mistakes' ? (
-          <MistakesPage session={session} onBack={() => setPage('study')} onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined} onPlanCreated={(plan) => {
-            setPlans((current) => [plan, ...current.filter(item => item.id !== plan.id)]);
-            openPlanPreview(plan);
-          }}/>
+          <MistakesPage
+            session={session}
+            onBack={() => setPage('study')}
+            onOpenTutorSettings={
+              session.user.role === 'ADMIN'
+                ? () => {
+                    setSettingsSection('system');
+                    setPage('settings');
+                  }
+                : undefined
+            }
+            onPlanCreated={(plan) => {
+              setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
+              openPlanPreview(plan);
+            }}
+          />
         ) : page === 'mastered' ? (
           <MasteredWordsPage
             session={session}
@@ -654,7 +718,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               if (target === 'mistakes') setPage('mistakes');
               else if (target === 'assessment') setPage('assessment');
               else if (target === 'travel') setPage('travel');
-              else { setActiveTab('words'); setPage('study'); }
+              else {
+                setActiveTab('words');
+                setPage('study');
+              }
             }}
           />
         ) : (
@@ -889,13 +956,21 @@ function StreakCard({ session }: { session: Session }) {
 
   useEffect(() => {
     let active = true;
-    request<LearningStreakSummary>(`/reports/streak?timeZone=${encodeURIComponent(browserTimeZone())}`, {}, session.accessToken)
-      .then(result => {
+    request<LearningStreakSummary>(
+      `/reports/streak?timeZone=${encodeURIComponent(browserTimeZone())}`,
+      {},
+      session.accessToken,
+    )
+      .then((result) => {
         if (!isLearningStreakSummary(result)) throw new Error('Invalid learning streak response');
         if (active) setSummary(result);
       })
-      .catch(() => { if (active) setFailed(true); });
-    return () => { active = false; };
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
   }, [session.accessToken]);
 
   return (
@@ -908,7 +983,13 @@ function StreakCard({ session }: { session: Session }) {
               <Flame size={18} />
             </div>
             <p role="status">
-              {!summary ? failed ? '学习记录暂时无法加载。' : '正在读取真实学习记录…' : summary.todayActive ? '今天已有学习记录。' : '今天还没有已完成的学习活动。'}
+              {!summary
+                ? failed
+                  ? '学习记录暂时无法加载。'
+                  : '正在读取真实学习记录…'
+                : summary.todayActive
+                  ? '今天已有学习记录。'
+                  : '今天还没有已完成的学习活动。'}
             </p>
             <a className="streak-start-link" href="/dashboard/micro-stories">
               <BookOpen size={17} aria-hidden="true" />
@@ -928,10 +1009,13 @@ function StreakCard({ session }: { session: Session }) {
 }
 
 function isLearningStreakSummary(value: unknown): value is LearningStreakSummary {
-  return typeof value === 'object' && value !== null &&
+  return (
+    typeof value === 'object' &&
+    value !== null &&
     Number.isSafeInteger((value as LearningStreakSummary).currentStreak) &&
     (value as LearningStreakSummary).currentStreak >= 0 &&
-    typeof (value as LearningStreakSummary).todayActive === 'boolean';
+    typeof (value as LearningStreakSummary).todayActive === 'boolean'
+  );
 }
 
 function AccountMenu({
@@ -1248,12 +1332,12 @@ function AccountSettings({
     setClearing(true);
     setClearMessage('');
     try {
-      await request(
-        '/vocabulary/learning-records',
-        { method: 'DELETE' },
-        session.accessToken,
-      );
-      try { localStorage.removeItem(`lexloop.output.draft.${session.user.id}`); } catch { /* Storage is optional. */ }
+      await request('/vocabulary/learning-records', { method: 'DELETE' }, session.accessToken);
+      try {
+        localStorage.removeItem(`lexloop.output.draft.${session.user.id}`);
+      } catch {
+        /* Storage is optional. */
+      }
       clearMicroStoryDrafts(session.user.id);
       onLearningReset();
       setClearDialogOpen(false);
@@ -1350,37 +1434,80 @@ function AccountSettings({
               <div>
                 <span>危险操作</span>
                 <h3 id="learning-danger-title">清理学习记录</h3>
-                <p>清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、个人生词本、精读与语法专项记录、微故事进度及理解偏差、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的 AI 内容都会保留。</p>
+                <p>
+                  清除所有个人学习计划、旅行场景会话、水平测评、答题结果、复习排期、个人生词本、精读与语法专项记录、微故事进度及理解偏差、学习中及已掌握单词。账号、系统词书、模型、偏好设置和可复用的
+                  AI 内容都会保留。
+                </p>
               </div>
-              <button type="button" onClick={() => {
-                setClearMessage('');
-                setClearDialogOpen(true);
-              }}>
-                <Trash2 size={18}/>
+              <button
+                type="button"
+                onClick={() => {
+                  setClearMessage('');
+                  setClearDialogOpen(true);
+                }}
+              >
+                <Trash2 size={18} />
                 清理学习记录
               </button>
             </section>
-            {clearMessage && <p className={clearMessage.startsWith('学习记录已') ? 'settings-clear-success' : 'settings-clear-error'}>{clearMessage}</p>}
+            {clearMessage && (
+              <p
+                className={
+                  clearMessage.startsWith('学习记录已')
+                    ? 'settings-clear-success'
+                    : 'settings-clear-error'
+                }
+              >
+                {clearMessage}
+              </p>
+            )}
           </section>
         )}
       </div>
       {clearDialogOpen && (
-        <div className="learning-clear-layer" role="dialog" aria-modal="true" aria-labelledby="learning-clear-title">
-          <button className="learning-clear-scrim" aria-label="取消清理" onClick={() => !clearing && setClearDialogOpen(false)}/>
+        <div
+          className="learning-clear-layer"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="learning-clear-title"
+        >
+          <button
+            className="learning-clear-scrim"
+            aria-label="取消清理"
+            onClick={() => !clearing && setClearDialogOpen(false)}
+          />
           <section className="learning-clear-dialog">
-            <span className="learning-clear-icon"><AlertTriangle size={29}/></span>
+            <span className="learning-clear-icon">
+              <AlertTriangle size={29} />
+            </span>
             <p>DANGER ZONE</p>
             <h2 id="learning-clear-title">确认清理全部学习记录？</h2>
             <div>
               <strong>此操作无法撤销</strong>
-              <span>当前学习序列、输出挑战、易混词训练、旅行场景、水平画像、旅行生词、历史答题、复习时间、统计数据和已掌握状态都会被清空。</span>
-              <small>账号、已添加词书、大模型配置、每日新词数量以及公共 AI 阅读材料与题目不会改变。</small>
+              <span>
+                当前学习序列、输出挑战、易混词训练、旅行场景、水平画像、旅行生词、历史答题、复习时间、统计数据和已掌握状态都会被清空。
+              </span>
+              <small>
+                账号、已添加词书、大模型配置、每日新词数量以及公共 AI 阅读材料与题目不会改变。
+              </small>
             </div>
             {clearMessage && <p className="settings-clear-error">{clearMessage}</p>}
             <footer>
-              <button type="button" className="secondary" disabled={clearing} onClick={() => setClearDialogOpen(false)}>取消</button>
-              <button type="button" className="confirm-danger" disabled={clearing} onClick={() => void clearLearningRecords()}>
-                <Trash2 size={17}/>
+              <button
+                type="button"
+                className="secondary"
+                disabled={clearing}
+                onClick={() => setClearDialogOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="confirm-danger"
+                disabled={clearing}
+                onClick={() => void clearLearningRecords()}
+              >
+                <Trash2 size={17} />
                 {clearing ? '正在清理…' : '确认全部清理'}
               </button>
             </footer>
@@ -1452,11 +1579,13 @@ function Metric({
 
 function WordsPanel({
   session,
+  bookId,
   onCreatePlan,
   planListReady,
   onProgressChanged,
 }: {
   session: Session;
+  bookId: string | null;
   onCreatePlan: (plan: LearningPlan) => void;
   planListReady: boolean;
   onProgressChanged: () => void;
@@ -1471,11 +1600,24 @@ function WordsPanel({
   });
   const [displayNewWordCount, setDisplayNewWordCount] = useState<number>();
   const [message, setMessage] = useState('');
+  const [loadedBookId, setLoadedBookId] = useState<string | null>(null);
+  const [wordsLoadStatus, setWordsLoadStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [wordsLoadError, setWordsLoadError] = useState('');
+  const [failedWordCount, setFailedWordCount] = useState<number>();
+  const wordsLoadRequestRef = useRef(0);
   const [creatingPlan, setCreatingPlan] = useState(false);
   const creatingPlanRef = useRef(false);
-  const newWordCount = displayNewWordCount ?? dashboardWords.defaultNewWordCount;
+  const bookWordsReady = bookId !== null && loadedBookId === bookId && wordsLoadStatus === 'ready';
+  const visibleDashboardWords = bookWordsReady
+    ? dashboardWords
+    : { defaultNewWordCount: dashboardWords.defaultNewWordCount, reviewWords: [], newWords: [] };
+  const newWordCount = displayNewWordCount ?? visibleDashboardWords.defaultNewWordCount;
   const loadWords = useCallback(
     async (count?: number) => {
+      const requestId = ++wordsLoadRequestRef.current;
+      setWordsLoadStatus('loading');
+      setWordsLoadError('');
+      setFailedWordCount(undefined);
       try {
         const query = count ? `?newWordCount=${count}` : '';
         const next = await request<DashboardWords>(
@@ -1483,17 +1625,26 @@ function WordsPanel({
           {},
           session.accessToken,
         );
+        if (requestId !== wordsLoadRequestRef.current) return;
         setDashboardWords(next);
         setDisplayNewWordCount(count ?? next.defaultNewWordCount);
+        setLoadedBookId(bookId);
+        setWordsLoadStatus('ready');
         setMessage('');
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : '学习词汇加载失败');
+        if (requestId !== wordsLoadRequestRef.current) return;
+        setWordsLoadError(error instanceof Error ? error.message : '学习词汇加载失败');
+        setFailedWordCount(count);
+        setWordsLoadStatus('failed');
       }
     },
-    [session.accessToken],
+    [bookId, session.accessToken],
   );
   useEffect(() => {
     void loadWords();
+    return () => {
+      wordsLoadRequestRef.current++;
+    };
   }, [loadWords]);
   const removeNewWord = (wordId: string) => {
     setDashboardWords((current) => ({
@@ -1504,11 +1655,11 @@ function WordsPanel({
       Math.max(0, (current ?? dashboardWords.defaultNewWordCount) - 1),
     );
   };
-  const reviewCount = dashboardWords.reviewWords.length;
+  const reviewCount = visibleDashboardWords.reviewWords.length;
   const totalWordCount = reviewCount + newWordCount;
   const reviewShare = totalWordCount ? `${(reviewCount / totalWordCount) * 100}%` : '0%';
   const createPlan = async () => {
-    if (creatingPlanRef.current) return;
+    if (creatingPlanRef.current || !bookWordsReady) return;
     creatingPlanRef.current = true;
     setCreatingPlan(true);
     try {
@@ -1516,7 +1667,7 @@ function WordsPanel({
         '/study/plans',
         {
           method: 'POST',
-          body: JSON.stringify({ newWordCount: dashboardWords.newWords.length, mode }),
+          body: JSON.stringify({ newWordCount: visibleDashboardWords.newWords.length, mode }),
         },
         session.accessToken,
       );
@@ -1581,8 +1732,9 @@ function WordsPanel({
             onClick={() => void createPlan()}
             disabled={
               creatingPlan ||
+              !bookWordsReady ||
               !planListReady ||
-              (!dashboardWords.newWords.length && !dashboardWords.reviewWords.length)
+              (!visibleDashboardWords.newWords.length && !visibleDashboardWords.reviewWords.length)
             }
           >
             <Sparkles size={15} />
@@ -1600,12 +1752,25 @@ function WordsPanel({
         </div>
       </header>
       {message && <p className="book-message">{message}</p>}
+      {wordsLoadStatus === 'loading' && (
+        <p className="book-message" role="status">
+          正在读取当前词表的单词…
+        </p>
+      )}
+      {wordsLoadError && (
+        <div className="book-message words-load-error" role="alert">
+          <span>{wordsLoadError}</span>
+          <button type="button" onClick={() => void loadWords(failedWordCount)}>
+            重试加载
+          </button>
+        </div>
+      )}
       <div className="word-columns">
         <WordColumn
           title="待复习单词"
           count={String(reviewCount)}
           icon={<ReviewWordsIcon />}
-          words={dashboardWords.reviewWords.map((word) => ({ ...word, state: 'review' }))}
+          words={visibleDashboardWords.reviewWords.map((word) => ({ ...word, state: 'review' }))}
           onMarkMastered={async (word) => {
             if (!word.id) return;
             try {
@@ -1636,9 +1801,9 @@ function WordsPanel({
         />
         <WordColumn
           title="新单词"
-          count={String(dashboardWords.newWords.length)}
+          count={String(visibleDashboardWords.newWords.length)}
           icon={<NewWordsIcon />}
-          words={dashboardWords.newWords}
+          words={visibleDashboardWords.newWords}
           isNew
           onAddThree={() => void loadWords(newWordCount + 3)}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1686,7 +1851,7 @@ function WordsPanel({
       </div>
       {settingsOpen && (
         <NewWordSettings
-          value={dashboardWords.defaultNewWordCount}
+          value={visibleDashboardWords.defaultNewWordCount}
           onCancel={() => setSettingsOpen(false)}
           onSave={async (value) => {
             try {
@@ -2227,7 +2392,15 @@ function PlanPreview({
       <section className="plan-preview">
         <header>
           <div>
-            <p>{generating || plan.status === 'GENERATING' ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…` : plan.status === 'FAILED' ? '学习计划生成失败' : plan.purpose === 'weakness' ? '薄弱词专项生成完毕' : '学习计划生成完毕'}</p>
+            <p>
+              {generating || plan.status === 'GENERATING'
+                ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…`
+                : plan.status === 'FAILED'
+                  ? '学习计划生成失败'
+                  : plan.purpose === 'weakness'
+                    ? '薄弱词专项生成完毕'
+                    : '学习计划生成完毕'}
+            </p>
             <span>
               预习第 {index + 1} / {plan.wordCount} 个单词
             </span>
@@ -2282,9 +2455,17 @@ function PlanPreview({
             {generating ? '正在重新生成…' : '重新生成学习计划'}
           </button>
         ) : (
-          <button className="start-challenge" onClick={onStart} disabled={generating || plan.status !== 'ACTIVE'}>
+          <button
+            className="start-challenge"
+            onClick={onStart}
+            disabled={generating || plan.status !== 'ACTIVE'}
+          >
             <Play size={19} />
-            {generating || plan.status === 'GENERATING' ? '题目生成中，请稍候' : plan.purpose === 'weakness' ? '开始薄弱词专项' : '开始今天的挑战'}
+            {generating || plan.status === 'GENERATING'
+              ? '题目生成中，请稍候'
+              : plan.purpose === 'weakness'
+                ? '开始薄弱词专项'
+                : '开始今天的挑战'}
           </button>
         )}
       </section>
@@ -2328,8 +2509,12 @@ function PlanPanel({
             <em style={{ width: `${progress}%` }} />
           </i>
           <button onClick={() => onContinue(plan.id)} disabled={plan.status !== 'ACTIVE'}>
-            {plan.status === 'GENERATING' ? <Sparkles size={18}/> : <BookOpen size={18} />}
-            {plan.status === 'GENERATING' ? '题目生成中' : plan.completed === plan.wordCount ? '已完成' : '继续学习'}
+            {plan.status === 'GENERATING' ? <Sparkles size={18} /> : <BookOpen size={18} />}
+            {plan.status === 'GENERATING'
+              ? '题目生成中'
+              : plan.completed === plan.wordCount
+                ? '已完成'
+                : '继续学习'}
           </button>
         </div>
       </header>
@@ -2448,8 +2633,52 @@ const SYNONYM_DEMO_OPTIONS = [
   { word: 'pamphlet', hint: 'a small booklet', correct: false },
 ];
 
-function SynonymDemo({ word, result, onAnswer }: { word: Word; result: boolean | undefined; onAnswer: (correct: boolean) => void }) {
-  return <article className={`exercise-card synonym-demo ${result !== undefined ? 'is-answered' : ''}`}><span className="exercise-kind">同义替换</span><h3>In the sentence, &quot;Have you read that interesting <mark>book</mark> we saw at the local cultural center?&quot;, which word best replaces <mark>book</mark> without changing the original meaning?</h3><p>先观察候选词；将鼠标停在提示区，或用键盘聚焦选项后可查看词义提示。</p><div className="synonym-options" aria-label="同义替换演示选项">{SYNONYM_DEMO_OPTIONS.map(option => <button key={option.word} className={`${result !== undefined && option.correct ? 'correct' : ''} ${result !== undefined && !option.correct ? 'muted' : ''}`} aria-label={`${option.word}，提示：${option.hint}`} disabled={result !== undefined} onClick={() => onAnswer(option.correct)}><strong>{option.word}</strong><span className="synonym-hint-trigger"><i aria-hidden="true">✳</i><span className="synonym-hint-label">悬停查看提示</span><em>{option.hint}</em></span></button>)}</div>{result !== undefined && <><strong className={result ? 'answer-feedback success' : 'answer-feedback'}>{result ? '回答正确！“volume” 可指一册书。' : '回答错误，正确答案已标出。'}</strong><WordMeaningCard word={word}/></>}</article>;
+function SynonymDemo({
+  word,
+  result,
+  onAnswer,
+}: {
+  word: Word;
+  result: boolean | undefined;
+  onAnswer: (correct: boolean) => void;
+}) {
+  return (
+    <article className={`exercise-card synonym-demo ${result !== undefined ? 'is-answered' : ''}`}>
+      <span className="exercise-kind">同义替换</span>
+      <h3>
+        In the sentence, &quot;Have you read that interesting <mark>book</mark> we saw at the local
+        cultural center?&quot;, which word best replaces <mark>book</mark> without changing the
+        original meaning?
+      </h3>
+      <p>先观察候选词；将鼠标停在提示区，或用键盘聚焦选项后可查看词义提示。</p>
+      <div className="synonym-options" aria-label="同义替换演示选项">
+        {SYNONYM_DEMO_OPTIONS.map((option) => (
+          <button
+            key={option.word}
+            className={`${result !== undefined && option.correct ? 'correct' : ''} ${result !== undefined && !option.correct ? 'muted' : ''}`}
+            aria-label={`${option.word}，提示：${option.hint}`}
+            disabled={result !== undefined}
+            onClick={() => onAnswer(option.correct)}
+          >
+            <strong>{option.word}</strong>
+            <span className="synonym-hint-trigger">
+              <i aria-hidden="true">✳</i>
+              <span className="synonym-hint-label">悬停查看提示</span>
+              <em>{option.hint}</em>
+            </span>
+          </button>
+        ))}
+      </div>
+      {result !== undefined && (
+        <>
+          <strong className={result ? 'answer-feedback success' : 'answer-feedback'}>
+            {result ? '回答正确！“volume” 可指一册书。' : '回答错误，正确答案已标出。'}
+          </strong>
+          <WordMeaningCard word={word} />
+        </>
+      )}
+    </article>
+  );
 }
 
 function GroupSettlement({
@@ -2465,7 +2694,9 @@ function GroupSettlement({
   onBack: () => void;
   onOpenMistakes?: () => void;
 }) {
-  const [scheduleClock, setScheduleClock] = useState<{ now: number; timeZone: string } | null>(null);
+  const [scheduleClock, setScheduleClock] = useState<{ now: number; timeZone: string } | null>(
+    null,
+  );
   useEffect(() => {
     const updateClock = () => setScheduleClock({ now: Date.now(), timeZone: browserTimeZone() });
     updateClock();
@@ -2482,9 +2713,13 @@ function GroupSettlement({
   );
   const scheduledWords = words
     .filter((word) => word.nextReviewAt && !Number.isNaN(new Date(word.nextReviewAt).getTime()))
-    .sort((left, right) => new Date(left.nextReviewAt!).getTime() - new Date(right.nextReviewAt!).getTime());
-  const unknownScheduleCount = words.filter((word) =>
-    word.completed && (!word.nextReviewAt || Number.isNaN(new Date(word.nextReviewAt).getTime())),
+    .sort(
+      (left, right) =>
+        new Date(left.nextReviewAt!).getTime() - new Date(right.nextReviewAt!).getTime(),
+    );
+  const unknownScheduleCount = words.filter(
+    (word) =>
+      word.completed && (!word.nextReviewAt || Number.isNaN(new Date(word.nextReviewAt).getTime())),
   ).length;
   const exerciseStats: Array<[string, number, number]> = summary?.typeStats.map((item) => [
     exerciseLabels[item.type as ExerciseType] ?? item.type,
@@ -2498,7 +2733,9 @@ function GroupSettlement({
         <div>
           <p>GROUP RECAP · 已安排复习</p>
           <h1 id="settlement-title">本组学习完成</h1>
-          <span>下方是本组首次有效作答结果，以及用户当前的排期和薄弱项状态；后两者不是本组完成时快照。</span>
+          <span>
+            下方是本组首次有效作答结果，以及用户当前的排期和薄弱项状态；后两者不是本组完成时快照。
+          </span>
         </div>
         <div className="settlement-stamp">
           <Trophy size={27} />
@@ -2535,7 +2772,8 @@ function GroupSettlement({
             <article>
               <small>学习时长</small>
               <strong>
-                {durationMinutes}<em>min</em>
+                {durationMinutes}
+                <em>min</em>
               </strong>
               <p>保持节奏，记忆会慢慢变牢。</p>
             </article>
@@ -2551,10 +2789,12 @@ function GroupSettlement({
                 <i>
                   <b
                     className={value === total ? 'is-correct' : ''}
-                    style={{ width: `${total ? Math.max(8, value / total * 100) : 8}%` }}
+                    style={{ width: `${total ? Math.max(8, (value / total) * 100) : 8}%` }}
                   />
                 </i>
-                <strong>{value}/{total} 正确</strong>
+                <strong>
+                  {value}/{total} 正确
+                </strong>
               </div>
             ))}
           </section>
@@ -2577,10 +2817,13 @@ function GroupSettlement({
                     <time dateTime={word.nextReviewAt!}>
                       {scheduleClock
                         ? `${new Date(word.nextReviewAt!).toLocaleString('zh-CN', {
-                          timeZone: scheduleClock.timeZone,
-                          year: 'numeric', month: 'numeric', day: 'numeric',
-                          hour: '2-digit', minute: '2-digit',
-                        })} (${scheduleClock.timeZone})`
+                            timeZone: scheduleClock.timeZone,
+                            year: 'numeric',
+                            month: 'numeric',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })} (${scheduleClock.timeZone})`
                         : `${new Date(word.nextReviewAt!).toISOString().slice(0, 16).replace('T', ' ')} UTC`}
                     </time>
                     <small className="settlement-schedule-state">
@@ -2594,7 +2837,9 @@ function GroupSettlement({
                 ))}
               </ul>
             ) : (
-              <p className="settlement-schedule-empty">没有有效排期时间，状态未知；这里不会推测日期或是否到期。</p>
+              <p className="settlement-schedule-empty">
+                没有有效排期时间，状态未知；这里不会推测日期或是否到期。
+              </p>
             )}
             {unknownScheduleCount > 0 && (
               <p className="settlement-schedule-empty">
@@ -2617,13 +2862,20 @@ function GroupSettlement({
                 return (
                   <article key={`${word.id ?? word.word}:${weakness.questionType}`}>
                     <strong>{word.word}</strong>
-                    <p>{typeLabel} · 累计答错 {weakness.wrongCount} 次</p>
+                    <p>
+                      {typeLabel} · 累计答错 {weakness.wrongCount} 次
+                    </p>
                     <small>
-                      连续答对 {weakness.consecutiveCorrect}/2，还需答对 {weakness.remainingCorrect} 次
+                      连续答对 {weakness.consecutiveCorrect}/2，还需答对 {weakness.remainingCorrect}{' '}
+                      次
                     </small>
-                    {matchesCurrentQuestion && word.result === false && word.question?.explanation && (
-                      <p className="settlement-weakness-explanation">本次解析：{word.question.explanation}</p>
-                    )}
+                    {matchesCurrentQuestion &&
+                      word.result === false &&
+                      word.question?.explanation && (
+                        <p className="settlement-weakness-explanation">
+                          本次解析：{word.question.explanation}
+                        </p>
+                      )}
                     {matchesCurrentQuestion && word.result === true && (
                       <p className="settlement-weakness-explanation">
                         首次提交答对了；这项当前薄弱记录仍需达到连续答对两次才会纠正。
@@ -2639,7 +2891,8 @@ function GroupSettlement({
               })
             ) : incorrect.length ? (
               <p className="settlement-all-correct">
-                本次有 {incorrect.length} 个词答错，但薄弱项状态暂未返回；请在错题本核对，不把它们视为已纠正。
+                本次有 {incorrect.length}{' '}
+                个词答错，但薄弱项状态暂未返回；请在错题本核对，不把它们视为已纠正。
               </p>
             ) : (
               <p className="settlement-all-correct">
@@ -2647,7 +2900,9 @@ function GroupSettlement({
               </p>
             )}
             {onOpenMistakes && (activeWeaknesses.length > 0 || incorrect.length > 0) && (
-              <button className="settlement-mistakes-link" onClick={onOpenMistakes}>打开错题本</button>
+              <button className="settlement-mistakes-link" onClick={onOpenMistakes}>
+                打开错题本
+              </button>
             )}
           </section>
           <section className="settlement-card settlement-note">
@@ -2708,13 +2963,14 @@ function GeneratedStudyPage({
   const firstPendingWord = activePlan?.words.find((word) => !word.completed);
   const currentGroupIndex = firstPendingWord?.groupIndex ?? Math.max(0, groups.length - 1);
   const displayGroupIndex = feedbackGroupIndex ?? currentGroupIndex;
-  const group = groups.find((item) => item.index === displayGroupIndex) ?? groups[displayGroupIndex];
-  const words = activePlan && group
-    ? activePlan.words.filter((word) => word.groupIndex === group.index)
-    : [];
-  const draftScopeKey = activePlan && group
-    ? studyDraftIdentity(session.user.id, activePlan.id, group.index, group.questions)
-    : null;
+  const group =
+    groups.find((item) => item.index === displayGroupIndex) ?? groups[displayGroupIndex];
+  const words =
+    activePlan && group ? activePlan.words.filter((word) => word.groupIndex === group.index) : [];
+  const draftScopeKey =
+    activePlan && group
+      ? studyDraftIdentity(session.user.id, activePlan.id, group.index, group.questions)
+      : null;
   useEffect(() => {
     if (!draftScopeKey || !activePlan || !group) {
       setDraftState({ scopeKey: null, answers: {}, snapshotId: null });
@@ -2731,14 +2987,23 @@ function GeneratedStudyPage({
   const draftReady = draftScopeKey !== null && draftState.scopeKey === draftScopeKey;
   const answers = draftReady ? draftState.answers : {};
   const showingFeedback = feedbackGroupIndex !== null;
-  const allAnswered = draftReady && words.every((word) => {
-    const answer = word.id ? answers[word.id] : undefined;
-    return Boolean(answer?.confirmed);
-  });
+  const allAnswered =
+    draftReady &&
+    words.every((word) => {
+      const answer = word.id ? answers[word.id] : undefined;
+      return Boolean(answer?.confirmed);
+    });
   const hasDraftAnswers = Object.keys(answers).length > 0;
 
   if (!plan?.content?.groups?.length || !activePlan || !group) {
-    return <section className="plan-empty"><Sparkles size={32}/><strong>学习内容还没有生成好</strong><p>{plan?.generationError ?? '返回预习页等待生成完成后再开始挑战。'}</p><button onClick={onBack}>返回学习序列</button></section>;
+    return (
+      <section className="plan-empty">
+        <Sparkles size={32} />
+        <strong>学习内容还没有生成好</strong>
+        <p>{plan?.generationError ?? '返回预习页等待生成完成后再开始挑战。'}</p>
+        <button onClick={onBack}>返回学习序列</button>
+      </section>
+    );
   }
 
   const recordAnswer = (question: GeneratedQuestion, selected: string[], confirmed: boolean) => {
@@ -2801,8 +3066,18 @@ function GeneratedStudyPage({
     }
   };
   if (finishedPlan && !showingFeedback) {
-    const results = Object.fromEntries(finishedPlan.words.map((word) => [word.word, word.result === true]));
-    return <GroupSettlement words={finishedPlan.words} results={results} summary={finishedPlan.summary} onBack={onBack} onOpenMistakes={onOpenMistakes}/>;
+    const results = Object.fromEntries(
+      finishedPlan.words.map((word) => [word.word, word.result === true]),
+    );
+    return (
+      <GroupSettlement
+        words={finishedPlan.words}
+        results={results}
+        summary={finishedPlan.summary}
+        onBack={onBack}
+        onOpenMistakes={onOpenMistakes}
+      />
+    );
   }
   const continueAfterFeedback = () => {
     setFeedbackGroupIndex(null);
@@ -2815,72 +3090,178 @@ function GeneratedStudyPage({
     setDraftState({ scopeKey: draftScopeKey, answers: {}, snapshotId: null });
     setDraftRevision((current) => current + 1);
   };
-  return <section className="lesson-page">
-    <header className="lesson-page-head">
-      <button onClick={onBack}><ArrowLeft size={19}/>返回学习序列</button>
-      <div><span>{activePlan.purpose === 'weakness' ? '薄弱词专项' : `${modeLabel[activePlan.mode]} · 正常模式`}</span><strong>第 {group.index + 1} / {activePlan.groupCount} {activePlan.mode === 'individual' ? '篇' : '组'}</strong></div>
-      <b>{activePlan.completed}/{activePlan.wordCount} 已完成</b>
-    </header>
-    <div className="lesson-layout">
-      <main>
-        <section className="lesson-section">
-          <header><BookOpen size={19}/><h1>阅读材料</h1></header>
-          <article className="reading-card">
-            <div className="lesson-word-chips">
-              {words.map((word, index) => <span key={word.id} style={wordTone(index)}>{word.word}<b>{group.wordOccurrences[word.word] ?? 1}</b></span>)}
+  return (
+    <section className="lesson-page">
+      <header className="lesson-page-head">
+        <button onClick={onBack}>
+          <ArrowLeft size={19} />
+          返回学习序列
+        </button>
+        <div>
+          <span>
+            {activePlan.purpose === 'weakness'
+              ? '薄弱词专项'
+              : `${modeLabel[activePlan.mode]} · 正常模式`}
+          </span>
+          <strong>
+            第 {group.index + 1} / {activePlan.groupCount}{' '}
+            {activePlan.mode === 'individual' ? '篇' : '组'}
+          </strong>
+        </div>
+        <b>
+          {activePlan.completed}/{activePlan.wordCount} 已完成
+        </b>
+      </header>
+      <div className="lesson-layout">
+        <main>
+          <section className="lesson-section">
+            <header>
+              <BookOpen size={19} />
+              <h1>阅读材料</h1>
+            </header>
+            <article className="reading-card">
+              <div className="lesson-word-chips">
+                {words.map((word, index) => (
+                  <span key={word.id} style={wordTone(index)}>
+                    {word.word}
+                    <b>{group.wordOccurrences[word.word] ?? 1}</b>
+                  </span>
+                ))}
+              </div>
+              <h2>{group.title}</h2>
+              <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
+              <GeneratedReadingContent
+                session={session}
+                key={group.index}
+                sentences={group.sentences}
+                words={words}
+              />
+              <small>Powered by Lexloop AI</small>
+            </article>
+          </section>
+          <section className="lesson-section exercises">
+            <header>
+              <Sparkles size={19} />
+              <h2>练习题</h2>
+            </header>
+            {group.questions.map((question, index) => {
+              const word = words.find((item) => item.id === question.bookWordId);
+              if (!word) return null;
+              return (
+                <GeneratedQuestionCard
+                  key={`${question.bookWordId}:${draftRevision}`}
+                  question={question}
+                  word={word}
+                  toneIndex={index}
+                  answer={answers[question.bookWordId]}
+                  busy={!draftReady || submitting || showingFeedback}
+                  revealed={showingFeedback}
+                  onAnswer={(selected, confirmed) => recordAnswer(question, selected, confirmed)}
+                />
+              );
+            })}
+            <div className="lesson-draft-actions">
+              {hasDraftAnswers && !showingFeedback && (
+                <>
+                  <span className="lesson-draft-note">
+                    恢复草稿依赖此浏览器的本地存储，不跨设备同步。
+                  </span>
+                  <button
+                    type="button"
+                    className="lesson-draft-clear"
+                    disabled={submitting}
+                    onClick={discardDraft}
+                  >
+                    清空本组作答
+                  </button>
+                </>
+              )}
+              <button
+                className="check-matches"
+                disabled={!showingFeedback && (!allAnswered || submitting)}
+                onClick={() => (showingFeedback ? continueAfterFeedback() : void completeGroup())}
+              >
+                {showingFeedback
+                  ? finishedPlan
+                    ? '查看今日总结'
+                    : `继续下一${activePlan.mode === 'individual' ? '篇' : '组'}`
+                  : submitting
+                    ? '正在记录学习结果…'
+                    : '提交本组并查看答案'}
+              </button>
             </div>
-            <h2>{group.title}</h2>
-            <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
-            <GeneratedReadingContent session={session} key={group.index} sentences={group.sentences} words={words}/>
-            <small>Powered by Lexloop AI</small>
-          </article>
-        </section>
-        <section className="lesson-section exercises">
-          <header><Sparkles size={19}/><h2>练习题</h2></header>
-          {group.questions.map((question, index) => {
-            const word = words.find((item) => item.id === question.bookWordId);
-            if (!word) return null;
-            return <GeneratedQuestionCard
-              key={`${question.bookWordId}:${draftRevision}`}
-              question={question}
-              word={word}
-              toneIndex={index}
-              answer={answers[question.bookWordId]}
-              busy={!draftReady || submitting || showingFeedback}
-              revealed={showingFeedback}
-              onAnswer={(selected, confirmed) => recordAnswer(question, selected, confirmed)}
-            />;
-          })}
-          <div className="lesson-draft-actions">
-            {hasDraftAnswers && !showingFeedback && <>
-              <span className="lesson-draft-note">恢复草稿依赖此浏览器的本地存储，不跨设备同步。</span>
-              <button type="button" className="lesson-draft-clear" disabled={submitting} onClick={discardDraft}>清空本组作答</button>
-            </>}
-            <button className="check-matches" disabled={!showingFeedback && (!allAnswered || submitting)} onClick={() => showingFeedback ? continueAfterFeedback() : void completeGroup()}>
+          </section>
+        </main>
+        <aside className="lesson-side">
+          <section>
+            <h2>本组学习单词</h2>
+            {words.map((word, index) => (
+              <button key={word.id} style={wordTone(index)}>
+                <b>{index + 1}</b>
+                <span>
+                  <strong>{word.word}</strong>
+                  <small>{word.meaning.split('｜')[0]}</small>
+                </span>
+              </button>
+            ))}
+          </section>
+          <section className="exercise-progress">
+            <h2>练习题</h2>
+            {words.map((word) => {
+              const answer = word.id ? answers[word.id] : undefined;
+              const question = group.questions.find((item) => item.bookWordId === word.id);
+              const questionAnswer =
+                answer && showingFeedback && question
+                  ? gradeGeneratedAnswer(question, answer.selected)
+                  : undefined;
+              return (
+                <div
+                  className={
+                    questionAnswer === undefined ? '' : questionAnswer ? 'is-correct' : 'is-wrong'
+                  }
+                  key={word.id}
+                >
+                  {questionAnswer === undefined ? (
+                    <Circle size={25} />
+                  ) : questionAnswer ? (
+                    <CheckCircle2 size={25} />
+                  ) : (
+                    <CircleX size={25} />
+                  )}
+                  <strong>{word.word}</strong>
+                  <span>{question ? exerciseLabels[question.type] : '练习题'}</span>
+                </div>
+              );
+            })}
+            <p>
               {showingFeedback
-                ? finishedPlan ? '查看今日总结' : `继续下一${activePlan.mode === 'individual' ? '篇' : '组'}`
-                : submitting ? '正在记录学习结果…' : '提交本组并查看答案'}
-            </button>
-          </div>
-        </section>
-      </main>
-      <aside className="lesson-side">
-        <section><h2>本组学习单词</h2>{words.map((word, index) => <button key={word.id} style={wordTone(index)}><b>{index + 1}</b><span><strong>{word.word}</strong><small>{word.meaning.split('｜')[0]}</small></span></button>)}</section>
-        <section className="exercise-progress"><h2>练习题</h2>{words.map((word) => {
-          const answer = word.id ? answers[word.id] : undefined;
-          const question = group.questions.find((item) => item.bookWordId === word.id);
-          const questionAnswer = answer && showingFeedback && question
-            ? gradeGeneratedAnswer(question, answer.selected)
-            : undefined;
-          return <div className={questionAnswer === undefined ? '' : questionAnswer ? 'is-correct' : 'is-wrong'} key={word.id}>{questionAnswer === undefined ? <Circle size={25}/> : questionAnswer ? <CheckCircle2 size={25}/> : <CircleX size={25}/>}<strong>{word.word}</strong><span>{question ? exerciseLabels[question.type] : '练习题'}</span></div>;
-        })}<p>{showingFeedback ? '答案与解析已揭晓，可以结合刚才的选择回顾。' : allAnswered ? '本组已作答，提交后查看答案与解析。' : '完成所有练习题后即可提交'}</p></section>
-        <TutorPanel session={session} context={{ type: 'STUDY_GROUP', planId: activePlan.id, groupIndex: group.index }} compact onOpenSettings={onOpenTutorSettings}/>
-      </aside>
-    </div>
-  </section>;
+                ? '答案与解析已揭晓，可以结合刚才的选择回顾。'
+                : allAnswered
+                  ? '本组已作答，提交后查看答案与解析。'
+                  : '完成所有练习题后即可提交'}
+            </p>
+          </section>
+          <TutorPanel
+            session={session}
+            context={{ type: 'STUDY_GROUP', planId: activePlan.id, groupIndex: group.index }}
+            compact
+            onOpenSettings={onOpenTutorSettings}
+          />
+        </aside>
+      </div>
+    </section>
+  );
 }
 
-function GeneratedReadingContent({ sentences, words, session }: { sentences: ReadingSentence[]; words: Word[]; session: Session }) {
+function GeneratedReadingContent({
+  sentences,
+  words,
+  session,
+}: {
+  sentences: ReadingSentence[];
+  words: Word[];
+  session: Session;
+}) {
   type Detail = 'translation' | 'grammar' | 'simplified';
   const [sentenceMode, setSentenceMode] = useState(false);
   const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
@@ -2889,60 +3270,162 @@ function GeneratedReadingContent({ sentences, words, session }: { sentences: Rea
     window.speechSynthesis?.cancel();
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
   };
-  const toggleDetail = (index: number, detail: Detail) => setSentenceDetails((current) => ({
-    ...current,
-    [index]: current[index] === detail ? undefined : detail,
-  }));
+  const toggleDetail = (index: number, detail: Detail) =>
+    setSentenceDetails((current) => ({
+      ...current,
+      [index]: current[index] === detail ? undefined : detail,
+    }));
   const detailText = (sentence: ReadingSentence, detail?: Detail) => {
     if (detail === 'translation') return sentence.chinese;
     if (detail === 'simplified') return sentence.simplified;
-    if (detail === 'grammar') return sentence.grammar?.trim() || '句子结构提示：先找主语和谓语，再结合上下文判断目标词在句中的作用。';
+    if (detail === 'grammar')
+      return (
+        sentence.grammar?.trim() ||
+        '句子结构提示：先找主语和谓语，再结合上下文判断目标词在句中的作用。'
+      );
     return '';
   };
-  return <>
-    <div className="reading-tools generated-reading-tools">
-      <button aria-label={sentenceMode ? '收起分句阅读' : '展开分句阅读'} aria-pressed={sentenceMode} data-tip={sentenceMode ? '收起分句阅读' : '展开分句阅读'} onClick={() => setSentenceMode((value) => !value)}>☰</button>
-      <button aria-label="翻译全文" aria-pressed={fullDetail === 'translation'} data-tip="翻译全文" onClick={() => setFullDetail((value) => value === 'translation' ? 'none' : 'translation')}>译</button>
-      <button aria-label="简化全文" aria-pressed={fullDetail === 'simplified'} data-tip="简化全文" onClick={() => setFullDetail((value) => value === 'simplified' ? 'none' : 'simplified')}>✦</button>
-      <button aria-label="朗读全文" data-tip="朗读全文" onClick={() => speak(sentences.map((sentence) => sentence.english).join(' '))}><Volume2 size={18}/></button>
-    </div>
-    <CollectWordForm session={session} sourceType="READING" source="分组阅读" example={sentences[0]?.english ?? ''} />
-    <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
-      {sentences.map((sentence, index) => <article className={sentenceMode ? 'sentence-line' : ''} key={index}>
-        <p>{sentenceMode && <b>{index + 1}. </b>}<HighlightedSentence text={sentence.english} words={words}/></p>
-        {sentenceMode && <div className="sentence-tools" aria-label={`第 ${index + 1} 句操作`}>
-          <button aria-label="复制" data-tip="复制" onClick={() => void navigator.clipboard?.writeText(sentence.english)}><Copy size={16}/></button>
-          <button aria-label="翻译" aria-pressed={sentenceDetails[index] === 'translation'} data-tip="翻译" onClick={() => toggleDetail(index, 'translation')}>译</button>
-          <button aria-label="语法分析" aria-pressed={sentenceDetails[index] === 'grammar'} data-tip="语法分析" onClick={() => toggleDetail(index, 'grammar')}>⌕</button>
-          <button aria-label="简化" aria-pressed={sentenceDetails[index] === 'simplified'} data-tip="简化" onClick={() => toggleDetail(index, 'simplified')}>✦</button>
-          <button aria-label="朗读" data-tip="朗读" onClick={() => speak(sentence.english)}><Volume2 size={16}/></button>
-        </div>}
-        {sentenceMode && sentenceDetails[index] && <small className={`sentence-detail is-${sentenceDetails[index]}`}>{detailText(sentence, sentenceDetails[index])}</small>}
-      </article>)}
-    </div>
-    {!sentenceMode && fullDetail !== 'none' && <p className={fullDetail === 'translation' ? 'reading-translation' : 'reading-simple'}>
-      {sentences.map((sentence) => fullDetail === 'translation' ? sentence.chinese : sentence.simplified).join('')}
-    </p>}
-  </>;
+  return (
+    <>
+      <div className="reading-tools generated-reading-tools">
+        <button
+          aria-label={sentenceMode ? '收起分句阅读' : '展开分句阅读'}
+          aria-pressed={sentenceMode}
+          data-tip={sentenceMode ? '收起分句阅读' : '展开分句阅读'}
+          onClick={() => setSentenceMode((value) => !value)}
+        >
+          ☰
+        </button>
+        <button
+          aria-label="翻译全文"
+          aria-pressed={fullDetail === 'translation'}
+          data-tip="翻译全文"
+          onClick={() =>
+            setFullDetail((value) => (value === 'translation' ? 'none' : 'translation'))
+          }
+        >
+          译
+        </button>
+        <button
+          aria-label="简化全文"
+          aria-pressed={fullDetail === 'simplified'}
+          data-tip="简化全文"
+          onClick={() => setFullDetail((value) => (value === 'simplified' ? 'none' : 'simplified'))}
+        >
+          ✦
+        </button>
+        <button
+          aria-label="朗读全文"
+          data-tip="朗读全文"
+          onClick={() => speak(sentences.map((sentence) => sentence.english).join(' '))}
+        >
+          <Volume2 size={18} />
+        </button>
+      </div>
+      <CollectWordForm
+        session={session}
+        sourceType="READING"
+        source="分组阅读"
+        example={sentences[0]?.english ?? ''}
+      />
+      <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
+        {sentences.map((sentence, index) => (
+          <article className={sentenceMode ? 'sentence-line' : ''} key={index}>
+            <p>
+              {sentenceMode && <b>{index + 1}. </b>}
+              <HighlightedSentence text={sentence.english} words={words} />
+            </p>
+            {sentenceMode && (
+              <div className="sentence-tools" aria-label={`第 ${index + 1} 句操作`}>
+                <button
+                  aria-label="复制"
+                  data-tip="复制"
+                  onClick={() => void navigator.clipboard?.writeText(sentence.english)}
+                >
+                  <Copy size={16} />
+                </button>
+                <button
+                  aria-label="翻译"
+                  aria-pressed={sentenceDetails[index] === 'translation'}
+                  data-tip="翻译"
+                  onClick={() => toggleDetail(index, 'translation')}
+                >
+                  译
+                </button>
+                <button
+                  aria-label="语法分析"
+                  aria-pressed={sentenceDetails[index] === 'grammar'}
+                  data-tip="语法分析"
+                  onClick={() => toggleDetail(index, 'grammar')}
+                >
+                  ⌕
+                </button>
+                <button
+                  aria-label="简化"
+                  aria-pressed={sentenceDetails[index] === 'simplified'}
+                  data-tip="简化"
+                  onClick={() => toggleDetail(index, 'simplified')}
+                >
+                  ✦
+                </button>
+                <button aria-label="朗读" data-tip="朗读" onClick={() => speak(sentence.english)}>
+                  <Volume2 size={16} />
+                </button>
+              </div>
+            )}
+            {sentenceMode && sentenceDetails[index] && (
+              <small className={`sentence-detail is-${sentenceDetails[index]}`}>
+                {detailText(sentence, sentenceDetails[index])}
+              </small>
+            )}
+          </article>
+        ))}
+      </div>
+      {!sentenceMode && fullDetail !== 'none' && (
+        <p className={fullDetail === 'translation' ? 'reading-translation' : 'reading-simple'}>
+          {sentences
+            .map((sentence) =>
+              fullDetail === 'translation' ? sentence.chinese : sentence.simplified,
+            )
+            .join('')}
+        </p>
+      )}
+    </>
+  );
 }
 
 function HighlightedSentence({ text, words }: { text: string; words: Word[] }) {
   const escaped = words.map((word) => word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   if (!escaped) return <>{text}</>;
   const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
-  return <>{parts.map((part, index) => {
-    const wordIndex = words.findIndex((word) => word.word.toLowerCase() === part.toLowerCase());
-    return wordIndex >= 0 ? <mark key={`${part}-${index}`} style={wordTone(wordIndex)}>{part}</mark> : <span key={`${part}-${index}`}>{part}</span>;
-  })}</>;
+  return (
+    <>
+      {parts.map((part, index) => {
+        const wordIndex = words.findIndex((word) => word.word.toLowerCase() === part.toLowerCase());
+        return wordIndex >= 0 ? (
+          <mark key={`${part}-${index}`} style={wordTone(wordIndex)}>
+            {part}
+          </mark>
+        ) : (
+          <span key={`${part}-${index}`}>{part}</span>
+        );
+      })}
+    </>
+  );
 }
 
 function gradeGeneratedAnswer(question: GeneratedQuestion, selected: string[]) {
-  const expected = (question.type === 'WORD_MATCHING' && question.pairs?.length
-    ? question.pairs.map((pair) => `${pair.left}=>${pair.right}`)
-    : question.correctAnswers ?? []
-  ).slice().sort();
+  const expected = (
+    question.type === 'WORD_MATCHING' && question.pairs?.length
+      ? question.pairs.map((pair) => `${pair.left}=>${pair.right}`)
+      : (question.correctAnswers ?? [])
+  )
+    .slice()
+    .sort();
   const actual = [...selected].sort();
-  return expected.length === actual.length && expected.every((value, index) => value === actual[index]);
+  return (
+    expected.length === actual.length && expected.every((value, index) => value === actual[index])
+  );
 }
 
 function GeneratedQuestionCard({
@@ -2964,7 +3447,9 @@ function GeneratedQuestionCard({
 }) {
   const selected = answer?.selected ?? [];
   const isMultiple = question.type === 'WORD_MNEMONIC';
-  const correct = Boolean(answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected));
+  const correct = Boolean(
+    answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected),
+  );
   const submit = (option?: string, confirmed = true) => {
     const next = option ? [option] : selected;
     onAnswer(next, confirmed);
@@ -2974,32 +3459,101 @@ function GeneratedQuestionCard({
     : question.type === 'WORD_MATCHING' && question.pairs?.length
       ? `正确配对为：${question.pairs.map((pair) => `${pair.left} 对应 ${pair.right}`).join('；')}。`
       : `正确答案为：${question.correctAnswers?.join('、') ?? '交卷后揭晓'}。请结合文章语境和单词释义理解本题。`;
-  return <article className="exercise-card generated-question">
-    <span className="exercise-kind">{exerciseLabels[question.type]}</span>
-    <h3><mark style={wordTone(toneIndex)}>{word.word}</mark>　{question.prompt}</h3>
-    {question.type === 'WORD_MATCHING' && question.pairs?.length ? (
-      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} busy={busy} revealed={revealed} onAnswer={onAnswer}/>
-    ) : (
-      <div className="answer-options">{question.options.map((option, index) => {
-        const checked = selected.includes(option);
-        const isCorrectOption = question.correctAnswers?.includes(option) ?? false;
-        const resultClass = !revealed ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
-        return <button key={option} disabled={busy || Boolean(answer?.confirmed)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
-          if (isMultiple) {
-            onAnswer(checked ? selected.filter((item) => item !== option) : [...selected, option], false);
-          } else {
-            submit(option, true);
-          }
-        }}>{option}{revealed && answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{revealed && answer && checked && !isCorrectOption ? ' ×' : ''}{revealed && answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}</button>;
-      })}</div>
-    )}
-    {isMultiple && !answer?.confirmed && <button className="check-matches" disabled={busy || !selected.length} onClick={() => submit(undefined, true)}>确认多选答案</button>}
-    {answer && !revealed && <p role="status" className="question-answer">{answer.confirmed ? '答案已记录，提交本组后查看对错与解析。' : '选择已暂存，确认后计入本组。'}</p>}
-    {answer?.confirmed && revealed && <><strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>{correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
-  </article>;
+  return (
+    <article className="exercise-card generated-question">
+      <span className="exercise-kind">{exerciseLabels[question.type]}</span>
+      <h3>
+        <mark style={wordTone(toneIndex)}>{word.word}</mark>　{question.prompt}
+      </h3>
+      {question.type === 'WORD_MATCHING' && question.pairs?.length ? (
+        <GeneratedMatchingQuestion
+          pairs={question.pairs}
+          answer={answer}
+          busy={busy}
+          revealed={revealed}
+          onAnswer={onAnswer}
+        />
+      ) : (
+        <div className="answer-options">
+          {question.options.map((option, index) => {
+            const checked = selected.includes(option);
+            const isCorrectOption = question.correctAnswers?.includes(option) ?? false;
+            const resultClass = !revealed
+              ? ''
+              : checked && !isCorrectOption
+                ? 'wrong'
+                : isCorrectOption && (checked || !isMultiple)
+                  ? 'correct'
+                  : isCorrectOption
+                    ? 'missed'
+                    : '';
+            return (
+              <button
+                key={option}
+                disabled={busy || Boolean(answer?.confirmed)}
+                className={`${checked ? 'selected' : ''} ${resultClass}`}
+                onClick={() => {
+                  if (isMultiple) {
+                    onAnswer(
+                      checked ? selected.filter((item) => item !== option) : [...selected, option],
+                      false,
+                    );
+                  } else {
+                    submit(option, true);
+                  }
+                }}
+              >
+                {option}
+                {revealed && answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}
+                {revealed && answer && checked && !isCorrectOption ? ' ×' : ''}
+                {revealed && answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {isMultiple && !answer?.confirmed && (
+        <button
+          className="check-matches"
+          disabled={busy || !selected.length}
+          onClick={() => submit(undefined, true)}
+        >
+          确认多选答案
+        </button>
+      )}
+      {answer && !revealed && (
+        <p role="status" className="question-answer">
+          {answer.confirmed
+            ? '答案已记录，提交本组后查看对错与解析。'
+            : '选择已暂存，确认后计入本组。'}
+        </p>
+      )}
+      {answer?.confirmed && revealed && (
+        <>
+          <strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>
+            {correct ? '回答正确！' : '回答错误，正确答案已标出。'}
+          </strong>
+          <p className="question-answer">
+            正确答案：
+            {question.type === 'WORD_MATCHING' && question.pairs?.length
+              ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；')
+              : question.correctAnswers.join('、')}
+          </p>
+          <p className="question-explanation">{explanation}</p>
+          <WordMeaningCard word={word} />
+        </>
+      )}
+    </article>
+  );
 }
 
-function GeneratedMatchingQuestion({ pairs, answer, busy, revealed, onAnswer }: {
+function GeneratedMatchingQuestion({
+  pairs,
+  answer,
+  busy,
+  revealed,
+  onAnswer,
+}: {
   pairs: NonNullable<GeneratedQuestion['pairs']>;
   answer?: { selected: string[]; confirmed: boolean };
   busy: boolean;
@@ -3010,20 +3564,26 @@ function GeneratedMatchingQuestion({ pairs, answer, busy, revealed, onAnswer }: 
   const [selectedDefinition, setSelectedDefinition] = useState<number | null>(null);
   const matchingRootRef = useRef<HTMLDivElement>(null);
   const phraseOptions = pairs.map((_, index) => pairs[(index + 1) % pairs.length]);
-  const matches = Object.fromEntries((answer?.selected ?? []).flatMap((value) => {
-    const separator = value.lastIndexOf('=>');
-    if (separator < 0) return [];
-    const phrase = value.slice(0, separator);
-    const definition = value.slice(separator + 2);
-    const index = pairs.findIndex((pair) => pair.right === definition);
-    return index < 0 ? [] : [[String(index), phrase]];
-  })) as Record<number, string>;
+  const matches = Object.fromEntries(
+    (answer?.selected ?? []).flatMap((value) => {
+      const separator = value.lastIndexOf('=>');
+      if (separator < 0) return [];
+      const phrase = value.slice(0, separator);
+      const definition = value.slice(separator + 2);
+      const index = pairs.findIndex((pair) => pair.right === definition);
+      return index < 0 ? [] : [[String(index), phrase]];
+    }),
+  ) as Record<number, string>;
   const assignMatch = (index: number, phrase: string) => {
     const nextMatches = {
-      ...Object.fromEntries(Object.entries(matches).filter(([key, value]) => value !== phrase || Number(key) === index)),
+      ...Object.fromEntries(
+        Object.entries(matches).filter(([key, value]) => value !== phrase || Number(key) === index),
+      ),
       [index]: phrase,
     };
-    const selected = Object.entries(nextMatches).map(([key, value]) => `${value}=>${pairs[Number(key)].right}`);
+    const selected = Object.entries(nextMatches).map(
+      ([key, value]) => `${value}=>${pairs[Number(key)].right}`,
+    );
     onAnswer(selected, false);
   };
   const choosePhrase = (phrase: string) => {
@@ -3046,10 +3606,23 @@ function GeneratedMatchingQuestion({ pairs, answer, busy, revealed, onAnswer }: 
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (busy || answer?.confirmed || !selectedPhrase || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (
+        busy ||
+        answer?.confirmed ||
+        !selectedPhrase ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey
+      )
+        return;
       if (!matchingRootRef.current?.contains(document.activeElement)) return;
       const target = event.target as HTMLElement | null;
-      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
+      if (
+        target?.isContentEditable ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')
+      )
+        return;
       const index = Number(event.key) - 1;
       if (index < 0 || index >= pairs.length) return;
       event.preventDefault();
@@ -3060,48 +3633,89 @@ function GeneratedMatchingQuestion({ pairs, answer, busy, revealed, onAnswer }: 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [answer, busy, pairs.length, selectedPhrase]);
-  const displayedMatches = revealed && answer?.confirmed
-    ? Object.fromEntries(pairs.map((pair, index) => {
-        const match = answer.selected
-          .map((value) => {
-            const separator = value.lastIndexOf('=>');
-            return separator < 0 ? null : { left: value.slice(0, separator), right: value.slice(separator + 2) };
-          })
-          .find((value) => value?.right === pair.right);
-        return [index, match?.left ?? ''];
-      }))
-    : matches;
+  const displayedMatches =
+    revealed && answer?.confirmed
+      ? Object.fromEntries(
+          pairs.map((pair, index) => {
+            const match = answer.selected
+              .map((value) => {
+                const separator = value.lastIndexOf('=>');
+                return separator < 0
+                  ? null
+                  : { left: value.slice(0, separator), right: value.slice(separator + 2) };
+              })
+              .find((value) => value?.right === pair.right);
+            return [index, match?.left ?? ''];
+          }),
+        )
+      : matches;
   const selectedAnswers = answer?.selected ?? [];
-  return <div ref={matchingRootRef} className="generated-matching matching-exercise">
-    <p className="matching-instruction">英文短语 · 点击选中后可按键盘数字插入对应释义槽</p>
-    <div className="match-phrases">
-      {phraseOptions.map((pair) => {
-        const isMatched = Object.values(displayedMatches).includes(pair.left);
-        return <button key={pair.left} disabled={busy || Boolean(answer?.confirmed) || isMatched} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`} onClick={() => choosePhrase(pair.left)}>
-          {pair.left}
-        </button>;
-      })}
+  return (
+    <div ref={matchingRootRef} className="generated-matching matching-exercise">
+      <p className="matching-instruction">英文短语 · 点击选中后可按键盘数字插入对应释义槽</p>
+      <div className="match-phrases">
+        {phraseOptions.map((pair) => {
+          const isMatched = Object.values(displayedMatches).includes(pair.left);
+          return (
+            <button
+              key={pair.left}
+              disabled={busy || Boolean(answer?.confirmed) || isMatched}
+              className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`}
+              onClick={() => choosePhrase(pair.left)}
+            >
+              {pair.left}
+            </button>
+          );
+        })}
+      </div>
+      <p className="matching-instruction">释义 - 可先点释义，也可先点单词</p>
+      <div className="match-definitions">
+        {pairs.map((pair, index) => {
+          const phrase = displayedMatches[index];
+          const correct = phrase === pair.left;
+          return (
+            <button
+              key={`${pair.right}-${index}`}
+              disabled={busy || Boolean(answer?.confirmed)}
+              className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${revealed && answer?.confirmed ? (correct ? 'correct' : 'wrong') : ''}`}
+              onClick={() => chooseDefinition(index)}
+            >
+              <span className="match-definition-copy">
+                <strong>{pair.right}</strong>
+                <small>{pair.tip?.trim() || '侧重于理解该描述强调的语义维度。'}</small>
+              </span>
+              {revealed && answer?.confirmed && phrase && !correct ? (
+                <span className="match-answer-review">
+                  <b className="match-answer-review-wrong">你的答案：{phrase}</b>
+                  <b className="match-answer-review-correct">正确答案：{pair.left}</b>
+                </span>
+              ) : phrase ? (
+                <b>{phrase}</b>
+              ) : (
+                <em>{selectedPhrase ? '插入此处' : '选择此处'}</em>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {!answer?.confirmed && (
+        <button
+          className="check-matches"
+          disabled={busy || Object.keys(matches).length !== pairs.length}
+          onClick={() => onAnswer(selectedAnswers, true)}
+        >
+          确认匹配答案
+        </button>
+      )}
+      {answer && !revealed && (
+        <p role="status" className="question-answer">
+          {answer.confirmed
+            ? '答案已记录，提交本组后查看对错与解析。'
+            : '匹配已暂存，完成后确认本题。'}
+        </p>
+      )}
     </div>
-    <p className="matching-instruction">释义 - 可先点释义，也可先点单词</p>
-    <div className="match-definitions">
-      {pairs.map((pair, index) => {
-        const phrase = displayedMatches[index];
-        const correct = phrase === pair.left;
-        return <button key={`${pair.right}-${index}`} disabled={busy || Boolean(answer?.confirmed)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${revealed && answer?.confirmed ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
-          <span className="match-definition-copy">
-            <strong>{pair.right}</strong>
-            <small>{pair.tip?.trim() || '侧重于理解该描述强调的语义维度。'}</small>
-          </span>
-          {revealed && answer?.confirmed && phrase && !correct ? <span className="match-answer-review">
-            <b className="match-answer-review-wrong">你的答案：{phrase}</b>
-            <b className="match-answer-review-correct">正确答案：{pair.left}</b>
-          </span> : phrase ? <b>{phrase}</b> : <em>{selectedPhrase ? '插入此处' : '选择此处'}</em>}
-        </button>;
-      })}
-    </div>
-    {!answer?.confirmed && <button className="check-matches" disabled={busy || Object.keys(matches).length !== pairs.length} onClick={() => onAnswer(selectedAnswers, true)}>确认匹配答案</button>}
-    {answer && !revealed && <p role="status" className="question-answer">{answer.confirmed ? '答案已记录，提交本组后查看对错与解析。' : '匹配已暂存，完成后确认本题。'}</p>}
-  </div>;
+  );
 }
 
 function GroupStudyPage({
@@ -3496,7 +4110,10 @@ function GroupStudyPage({
                           </small>
                         </span>
                         {phrase && matchChecked && !correct ? (
-                          <span className="match-answer-review" aria-label={`你的答案：${phrase}；正确答案：${phrases[index]}`}>
+                          <span
+                            className="match-answer-review"
+                            aria-label={`你的答案：${phrase}；正确答案：${phrases[index]}`}
+                          >
                             <b className="match-answer-review-wrong">{phrase}</b>
                             <b className="match-answer-review-correct">{phrases[index]}</b>
                           </span>
@@ -3530,7 +4147,17 @@ function GroupStudyPage({
             )}
             {words.slice(1).map((word, index) => {
               if (exerciseType(index + 1) === '词义辨析') return <WordSenseDemo key={word.word} />;
-              if (exerciseType(index + 1) === '同义替换') return <SynonymDemo key={word.word} word={word} result={results[word.word]} onAnswer={(correct) => setResults(current => ({ ...current, [word.word]: correct }))}/>;
+              if (exerciseType(index + 1) === '同义替换')
+                return (
+                  <SynonymDemo
+                    key={word.word}
+                    word={word}
+                    result={results[word.word]}
+                    onAnswer={(correct) =>
+                      setResults((current) => ({ ...current, [word.word]: correct }))
+                    }
+                  />
+                );
               const answer = word.meaning.split('｜')[0];
               const options = [
                 answer,
@@ -3746,7 +4373,9 @@ function LearningHistory({
 function isToday(value: string) {
   const date = new Date(value);
   const today = new Date();
-  return date.getFullYear() === today.getFullYear()
-    && date.getMonth() === today.getMonth()
-    && date.getDate() === today.getDate();
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
 }

@@ -6144,6 +6144,37 @@ button {
   color: #b43c21;
   font-weight: 800;
 }
+.book-message.words-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.words-load-error button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+.words-load-error button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 var(--border-color);
+}
+.words-load-error button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+.words-load-error button:active {
+  transform: translate(0, 0);
+  box-shadow: none;
+}
 .book-choice button:disabled {
   cursor: wait;
   opacity: 0.62;
