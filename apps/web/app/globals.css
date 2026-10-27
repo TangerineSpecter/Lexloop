@@ -4560,6 +4560,46 @@ button {
   margin: 20px;
   box-shadow: 4px 4px 0 var(--border-color);
 }
+.study-plan-load-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 18px 0;
+  padding: 15px 18px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: #eaf2ff;
+  color: var(--border-color);
+}
+.study-plan-load-notice.is-error {
+  border-style: dashed;
+  background: var(--soft);
+}
+.study-plan-load-notice strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+.study-plan-load-notice p {
+  margin: 5px 0 0;
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.study-plan-load-notice button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--teal);
+  color: var(--soft);
+  font-weight: 800;
+  cursor: pointer;
+}
+.study-plan-load-notice button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
 .plan-empty svg {
   color: var(--coral);
   width: 56px;
@@ -13769,6 +13809,12 @@ button {
   }
 }
 @media (max-width: 680px) {
+  .study-plan-load-notice {
+    grid-template-columns: 1fr;
+  }
+  .study-plan-load-notice button {
+    width: 100%;
+  }
   .group-settlement {
     width: calc(100% - 32px);
     margin-top: 24px;

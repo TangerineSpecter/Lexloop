@@ -189,6 +189,9 @@ test(
             };
           };
           window.studyPlanResponse = makePlan(0);
+          window.studyPlansReadCount = 0;
+          window.failStudyPlansReads = localStorage.getItem('lexloop.test.plan-read-failed') ? 0 : 1;
+          window.studyPlanCreateAttempts = [];
           window.studyPlanWrites = [];
           window.studySubmissionAttempts = [];
           window.studyAlerts = [];
@@ -203,7 +206,7 @@ test(
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
-            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
+            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 1, reviewWords: [], newWords: [{ id: 'word-new', word: 'take', part: 'vt.', meaning: '拿；取' }] });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], hasMore: false });
             if (path.includes('/api/v1/mistakes?')) {
@@ -219,6 +222,20 @@ test(
               window.studyPlanResponse = makePlan(groupIndex + 1);
               return Response.json(window.studyPlanResponse);
             }
+            if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
+              window.studyPlanCreateAttempts.push(JSON.parse(options.body));
+              return Response.json(window.studyPlanResponse);
+            }
+            if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
+              window.studyPlansReadCount++;
+              if (window.failStudyPlansReads > 0) {
+                window.failStudyPlansReads--;
+                localStorage.setItem('lexloop.test.plan-read-failed', 'yes');
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                return Response.json({ message: 'Fixture plan list unavailable' }, { status: 503 });
+              }
+              return Response.json(localStorage.getItem('lexloop.test.empty-study-plans') ? [] : [window.studyPlanResponse]);
+            }
             if (path.includes('/api/v1/study/plans')) return Response.json([window.studyPlanResponse]);
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
             return Response.json({});
@@ -226,6 +243,38 @@ test(
         `,
       });
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await until(
+        'document.querySelector(".study-plan-load-notice strong")?.textContent === "正在读取已保存的学习计划"',
+      );
+      await until('document.querySelector(".study-plan-load-notice.is-error")');
+      await until("document.querySelector('.word-row strong')?.textContent === 'take'");
+      assert.equal(await evaluate('window.studyPlansReadCount'), 1);
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".study-plan-load-notice").innerText.includes("不会把它显示为空记录")',
+        ),
+        true,
+      );
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+      );
+      assert.equal(await evaluate('document.querySelector(".plan-empty") === null'), true);
+      await evaluate('document.querySelector(".study-plan-load-notice button").click()');
+      await until('document.querySelector(".study-plan-load-notice") === null');
+      assert.equal(await evaluate('window.studyPlansReadCount'), 2);
+      assert.equal(await evaluate('document.querySelector(".sequence-panel") !== null'), true);
+      assert.equal(await evaluate('document.querySelector(".plan-empty") === null'), true);
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
+      await until(
+        'document.querySelector(".create") && !document.querySelector(".create").disabled',
+      );
+      assert.equal(await evaluate('window.studyPlanCreateAttempts.length'), 0);
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+      );
       await openCurrentPlan();
       const choiceState = await evaluate(`({
         buttonCount: document.querySelectorAll('.answer-options button').length,
@@ -439,6 +488,26 @@ test(
       await until('document.querySelector(".mistakes-page")');
       assert.equal(await evaluate('window.mistakeRequests.length'), 1);
       assert.equal(await evaluate('window.mistakeRequests[0].method'), 'GET');
+
+      await evaluate('localStorage.setItem("lexloop.test.empty-study-plans", "yes")');
+      await send('Page.reload');
+      await until('document.querySelector("[role=tab]")');
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("今日学习历史")).click()',
+      );
+      await until('document.querySelector(".plan-empty")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-empty").innerText.includes("今天还没有学习记录")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".study-plan-load-notice") === null'),
+        true,
+      );
+      assert.equal(await evaluate('window.studyPlansReadCount'), 1);
+      assert.equal(await evaluate('window.studyPlanCreateAttempts.length'), 0);
     } finally {
       socket?.close();
       try {

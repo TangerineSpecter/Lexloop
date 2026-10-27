@@ -130,6 +130,7 @@ export type LearningPlan = {
   createdAt: string;
   completedAt?: string | null;
 };
+type StudyPlanListStatus = 'loading' | 'ready' | 'error';
 type LearningWord = Omit<Word, 'state'> & {
   state: 'LEARNING' | 'REVIEWING';
   accuracy: number;
@@ -246,6 +247,9 @@ const newWords: Word[] = [
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<'words' | 'plan' | 'history'>('words');
   const [plans, setPlans] = useState<LearningPlan[]>([]);
+  const [plansOwnerId, setPlansOwnerId] = useState(session.user.id);
+  const [plansLoadStatus, setPlansLoadStatus] = useState<StudyPlanListStatus>('loading');
+  const [plansLoadAttempt, setPlansLoadAttempt] = useState(0);
   const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
   const [lessonPlanId, setLessonPlanId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -264,8 +268,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [progressSummary, setProgressSummary] = useState({ totalWords: 0, masteredWords: 0, progress: 0 });
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const visiblePlans = plansOwnerId === session.user.id ? plans : [];
+  const visiblePlansStatus = plansOwnerId === session.user.id ? plansLoadStatus : 'loading';
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
+  const retryPlanLoad = () => {
+    setPlansLoadStatus('loading');
+    setPlansLoadAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('view') === 'mistakes') setPage('mistakes');
@@ -306,10 +316,31 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [accountMenuOpen]);
 
   useEffect(() => {
+    let active = true;
+    setPlansOwnerId(session.user.id);
+    setPlans([]);
+    setPlansLoadStatus('loading');
     request<LearningPlan[]>('/study/plans', {}, session.accessToken)
-      .then(setPlans)
-      .catch(() => setPlans([]));
-  }, [session.accessToken]);
+      .then((nextPlans) => {
+        if (!active) return;
+        setPlans(nextPlans);
+        setPlansLoadStatus('ready');
+      })
+      .catch(() => {
+        if (!active) return;
+        setPlans([]);
+        setPlansLoadStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [session.accessToken, session.user.id, plansLoadAttempt]);
+
+  useEffect(() => {
+    setActiveTab('words');
+    setLessonPlanId(null);
+    setPreviewPlan(null);
+  }, [session.user.id]);
 
   return (
     <main className="study-app">
@@ -485,10 +516,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             </button>
           </div>
         </header>
-        {page === 'study' && lessonPlanId !== null ? (
+        {page === 'study' && lessonPlanId !== null && visiblePlansStatus !== 'ready' ? (
+          <div className="study-content">
+            <StudyPlanLoadNotice status={visiblePlansStatus} onRetry={retryPlanLoad} />
+          </div>
+        ) : page === 'study' && lessonPlanId !== null ? (
           <GeneratedStudyPage
             key={`${session.user.id}:${lessonPlanId}`}
-            plan={plans.find((plan) => plan.id === lessonPlanId) ?? null}
+            plan={visiblePlans.find((plan) => plan.id === lessonPlanId) ?? null}
             session={session}
             onBack={() => setLessonPlanId(null)}
             onOpenMistakes={() => setPage('mistakes')}
@@ -552,22 +587,26 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 今日学习历史
               </button>
             </div>
+            {visiblePlansStatus !== 'ready' && (
+              <StudyPlanLoadNotice status={visiblePlansStatus} onRetry={retryPlanLoad} />
+            )}
             {activeTab === 'words' && (
               <WordsPanel
                 session={session}
                 onCreatePlan={(plan) => setPreviewPlan(plan)}
+                planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
               />
             )}
-            {activeTab === 'plan' && (
+            {activeTab === 'plan' && visiblePlansStatus === 'ready' && (
               <PlanPanel
-                plan={plans.find((plan) => plan.status === 'ACTIVE' || plan.status === 'GENERATING') ?? null}
+                plan={visiblePlans.find((plan) => plan.status === 'ACTIVE' || plan.status === 'GENERATING') ?? null}
                 onContinue={(id) => setLessonPlanId(id)}
               />
             )}
-            {activeTab === 'history' && (
+            {activeTab === 'history' && visiblePlansStatus === 'ready' && (
               <LearningHistory
-                plans={plans}
+                plans={visiblePlans}
                 onContinue={(id) => setLessonPlanId(id)}
                 onRetry={setPreviewPlan}
               />
@@ -1391,10 +1430,12 @@ function Metric({
 function WordsPanel({
   session,
   onCreatePlan,
+  planListReady,
   onProgressChanged,
 }: {
   session: Session;
   onCreatePlan: (plan: LearningPlan) => void;
+  planListReady: boolean;
   onProgressChanged: () => void;
 }) {
   const [mode, setMode] = useState<StudyMode>('group');
@@ -1505,10 +1546,10 @@ function WordsPanel({
                   if (text.includes('大模型')) setDrawer('reading');
                 })
             }
-            disabled={!dashboardWords.newWords.length && !dashboardWords.reviewWords.length}
+            disabled={!planListReady || (!dashboardWords.newWords.length && !dashboardWords.reviewWords.length)}
           >
             <Sparkles size={15} />
-            创建学习计划
+            {planListReady ? '创建学习计划' : '先读取已有计划'}
           </button>
           <Tooltip label="模型设置">
             <button
@@ -3541,6 +3582,33 @@ function GroupStudyPage({
           </section>
         </aside>
       </div>
+    </section>
+  );
+}
+
+function StudyPlanLoadNotice({
+  status,
+  onRetry,
+}: {
+  status: Exclude<StudyPlanListStatus, 'ready'>;
+  onRetry: () => void;
+}) {
+  const failed = status === 'error';
+  return (
+    <section
+      className={`study-plan-load-notice ${failed ? 'is-error' : ''}`}
+      role={failed ? 'alert' : 'status'}
+      aria-live={failed ? 'assertive' : 'polite'}
+    >
+      <div>
+        <strong>{failed ? '暂时无法读取学习计划' : '正在读取已保存的学习计划'}</strong>
+        <p>
+          {failed
+            ? '学习记录仍保存在账户中。读取成功前不会把它显示为空记录，也不会开放创建普通计划。'
+            : '确认当前计划后，就可以继续学习或开始新的计划。'}
+        </p>
+      </div>
+      {failed && <button onClick={onRetry}>重试读取</button>}
     </section>
   );
 }
