@@ -1,5 +1,18 @@
-import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanPurpose, StudyPlanStatus, WeaknessStatus, WordProgressState } from '@prisma/client';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  Prisma,
+  StudyPlanItemSource,
+  StudyPlanMode,
+  StudyPlanPurpose,
+  StudyPlanStatus,
+  WeaknessStatus,
+  WordProgressState,
+} from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AiService } from '../ai/ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
@@ -9,13 +22,26 @@ import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 
 const DAY = 86_400_000;
-const startOfToday = () => { const date = new Date(); date.setHours(0, 0, 0, 0); return date; };
-const modeMap = { group: StudyPlanMode.GROUP, individual: StudyPlanMode.INDIVIDUAL, exam: StudyPlanMode.EXAM } as const;
+const startOfToday = () => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+const modeMap = {
+  group: StudyPlanMode.GROUP,
+  individual: StudyPlanMode.INDIVIDUAL,
+  exam: StudyPlanMode.EXAM,
+} as const;
 type RequestedMode = keyof typeof modeMap;
 type PlanWord = { id: string; word: string; part: string; meaning: string };
 type GeneratedQuestion = {
   bookWordId: string;
-  type: 'WORD_MNEMONIC' | 'MEANING_RECOGNITION' | 'WORD_MATCHING' | 'SYNONYM_REPLACEMENT' | 'READING_COMPREHENSION';
+  type:
+    | 'WORD_MNEMONIC'
+    | 'MEANING_RECOGNITION'
+    | 'WORD_MATCHING'
+    | 'SYNONYM_REPLACEMENT'
+    | 'READING_COMPREHENSION';
   prompt: string;
   options: string[];
   correctAnswers: string[];
@@ -31,10 +57,20 @@ type GeneratedGroup = {
   questions: GeneratedQuestion[];
 };
 type GeneratedContent = { groups: GeneratedGroup[] };
-type ResolvedGroup = { group: GeneratedGroup; cacheId?: string; signature: string; reused: boolean };
-type GradedAnswer = { isCorrect: boolean; questionType: GeneratedQuestion['type']; selectedAnswer: string[] };
+type ResolvedGroup = {
+  group: GeneratedGroup;
+  cacheId?: string;
+  signature: string;
+  reused: boolean;
+};
+type GradedAnswer = {
+  isCorrect: boolean;
+  questionType: GeneratedQuestion['type'];
+  selectedAnswer: string[];
+};
 
 class StudyGroupCompletionAlreadyClaimed extends Error {}
+class StudyPlanGenerationSuperseded extends Error {}
 
 @Injectable()
 export class StudyService {
@@ -45,11 +81,16 @@ export class StudyService {
     private readonly mistakes: MistakesService,
   ) {}
 
-  async createPlan(userId: string, requestedNewWordCount?: number, requestedMode: RequestedMode = 'group') {
+  async createPlan(
+    userId: string,
+    requestedNewWordCount?: number,
+    requestedMode: RequestedMode = 'group',
+  ) {
     const mode = modeMap[requestedMode];
     if (!mode) throw new BadRequestException('不支持的学习模式');
-    if (mode === StudyPlanMode.EXAM) throw new BadRequestException('真题模式正在建设中，当前不会调用大模型');
-    if (!await this.modelConfigs.selectedProvider(userId)) {
+    if (mode === StudyPlanMode.EXAM)
+      throw new BadRequestException('真题模式正在建设中，当前不会调用大模型');
+    if (!(await this.modelConfigs.selectedProvider(userId))) {
       throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     }
     const existing = await this.prisma.studyPlan.findFirst({
@@ -67,41 +108,60 @@ export class StudyService {
     });
     if (existing?.items.length) return this.serializePlan(existing.id, userId);
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { defaultNewWordCount: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { defaultNewWordCount: true },
+    });
     const [review, defaultBook] = await Promise.all([
       this.prisma.userWordProgress.findMany({
         where: { userId, state: WordProgressState.REVIEWING, nextReviewAt: { lte: new Date() } },
         orderBy: { nextReviewAt: 'asc' },
         select: { bookWordId: true },
       }),
-      this.prisma.userVocabularyBook.findFirst({ where: { userId, isDefault: true }, select: { bookId: true } }),
+      this.prisma.userVocabularyBook.findFirst({
+        where: { userId, isDefault: true },
+        select: { bookId: true },
+      }),
     ]);
     const newWordCount = requestedNewWordCount ?? user.defaultNewWordCount;
-    const newWords = defaultBook ? await this.prisma.vocabularyBookWord.findMany({
-      where: {
-        bookId: defaultBook.bookId,
-        progress: { none: { userId } },
-        word: { masteredBy: { none: { userId } } },
-      },
-      orderBy: { position: 'asc' },
-      take: newWordCount,
-      select: { id: true },
-    }) : [];
-    const reviewIds = review.map(item => item.bookWordId);
-    const newIds = newWords.map(item => item.id).filter(id => !reviewIds.includes(id));
+    const newWords = defaultBook
+      ? await this.prisma.vocabularyBookWord.findMany({
+          where: {
+            bookId: defaultBook.bookId,
+            progress: { none: { userId } },
+            word: { masteredBy: { none: { userId } } },
+          },
+          orderBy: { position: 'asc' },
+          take: newWordCount,
+          select: { id: true },
+        })
+      : [];
+    const reviewIds = review.map((item) => item.bookWordId);
+    const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
     const ids = shuffle([...reviewIds, ...newIds]);
     if (!ids.length) throw new BadRequestException('当前没有可加入学习计划的单词');
     const groups = buildGroups(ids, mode);
 
     const plan = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.studyPlan.create({ data: { userId, mode, purpose: StudyPlanPurpose.NORMAL, status: StudyPlanStatus.GENERATING } });
+      const created = await tx.studyPlan.create({
+        data: {
+          userId,
+          mode,
+          purpose: StudyPlanPurpose.NORMAL,
+          status: StudyPlanStatus.GENERATING,
+        },
+      });
       await tx.studyPlanItem.createMany({
-        data: groups.flatMap((group, groupIndex) => group.map(bookWordId => ({
-          planId: created.id,
-          bookWordId,
-          source: reviewIds.includes(bookWordId) ? StudyPlanItemSource.REVIEW : StudyPlanItemSource.NEW,
-          groupIndex,
-        }))),
+        data: groups.flatMap((group, groupIndex) =>
+          group.map((bookWordId) => ({
+            planId: created.id,
+            bookWordId,
+            source: reviewIds.includes(bookWordId)
+              ? StudyPlanItemSource.REVIEW
+              : StudyPlanItemSource.NEW,
+            groupIndex,
+          })),
+        ),
       });
       return created;
     });
@@ -119,9 +179,11 @@ export class StudyService {
       },
     });
     if (!plan) throw new NotFoundException('学习计划不存在');
-    if (plan.status === StudyPlanStatus.ACTIVE || plan.status === StudyPlanStatus.COMPLETED) return this.serializePlan(planId, userId);
-    if (plan.mode === StudyPlanMode.EXAM) throw new BadRequestException('真题模式不使用 AI 生成内容');
-    if (!await this.modelConfigs.selectedProvider(userId)) {
+    if (plan.status === StudyPlanStatus.ACTIVE || plan.status === StudyPlanStatus.COMPLETED)
+      return this.serializePlan(planId, userId);
+    if (plan.mode === StudyPlanMode.EXAM)
+      throw new BadRequestException('真题模式不使用 AI 生成内容');
+    if (!(await this.modelConfigs.selectedProvider(userId))) {
       throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     }
     const generationStartedAt = new Date();
@@ -131,10 +193,7 @@ export class StudyService {
         id: planId,
         userId,
         status: { in: [StudyPlanStatus.GENERATING, StudyPlanStatus.FAILED] },
-        OR: [
-          { generationStartedAt: null },
-          { generationStartedAt: { lt: staleBefore } },
-        ],
+        OR: [{ generationStartedAt: null }, { generationStartedAt: { lt: staleBefore } }],
       },
       data: {
         status: StudyPlanStatus.GENERATING,
@@ -149,7 +208,7 @@ export class StudyService {
       result.set(item.groupIndex, current);
       return result;
     }, new Map<number, typeof plan.items>());
-    const words = plan.items.map(item => ({
+    const words = plan.items.map((item) => ({
       id: item.bookWordId,
       word: item.bookWord.word.text,
       part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
@@ -157,39 +216,53 @@ export class StudyService {
     }));
     const groupSpec = [...grouped.entries()].map(([index, items]) => ({
       index,
-      words: items.map(item => words.find(word => word.id === item.bookWordId)!),
-      targetQuestionTypes: Object.fromEntries(items.filter(item => item.targetQuestionType).map(item => [item.bookWordId, item.targetQuestionType!])),
+      words: items.map((item) => words.find((word) => word.id === item.bookWordId)!),
+      targetQuestionTypes: Object.fromEntries(
+        items
+          .filter((item) => item.targetQuestionType)
+          .map((item) => [item.bookWordId, item.targetQuestionType!]),
+      ),
     }));
 
     try {
-      const cached = await Promise.all(groupSpec.map(async (spec): Promise<ResolvedGroup | null> => {
-        const signature = contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes);
-        const cache = await this.prisma.studyContentCache.findFirst({
-          where: {
+      const cached = await Promise.all(
+        groupSpec.map(async (spec): Promise<ResolvedGroup | null> => {
+          const signature = contentSignature(
+            plan.mode,
+            spec.words,
+            plan.purpose,
+            spec.targetQuestionTypes,
+          );
+          const cache = await this.prisma.studyContentCache.findFirst({
+            where: {
+              signature,
+              mode: plan.mode,
+              // A cache entry is reusable when this user has never answered a
+              // question from it. Other users' attempts do not block reuse.
+              planItems: { none: { attempts: { some: { userId } } } },
+            },
+            orderBy: [{ hitCount: 'desc' }, { createdAt: 'asc' }],
+          });
+          if (!cache) return null;
+          return {
+            cacheId: cache.id,
             signature,
-            mode: plan.mode,
-            // A cache entry is reusable when this user has never answered a
-            // question from it. Other users' attempts do not block reuse.
-            planItems: { none: { attempts: { some: { userId } } } },
-          },
-          orderBy: [{ hitCount: 'desc' }, { createdAt: 'asc' }],
-        });
-        if (!cache) return null;
-        return {
-          cacheId: cache.id,
-          signature,
-          reused: true,
-          group: { ...(cache.material as unknown as GeneratedGroup), index: spec.index },
-        };
-      }));
+            reused: true,
+            group: { ...(cache.material as unknown as GeneratedGroup), index: spec.index },
+          };
+        }),
+      );
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
       let generatedMissing: GeneratedGroup[] = [];
       if (missingSpecs.length) {
-        const response = await this.ai.generateForUser({
-          purpose: 'study-plan',
-          prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
-          schema: {},
-        }, userId);
+        const response = await this.ai.generateForUser(
+          {
+            purpose: 'study-plan',
+            prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
+            schema: {},
+          },
+          userId,
+        );
         const generated = parseGeneratedContent(response);
         validateGeneratedContent(generated, missingSpecs);
         generatedMissing = generated.groups;
@@ -197,17 +270,45 @@ export class StudyService {
       const resolved = groupSpec.map((spec, index): ResolvedGroup => {
         const cache = cached[index];
         if (cache) return cache;
-        const group = generatedMissing.find(item => item.index === spec.index)!;
-        const passage = group.sentences.map(sentence => sentence.english).join(' ');
-        group.wordOccurrences = Object.fromEntries(spec.words.map(word => [
-          word.word,
-          passage.match(new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'gi'))?.length ?? 0,
-        ]));
-        return { group, signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes), reused: false };
+        const group = generatedMissing.find((item) => item.index === spec.index)!;
+        const passage = group.sentences.map((sentence) => sentence.english).join(' ');
+        group.wordOccurrences = Object.fromEntries(
+          spec.words.map((word) => [
+            word.word,
+            passage.match(new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'gi'))?.length ?? 0,
+          ]),
+        );
+        return {
+          group,
+          signature: contentSignature(
+            plan.mode,
+            spec.words,
+            plan.purpose,
+            spec.targetQuestionTypes,
+          ),
+          reused: false,
+        };
       });
-      const generatedContent: GeneratedContent = { groups: resolved.map(item => item.group) };
+      const generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
       validateGeneratedContent(generatedContent, groupSpec);
       await this.prisma.$transaction(async (tx) => {
+        const finalized = await tx.studyPlan.updateMany({
+          where: {
+            id: planId,
+            userId,
+            status: StudyPlanStatus.GENERATING,
+            generationStartedAt,
+          },
+          data: {
+            generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
+            generationError: null,
+            generationStartedAt: null,
+            generatedAt: new Date(),
+            status: StudyPlanStatus.ACTIVE,
+          },
+        });
+        if (!finalized.count) throw new StudyPlanGenerationSuperseded();
+
         for (const resolvedGroup of resolved) {
           let cacheId = resolvedGroup.cacheId;
           if (cacheId) {
@@ -236,11 +337,11 @@ export class StudyService {
           }
         }
         const newWordIds = plan.items
-          .filter(item => item.source === StudyPlanItemSource.NEW)
-          .map(item => item.bookWordId);
+          .filter((item) => item.source === StudyPlanItemSource.NEW)
+          .map((item) => item.bookWordId);
         if (newWordIds.length) {
           await tx.userWordProgress.createMany({
-            data: newWordIds.map(bookWordId => ({
+            data: newWordIds.map((bookWordId) => ({
               userId,
               bookWordId,
               state: WordProgressState.LEARNING,
@@ -249,28 +350,27 @@ export class StudyService {
             skipDuplicates: true,
           });
         }
-        await tx.studyPlan.update({
-          where: { id: planId },
-          data: {
-            generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
-            generationError: null,
-            generationStartedAt: null,
-            generatedAt: new Date(),
-            status: StudyPlanStatus.ACTIVE,
-          },
-        });
       });
       return this.serializePlan(planId, userId);
     } catch (error) {
+      if (error instanceof StudyPlanGenerationSuperseded) {
+        return this.serializePlan(planId, userId);
+      }
       const message = error instanceof Error ? error.message : '大模型未返回有效的学习内容';
-      await this.prisma.studyPlan.update({
-        where: { id: planId },
+      const failed = await this.prisma.studyPlan.updateMany({
+        where: {
+          id: planId,
+          userId,
+          status: StudyPlanStatus.GENERATING,
+          generationStartedAt,
+        },
         data: {
           status: StudyPlanStatus.FAILED,
           generationStartedAt: null,
           generationError: message.slice(0, 500),
         },
       });
+      if (!failed.count) return this.serializePlan(planId, userId);
       if (error instanceof BadRequestException) throw error;
       throw new BadGatewayException(`学习计划生成失败：${message}`);
     }
@@ -283,7 +383,7 @@ export class StudyService {
       take: 20,
       select: { id: true },
     });
-    return Promise.all(plans.map(plan => this.serializePlan(plan.id, userId)));
+    return Promise.all(plans.map((plan) => this.serializePlan(plan.id, userId)));
   }
 
   async listCompletedPlans(userId: string, requestedPage = 1, requestedPageSize = 20) {
@@ -298,7 +398,9 @@ export class StudyService {
     });
     const hasMore = plans.length > pageSize;
     return {
-      items: await Promise.all(plans.slice(0, pageSize).map(plan => this.serializePlan(plan.id, userId))),
+      items: await Promise.all(
+        plans.slice(0, pageSize).map((plan) => this.serializePlan(plan.id, userId)),
+      ),
       hasMore,
     };
   }
@@ -318,10 +420,11 @@ export class StudyService {
       include: { bookWord: true },
     });
     if (!items.length) throw new NotFoundException('学习分组不存在或计划尚未生成完毕');
-    if (items.some(item => item.completedAt)) return this.serializePlan(planId, userId);
+    if (items.some((item) => item.completedAt)) return this.serializePlan(planId, userId);
     if (items.length !== answers.length) throw new BadRequestException('答题结果与学习分组不匹配');
-    const answersMatchGroup = new Set(answers.map(answer => answer.bookWordId)).size === items.length
-      && answers.every(answer => items.some(item => item.bookWordId === answer.bookWordId));
+    const answersMatchGroup =
+      new Set(answers.map((answer) => answer.bookWordId)).size === items.length &&
+      answers.every((answer) => items.some((item) => item.bookWordId === answer.bookWordId));
     if (!answersMatchGroup) throw new BadRequestException('答题结果包含不属于当前分组的单词');
 
     try {
@@ -329,7 +432,7 @@ export class StudyService {
         const completedAt = new Date();
         const claimed = await tx.studyPlanItem.updateMany({
           where: {
-            id: { in: items.map(item => item.id) },
+            id: { in: items.map((item) => item.id) },
             completedAt: null,
             plan: { userId, status: StudyPlanStatus.ACTIVE },
           },
@@ -342,9 +445,11 @@ export class StudyService {
           data: { startedAt: completedAt },
         });
         for (const item of items) {
-          const answer = answers.find(value => value.bookWordId === item.bookWordId)!;
+          const answer = answers.find((value) => value.bookWordId === item.bookWordId)!;
           const graded = gradeQuestion(item.question, answer.selectedAnswer);
-          const progress = await tx.userWordProgress.findUniqueOrThrow({ where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } } });
+          const progress = await tx.userWordProgress.findUniqueOrThrow({
+            where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },
+          });
           await tx.wordReviewAttempt.create({
             data: {
               userId,
@@ -353,11 +458,22 @@ export class StudyService {
               isCorrect: graded.isCorrect,
               questionType: graded.questionType,
               selectedAnswer: graded.selectedAnswer,
-              responseTimeMs: answer.responseTimeMs == null ? undefined : Math.max(0, Math.min(3_600_000, answer.responseTimeMs)),
+              responseTimeMs:
+                answer.responseTimeMs == null
+                  ? undefined
+                  : Math.max(0, Math.min(3_600_000, answer.responseTimeMs)),
             },
           });
-          await this.mistakes.recordAttempt(tx, { userId, bookWordId: item.bookWordId, questionType: graded.questionType, isCorrect: graded.isCorrect });
-          await tx.userWordProgress.update({ where: { id: progress.id }, data: this.schedule(progress, graded.isCorrect) });
+          await this.mistakes.recordAttempt(tx, {
+            userId,
+            bookWordId: item.bookWordId,
+            questionType: graded.questionType,
+            isCorrect: graded.isCorrect,
+          });
+          await tx.userWordProgress.update({
+            where: { id: progress.id },
+            data: this.schedule(progress, graded.isCorrect),
+          });
         }
         const left = await tx.studyPlanItem.count({ where: { planId, completedAt: null } });
         if (!left) {
@@ -373,10 +489,19 @@ export class StudyService {
     return this.serializePlan(planId, userId);
   }
 
-  private schedule(progress: {
-    reviewCount: number; totalAttempts: number; correctAttempts: number; consecutiveCorrect: number;
-    lastIntervalDays: number; postponedCount: number; lastReviewedAt: Date | null; nextReviewAt: Date | null;
-  }, correct: boolean) {
+  private schedule(
+    progress: {
+      reviewCount: number;
+      totalAttempts: number;
+      correctAttempts: number;
+      consecutiveCorrect: number;
+      lastIntervalDays: number;
+      postponedCount: number;
+      lastReviewedAt: Date | null;
+      nextReviewAt: Date | null;
+    },
+    correct: boolean,
+  ) {
     return reviewSchedule(progress, correct);
   }
 
@@ -411,10 +536,12 @@ export class StudyService {
     }
     const submittedGroups = new Set(
       [...itemsByGroup]
-        .filter(([, groupItems]) => groupItems.length > 0 && groupItems.every((item) => item.completedAt))
+        .filter(
+          ([, groupItems]) => groupItems.length > 0 && groupItems.every((item) => item.completedAt),
+        )
         .map(([groupIndex]) => groupIndex),
     );
-    const items = plan.items.map(item => ({
+    const items = plan.items.map((item) => ({
       id: item.bookWordId,
       word: item.bookWord.word.text,
       part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
@@ -425,23 +552,28 @@ export class StudyService {
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
-      nextReviewAt: item.completedAt ? item.bookWord.progress[0]?.nextReviewAt ?? null : null,
+      nextReviewAt: item.completedAt ? (item.bookWord.progress[0]?.nextReviewAt ?? null) : null,
       activeWeaknesses: item.completedAt
-        ? item.bookWord.weaknesses.map(signal => ({
-          ...signal,
-          remainingCorrect: Math.max(0, MISTAKE_CORRECTION_STREAK - signal.consecutiveCorrect),
-        }))
+        ? item.bookWord.weaknesses.map((signal) => ({
+            ...signal,
+            remainingCorrect: Math.max(0, MISTAKE_CORRECTION_STREAK - signal.consecutiveCorrect),
+          }))
         : [],
     }));
-    const attempts = plan.items.flatMap(item => item.attempts);
-    const typeStats = Object.values(attempts.reduce<Record<string, { type: string; total: number; correct: number }>>((result, attempt) => {
-      const type = attempt.questionType ?? 'OTHER';
-      const row = result[type] ?? { type, total: 0, correct: 0 };
-      row.total++;
-      if (attempt.isCorrect) row.correct++;
-      result[type] = row;
-      return result;
-    }, {}));
+    const attempts = plan.items.flatMap((item) => item.attempts);
+    const typeStats = Object.values(
+      attempts.reduce<Record<string, { type: string; total: number; correct: number }>>(
+        (result, attempt) => {
+          const type = attempt.questionType ?? 'OTHER';
+          const row = result[type] ?? { type, total: 0, correct: 0 };
+          row.total++;
+          if (attempt.isCorrect) row.correct++;
+          result[type] = row;
+          return result;
+        },
+        {},
+      ),
+    );
     return {
       id: plan.id,
       mode: plan.mode.toLowerCase(),
@@ -452,13 +584,15 @@ export class StudyService {
       createdAt: plan.createdAt,
       completedAt: plan.completedAt,
       wordCount: items.length,
-      groupCount: new Set(items.map(item => item.groupIndex)).size,
-      completed: items.filter(item => item.completed).length,
+      groupCount: new Set(items.map((item) => item.groupIndex)).size,
+      completed: items.filter((item) => item.completed).length,
       content: publicStudyContent(plan.generatedContent, submittedGroups),
       summary: {
         totalQuestions: attempts.length,
-        correctQuestions: attempts.filter(attempt => attempt.isCorrect).length,
-        durationSeconds: Math.round(attempts.reduce((sum, attempt) => sum + (attempt.responseTimeMs ?? 0), 0) / 1000),
+        correctQuestions: attempts.filter((attempt) => attempt.isCorrect).length,
+        durationSeconds: Math.round(
+          attempts.reduce((sum, attempt) => sum + (attempt.responseTimeMs ?? 0), 0) / 1000,
+        ),
         typeStats,
       },
       words: items,
@@ -467,7 +601,7 @@ export class StudyService {
 }
 
 function buildGroups(ids: string[], mode: StudyPlanMode) {
-  if (mode === StudyPlanMode.INDIVIDUAL) return ids.map(id => [id]);
+  if (mode === StudyPlanMode.INDIVIDUAL) return ids.map((id) => [id]);
   const groups: string[][] = [];
   let cursor = 0;
   while (cursor < ids.length) {
@@ -506,20 +640,32 @@ export function gradeQuestion(questionValue: unknown, selectedValue: unknown): G
     'SYNONYM_REPLACEMENT',
     'READING_COMPREHENSION',
   ];
-  if (!question.type || !supportedTypes.includes(question.type) || !Array.isArray(selectedValue)
-    || selectedValue.some(value => typeof value !== 'string')) {
+  if (
+    !question.type ||
+    !supportedTypes.includes(question.type) ||
+    !Array.isArray(selectedValue) ||
+    selectedValue.some((value) => typeof value !== 'string')
+  ) {
     throw new BadRequestException('答题结果格式无效');
   }
-  if (question.type === 'WORD_MATCHING' && (
-    !Array.isArray(question.pairs)
-    || question.pairs.some(pair => !pair || typeof pair.left !== 'string' || typeof pair.right !== 'string')
-  )) {
+  if (
+    question.type === 'WORD_MATCHING' &&
+    (!Array.isArray(question.pairs) ||
+      question.pairs.some(
+        (pair) => !pair || typeof pair.left !== 'string' || typeof pair.right !== 'string',
+      ))
+  ) {
     throw new BadRequestException('配对题缺少可判定的正确答案，请重新生成学习计划');
   }
-  const expected = question.type === 'WORD_MATCHING'
-    ? question.pairs!.map(pair => `${pair.left}=>${pair.right}`)
-    : question.correctAnswers;
-  if (!Array.isArray(expected) || !expected.length || expected.some(value => typeof value !== 'string')) {
+  const expected =
+    question.type === 'WORD_MATCHING'
+      ? question.pairs!.map((pair) => `${pair.left}=>${pair.right}`)
+      : question.correctAnswers;
+  if (
+    !Array.isArray(expected) ||
+    !expected.length ||
+    expected.some((value) => typeof value !== 'string')
+  ) {
     throw new BadRequestException('题目缺少可判定的正确答案，请重新生成学习计划');
   }
   const selectedAnswer = [...selectedValue].sort();
@@ -527,20 +673,37 @@ export function gradeQuestion(questionValue: unknown, selectedValue: unknown): G
   return {
     questionType: question.type,
     selectedAnswer,
-    isCorrect: selectedAnswer.length === correctAnswers.length
-      && correctAnswers.every((value, index) => value === selectedAnswer[index]),
+    isCorrect:
+      selectedAnswer.length === correctAnswers.length &&
+      correctAnswers.every((value, index) => value === selectedAnswer[index]),
   };
 }
 
 export function hasValidGeneratedMatchingPairs(pairs: unknown) {
   if (!Array.isArray(pairs) || pairs.length !== 4) return false;
   const values = pairs as Array<{ left?: unknown; right?: unknown; tip?: unknown }>;
-  if (values.some(pair => typeof pair.left !== 'string' || !pair.left.trim()
-    || typeof pair.right !== 'string' || !/[\u3400-\u9fff]/.test(pair.right)
-    || typeof pair.tip !== 'string' || !/[\u3400-\u9fff]/.test(pair.tip))) return false;
-  if (values.some(pair => (pair.tip as string).toLowerCase().includes((pair.left as string).toLowerCase()))) return false;
-  return new Set(values.map(pair => (pair.left as string).trim())).size === values.length
-    && new Set(values.map(pair => (pair.right as string).trim())).size === values.length;
+  if (
+    values.some(
+      (pair) =>
+        typeof pair.left !== 'string' ||
+        !pair.left.trim() ||
+        typeof pair.right !== 'string' ||
+        !/[\u3400-\u9fff]/.test(pair.right) ||
+        typeof pair.tip !== 'string' ||
+        !/[\u3400-\u9fff]/.test(pair.tip),
+    )
+  )
+    return false;
+  if (
+    values.some((pair) =>
+      (pair.tip as string).toLowerCase().includes((pair.left as string).toLowerCase()),
+    )
+  )
+    return false;
+  return (
+    new Set(values.map((pair) => (pair.left as string).trim())).size === values.length &&
+    new Set(values.map((pair) => (pair.right as string).trim())).size === values.length
+  );
 }
 
 export function contentSignature(
@@ -551,7 +714,7 @@ export function contentSignature(
 ) {
   const canonicalWords = [...words]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map(word => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
+    .map((word) => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
   if (purpose === StudyPlanPurpose.NORMAL && !Object.keys(targetQuestionTypes).length) {
     return createHash('sha256')
       .update(JSON.stringify({ version: 3, mode, words: canonicalWords }))
@@ -561,7 +724,15 @@ export function contentSignature(
     Object.entries(targetQuestionTypes).sort(([left], [right]) => left.localeCompare(right)),
   );
   return createHash('sha256')
-    .update(JSON.stringify({ version: 4, mode, purpose, words: canonicalWords, targetQuestionTypes: canonicalTargetQuestionTypes }))
+    .update(
+      JSON.stringify({
+        version: 4,
+        mode,
+        purpose,
+        words: canonicalWords,
+        targetQuestionTypes: canonicalTargetQuestionTypes,
+      }),
+    )
     .digest('hex');
 }
 
@@ -591,9 +762,13 @@ function generationPrompt(
 }
 
 function parseGeneratedContent(response: unknown): GeneratedContent {
-  const content = (response as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content;
+  const content = (response as { choices?: Array<{ message?: { content?: unknown } }> })
+    ?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') throw new Error('模型响应缺少 JSON 内容');
-  const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
   return JSON.parse(cleaned) as GeneratedContent;
 }
 
@@ -605,47 +780,105 @@ function containsChinese(value: unknown) {
   return typeof value === 'string' && /[\u3400-\u9fff]/.test(value);
 }
 
-function validateGeneratedContent(content: GeneratedContent, expected: Array<{ index: number; words: PlanWord[]; targetQuestionTypes?: Record<string, string> }>) {
-  if (!Array.isArray(content.groups) || content.groups.length !== expected.length) throw new Error('模型返回的阅读材料分组数量不正确');
+function validateGeneratedContent(
+  content: GeneratedContent,
+  expected: Array<{
+    index: number;
+    words: PlanWord[];
+    targetQuestionTypes?: Record<string, string>;
+  }>,
+) {
+  if (!Array.isArray(content.groups) || content.groups.length !== expected.length)
+    throw new Error('模型返回的阅读材料分组数量不正确');
   for (const expectedGroup of expected) {
-    const group = content.groups.find(item => item.index === expectedGroup.index);
-    if (!group || !Array.isArray(group.sentences) || !group.sentences.length || !Array.isArray(group.questions)) throw new Error(`第 ${expectedGroup.index + 1} 组内容不完整`);
-    if (group.questions.length !== expectedGroup.words.length || new Set(group.questions.map(question => question.bookWordId)).size !== expectedGroup.words.length) {
+    const group = content.groups.find((item) => item.index === expectedGroup.index);
+    if (
+      !group ||
+      !Array.isArray(group.sentences) ||
+      !group.sentences.length ||
+      !Array.isArray(group.questions)
+    )
+      throw new Error(`第 ${expectedGroup.index + 1} 组内容不完整`);
+    if (
+      group.questions.length !== expectedGroup.words.length ||
+      new Set(group.questions.map((question) => question.bookWordId)).size !==
+        expectedGroup.words.length
+    ) {
       throw new Error(`第 ${expectedGroup.index + 1} 组必须为每个单词生成且只生成一道题`);
     }
-    if (group.sentences.some(sentence => !sentence.english?.trim() || !sentence.chinese?.trim() || !sentence.simplified?.trim() || !/[\u3400-\u9fff]/.test(sentence.grammar ?? ''))) {
+    if (
+      group.sentences.some(
+        (sentence) =>
+          !sentence.english?.trim() ||
+          !sentence.chinese?.trim() ||
+          !sentence.simplified?.trim() ||
+          !/[\u3400-\u9fff]/.test(sentence.grammar ?? ''),
+      )
+    ) {
       throw new Error(`第 ${expectedGroup.index + 1} 组缺少中文逐句翻译、简化文本或语法提示`);
     }
     for (const word of expectedGroup.words) {
-      const question = group.questions.find(item => item.bookWordId === word.id);
-      if (!question || !containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers)) throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
+      const question = group.questions.find((item) => item.bookWordId === word.id);
+      if (!question || !containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers))
+        throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
       const targetType = expectedGroup.targetQuestionTypes?.[word.id];
-      if (targetType && question.type !== targetType) throw new Error(`单词 ${word.word} 必须生成 ${targetType} 题型的变式题`);
-      if (!containsChinese(question.explanation)) throw new Error(`单词 ${word.word} 的解析必须使用中文`);
+      if (targetType && question.type !== targetType)
+        throw new Error(`单词 ${word.word} 必须生成 ${targetType} 题型的变式题`);
+      if (!containsChinese(question.explanation))
+        throw new Error(`单词 ${word.word} 的解析必须使用中文`);
       const isMatching = question.type === 'WORD_MATCHING';
       const isMnemonic = question.type === 'WORD_MNEMONIC';
       const expectsChineseOptions = question.type === 'MEANING_RECOGNITION';
-      if (!isMatching && (!Array.isArray(question.options) || question.options.length !== 4
-        || question.options.some(option => expectsChineseOptions ? !containsChinese(option) : !containsEnglish(option)))) {
+      if (
+        !isMatching &&
+        (!Array.isArray(question.options) ||
+          question.options.length !== 4 ||
+          question.options.some((option) =>
+            expectsChineseOptions ? !containsChinese(option) : !containsEnglish(option),
+          ))
+      ) {
         throw new Error(`单词 ${word.word} 的选项语言或数量不符合题型要求`);
       }
-      if ((!isMatching && (!question.correctAnswers.length || question.correctAnswers.some(answer => !question.options.includes(answer))))
-        || (!isMnemonic && !isMatching && question.correctAnswers.length !== 1)) {
+      if (
+        (!isMatching &&
+          (!question.correctAnswers.length ||
+            question.correctAnswers.some((answer) => !question.options.includes(answer)))) ||
+        (!isMnemonic && !isMatching && question.correctAnswers.length !== 1)
+      ) {
         throw new Error(`单词 ${word.word} 的正确答案不符合题型要求`);
       }
       if (question.type === 'WORD_MATCHING' && !hasValidGeneratedMatchingPairs(question.pairs)) {
         throw new Error(`单词 ${word.word} 的匹配题必须包含 4 组唯一的中文释义和提示`);
       }
-      if (question.type === 'WORD_MATCHING' && question.pairs?.some(pair => !new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(pair.left))) {
+      if (
+        question.type === 'WORD_MATCHING' &&
+        question.pairs?.some(
+          (pair) => !new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(pair.left),
+        )
+      ) {
         throw new Error(`单词 ${word.word} 的每个匹配短语都必须包含目标词`);
       }
-      if (!group.sentences.some(sentence => new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(sentence.english))) throw new Error(`阅读材料未包含单词 ${word.word}`);
+      if (
+        !group.sentences.some((sentence) =>
+          new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(sentence.english),
+        )
+      )
+        throw new Error(`阅读材料未包含单词 ${word.word}`);
     }
   }
 }
 
 export { unfamiliarityScore };
 
-function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function part(value: string | null) { return value?.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[1] ?? ''; }
-function meaning(value: string | null) { const raw = value ?? '暂无释义'; return raw.slice(raw.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[0].length ?? 0); }
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function part(value: string | null) {
+  return value?.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[1] ?? '';
+}
+function meaning(value: string | null) {
+  const raw = value ?? '暂无释义';
+  return raw.slice(
+    raw.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[0].length ?? 0,
+  );
+}
