@@ -34,6 +34,8 @@ type GeneratedContent = { groups: GeneratedGroup[] };
 type ResolvedGroup = { group: GeneratedGroup; cacheId?: string; signature: string; reused: boolean };
 type GradedAnswer = { isCorrect: boolean; questionType: GeneratedQuestion['type']; selectedAnswer: string[] };
 
+class StudyGroupCompletionAlreadyClaimed extends Error {}
+
 @Injectable()
 export class StudyService {
   constructor(
@@ -308,7 +310,11 @@ export class StudyService {
     answers: Array<{ bookWordId: string; selectedAnswer: string[]; responseTimeMs?: number }>,
   ) {
     const items = await this.prisma.studyPlanItem.findMany({
-      where: { planId, groupIndex, plan: { userId, status: StudyPlanStatus.ACTIVE } },
+      where: {
+        planId,
+        groupIndex,
+        plan: { userId, status: { in: [StudyPlanStatus.ACTIVE, StudyPlanStatus.COMPLETED] } },
+      },
       include: { bookWord: true },
     });
     if (!items.length) throw new NotFoundException('学习分组不存在或计划尚未生成完毕');
@@ -318,38 +324,52 @@ export class StudyService {
       && answers.every(answer => items.some(item => item.bookWordId === answer.bookWordId));
     if (!answersMatchGroup) throw new BadRequestException('答题结果包含不属于当前分组的单词');
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.studyPlan.updateMany({
-        where: { id: planId, startedAt: null },
-        data: { startedAt: new Date() },
-      });
-      for (const item of items) {
-        const answer = answers.find(value => value.bookWordId === item.bookWordId)!;
-        const graded = gradeQuestion(item.question, answer.selectedAnswer);
-        const progress = await tx.userWordProgress.findUniqueOrThrow({ where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } } });
-        await tx.wordReviewAttempt.create({
-          data: {
-            userId,
-            bookWordId: item.bookWordId,
-            planItemId: item.id,
-            isCorrect: graded.isCorrect,
-            questionType: graded.questionType,
-            selectedAnswer: graded.selectedAnswer,
-            responseTimeMs: answer.responseTimeMs == null ? undefined : Math.max(0, Math.min(3_600_000, answer.responseTimeMs)),
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const completedAt = new Date();
+        const claimed = await tx.studyPlanItem.updateMany({
+          where: {
+            id: { in: items.map(item => item.id) },
+            completedAt: null,
+            plan: { userId, status: StudyPlanStatus.ACTIVE },
           },
+          data: { completedAt },
         });
-        await this.mistakes.recordAttempt(tx, { userId, bookWordId: item.bookWordId, questionType: graded.questionType, isCorrect: graded.isCorrect });
-        await tx.userWordProgress.update({ where: { id: progress.id }, data: this.schedule(progress, graded.isCorrect) });
-      }
-      await tx.studyPlanItem.updateMany({ where: { id: { in: items.map(item => item.id) } }, data: { completedAt: new Date() } });
-      const left = await tx.studyPlanItem.count({ where: { planId, completedAt: null } });
-      if (!left) {
-        await tx.studyPlan.update({
-          where: { id: planId },
-          data: { status: StudyPlanStatus.COMPLETED, completedAt: new Date() },
+        if (claimed.count !== items.length) throw new StudyGroupCompletionAlreadyClaimed();
+
+        await tx.studyPlan.updateMany({
+          where: { id: planId, startedAt: null },
+          data: { startedAt: completedAt },
         });
-      }
-    });
+        for (const item of items) {
+          const answer = answers.find(value => value.bookWordId === item.bookWordId)!;
+          const graded = gradeQuestion(item.question, answer.selectedAnswer);
+          const progress = await tx.userWordProgress.findUniqueOrThrow({ where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } } });
+          await tx.wordReviewAttempt.create({
+            data: {
+              userId,
+              bookWordId: item.bookWordId,
+              planItemId: item.id,
+              isCorrect: graded.isCorrect,
+              questionType: graded.questionType,
+              selectedAnswer: graded.selectedAnswer,
+              responseTimeMs: answer.responseTimeMs == null ? undefined : Math.max(0, Math.min(3_600_000, answer.responseTimeMs)),
+            },
+          });
+          await this.mistakes.recordAttempt(tx, { userId, bookWordId: item.bookWordId, questionType: graded.questionType, isCorrect: graded.isCorrect });
+          await tx.userWordProgress.update({ where: { id: progress.id }, data: this.schedule(progress, graded.isCorrect) });
+        }
+        const left = await tx.studyPlanItem.count({ where: { planId, completedAt: null } });
+        if (!left) {
+          await tx.studyPlan.update({
+            where: { id: planId },
+            data: { status: StudyPlanStatus.COMPLETED, completedAt },
+          });
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof StudyGroupCompletionAlreadyClaimed)) throw error;
+    }
     return this.serializePlan(planId, userId);
   }
 
