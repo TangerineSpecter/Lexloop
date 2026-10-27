@@ -153,14 +153,25 @@ test(
           const makePlan = (completedGroups) => {
             const firstSubmitted = completedGroups >= 1;
             const secondSubmitted = completedGroups >= 2;
+            const nextReviewAt = [
+              new Date(Date.now() - 2 * 86_400_000).toISOString(),
+              new Date(Date.now() + 6 * 86_400_000).toISOString(),
+            ];
             return {
               id: 'plan-1', mode: 'group', purpose: 'normal', status: secondSubmitted ? 'COMPLETED' : 'ACTIVE',
               wordCount: 2, groupCount: 2, completed: completedGroups, createdAt: '2026-10-27T00:00:00.000Z',
               words: [
-                { id: 'word-1', word: 'bright', part: 'adj.', meaning: '明亮的', groupIndex: 0,
-                  question: firstSubmitted ? questionAfterSubmit : questionBeforeSubmit, completed: firstSubmitted, result: firstSubmitted ? false : undefined },
-                { id: 'word-2', word: 'help', part: 'vt.', meaning: '帮助', groupIndex: 1,
-                  question: secondSubmitted ? matchingAfterSubmit : matchingBeforeSubmit, completed: secondSubmitted, result: secondSubmitted ? false : undefined },
+                { id: 'word-1', word: 'bright', part: 'adj.', meaning: '明亮的', source: 'REVIEW', groupIndex: 0,
+                  question: firstSubmitted ? questionAfterSubmit : questionBeforeSubmit, completed: firstSubmitted, result: firstSubmitted ? false : undefined,
+                  nextReviewAt: firstSubmitted ? nextReviewAt[0] : null,
+                  activeWeaknesses: firstSubmitted ? [{ questionType: 'MEANING_RECOGNITION', wrongCount: 1, consecutiveCorrect: 0, remainingCorrect: 2 }] : [] },
+                { id: 'word-2', word: 'help', part: 'vt.', meaning: '帮助', source: 'NEW', groupIndex: 1,
+                  question: secondSubmitted ? matchingAfterSubmit : matchingBeforeSubmit, completed: secondSubmitted, result: secondSubmitted ? false : undefined,
+                  nextReviewAt: secondSubmitted ? nextReviewAt[1] : null,
+                  activeWeaknesses: secondSubmitted ? [
+                    { questionType: 'MEANING_RECOGNITION', wrongCount: 2, consecutiveCorrect: 1, remainingCorrect: 1 },
+                    { questionType: 'WORD_MATCHING', wrongCount: 1, consecutiveCorrect: 0, remainingCorrect: 2 },
+                  ] : [] },
               ],
               content: { groups: [
                 { index: 0, title: 'A bright morning', wordOccurrences: { bright: 1 },
@@ -181,6 +192,7 @@ test(
           window.studyPlanWrites = [];
           window.studySubmissionAttempts = [];
           window.studyAlerts = [];
+          window.mistakeRequests = [];
           window.alert = (message) => window.studyAlerts.push(String(message));
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           const nativeFetch = window.fetch;
@@ -194,6 +206,10 @@ test(
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], hasMore: false });
+            if (path.includes('/api/v1/mistakes?')) {
+              window.mistakeRequests.push({ method, url: path });
+              return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
+            }
             if (path.includes('/api/v1/study/plans/plan-1/groups/') && path.endsWith('/complete') && method === 'POST') {
               const groupIndex = Number(path.split('/groups/')[1].split('/')[0]);
               const body = JSON.parse(options.body);
@@ -382,6 +398,47 @@ test(
         await evaluate('document.querySelector("#settlement-title").textContent'),
         /本组学习完成/,
       );
+      assert.match(
+        await evaluate('document.querySelector(".settlement-overview article p").textContent'),
+        /1 新单词.*1 复习单词/,
+      );
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".settlement-schedule-list time")].map((time) => time.dateTime)',
+        ),
+        await evaluate('window.studyPlanResponse.words.map((word) => word.nextReviewAt)'),
+      );
+      assert.equal(
+        await evaluate(
+          'document.body.innerText.includes("一个月内") || document.body.innerText.includes("已安排明天优先复习")',
+        ),
+        false,
+      );
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".settlement-schedule-state")].map((node) => node.textContent.trim())',
+        ),
+        ['已到期 · 可进入首页复习', '尚未到期'],
+      );
+      assert.ok(
+        await evaluate(
+          '[...document.querySelectorAll(".settlement-schedule-list time")].every((node) => node.textContent.includes("(") && node.textContent.includes(")"))',
+        ),
+        'The displayed date must include its time zone.',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".settlement-heading").innerText'),
+        /本组首次有效作答结果.*用户当前的排期.*不是本组完成时快照/s,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".settlement-words").innerText'),
+        /词义识别.*连续答对 1\/2，还需答对 1 次/s,
+      );
+      assert.ok(await evaluate('document.querySelector(".settlement-mistakes-link") !== null'));
+      await evaluate('document.querySelector(".settlement-mistakes-link").click()');
+      await until('document.querySelector(".mistakes-page")');
+      assert.equal(await evaluate('window.mistakeRequests.length'), 1);
+      assert.equal(await evaluate('window.mistakeRequests[0].method'), 'GET');
     } finally {
       socket?.close();
       try {

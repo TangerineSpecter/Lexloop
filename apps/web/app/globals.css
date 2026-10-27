@@ -13582,38 +13582,57 @@ button {
 .settlement-schedule {
   padding-bottom: 16px;
 }
-.settlement-timeline {
-  padding: 8px 17px 0;
-}
-.settlement-timeline p {
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  margin: 10px 0;
+.settlement-schedule-caption,
+.settlement-schedule-empty {
+  margin: 12px 17px 8px;
   color: rgba(8, 40, 119, 0.72);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 1.5;
 }
-.settlement-timeline i {
-  height: 15px;
-  overflow: hidden;
-  border: 2px solid var(--border-color);
-  border-radius: 7px;
-  background: #fff4b9;
+.settlement-schedule-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 17px;
+  list-style: none;
 }
-.settlement-timeline i em {
-  display: block;
-  height: 100%;
-  border-right: 2px solid var(--border-color);
-  background:
-    repeating-linear-gradient(-45deg, transparent 0 4px, rgba(255, 254, 250, 0.52) 4px 7px),
-    var(--coral);
+.settlement-schedule-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px dashed rgba(8, 40, 119, 0.25);
 }
-.settlement-timeline strong {
+.settlement-schedule-list li:last-child {
+  border-bottom: 0;
+}
+.settlement-schedule-list li div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.settlement-schedule-list li strong {
+  overflow-wrap: anywhere;
   font-family: 'DM Mono', monospace;
+  font-size: 15px;
+}
+.settlement-schedule-list li small {
+  color: rgba(8, 40, 119, 0.65);
   font-size: 11px;
+  font-weight: 700;
+}
+.settlement-schedule-list li time {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  font-weight: 800;
   white-space: nowrap;
+}
+.settlement-schedule-state {
+  grid-column: 1 / -1;
+  color: rgba(8, 40, 119, 0.68);
+  text-align: right;
 }
 .settlement-side {
   display: grid;
@@ -13656,6 +13675,33 @@ button {
   background: #fff4b9;
   font-size: 11px;
   font-weight: 800;
+}
+.settlement-words article .settlement-weakness-explanation {
+  margin: 9px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--coral);
+}
+.settlement-mistakes-link {
+  display: block;
+  width: calc(100% - 36px);
+  min-height: 44px;
+  margin: 4px auto 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  color: var(--border-color);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+.settlement-mistakes-link:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 var(--border-color);
+}
+.settlement-mistakes-link:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
 }
 .settlement-all-correct {
   margin: 0;
@@ -13755,11 +13801,9 @@ button {
   .settlement-exercises strong {
     grid-column: 2;
   }
-  .settlement-timeline p {
-    grid-template-columns: 54px minmax(0, 1fr);
-  }
-  .settlement-timeline strong {
-    grid-column: 2;
+  .settlement-schedule-list li {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
   .settlement-return {
     width: 100%;

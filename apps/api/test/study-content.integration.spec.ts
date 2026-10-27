@@ -135,22 +135,41 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ]);
         const service = new StudyService(prisma as never, {} as never, {} as never, {} as never);
         type SerializedQuestion = { correctAnswers?: string[]; explanation?: string };
+        type SerializedPlanWord = {
+          id: string;
+          source: 'NEW' | 'REVIEW';
+          result?: boolean;
+          nextReviewAt: Date | string | null;
+          activeWeaknesses: Array<{
+            questionType: string;
+            wrongCount: number;
+            consecutiveCorrect: number;
+            remainingCorrect: number;
+          }>;
+          question: SerializedQuestion;
+        };
         type SerializedPlan = {
           id: string;
           content: { groups: Array<{ questions: SerializedQuestion[] }> };
-          words: Array<{ question: SerializedQuestion }>;
+          words: SerializedPlanWord[];
         };
 
         const ownerPlans = (await service.listPlans(users[0].id)) as unknown as SerializedPlan[];
         const partialPlans = (await service.listPlans(users[1].id)) as unknown as SerializedPlan[];
         expect(ownerPlans.map((plan) => plan.id)).toContain(ownerPlan.id);
         expect(ownerPlans.map((plan) => plan.id)).not.toContain(partialPlan.id);
+        const openOwnerPlan = ownerPlans.find((plan) => plan.id === ownerPlan.id)!;
+        expect(openOwnerPlan.words[0].source).toBe('NEW');
+        expect(openOwnerPlan.words[0].nextReviewAt).toBeNull();
+        expect(openOwnerPlan.words[0].activeWeaknesses).toEqual([]);
         expect(partialPlans.map((plan) => plan.id)).toContain(partialPlan.id);
         const partialPlanSummary = partialPlans.find((plan) => plan.id === partialPlan.id)!;
         expect(partialPlanSummary.content!.groups[0].questions[0]).not.toHaveProperty(
           'correctAnswers',
         );
         expect(partialPlanSummary.words[0].question).not.toHaveProperty('correctAnswers');
+        expect(partialPlanSummary.words[0].nextReviewAt).toBeNull();
+        expect(partialPlanSummary.words[0].activeWeaknesses).toEqual([]);
         expect(partialPlanSummary.content!.groups[0].questions[1]).not.toHaveProperty(
           'explanation',
         );
@@ -280,6 +299,25 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           'COMPLETED',
         ]);
         expect(await attemptsFor(ownerPlan.id)).toHaveLength(2);
+        const ownerRecap = identicalSubmissions[0] as unknown as SerializedPlan;
+        const brightRecap = ownerRecap.words.find((word) => word.id === bookWords[0].id)!;
+        const brightProgress = await prisma.userWordProgress.findUniqueOrThrow({
+          where: { userId_bookWordId: { userId: users[0].id, bookWordId: bookWords[0].id } },
+          select: { nextReviewAt: true },
+        });
+        expect(brightRecap.result).toBe(true);
+        expect(brightRecap.nextReviewAt).not.toBeNull();
+        expect(new Date(brightRecap.nextReviewAt!).toISOString()).toBe(
+          brightProgress.nextReviewAt!.toISOString(),
+        );
+        expect(brightRecap.activeWeaknesses).toEqual([
+          {
+            questionType: 'MEANING_RECOGNITION',
+            wrongCount: 1,
+            consecutiveCorrect: 1,
+            remainingCorrect: 1,
+          },
+        ]);
         const firstProgress = await progressFor(users[0].id);
         expect(firstProgress).toHaveLength(2);
         expect(
@@ -295,6 +333,51 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           where: { userId: users[0].id, bookWordId: bookWords[0].id },
         });
         expect(weakness).toMatchObject({ status: 'ACTIVE', consecutiveCorrect: 1, wrongCount: 1 });
+
+        const mistakesService = new MistakesService(prisma as never);
+        const readState = async () => ({
+          attempts: await prisma.wordReviewAttempt.count({
+            where: { userId: users[0].id, item: { planId: ownerPlan.id } },
+          }),
+          progress: await prisma.userWordProgress.findMany({
+            where: { userId: users[0].id },
+            orderBy: { bookWordId: 'asc' },
+            select: {
+              bookWordId: true,
+              nextReviewAt: true,
+              totalAttempts: true,
+              correctAttempts: true,
+              consecutiveCorrect: true,
+            },
+          }),
+          weaknesses: await prisma.weaknessSignal.findMany({
+            where: { userId: users[0].id },
+            orderBy: [{ bookWordId: 'asc' }, { questionType: 'asc' }],
+            select: {
+              bookWordId: true,
+              questionType: true,
+              status: true,
+              wrongCount: true,
+              consecutiveCorrect: true,
+            },
+          }),
+        });
+        const beforeSummaryReads = await readState();
+        const [summaryReads, wrongBookReads] = await Promise.all([
+          Promise.all([
+            serviceWithMistakes.listPlans(users[0].id),
+            serviceWithMistakes.listPlans(users[0].id),
+          ]),
+          Promise.all([
+            mistakesService.list(users[0].id, {}),
+            mistakesService.list(users[1].id, {}),
+          ]),
+        ]);
+        expect(summaryReads[0].map((plan) => plan.id)).toContain(ownerPlan.id);
+        expect(summaryReads[1].map((plan) => plan.id)).toContain(ownerPlan.id);
+        expect(wrongBookReads[0].items.map((item) => item.bookWordId)).toContain(bookWords[0].id);
+        expect(wrongBookReads[1].total).toBe(0);
+        expect(await readState()).toEqual(beforeSummaryReads);
 
         const differentAnswerService = createReadBarrierService(
           new Set([`${competingPlan.id}:0`]),
@@ -531,6 +614,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(progressedBeforeRelease).toBe(true);
         expect(independentResults[0]).toMatchObject({ status: 'ACTIVE', completed: 1 });
         expect(independentResults[1].status).toBe('COMPLETED');
+        expect(
+          independentResults[1].words.find((word) => word.id === bookWords[0].id)?.activeWeaknesses,
+        ).toEqual([]);
         expect(
           await prisma.studyPlanItem.count({
             where: { planId: crossGroupPlan.id, groupIndex: 1, completedAt: null },

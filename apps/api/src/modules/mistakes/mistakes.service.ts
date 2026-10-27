@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 type Transaction = Prisma.TransactionClient;
 type ListQuery = { status?: 'active' | 'ignored' | 'resolved'; questionType?: string; page?: number; pageSize?: number };
+export const MISTAKE_CORRECTION_STREAK = 2;
 
 @Injectable()
 export class MistakesService {
@@ -23,7 +24,7 @@ export class MistakesService {
       return;
     }
     const consecutiveCorrect = existing.consecutiveCorrect + 1;
-    await tx.weaknessSignal.update({ where: key, data: { consecutiveCorrect, lastAttemptAt: at, ...(consecutiveCorrect >= 2 ? { status: WeaknessStatus.RESOLVED, resolvedAt: at, ignoredAt: null } : {}) } });
+    await tx.weaknessSignal.update({ where: key, data: { consecutiveCorrect, lastAttemptAt: at, ...(consecutiveCorrect >= MISTAKE_CORRECTION_STREAK ? { status: WeaknessStatus.RESOLVED, resolvedAt: at, ignoredAt: null } : {}) } });
   }
 
   async list(userId: string, query: ListQuery) {

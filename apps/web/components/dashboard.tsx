@@ -99,6 +99,13 @@ type Word = {
   question?: GeneratedQuestion;
   completed?: boolean;
   result?: boolean;
+  nextReviewAt?: string | null;
+  activeWeaknesses?: Array<{
+    questionType: string;
+    wrongCount: number;
+    consecutiveCorrect: number;
+    remainingCorrect: number;
+  }>;
 };
 type DashboardWords = { defaultNewWordCount: number; reviewWords: Word[]; newWords: Word[] };
 type MasteredWord = Word & { id: string; masteredAt: string };
@@ -484,6 +491,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             plan={plans.find((plan) => plan.id === lessonPlanId) ?? null}
             session={session}
             onBack={() => setLessonPlanId(null)}
+            onOpenMistakes={() => setPage('mistakes')}
             onOpenTutorSettings={session.user.role === 'ADMIN' ? () => { setSettingsSection('system'); setPage('settings'); } : undefined}
             onPlanUpdated={(updated) =>
               setPlans((current) =>
@@ -2359,17 +2367,35 @@ function GroupSettlement({
   results,
   summary,
   onBack,
+  onOpenMistakes,
 }: {
   words: Word[];
   results: Record<string, boolean>;
   summary?: LearningPlan['summary'];
   onBack: () => void;
+  onOpenMistakes?: () => void;
 }) {
+  const [scheduleClock, setScheduleClock] = useState<{ now: number; timeZone: string } | null>(null);
+  useEffect(() => {
+    const updateClock = () => setScheduleClock({ now: Date.now(), timeZone: browserTimeZone() });
+    updateClock();
+    const timer = window.setInterval(updateClock, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const correct = words.filter((word) => results[word.word]).length;
   const accuracy = words.length ? Math.round((correct / words.length) * 100) : 0;
-  const reviewCount = words.filter((word) => word.state === 'review').length;
+  const reviewCount = words.filter((word) => word.source === 'REVIEW').length;
   const newCount = words.length - reviewCount;
   const incorrect = words.filter((word) => !results[word.word]);
+  const activeWeaknesses = words.flatMap((word) =>
+    (word.activeWeaknesses ?? []).map((weakness) => ({ word, weakness })),
+  );
+  const scheduledWords = words
+    .filter((word) => word.nextReviewAt && !Number.isNaN(new Date(word.nextReviewAt).getTime()))
+    .sort((left, right) => new Date(left.nextReviewAt!).getTime() - new Date(right.nextReviewAt!).getTime());
+  const unknownScheduleCount = words.filter((word) =>
+    word.completed && (!word.nextReviewAt || Number.isNaN(new Date(word.nextReviewAt).getTime())),
+  ).length;
   const exerciseStats: Array<[string, number, number]> = summary?.typeStats.map((item) => [
     exerciseLabels[item.type as ExerciseType] ?? item.type,
     item.correct,
@@ -2382,7 +2408,7 @@ function GroupSettlement({
         <div>
           <p>GROUP RECAP · 已安排复习</p>
           <h1 id="settlement-title">本组学习完成</h1>
-          <span>你的练习结果已记录，接下来会在合适的时间让这些单词再回来。</span>
+          <span>下方是本组首次有效作答结果，以及用户当前的排期和薄弱项状态；后两者不是本组完成时快照。</span>
         </div>
         <div className="settlement-stamp">
           <Trophy size={27} />
@@ -2404,7 +2430,7 @@ function GroupSettlement({
               </p>
             </article>
             <article>
-              <small>回答正确率</small>
+              <small>首次提交正确率</small>
               <strong>
                 {accuracy}
                 <em>%</em>
@@ -2413,7 +2439,7 @@ function GroupSettlement({
                 <b style={{ width: `${accuracy}%` }} />
               </i>
               <p>
-                {correct} / {words.length} 道练习答对
+                {correct} / {words.length} 道首次提交答对
               </p>
             </article>
             <article>
@@ -2445,52 +2471,93 @@ function GroupSettlement({
           <section className="settlement-card settlement-schedule">
             <header>
               <TimerReset size={20} />
-              <h2>后续复习计划</h2>
+              <h2>下次复习时间</h2>
             </header>
-            <div className="settlement-timeline">
-              <p>
-                <b>明天</b>
-                <i>
-                  <em style={{ width: `${Math.max(words.length, 1) * 20}%` }} />
-                </i>
-                <strong>{words.length} 词</strong>
+            <p className="settlement-schedule-caption">
+              这是用户当前保存的排期，后续练习可能更新它。按本地设备时区显示；到期时刻及之后会进入首页“今日待复习”。
+            </p>
+            {scheduledWords.length ? (
+              <ul className="settlement-schedule-list">
+                {scheduledWords.map((word) => (
+                  <li key={word.id ?? word.word}>
+                    <div>
+                      <strong>{word.word}</strong>
+                      <small>{results[word.word] ? '首次提交答对' : '首次提交答错'}</small>
+                    </div>
+                    <time dateTime={word.nextReviewAt!}>
+                      {scheduleClock
+                        ? `${new Date(word.nextReviewAt!).toLocaleString('zh-CN', {
+                          timeZone: scheduleClock.timeZone,
+                          year: 'numeric', month: 'numeric', day: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })} (${scheduleClock.timeZone})`
+                        : `${new Date(word.nextReviewAt!).toISOString().slice(0, 16).replace('T', ' ')} UTC`}
+                    </time>
+                    <small className="settlement-schedule-state">
+                      {scheduleClock
+                        ? new Date(word.nextReviewAt!).getTime() <= scheduleClock.now
+                          ? '已到期 · 可进入首页复习'
+                          : '尚未到期'
+                        : '正在读取设备时区与到期状态'}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="settlement-schedule-empty">没有有效排期时间，状态未知；这里不会推测日期或是否到期。</p>
+            )}
+            {unknownScheduleCount > 0 && (
+              <p className="settlement-schedule-empty">
+                {unknownScheduleCount} 个词没有有效排期时间，状态未知；未将其标为已到期或未来复习。
               </p>
-              <p>
-                <b>一周内</b>
-                <i>
-                  <em style={{ width: '35%' }} />
-                </i>
-                <strong>巩固复习</strong>
-              </p>
-              <p>
-                <b>一个月内</b>
-                <i>
-                  <em style={{ width: '20%' }} />
-                </i>
-                <strong>长期记忆</strong>
-              </p>
-            </div>
+            )}
           </section>
         </div>
         <aside className="settlement-side">
           <section className="settlement-card settlement-words">
             <header>
               <CheckCircle2 size={21} />
-              <h2>{incorrect.length ? '需要再见一面' : '本组全对'}</h2>
-              <span>{incorrect.length}</span>
+              <h2>{activeWeaknesses.length ? '仍待巩固的题型' : '待巩固状态'}</h2>
+              <span>{activeWeaknesses.length || incorrect.length}</span>
             </header>
-            {incorrect.length ? (
-              incorrect.map((word) => (
-                <article key={word.word}>
-                  <strong>{word.word}</strong>
-                  <p>{word.meaning.split('｜')[0]}</p>
-                  <small>已安排明天优先复习</small>
-                </article>
-              ))
+            {activeWeaknesses.length ? (
+              activeWeaknesses.map(({ word, weakness }) => {
+                const matchesCurrentQuestion = word.question?.type === weakness.questionType;
+                const typeLabel = weaknessLabels[weakness.questionType] ?? weakness.questionType;
+                return (
+                  <article key={`${word.id ?? word.word}:${weakness.questionType}`}>
+                    <strong>{word.word}</strong>
+                    <p>{typeLabel} · 累计答错 {weakness.wrongCount} 次</p>
+                    <small>
+                      连续答对 {weakness.consecutiveCorrect}/2，还需答对 {weakness.remainingCorrect} 次
+                    </small>
+                    {matchesCurrentQuestion && word.result === false && word.question?.explanation && (
+                      <p className="settlement-weakness-explanation">本次解析：{word.question.explanation}</p>
+                    )}
+                    {matchesCurrentQuestion && word.result === true && (
+                      <p className="settlement-weakness-explanation">
+                        首次提交答对了；这项当前薄弱记录仍需达到连续答对两次才会纠正。
+                      </p>
+                    )}
+                    {!matchesCurrentQuestion && (
+                      <p className="settlement-weakness-explanation">
+                        这是该词的其他题型薄弱项；本组首次提交不会改变它的连续答对记录。
+                      </p>
+                    )}
+                  </article>
+                );
+              })
+            ) : incorrect.length ? (
+              <p className="settlement-all-correct">
+                本次有 {incorrect.length} 个词答错，但薄弱项状态暂未返回；请在错题本核对，不把它们视为已纠正。
+              </p>
             ) : (
               <p className="settlement-all-correct">
-                很棒，本组单词都答对了。明天会进行一次轻量回顾。
+                当前没有开放的题型薄弱项；这不等于本组答对就自动代表掌握。上方正确率记录本组首次提交，单词仍按当前排期复习。
               </p>
+            )}
+            {onOpenMistakes && (activeWeaknesses.length > 0 || incorrect.length > 0) && (
+              <button className="settlement-mistakes-link" onClick={onOpenMistakes}>打开错题本</button>
             )}
           </section>
           <section className="settlement-card settlement-note">
@@ -2514,17 +2581,24 @@ const exerciseLabels: Record<ExerciseType, string> = {
   SYNONYM_REPLACEMENT: '同义替换',
   READING_COMPREHENSION: '阅读理解',
 };
+const weaknessLabels: Record<string, string> = {
+  ...exerciseLabels,
+  OUTPUT: '每日输出',
+  CONFUSION: '易混词辨析',
+};
 
 function GeneratedStudyPage({
   plan,
   session,
   onBack,
+  onOpenMistakes,
   onOpenTutorSettings,
   onPlanUpdated,
 }: {
   plan: LearningPlan | null;
   session: Session;
   onBack: () => void;
+  onOpenMistakes?: () => void;
   onOpenTutorSettings?: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
@@ -2638,7 +2712,7 @@ function GeneratedStudyPage({
   };
   if (finishedPlan && !showingFeedback) {
     const results = Object.fromEntries(finishedPlan.words.map((word) => [word.word, word.result === true]));
-    return <GroupSettlement words={finishedPlan.words} results={results} summary={finishedPlan.summary} onBack={onBack}/>;
+    return <GroupSettlement words={finishedPlan.words} results={results} summary={finishedPlan.summary} onBack={onBack} onOpenMistakes={onOpenMistakes}/>;
   }
   const continueAfterFeedback = () => {
     setFeedbackGroupIndex(null);

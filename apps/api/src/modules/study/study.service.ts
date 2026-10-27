@@ -1,10 +1,10 @@
 import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanPurpose, StudyPlanStatus, WordProgressState } from '@prisma/client';
+import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanPurpose, StudyPlanStatus, WeaknessStatus, WordProgressState } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AiService } from '../ai/ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MistakesService } from '../mistakes/mistakes.service';
+import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 
@@ -386,7 +386,19 @@ export class StudyService {
       include: {
         items: {
           orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
-          include: { bookWord: { include: { word: true } }, attempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
+          include: {
+            bookWord: {
+              include: {
+                word: true,
+                progress: { where: { userId }, select: { nextReviewAt: true } },
+                weaknesses: {
+                  where: { userId, status: WeaknessStatus.ACTIVE },
+                  select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
+                },
+              },
+            },
+            attempts: { orderBy: { createdAt: 'desc' }, take: 1 },
+          },
         },
       },
     });
@@ -413,6 +425,13 @@ export class StudyService {
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
+      nextReviewAt: item.completedAt ? item.bookWord.progress[0]?.nextReviewAt ?? null : null,
+      activeWeaknesses: item.completedAt
+        ? item.bookWord.weaknesses.map(signal => ({
+          ...signal,
+          remainingCorrect: Math.max(0, MISTAKE_CORRECTION_STREAK - signal.consecutiveCorrect),
+        }))
+        : [],
     }));
     const attempts = plan.items.flatMap(item => item.attempts);
     const typeStats = Object.values(attempts.reduce<Record<string, { type: string; total: number; correct: number }>>((result, attempt) => {

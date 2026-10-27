@@ -158,7 +158,12 @@ describe('study answer visibility', () => {
         {
           id: 'item1',
           bookWordId: 'word1',
-          bookWord: { contextMeaning: null, word: { text: 'help', meaning: 'vt. 帮助' } },
+          bookWord: {
+            contextMeaning: null,
+            word: { text: 'help', meaning: 'vt. 帮助' },
+            progress: [{ nextReviewAt: new Date('2026-10-28T00:00:00.000Z') }],
+            weaknesses: [],
+          },
           source: 'NEW',
           groupIndex: 0,
           question: matchingQuestion,
