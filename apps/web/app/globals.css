@@ -16301,3 +16301,53 @@ button[data-tooltip]::after {
     animation: none;
   }
 }
+.review-session-control {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 28px;
+  border-bottom: 1px solid rgba(8, 40, 119, 0.2);
+  color: var(--border-color);
+  background: var(--soft);
+}
+.review-session-control label {
+  font-size: 14px;
+  font-weight: 800;
+}
+.review-session-control input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+.review-session-control input[type='range']:focus-visible {
+  outline: 2px solid var(--border-color);
+  outline-offset: 3px;
+}
+.review-session-control output {
+  font:
+    800 13px 'DM Mono',
+    monospace;
+  white-space: nowrap;
+}
+.review-session-control p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: rgba(8, 40, 119, 0.72);
+  font-size: 12px;
+}
+@media (max-width: 680px) {
+  .review-session-control {
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    padding: 12px 20px;
+  }
+  .review-session-control input[type='range'] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .review-session-control p {
+    grid-row: 3;
+  }
+}

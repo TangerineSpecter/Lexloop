@@ -161,6 +161,7 @@ test(
             'second-study-user': [],
           };
           window.generationAttempts = [];
+          window.studyPlanCreateBodies = [];
           window.generationResolvers = {};
           window.resolveGeneration = (id, response) => {
             const resolve = window.generationResolvers[id];
@@ -177,9 +178,13 @@ test(
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: session?.user.id ?? null });
             if (path.endsWith('/api/v1/auth/refresh')) return Response.json({ message: 'No fixture session' }, { status: 401 });
             if (path.endsWith('/api/v1/auth/login') && method === 'POST') return Response.json(secondSession);
-            if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+            if (path.includes('/api/v1/vocabulary/default')) return Response.json({ id: 'book-a', title: 'Book A', totalWords: 10 });
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
-            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 1, reviewWords: [], newWords: [{ id: 'word-new', word: 'take', part: 'vt.', meaning: '拿；取' }] });
+            if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 1, reviewWords: [
+              { id: 'review-oldest', word: 'steady', part: 'adj.', meaning: '稳定的' },
+              { id: 'review-next', word: 'patient', part: 'adj.', meaning: '耐心的' },
+              { id: 'review-latest', word: 'curious', part: 'adj.', meaning: '好奇的' },
+            ], newWords: [] });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
@@ -191,6 +196,10 @@ test(
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
               return Response.json(window.planLists[session?.user.id] ?? []);
             }
+            if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
+              window.studyPlanCreateBodies.push(JSON.parse(options.body));
+              return Response.json({ message: 'Fixture stopped before plan generation' }, { status: 409 });
+            }
             return Response.json({});
           };
         `,
@@ -198,6 +207,68 @@ test(
 
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
+      await clickHistory();
+      await until('document.querySelectorAll(".history-grid article").length === 4');
+
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
+      await until('document.querySelector("#review-session-count")?.value === "3"');
+      await evaluate('document.querySelector("#review-session-count").focus()');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'ArrowLeft',
+        code: 'ArrowLeft',
+        windowsVirtualKeyCode: 37,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'ArrowLeft',
+        code: 'ArrowLeft',
+        windowsVirtualKeyCode: 37,
+      });
+      await until(
+        'document.querySelector(".review-session-control output")?.textContent.includes("2 / 3")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".review-session-control p")?.textContent.includes("1 个仍待复习")',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".toolbar button.create").click()');
+      await until('window.studyPlanCreateBodies.length === 1');
+      assert.deepEqual(await evaluate('window.studyPlanCreateBodies[0]'), {
+        newWordCount: 0,
+        reviewWordCount: 2,
+        mode: 'group',
+      });
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
+      );
+      await evaluate('document.querySelector("#review-session-count").focus()');
+      for (let step = 0; step < 2; step++) {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'ArrowLeft',
+          code: 'ArrowLeft',
+          windowsVirtualKeyCode: 37,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'ArrowLeft',
+          code: 'ArrowLeft',
+          windowsVirtualKeyCode: 37,
+        });
+      }
+      await until(
+        'document.querySelector(".review-session-control output")?.textContent.includes("0 / 3")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".toolbar button.create").disabled'),
+        true,
+      );
+      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
       await clickHistory();
       await until('document.querySelectorAll(".history-grid article").length === 4');
 
@@ -304,6 +375,12 @@ test(
       })()`);
       await until(
         'document.querySelector(".study-app .sidebar-book")?.innerText.includes("Second user")',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
+      await until(
+        'document.querySelector(".review-session-control output")?.textContent.includes("3 / 3")',
       );
       await clickHistory();
       await until(

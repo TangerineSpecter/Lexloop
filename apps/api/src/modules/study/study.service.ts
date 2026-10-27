@@ -22,6 +22,7 @@ import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 
 const DAY = 86_400_000;
+const MAX_DAILY_REVIEW_WORDS = 40;
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -85,9 +86,18 @@ export class StudyService {
     userId: string,
     requestedNewWordCount?: number,
     requestedMode: RequestedMode = 'group',
+    requestedReviewWordCount?: number,
   ) {
     const mode = modeMap[requestedMode];
     if (!mode) throw new BadRequestException('不支持的学习模式');
+    if (
+      requestedReviewWordCount !== undefined &&
+      (!Number.isInteger(requestedReviewWordCount) ||
+        requestedReviewWordCount < 0 ||
+        requestedReviewWordCount > MAX_DAILY_REVIEW_WORDS)
+    ) {
+      throw new BadRequestException(`本次复习数量必须在 0 到 ${MAX_DAILY_REVIEW_WORDS} 之间`);
+    }
     if (mode === StudyPlanMode.EXAM)
       throw new BadRequestException('真题模式正在建设中，当前不会调用大模型');
     if (!(await this.modelConfigs.selectedProvider(userId))) {
@@ -126,7 +136,8 @@ export class StudyService {
             nextReviewAt: { lte: new Date() },
             bookWord: { word: { masteredBy: { none: { userId } } } },
           },
-          orderBy: { nextReviewAt: 'asc' },
+          orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }, { bookWordId: 'asc' }],
+          take: requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS,
           select: { bookWordId: true },
         }),
         tx.userVocabularyBook.findFirst({

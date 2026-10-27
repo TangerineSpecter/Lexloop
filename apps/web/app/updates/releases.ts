@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.26.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '按本次状态选择复习词数量',
+        entry: '首页 → 今日学习计划',
+        usage: '积压较多时可先安排一部分最早到期词；未选词保留原排期，可放进后续计划。',
+      },
+    ],
+  },
+  {
     version: '1.25.0',
     date: '2026-10-27',
     items: [

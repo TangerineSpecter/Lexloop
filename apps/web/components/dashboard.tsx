@@ -163,6 +163,7 @@ type VocabularyCatalog = {
   books: VocabularyBookCard[];
 };
 const GROUP_WORD_LIMIT = 3;
+const MAX_DAILY_REVIEW_WORDS = 40;
 const WORD_TONES = [
   { background: '#d8ebff', color: '#0b3a85' },
   { background: '#ffd9d2', color: '#9b1c1c' },
@@ -1660,6 +1661,9 @@ function WordsPanel({
     reviewWords: [],
     newWords: [],
   });
+  const [reviewSelection, setReviewSelection] = useState<{ scope: string; count: number } | null>(
+    null,
+  );
   const [displayNewWordCount, setDisplayNewWordCount] = useState<number>();
   const [message, setMessage] = useState('');
   const [loadedBookId, setLoadedBookId] = useState<string | null>(null);
@@ -1674,6 +1678,7 @@ function WordsPanel({
     ? dashboardWords
     : { defaultNewWordCount: dashboardWords.defaultNewWordCount, reviewWords: [], newWords: [] };
   const newWordCount = displayNewWordCount ?? visibleDashboardWords.defaultNewWordCount;
+  const reviewScope = `${session.user.id}:${bookId ?? ''}`;
   const loadWords = useCallback(
     async (count?: number) => {
       const requestId = ++wordsLoadRequestRef.current;
@@ -1718,8 +1723,13 @@ function WordsPanel({
     );
   };
   const reviewCount = visibleDashboardWords.reviewWords.length;
-  const totalWordCount = reviewCount + newWordCount;
-  const reviewShare = totalWordCount ? `${(reviewCount / totalWordCount) * 100}%` : '0%';
+  const reviewLimit = Math.min(reviewCount, MAX_DAILY_REVIEW_WORDS);
+  const selectedReviewCount = Math.min(
+    reviewSelection?.scope === reviewScope ? reviewSelection.count : reviewLimit,
+    reviewLimit,
+  );
+  const totalWordCount = selectedReviewCount + visibleDashboardWords.newWords.length;
+  const reviewShare = totalWordCount ? `${(selectedReviewCount / totalWordCount) * 100}%` : '0%';
   const createPlan = async () => {
     if (creatingPlanRef.current || !bookWordsReady) return;
     creatingPlanRef.current = true;
@@ -1729,7 +1739,11 @@ function WordsPanel({
         '/study/plans',
         {
           method: 'POST',
-          body: JSON.stringify({ newWordCount: visibleDashboardWords.newWords.length, mode }),
+          body: JSON.stringify({
+            newWordCount: visibleDashboardWords.newWords.length,
+            reviewWordCount: selectedReviewCount,
+            mode,
+          }),
         },
         session.accessToken,
       );
@@ -1752,14 +1766,14 @@ function WordsPanel({
         </div>
         <div
           className="panel-progress"
-          aria-label={`今日学习构成：待复习 ${reviewCount} 词，新单词 ${newWordCount} 词`}
+          aria-label={`今日学习构成：本次复习 ${selectedReviewCount} 词，共有 ${reviewCount} 词到期，新单词 ${visibleDashboardWords.newWords.length} 词`}
         >
           <div className="panel-progress-labels">
             <span className="is-review">
-              待复习 <b>{reviewCount}</b>
+              本次复习 <b>{selectedReviewCount}</b>
             </span>
             <span className="is-new">
-              新单词 <b>{newWordCount}</b>
+              新单词 <b>{visibleDashboardWords.newWords.length}</b>
             </span>
             <strong>
               {totalWordCount}
@@ -1796,7 +1810,7 @@ function WordsPanel({
               creatingPlan ||
               !bookWordsReady ||
               !planListReady ||
-              (!visibleDashboardWords.newWords.length && !visibleDashboardWords.reviewWords.length)
+              (!visibleDashboardWords.newWords.length && selectedReviewCount === 0)
             }
           >
             <Sparkles size={15} />
@@ -1813,6 +1827,33 @@ function WordsPanel({
           </Tooltip>
         </div>
       </header>
+      {reviewCount > 0 && (
+        <div className="review-session-control">
+          <label htmlFor="review-session-count">本次复习数量</label>
+          <input
+            id="review-session-count"
+            aria-label="本次复习数量"
+            type="range"
+            min={0}
+            max={reviewLimit}
+            step={1}
+            value={selectedReviewCount}
+            onChange={(event) =>
+              setReviewSelection({ scope: reviewScope, count: Number(event.target.value) })
+            }
+          />
+          <output htmlFor="review-session-count">
+            {selectedReviewCount} / {reviewCount} 个到期
+          </output>
+          <p aria-live="polite">
+            {reviewCount > selectedReviewCount
+              ? `${reviewCount - selectedReviewCount} 个仍待复习，可留到下一次计划。`
+              : '本次会安排当前全部到期词。'}
+            {reviewCount > MAX_DAILY_REVIEW_WORDS &&
+              ` 每份计划最多安排 ${MAX_DAILY_REVIEW_WORDS} 个复习词。`}
+          </p>
+        </div>
+      )}
       {message && <p className="book-message">{message}</p>}
       {wordsLoadStatus === 'loading' && (
         <p className="book-message" role="status">
