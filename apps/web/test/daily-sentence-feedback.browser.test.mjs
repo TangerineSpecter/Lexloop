@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'legacy daily sentence feedback stays visible until the learner reselects it',
+  'daily sentence invites sentence recall before revealing explanations and preserves feedback',
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-daily-feedback-test-'));
@@ -90,7 +90,10 @@ test(
           }
           await delay(100);
         }
-        assert.fail(`Timed out waiting for ${expression}`);
+        const body = await evaluate(
+          'document.querySelector("dialog")?.innerText ?? document.body.innerText',
+        ).catch((error) => String(error));
+        assert.fail(`Timed out waiting for ${expression}; page=${body}`);
       };
 
       await send('Page.enable');
@@ -126,12 +129,16 @@ test(
             content: { ...window.olderSentence.content, english: 'He walks to work.' }
           };
           window.historyRequests = [];
+          window.dailySentenceWrites = [];
           window.failFilteredHistoryOnce = true;
           window.feedbackRequests = [];
           window.dailyFeedbackFieldset = () => [...document.querySelectorAll('fieldset')].find(fieldset => fieldset.querySelector('legend')?.textContent.includes('这句对你来说怎么样？'));
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
+            if (path.includes('/api/v1/daily-sentences/') && options.method && options.method !== 'GET') {
+              window.dailySentenceWrites.push({ method: options.method, path });
+            }
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'fixture' });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 1, todayActive: true });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
@@ -181,6 +188,22 @@ test(
       await until('document.querySelector("#daily-sentence-heading")');
       await until(`document.querySelector('[aria-label^="查看每日一句解析"]')`);
       await evaluate(`document.querySelector('[aria-label^="查看每日一句解析"]').click()`);
+      await until('document.querySelector("dialog button[aria-controls]")');
+      const beforeReveal = await evaluate('document.querySelector("dialog").innerText');
+      assert.ok(beforeReveal.includes('She walks home.'));
+      assert.ok(!beforeReveal.includes('她步行回家。'));
+      assert.ok(!beforeReveal.includes('说明她平时做什么。'));
+      await until(
+        'window.dailySentenceWrites.some((write) => write.path.endsWith("/legacy-sentence/read"))',
+      );
+      const writeCountBeforeReveal = await evaluate('window.dailySentenceWrites.length');
+      await evaluate('document.querySelector("dialog button[aria-controls]").click()');
+      await until('document.querySelector("dialog").innerText.includes("她步行回家。")');
+      assert.equal(
+        await evaluate('document.querySelector("dialog button[aria-expanded=true]")?.textContent'),
+        '翻译与讲解已展开',
+      );
+      assert.equal(await evaluate('window.dailySentenceWrites.length'), writeCountBeforeReveal);
       await until(
         'window.dailyFeedbackFieldset()?.querySelector("p[role=status]")?.textContent.includes("无法确认当时的选择时间")',
       );
@@ -245,6 +268,13 @@ test(
       await evaluate(
         `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('They walk to work.')).click()`,
       );
+      await until('document.querySelector("dialog button[aria-controls]")');
+      const otherSentenceBeforeReveal = await evaluate(
+        'document.querySelector("dialog").innerText',
+      );
+      assert.ok(otherSentenceBeforeReveal.includes('They walk to work.'));
+      assert.ok(!otherSentenceBeforeReveal.includes('他们步行上班。'));
+      await evaluate('document.querySelector("dialog button[aria-controls]").click()');
       await until(
         'window.dailyFeedbackFieldset()?.querySelector("p[role=status]")?.textContent.includes("无法确认当时的选择时间")',
       );

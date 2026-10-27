@@ -191,6 +191,7 @@ export function DailySentenceNotebook({
           item &&
           item.id === selectedId && (
             <DailySentenceLesson
+              key={item.id}
               session={session}
               item={item}
               saving={saving}

@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.3',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '每日一句先回想，再展开解析',
+        entry: '首页 → 每日一句 → 查看解析',
+        usage: '先用自己的话想想句意；准备好后查看翻译和讲解，也可以直接查看。',
+      },
+    ],
+  },
+  {
     version: '1.27.0',
     date: '2026-10-27',
     items: [
