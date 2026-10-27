@@ -133,6 +133,13 @@ test(
           window.failFilteredHistoryOnce = true;
           window.feedbackRequests = [];
           window.dailyFeedbackFieldset = () => [...document.querySelectorAll('fieldset')].find(fieldset => fieldset.querySelector('legend')?.textContent.includes('这句对你来说怎么样？'));
+          window.dailySentenceSpeech = { cancelCount: 0, spoken: [] };
+          Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
+          Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+            getVoices: () => [{ lang: 'en-US' }],
+            cancel: () => { window.dailySentenceSpeech.cancelCount += 1; },
+            speak: utterance => window.dailySentenceSpeech.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate, voice: utterance.voice?.lang ?? null })
+          } });
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
@@ -197,6 +204,21 @@ test(
         'window.dailySentenceWrites.some((write) => write.path.endsWith("/legacy-sentence/read"))',
       );
       const writeCountBeforeReveal = await evaluate('window.dailySentenceWrites.length');
+      await evaluate('document.querySelector(\'[aria-label="慢速播放每日一句"]\').click()');
+      await until('window.dailySentenceSpeech.spoken.length === 1');
+      assert.deepEqual(await evaluate('window.dailySentenceSpeech.spoken[0]'), {
+        text: 'She walks home.',
+        lang: 'en-US',
+        rate: 0.8,
+        voice: 'en-US',
+      });
+      assert.equal(
+        await evaluate('document.querySelector("dialog").innerText.includes("她步行回家。")'),
+        false,
+      );
+      await evaluate('document.querySelector(\'[aria-label="停止播放每日一句"]\').click()');
+      assert.equal(await evaluate('window.dailySentenceSpeech.cancelCount'), 2);
+      assert.equal(await evaluate('window.dailySentenceWrites.length'), writeCountBeforeReveal);
       await evaluate('document.querySelector("dialog button[aria-controls]").click()');
       await until('document.querySelector("dialog").innerText.includes("她步行回家。")');
       assert.equal(
@@ -229,10 +251,14 @@ test(
         '有点难',
       );
 
+      await evaluate('document.querySelector(\'[aria-label="按正常速度播放每日一句"]\').click()');
+      await until('window.dailySentenceSpeech.spoken.length === 2');
+      const cancelCountBeforeLeaving = await evaluate('window.dailySentenceSpeech.cancelCount');
       await evaluate(
         `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('回顾与收藏')).click()`,
       );
       await until('document.querySelector("dialog")?.textContent.includes("全部句子")');
+      await until('window.dailySentenceSpeech.cancelCount > ' + cancelCountBeforeLeaving);
       await evaluate(
         `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('待重新确认')).click()`,
       );

@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.5',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '每日一句可听标准和慢速读音',
+        entry: '首页 → 每日一句 → 查看解析',
+        usage: '可先听一句并回想句意，再展开讲解；也可直接阅读。语音在浏览器本地播放。',
+      },
+    ],
+  },
+  {
     version: '1.27.4',
     date: '2026-10-27',
     items: [

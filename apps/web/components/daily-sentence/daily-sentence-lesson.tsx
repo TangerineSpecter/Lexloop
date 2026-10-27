@@ -4,6 +4,7 @@ import type { DailySentenceItem } from '@lexloop/types';
 import { Bookmark, BookmarkCheck } from 'lucide-react';
 import { useState } from 'react';
 import styles from './daily-sentence.module.css';
+import { EnglishAudioControls } from '../english-audio-controls';
 
 export function DailySentenceLesson({
   item,
@@ -40,8 +41,11 @@ export function DailySentenceLesson({
       <p className={styles.english} lang="en">
         {content.english}
       </p>
+      <EnglishAudioControls text={content.english} context="每日一句" />
       <section className={styles.section} aria-label="先回想句意">
-        {!revealed && <p>先试着用自己的话说出句意，再查看翻译和讲解；也可以直接查看。</p>}
+        {!revealed && (
+          <p>可以先听一句，再用自己的话回想句意；也可以直接阅读，然后查看翻译和讲解。</p>
+        )}
         <button
           type="button"
           className={styles.button}
