@@ -84,7 +84,11 @@ test(
       };
       const until = async (expression) => {
         for (let attempt = 0; attempt < 100; attempt++) {
-          if (await evaluate(`Boolean(${expression})`)) return;
+          try {
+            if (await evaluate(`Boolean(${expression})`)) return;
+          } catch {
+            // A navigation can briefly invalidate the execution context.
+          }
           await delay(100);
         }
         assert.fail(`Timed out waiting for ${expression}`);
@@ -137,7 +141,10 @@ test(
       await until('document.body.textContent.includes("正在读取真实学习记录")');
       assert.equal(await evaluate('document.querySelector(".streak-count b").textContent'), '—');
       await until('document.querySelector(".streak-count b")?.textContent === "0"');
-      assert.equal(await evaluate('document.body.textContent.includes("今天还没有已完成的学习活动")'), true);
+      assert.equal(
+        await evaluate('document.body.textContent.includes("今天还没有已完成的学习活动")'),
+        true,
+      );
 
       await send('Page.navigate', {
         url: new URL('/dashboard?today-active=1', baseUrl).href,

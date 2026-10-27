@@ -217,7 +217,7 @@ test(
       socket?.close();
       browser.kill('SIGTERM');
       if (!closed) await new Promise((resolve) => browser.once('close', resolve));
-      await rm(profile, { recursive: true, force: true });
+      await rm(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
   },
 );

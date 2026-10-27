@@ -45,6 +45,14 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browserTimeZone, request, type Session } from '../lib/api';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
+import {
+  clearStudyDraft,
+  clearStudyDraftIfMatches,
+  readStudyDraftSnapshot,
+  saveStudyDraft,
+  studyDraftIdentity,
+  type StudyDraftAnswers,
+} from '../lib/study-drafts';
 import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
@@ -472,6 +480,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         </header>
         {page === 'study' && lessonPlanId !== null ? (
           <GeneratedStudyPage
+            key={`${session.user.id}:${lessonPlanId}`}
             plan={plans.find((plan) => plan.id === lessonPlanId) ?? null}
             session={session}
             onBack={() => setLessonPlanId(null)}
@@ -2519,29 +2528,76 @@ function GeneratedStudyPage({
   onOpenTutorSettings?: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, { selected: string[] }>>({});
+  const [draftState, setDraftState] = useState<{
+    scopeKey: string | null;
+    answers: StudyDraftAnswers;
+    snapshotId: string | null;
+  }>({ scopeKey: null, answers: {}, snapshotId: null });
+  const [draftRevision, setDraftRevision] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [finishedPlan, setFinishedPlan] = useState<LearningPlan | null>(null);
   const [submittedPlan, setSubmittedPlan] = useState<LearningPlan | null>(null);
   const [feedbackGroupIndex, setFeedbackGroupIndex] = useState<number | null>(null);
   const groupStartedAt = useRef(Date.now());
-  if (!plan?.content?.groups?.length) {
+  const activePlan = plan && submittedPlan?.id === plan.id ? submittedPlan : plan;
+  const groups = activePlan?.content?.groups ?? [];
+  const firstPendingWord = activePlan?.words.find((word) => !word.completed);
+  const currentGroupIndex = firstPendingWord?.groupIndex ?? Math.max(0, groups.length - 1);
+  const displayGroupIndex = feedbackGroupIndex ?? currentGroupIndex;
+  const group = groups.find((item) => item.index === displayGroupIndex) ?? groups[displayGroupIndex];
+  const words = activePlan && group
+    ? activePlan.words.filter((word) => word.groupIndex === group.index)
+    : [];
+  const draftScopeKey = activePlan && group
+    ? studyDraftIdentity(session.user.id, activePlan.id, group.index, group.questions)
+    : null;
+  useEffect(() => {
+    if (!draftScopeKey || !activePlan || !group) {
+      setDraftState({ scopeKey: null, answers: {}, snapshotId: null });
+      return;
+    }
+    const snapshot = readStudyDraftSnapshot(
+      session.user.id,
+      activePlan.id,
+      group.index,
+      group.questions,
+    );
+    setDraftState({ scopeKey: draftScopeKey, ...snapshot });
+  }, [draftScopeKey]);
+  const draftReady = draftScopeKey !== null && draftState.scopeKey === draftScopeKey;
+  const answers = draftReady ? draftState.answers : {};
+  const showingFeedback = feedbackGroupIndex !== null;
+  const allAnswered = draftReady && words.every((word) => {
+    const answer = word.id ? answers[word.id] : undefined;
+    return Boolean(answer?.confirmed);
+  });
+  const hasDraftAnswers = Object.keys(answers).length > 0;
+
+  if (!plan?.content?.groups?.length || !activePlan || !group) {
     return <section className="plan-empty"><Sparkles size={32}/><strong>学习内容还没有生成好</strong><p>{plan?.generationError ?? '返回预习页等待生成完成后再开始挑战。'}</p><button onClick={onBack}>返回学习序列</button></section>;
   }
-  const activePlan = submittedPlan?.id === plan.id ? submittedPlan : plan;
-  const firstPendingWord = activePlan.words.find((word) => !word.completed);
-  const currentGroupIndex = firstPendingWord?.groupIndex ?? Math.max(0, activePlan.content!.groups.length - 1);
-  const displayGroupIndex = feedbackGroupIndex ?? currentGroupIndex;
-  const group = activePlan.content!.groups.find((item) => item.index === displayGroupIndex) ?? activePlan.content!.groups[displayGroupIndex];
-  const words = activePlan.words.filter((word) => word.groupIndex === group.index);
-  const showingFeedback = feedbackGroupIndex !== null;
-  const allAnswered = words.every((word) => word.id && answers[word.id]);
 
-  const recordAnswer = (question: GeneratedQuestion, selected: string[]) => {
-    setAnswers((current) => ({ ...current, [question.bookWordId]: { selected } }));
+  const recordAnswer = (question: GeneratedQuestion, selected: string[], confirmed: boolean) => {
+    if (!draftReady || !draftScopeKey) return;
+    const nextAnswers = { ...answers };
+    if (selected.length) {
+      nextAnswers[question.bookWordId] = { selected, confirmed };
+    } else {
+      delete nextAnswers[question.bookWordId];
+    }
+    const snapshotId = saveStudyDraft(
+      session.user.id,
+      activePlan.id,
+      group.index,
+      group.questions,
+      nextAnswers,
+    );
+    setDraftState({ scopeKey: draftScopeKey, answers: nextAnswers, snapshotId });
   };
   const completeGroup = async () => {
-    if (!allAnswered || submitting || showingFeedback) return;
+    if (!allAnswered || submitting || showingFeedback || !draftScopeKey) return;
+    const submittedAnswers = answers;
+    const submittedSnapshotId = draftState.snapshotId;
     setSubmitting(true);
     try {
       const elapsed = Math.round((Date.now() - groupStartedAt.current) / Math.max(1, words.length));
@@ -2562,6 +2618,14 @@ function GeneratedStudyPage({
         },
         session.accessToken,
       );
+      clearStudyDraftIfMatches(
+        session.user.id,
+        activePlan.id,
+        group.index,
+        group.questions,
+        submittedAnswers,
+        submittedSnapshotId,
+      );
       setSubmittedPlan(updated);
       onPlanUpdated(updated);
       if (updated.status === 'COMPLETED') setFinishedPlan(updated);
@@ -2578,8 +2642,14 @@ function GeneratedStudyPage({
   }
   const continueAfterFeedback = () => {
     setFeedbackGroupIndex(null);
-    setAnswers({});
+    setDraftState({ scopeKey: draftScopeKey, answers: {}, snapshotId: null });
+    setDraftRevision((current) => current + 1);
     groupStartedAt.current = Date.now();
+  };
+  const discardDraft = () => {
+    clearStudyDraft(session.user.id, activePlan.id, group.index);
+    setDraftState({ scopeKey: draftScopeKey, answers: {}, snapshotId: null });
+    setDraftRevision((current) => current + 1);
   };
   return <section className="lesson-page">
     <header className="lesson-page-head">
@@ -2607,20 +2677,27 @@ function GeneratedStudyPage({
             const word = words.find((item) => item.id === question.bookWordId);
             if (!word) return null;
             return <GeneratedQuestionCard
-              key={question.bookWordId}
+              key={`${question.bookWordId}:${draftRevision}`}
               question={question}
               word={word}
               toneIndex={index}
               answer={answers[question.bookWordId]}
+              busy={!draftReady || submitting || showingFeedback}
               revealed={showingFeedback}
-              onAnswer={(selected) => recordAnswer(question, selected)}
+              onAnswer={(selected, confirmed) => recordAnswer(question, selected, confirmed)}
             />;
           })}
-          <button className="check-matches" disabled={!showingFeedback && (!allAnswered || submitting)} onClick={() => showingFeedback ? continueAfterFeedback() : void completeGroup()}>
-            {showingFeedback
-              ? finishedPlan ? '查看今日总结' : `继续下一${activePlan.mode === 'individual' ? '篇' : '组'}`
-              : submitting ? '正在记录学习结果…' : '提交本组并查看答案'}
-          </button>
+          <div className="lesson-draft-actions">
+            {hasDraftAnswers && !showingFeedback && <>
+              <span className="lesson-draft-note">恢复草稿依赖此浏览器的本地存储，不跨设备同步。</span>
+              <button type="button" className="lesson-draft-clear" disabled={submitting} onClick={discardDraft}>清空本组作答</button>
+            </>}
+            <button className="check-matches" disabled={!showingFeedback && (!allAnswered || submitting)} onClick={() => showingFeedback ? continueAfterFeedback() : void completeGroup()}>
+              {showingFeedback
+                ? finishedPlan ? '查看今日总结' : `继续下一${activePlan.mode === 'individual' ? '篇' : '组'}`
+                : submitting ? '正在记录学习结果…' : '提交本组并查看答案'}
+            </button>
+          </div>
         </section>
       </main>
       <aside className="lesson-side">
@@ -2709,22 +2786,24 @@ function GeneratedQuestionCard({
   word,
   toneIndex,
   answer,
+  busy,
   revealed,
   onAnswer,
 }: {
   question: GeneratedQuestion;
   word: Word;
   toneIndex: number;
-  answer?: { selected: string[] };
+  answer?: { selected: string[]; confirmed: boolean };
+  busy: boolean;
   revealed: boolean;
-  onAnswer: (selected: string[]) => void;
+  onAnswer: (selected: string[], confirmed: boolean) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const selected = answer?.selected ?? [];
   const isMultiple = question.type === 'WORD_MNEMONIC';
-  const correct = Boolean(answer && revealed && gradeGeneratedAnswer(question, answer.selected));
-  const submit = (option?: string) => {
+  const correct = Boolean(answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected));
+  const submit = (option?: string, confirmed = true) => {
     const next = option ? [option] : selected;
-    if (next.length) onAnswer(next);
+    onAnswer(next, confirmed);
   };
   const explanation = /[\u3400-\u9fff]/.test(question.explanation)
     ? question.explanation
@@ -2735,44 +2814,56 @@ function GeneratedQuestionCard({
     <span className="exercise-kind">{exerciseLabels[question.type]}</span>
     <h3><mark style={wordTone(toneIndex)}>{word.word}</mark>　{question.prompt}</h3>
     {question.type === 'WORD_MATCHING' && question.pairs?.length ? (
-      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} revealed={revealed} onAnswer={onAnswer}/>
+      <GeneratedMatchingQuestion pairs={question.pairs} answer={answer} busy={busy} revealed={revealed} onAnswer={onAnswer}/>
     ) : (
       <div className="answer-options">{question.options.map((option, index) => {
         const checked = selected.includes(option);
         const isCorrectOption = question.correctAnswers?.includes(option) ?? false;
         const resultClass = !revealed ? '' : checked && !isCorrectOption ? 'wrong' : isCorrectOption && (checked || !isMultiple) ? 'correct' : isCorrectOption ? 'missed' : '';
-        return <button key={option} disabled={Boolean(answer)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
-          if (isMultiple) setSelected((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option]);
-          else {
-            setSelected([option]);
-            submit(option);
+        return <button key={option} disabled={busy || Boolean(answer?.confirmed)} className={`${checked ? 'selected' : ''} ${resultClass}`} onClick={() => {
+          if (isMultiple) {
+            onAnswer(checked ? selected.filter((item) => item !== option) : [...selected, option], false);
+          } else {
+            submit(option, true);
           }
         }}>{option}{revealed && answer && isCorrectOption && (!isMultiple || checked) ? ' ✓' : ''}{revealed && answer && checked && !isCorrectOption ? ' ×' : ''}{revealed && answer && isMultiple && !checked && isCorrectOption ? '（漏选）' : ''}</button>;
       })}</div>
     )}
-    {isMultiple && !answer && <button className="check-matches" disabled={!selected.length} onClick={() => submit()}>提交多选答案</button>}
-    {answer && !revealed && <p role="status" className="question-answer">答案已记录，提交本组后查看对错与解析。</p>}
-    {answer && revealed && <><strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>{correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
+    {isMultiple && !answer?.confirmed && <button className="check-matches" disabled={busy || !selected.length} onClick={() => submit(undefined, true)}>确认多选答案</button>}
+    {answer && !revealed && <p role="status" className="question-answer">{answer.confirmed ? '答案已记录，提交本组后查看对错与解析。' : '选择已暂存，确认后计入本组。'}</p>}
+    {answer?.confirmed && revealed && <><strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>{correct ? '回答正确！' : '回答错误，正确答案已标出。'}</strong><p className="question-answer">正确答案：{question.type === 'WORD_MATCHING' && question.pairs?.length ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；') : question.correctAnswers.join('、')}</p><p className="question-explanation">{explanation}</p><WordMeaningCard word={word}/></>}
   </article>;
 }
 
-function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
+function GeneratedMatchingQuestion({ pairs, answer, busy, revealed, onAnswer }: {
   pairs: NonNullable<GeneratedQuestion['pairs']>;
-  answer?: { selected: string[] };
+  answer?: { selected: string[]; confirmed: boolean };
+  busy: boolean;
   revealed: boolean;
-  onAnswer: (selected: string[]) => void;
+  onAnswer: (selected: string[], confirmed: boolean) => void;
 }) {
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
   const [selectedDefinition, setSelectedDefinition] = useState<number | null>(null);
-  const [matches, setMatches] = useState<Record<number, string>>({});
   const matchingRootRef = useRef<HTMLDivElement>(null);
   const phraseOptions = pairs.map((_, index) => pairs[(index + 1) % pairs.length]);
-  const assignMatch = (index: number, phrase: string) => setMatches((current) => ({
-    ...Object.fromEntries(Object.entries(current).filter(([key, value]) => value !== phrase || Number(key) === index)),
-    [index]: phrase,
-  }));
+  const matches = Object.fromEntries((answer?.selected ?? []).flatMap((value) => {
+    const separator = value.lastIndexOf('=>');
+    if (separator < 0) return [];
+    const phrase = value.slice(0, separator);
+    const definition = value.slice(separator + 2);
+    const index = pairs.findIndex((pair) => pair.right === definition);
+    return index < 0 ? [] : [[String(index), phrase]];
+  })) as Record<number, string>;
+  const assignMatch = (index: number, phrase: string) => {
+    const nextMatches = {
+      ...Object.fromEntries(Object.entries(matches).filter(([key, value]) => value !== phrase || Number(key) === index)),
+      [index]: phrase,
+    };
+    const selected = Object.entries(nextMatches).map(([key, value]) => `${value}=>${pairs[Number(key)].right}`);
+    onAnswer(selected, false);
+  };
   const choosePhrase = (phrase: string) => {
-    if (answer) return;
+    if (busy || answer?.confirmed) return;
     if (selectedDefinition !== null) {
       assignMatch(selectedDefinition, phrase);
       setSelectedDefinition(null);
@@ -2781,7 +2872,7 @@ function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
     setSelectedPhrase(phrase);
   };
   const chooseDefinition = (index: number) => {
-    if (answer) return;
+    if (busy || answer?.confirmed) return;
     if (selectedPhrase) {
       assignMatch(index, selectedPhrase);
       setSelectedPhrase(null);
@@ -2791,7 +2882,7 @@ function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (answer || !selectedPhrase || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (busy || answer?.confirmed || !selectedPhrase || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (!matchingRootRef.current?.contains(document.activeElement)) return;
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
@@ -2804,8 +2895,8 @@ function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [answer, pairs.length, selectedPhrase]);
-  const displayedMatches = revealed && answer
+  }, [answer, busy, pairs.length, selectedPhrase]);
+  const displayedMatches = revealed && answer?.confirmed
     ? Object.fromEntries(pairs.map((pair, index) => {
         const match = answer.selected
           .map((value) => {
@@ -2816,13 +2907,13 @@ function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
         return [index, match?.left ?? ''];
       }))
     : matches;
-  const selectedAnswers = Object.entries(matches).map(([index, phrase]) => `${phrase}=>${pairs[Number(index)].right}`);
+  const selectedAnswers = answer?.selected ?? [];
   return <div ref={matchingRootRef} className="generated-matching matching-exercise">
     <p className="matching-instruction">英文短语 · 点击选中后可按键盘数字插入对应释义槽</p>
     <div className="match-phrases">
       {phraseOptions.map((pair) => {
         const isMatched = Object.values(displayedMatches).includes(pair.left);
-        return <button key={pair.left} disabled={Boolean(answer) || isMatched} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`} onClick={() => choosePhrase(pair.left)}>
+        return <button key={pair.left} disabled={busy || Boolean(answer?.confirmed) || isMatched} className={`${selectedPhrase === pair.left ? 'selected' : ''} ${isMatched ? 'linked matched' : ''}`} onClick={() => choosePhrase(pair.left)}>
           {pair.left}
         </button>;
       })}
@@ -2832,20 +2923,20 @@ function GeneratedMatchingQuestion({ pairs, answer, revealed, onAnswer }: {
       {pairs.map((pair, index) => {
         const phrase = displayedMatches[index];
         const correct = phrase === pair.left;
-        return <button key={`${pair.right}-${index}`} disabled={Boolean(answer)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${revealed && answer ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
+        return <button key={`${pair.right}-${index}`} disabled={busy || Boolean(answer?.confirmed)} className={`${selectedDefinition === index ? 'selected' : ''} ${phrase ? 'linked' : ''} ${revealed && answer?.confirmed ? correct ? 'correct' : 'wrong' : ''}`} onClick={() => chooseDefinition(index)}>
           <span className="match-definition-copy">
             <strong>{pair.right}</strong>
             <small>{pair.tip?.trim() || '侧重于理解该描述强调的语义维度。'}</small>
           </span>
-          {revealed && answer && phrase && !correct ? <span className="match-answer-review">
+          {revealed && answer?.confirmed && phrase && !correct ? <span className="match-answer-review">
             <b className="match-answer-review-wrong">你的答案：{phrase}</b>
             <b className="match-answer-review-correct">正确答案：{pair.left}</b>
           </span> : phrase ? <b>{phrase}</b> : <em>{selectedPhrase ? '插入此处' : '选择此处'}</em>}
         </button>;
       })}
     </div>
-    {!answer && <button className="check-matches" disabled={Object.keys(matches).length !== pairs.length} onClick={() => onAnswer(selectedAnswers)}>提交匹配答案</button>}
-    {answer && !revealed && <p role="status" className="question-answer">答案已记录，提交本组后查看对错与解析。</p>}
+    {!answer?.confirmed && <button className="check-matches" disabled={busy || Object.keys(matches).length !== pairs.length} onClick={() => onAnswer(selectedAnswers, true)}>确认匹配答案</button>}
+    {answer && !revealed && <p role="status" className="question-answer">{answer.confirmed ? '答案已记录，提交本组后查看对错与解析。' : '匹配已暂存，完成后确认本题。'}</p>}
   </div>;
 }
 

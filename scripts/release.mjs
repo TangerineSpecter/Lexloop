@@ -43,7 +43,7 @@ function showHelp() {
 
 脚本会同步所有 workspace package.json 的版本号，将当前工作区改动提交为
 chore(release): v<版本号>，推送当前分支，然后创建对应的 v<版本号> tag。
-当指定版本与当前项目版本相同时，会把远端同名 tag 强制移动到新提交。`);
+远端或本地已存在同名 tag 时会停止，避免覆盖版本历史。`);
 }
 
 const input = process.argv[2];
@@ -91,7 +91,6 @@ if (packageVersions.length !== 1) {
 
 const currentVersion = packageVersions[0];
 const tag = `v${version}`;
-const sameVersion = currentVersion === version;
 
 console.log(`\n准备发布 ${tag}（当前版本 ${currentVersion}，分支 ${branch}）`);
 console.log('正在同步远端分支状态…');
@@ -112,8 +111,16 @@ if (remoteBranch) {
 }
 
 const remoteTag = git(['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], { capture: true });
-if (remoteTag && !sameVersion) {
-  fail(`远端已存在 ${tag}，但当前项目版本是 ${currentVersion}；为避免覆盖历史版本，已停止发布。`);
+if (remoteTag) {
+  fail(`远端已存在 ${tag}；请先核对标签指向，脚本不会覆盖版本历史。`);
+}
+if (
+  git(['show-ref', '--tags', '--verify', `refs/tags/${tag}`], {
+    capture: true,
+    allowFailure: true,
+  })
+) {
+  fail(`本地已存在 ${tag}；请先核对标签指向，脚本不会覆盖版本历史。`);
 }
 
 for (const manifest of manifests) {
@@ -144,9 +151,9 @@ if (hasStagedChanges) {
 console.log(`正在推送 ${branch}…`);
 git(['push', 'origin', `HEAD:refs/heads/${branch}`]);
 
-console.log(`${sameVersion ? '正在移动' : '正在创建'} ${tag}…`);
-git(['tag', '--force', '--annotate', tag, '--message', `Release ${tag}`, 'HEAD']);
-git(['push', 'origin', `refs/tags/${tag}`, '--force']);
+console.log(`正在创建 ${tag}…`);
+git(['tag', '--annotate', tag, '--message', `Release ${tag}`, 'HEAD']);
+git(['push', 'origin', `refs/tags/${tag}`]);
 
 console.log(
   `\n发布完成：${tag} 已指向 ${git(['rev-parse', '--short', 'HEAD'], { capture: true })}`,

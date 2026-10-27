@@ -111,6 +111,19 @@ test(
           `Timed out waiting for ${expression}; state=${JSON.stringify({ pageState, browserErrors })}`,
         );
       };
+      const openCurrentPlan = async () => {
+        await until('document.querySelector("[role=tab]")');
+        await evaluate(
+          '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+        );
+        await until(
+          '[...document.querySelectorAll("button")].some((button) => button.textContent.includes("继续学习"))',
+        );
+        await evaluate(
+          '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("继续学习")).click()',
+        );
+        await until('document.querySelector(".answer-options button")');
+      };
 
       await send('Page.enable');
       await send('Runtime.enable');
@@ -169,13 +182,13 @@ test(
           window.studySubmissionAttempts = [];
           window.studyAlerts = [];
           window.alert = (message) => window.studyAlerts.push(String(message));
-          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
-            if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'study-user' });
+            if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
@@ -197,17 +210,7 @@ test(
         `,
       });
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
-      await until('document.querySelector("[role=tab]")');
-      await evaluate(
-        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
-      );
-      await until(
-        '[...document.querySelectorAll("button")].some((button) => button.textContent.includes("继续学习"))',
-      );
-      await evaluate(
-        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("继续学习")).click()',
-      );
-      await until('document.querySelector(".answer-options button")');
+      await openCurrentPlan();
       const choiceState = await evaluate(`({
         buttonCount: document.querySelectorAll('.answer-options button').length,
         hasCard: Boolean(document.querySelector('.generated-question')),
@@ -215,6 +218,54 @@ test(
         excerpt: document.body.innerText.slice(-700),
       })`);
       assert.ok(choiceState.buttonCount > 0, JSON.stringify({ ...choiceState, browserErrors }));
+      await evaluate('document.querySelector(".answer-options button").click()');
+      await until('document.querySelector(".question-answer")');
+      const persistedDrafts = await evaluate(`Object.entries(localStorage)
+        .filter(([key]) => key.startsWith('lexloop.study.draft.'))
+        .map(([key, value]) => ({ key, value }))`);
+      assert.equal(persistedDrafts.length, 1);
+      assert.doesNotMatch(persistedDrafts[0].value, /correctAnswers|explanation|optionNotes/);
+      assert.match(persistedDrafts[0].value, /暗的/);
+
+      await send('Page.reload');
+      await openCurrentPlan();
+      assert.equal(
+        await evaluate('document.querySelector(".answer-options button.selected")?.textContent'),
+        '暗的',
+      );
+      assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
+
+      await evaluate(`const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.user.id = 'another-study-user';
+        localStorage.setItem('lexloop.session', JSON.stringify(session));`);
+      await send('Page.reload');
+      await openCurrentPlan();
+      assert.equal(
+        await evaluate('document.querySelector(".answer-options button.selected") === null'),
+        true,
+      );
+      assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
+
+      await evaluate(`const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.user.id = 'study-user';
+        localStorage.setItem('lexloop.session', JSON.stringify(session));`);
+      await send('Page.reload');
+      await openCurrentPlan();
+      assert.equal(
+        await evaluate('document.querySelector(".answer-options button.selected")?.textContent'),
+        '暗的',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("清空本组作答")).click()',
+      );
+      await until('document.querySelector(".answer-options button.selected") === null');
+      assert.equal(
+        await evaluate(
+          "Object.keys(localStorage).some((key) => key.startsWith('lexloop.study.draft.'))",
+        ),
+        false,
+      );
+
       await evaluate('document.querySelector(".answer-options button").click()');
       await until('document.querySelector(".question-answer")');
       assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
@@ -241,9 +292,21 @@ test(
         true,
       );
       assert.equal(await evaluate('window.studyPlanResponse.status'), 'ACTIVE');
+      assert.equal(
+        await evaluate(
+          "Object.keys(localStorage).some((key) => key.startsWith('lexloop.study.draft.'))",
+        ),
+        true,
+      );
 
       await evaluate('[...document.querySelectorAll(".exercises .check-matches")].at(-1).click()');
       await until('document.querySelector(".answer-feedback")');
+      assert.equal(
+        await evaluate(
+          "Object.keys(localStorage).some((key) => key.startsWith('lexloop.study.draft.'))",
+        ),
+        false,
+      );
       assert.match(
         await evaluate('document.querySelector(".answer-feedback").textContent'),
         /回答错误/,
@@ -295,6 +358,12 @@ test(
       assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
       await evaluate('[...document.querySelectorAll(".exercises .check-matches")].at(-1).click()');
       await until('document.querySelectorAll(".match-answer-review-correct").length === 4');
+      assert.equal(
+        await evaluate(
+          "Object.keys(localStorage).some((key) => key.startsWith('lexloop.study.draft.'))",
+        ),
+        false,
+      );
       assert.match(
         await evaluate('document.querySelector(".answer-feedback").textContent'),
         /回答错误/,
