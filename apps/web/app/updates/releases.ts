@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.21.0',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '生涯词汇统计按唯一词汇计算',
+        entry: '学习统计 → 我的学习生涯 / 记忆资产',
+        usage: '同一个词出现在多本词书时只计一次，掌握转化率不再被重复词条压低。',
+      },
+    ],
+  },
+  {
     version: '1.20.0',
     date: '2026-10-27',
     items: [

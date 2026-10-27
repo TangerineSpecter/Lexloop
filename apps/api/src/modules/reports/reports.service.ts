@@ -342,7 +342,7 @@ export class ReportsService {
       user,
       attempts,
       progresses,
-      masteredWords,
+      masteredWordRows,
       plans,
       weaknesses,
       profile,
@@ -365,12 +365,13 @@ export class ReportsService {
           firstLearnedAt: true,
           bookWord: {
             select: {
+              wordId: true,
               word: { select: { masteredBy: { where: { userId }, select: { id: true } } } },
             },
           },
         },
       }),
-      this.prisma.userMasteredWord.count({ where: { userId } }),
+      this.prisma.userMasteredWord.findMany({ where: { userId }, select: { wordId: true } }),
       this.prisma.studyPlan.findMany({
         where: { userId, status: StudyPlanStatus.COMPLETED },
         select: { completedAt: true },
@@ -415,7 +416,13 @@ export class ReportsService {
       .map((item) => item.responseTimeMs)
       .filter((value): value is number => value != null);
     const typeRows = questionTypeRows(attempts);
-    const learnedWords = progresses.filter((item) => item.firstLearnedAt).length;
+    const masteredWordIds = new Set(masteredWordRows.map((item) => item.wordId));
+    const learnedWordIds = new Set([
+      ...masteredWordIds,
+      ...progresses.filter((item) => item.firstLearnedAt).map((item) => item.bookWord.wordId),
+    ]);
+    const learnedWords = learnedWordIds.size;
+    const masteredWords = masteredWordIds.size;
     const reviewableProgresses = progresses.filter(
       (item) => item.bookWord.word.masteredBy.length === 0,
     );

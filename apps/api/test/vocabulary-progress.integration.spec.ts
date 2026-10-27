@@ -336,7 +336,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           dueWords: 0,
           overdueWords: 0,
         });
-        expect(masteredCareer.overview.learnedWords).toBe(2);
+        expect(masteredCareer.overview).toMatchObject({ learnedWords: 1, masteredWords: 1 });
+        expect(masteredCareer.memory.masteryRate).toBe(100);
 
         const completedWhileMastered = await study.completeGroup(
           users[0].id,
@@ -370,7 +371,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           reviewingWords: 1,
           dueWords: 1,
           overdueWords: 1,
+          masteryRate: 0,
         });
+        expect(otherLearnerCareer.overview).toMatchObject({ learnedWords: 1, masteredWords: 0 });
 
         await vocabulary.removeMasteredWord(users[0].id, word.id);
         expect(
@@ -378,6 +381,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             where: { userId_wordId: { userId: users[0].id, wordId: word.id } },
           }),
         ).toBeNull();
+        const unmasteredCareer = await reports.career(users[0].id);
+        expect(unmasteredCareer.overview).toMatchObject({ learnedWords: 1, masteredWords: 0 });
+        expect(unmasteredCareer.memory.masteryRate).toBe(0);
         expect(
           await prisma.userWordProgress.findUnique({
             where: {
