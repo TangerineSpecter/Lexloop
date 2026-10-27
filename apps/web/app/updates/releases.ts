@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.4',
+    date: '2026-10-27',
+    items: [
+      {
+        title: '单词正确率榜单显示答题数',
+        entry: '学习统计 → 单词信号',
+        usage: '查看所选时间内的作答数；样本较少时，把正确率当作近期线索而不是掌握结论。',
+      },
+    ],
+  },
+  {
     version: '1.27.3',
     date: '2026-10-27',
     items: [

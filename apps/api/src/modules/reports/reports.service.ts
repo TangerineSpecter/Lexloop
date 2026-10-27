@@ -765,11 +765,11 @@ function signalRows(
     errorRate: [...withAttempts]
       .sort((a, b) => rate(a) - rate(b))
       .slice(0, 10)
-      .map((row) => ({ word: row.word, rate: 100 - rate(row) })),
+      .map((row) => ({ word: row.word, rate: 100 - rate(row), count: row.attempts })),
     accuracy: [...withAttempts]
       .sort((a, b) => rate(b) - rate(a))
       .slice(0, 10)
-      .map((row) => ({ word: row.word, rate: rate(row) })),
+      .map((row) => ({ word: row.word, rate: rate(row), count: row.attempts })),
   };
 }
 function questionTypeRows(attempts: Array<{ questionType: string | null; isCorrect: boolean }>) {
