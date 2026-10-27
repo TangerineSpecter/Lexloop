@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'daily sentence invites sentence recall before revealing explanations and preserves feedback',
+  'daily sentence recall, feedback, and audio preserve learning records and playback boundaries',
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-daily-feedback-test-'));
@@ -99,7 +99,9 @@ test(
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          const fixtureUserId = new URL(location.href).searchParams.get('user') ?? 'fixture';
+          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: fixtureUserId, user: { id: fixtureUserId, email: fixtureUserId + '@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          window.noEnglishVoice = new URL(location.href).searchParams.get('no-english') === '1';
           window.legacySentence = {
             id: 'legacy-sentence', dateKey: '2026-10-01', readAt: null, favorite: false,
             difficulty: 'HARD', difficultyTimestampReliable: false,
@@ -133,12 +135,29 @@ test(
           window.failFilteredHistoryOnce = true;
           window.feedbackRequests = [];
           window.dailyFeedbackFieldset = () => [...document.querySelectorAll('fieldset')].find(fieldset => fieldset.querySelector('legend')?.textContent.includes('这句对你来说怎么样？'));
-          window.dailySentenceSpeech = { cancelCount: 0, spoken: [] };
-          Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
+          window.dailySentenceSpeech = { cancelCount: 0, spoken: [], utterances: [], noEnglishVoice: window.noEnglishVoice };
+          Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; this.onend = null; this.onerror = null; } } });
           Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
-            getVoices: () => [{ lang: 'en-US' }],
-            cancel: () => { window.dailySentenceSpeech.cancelCount += 1; },
-            speak: utterance => window.dailySentenceSpeech.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate, voice: utterance.voice?.lang ?? null })
+            getVoices: () => window.dailySentenceSpeech.noEnglishVoice ? [] : [{ lang: 'en-US' }],
+            cancel: () => {
+              window.dailySentenceSpeech.cancelCount += 1;
+              const previous = window.dailySentenceSpeech.utterances.at(-1);
+              if (previous) setTimeout(() => previous.onend?.(), 0);
+            },
+            speak: utterance => {
+              window.dailySentenceSpeech.utterances.push(utterance);
+              window.dailySentenceSpeech.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate, voice: utterance.voice?.lang ?? null });
+            },
+            addEventListener: (type, listener) => {
+              if (type === 'voiceschanged') window.dailySentenceSpeech.voicesChanged = listener;
+            },
+            removeEventListener: (type, listener) => {
+              if (type === 'voiceschanged' && window.dailySentenceSpeech.voicesChanged === listener) window.dailySentenceSpeech.voicesChanged = null;
+            },
+            dispatchEvent: event => {
+              window.dailySentenceSpeech.voicesChanged?.(event);
+              return true;
+            }
           } });
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
@@ -216,8 +235,22 @@ test(
         await evaluate('document.querySelector("dialog").innerText.includes("她步行回家。")'),
         false,
       );
+      await evaluate('document.querySelector(\'[aria-label="按正常速度播放每日一句"]\').click()');
+      await evaluate('document.querySelector(\'[aria-label="慢速播放每日一句"]\').click()');
+      await until('window.dailySentenceSpeech.spoken.length === 3');
+      await delay(30);
+      assert.equal(
+        await evaluate('document.querySelector("[aria-live=polite]")?.textContent'),
+        '正在慢速播放',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(\'[aria-label="停止播放每日一句"]\').disabled'),
+        false,
+      );
       await evaluate('document.querySelector(\'[aria-label="停止播放每日一句"]\').click()');
-      assert.equal(await evaluate('window.dailySentenceSpeech.cancelCount'), 2);
+      await delay(30);
+      assert.equal(await evaluate('window.dailySentenceSpeech.cancelCount'), 4);
+      assert.equal(await evaluate('document.querySelector("[aria-live=polite]")?.textContent'), '');
       assert.equal(await evaluate('window.dailySentenceWrites.length'), writeCountBeforeReveal);
       await evaluate('document.querySelector("dialog button[aria-controls]").click()');
       await until('document.querySelector("dialog").innerText.includes("她步行回家。")');
@@ -252,7 +285,7 @@ test(
       );
 
       await evaluate('document.querySelector(\'[aria-label="按正常速度播放每日一句"]\').click()');
-      await until('window.dailySentenceSpeech.spoken.length === 2');
+      await until('window.dailySentenceSpeech.spoken.length === 4');
       const cancelCountBeforeLeaving = await evaluate('window.dailySentenceSpeech.cancelCount');
       await evaluate(
         `[...document.querySelectorAll('dialog button')].find(button => button.textContent.includes('回顾与收藏')).click()`,
@@ -277,6 +310,7 @@ test(
         ),
         false,
       );
+
       assert.equal(
         await evaluate('window.historyRequests.at(-1).includes("needsDifficultyReview=true")'),
         true,
@@ -322,6 +356,41 @@ test(
         ),
         false,
       );
+
+      await evaluate('document.querySelector(\'[aria-label="关闭每日一句"]\').click()');
+      await until('!document.querySelector("dialog[open]")');
+      await send('Page.navigate', {
+        url: new URL('/dashboard?no-english=1&user=second', baseUrl).href,
+      });
+      await until('document.querySelector("#daily-sentence-heading")');
+      await evaluate(`document.querySelector('[aria-label^="查看每日一句解析"]').click()`);
+      await until('document.querySelector("dialog button[aria-controls]")');
+      await until(
+        'window.dailySentenceWrites.some(write => write.path.endsWith("/legacy-sentence/read"))',
+      );
+      const noVoiceWriteCount = await evaluate('window.dailySentenceWrites.length');
+      await evaluate('document.querySelector(\'[aria-label="慢速播放每日一句"]\').click()');
+      await until(
+        'document.querySelector("[aria-live=polite]")?.textContent.includes("没有可用的英语语音")',
+      );
+      assert.equal(await evaluate('window.dailySentenceSpeech.spoken.length'), 0);
+      assert.equal(
+        await evaluate('document.querySelector("dialog").textContent.includes("She walks home.")'),
+        true,
+      );
+      assert.equal(await evaluate('window.dailySentenceWrites.length'), noVoiceWriteCount);
+      await evaluate(
+        'window.dailySentenceSpeech.noEnglishVoice = false; window.speechSynthesis.dispatchEvent(new Event("voiceschanged"))',
+      );
+      await until(
+        '!document.querySelector("[aria-live=polite]")?.textContent.includes("没有可用的英语语音")',
+      );
+      await evaluate('document.querySelector(\'[aria-label="按正常速度播放每日一句"]\').click()');
+      await until('window.dailySentenceSpeech.spoken.length === 1');
+      await evaluate('document.querySelector(\'[aria-label="关闭每日一句"]\').click()');
+      await until('!document.querySelector("dialog[open]")');
+      assert.ok(await evaluate('window.dailySentenceSpeech.cancelCount > 0'));
+      assert.equal(await evaluate('document.querySelector("dialog[open]")'), null);
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

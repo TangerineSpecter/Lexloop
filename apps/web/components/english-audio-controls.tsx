@@ -1,44 +1,76 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import styles from './english-audio-controls.module.css';
+
+function findEnglishVoice(voices: SpeechSynthesisVoice[]) {
+  return (
+    voices.find((voice) => voice.lang.toLowerCase() === 'en-us') ??
+    voices.find((voice) => voice.lang.toLowerCase() === 'en') ??
+    voices.find((voice) => voice.lang.toLowerCase().startsWith('en-')) ??
+    null
+  );
+}
 
 export function EnglishAudioControls({ text, context }: { text: string; context: string }) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [playingRate, setPlayingRate] = useState<number | null>(null);
+  const [englishVoiceUnavailable, setEnglishVoiceUnavailable] = useState(false);
+  const playbackId = useRef(0);
 
   useEffect(() => {
     setSupported(
       'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function',
     );
     setPlayingRate(null);
+    setEnglishVoiceUnavailable(false);
+    const synthesis = 'speechSynthesis' in window ? window.speechSynthesis : null;
+    const handleVoicesChanged = () => {
+      if (synthesis && findEnglishVoice(synthesis.getVoices())) {
+        setEnglishVoiceUnavailable(false);
+      }
+    };
+    synthesis?.addEventListener?.('voiceschanged', handleVoicesChanged);
 
     return () => {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      playbackId.current += 1;
+      synthesis?.removeEventListener?.('voiceschanged', handleVoicesChanged);
+      synthesis?.cancel();
     };
   }, [text]);
 
   function play(rate: number) {
     if (!supported) return;
 
+    const voice = findEnglishVoice(window.speechSynthesis.getVoices());
+    if (!voice) {
+      playbackId.current += 1;
+      window.speechSynthesis.cancel();
+      setPlayingRate(null);
+      setEnglishVoiceUnavailable(true);
+      return;
+    }
+
+    setEnglishVoiceUnavailable(false);
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = rate;
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice =
-      voices.find((voice) => voice.lang.toLowerCase() === 'en-us') ??
-      voices.find((voice) => voice.lang.toLowerCase().startsWith('en-'));
-    if (englishVoice) utterance.voice = englishVoice;
-    utterance.onend = () => setPlayingRate(null);
-    utterance.onerror = () => setPlayingRate(null);
+    utterance.voice = voice;
+    const currentPlaybackId = ++playbackId.current;
+    const finishPlayback = () => {
+      if (playbackId.current === currentPlaybackId) setPlayingRate(null);
+    };
+    utterance.onend = finishPlayback;
+    utterance.onerror = finishPlayback;
 
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
     setPlayingRate(rate);
+    window.speechSynthesis.speak(utterance);
   }
 
   function stop() {
+    playbackId.current += 1;
     window.speechSynthesis.cancel();
     setPlayingRate(null);
   }
@@ -76,7 +108,13 @@ export function EnglishAudioControls({ text, context }: { text: string; context:
         停止
       </button>
       <span className={styles.status} aria-live="polite">
-        {playingRate === null ? '' : playingRate < 1 ? '正在慢速播放' : '正在播放'}
+        {playingRate === null
+          ? englishVoiceUnavailable
+            ? '当前没有可用的英语语音；可稍后重试或直接阅读原句。'
+            : ''
+          : playingRate < 1
+            ? '正在慢速播放'
+            : '正在播放'}
       </span>
     </div>
   );
