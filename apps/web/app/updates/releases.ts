@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.13',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '练习时按需查看词义',
+        entry: '首页 → 当前学习序列 → 继续学习',
+        usage: '词义默认收起，需要时逐词展开提示；不改变判分或复习记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.12',
     date: '2026-10-28',
     items: [

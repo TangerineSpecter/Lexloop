@@ -5461,9 +5461,9 @@ button {
   margin: 0 0 13px;
   font-size: 19px;
 }
-.lesson-side > section:first-child > button {
+.lesson-side > section:first-child > .lesson-word-entry {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   width: 100%;
   gap: 10px;
   padding: 12px 0;
@@ -5472,42 +5472,48 @@ button {
   color: var(--border-color);
   background: transparent;
   text-align: left;
-  cursor: pointer;
 }
-.lesson-side > section:first-child > button.active {
-  color: var(--teal);
-}
-.lesson-side > section:first-child > button > b {
+.lesson-side > section:first-child > .lesson-word-entry > b {
   display: grid;
   place-items: center;
   width: 27px;
   height: 27px;
+  flex: 0 0 27px;
   border: 2px solid var(--border-color);
   border-radius: 6px;
   font-family: 'DM Mono', monospace;
 }
-.lesson-side > section:first-child > button.active > b {
-  background: var(--teal);
-  color: #fff;
-}
-.lesson-side > section:first-child > button span {
+.lesson-word-entry-copy {
   min-width: 0;
   flex: 1;
 }
-.lesson-side > section:first-child > button strong,
-.lesson-side > section:first-child > button small {
+.lesson-word-entry-copy > strong {
   display: block;
 }
-.lesson-side > section:first-child > button small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.lesson-word-meaning {
   margin-top: 3px;
+}
+.lesson-word-meaning summary {
+  width: fit-content;
+  color: rgba(8, 40, 119, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+}
+.lesson-word-meaning summary:focus-visible {
+  outline: 2px solid var(--border-color);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.lesson-word-meaning small {
+  display: block;
+  margin-top: 5px;
   color: rgba(8, 40, 119, 0.65);
   font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-.lesson-side > section:first-child > button svg {
-  color: var(--coral);
+.lesson-word-meaning:not([open]) > small {
+  display: none;
 }
 .lesson-helper {
   padding: 20px;
@@ -12896,19 +12902,15 @@ button {
   border-radius: 6px;
   color: var(--word-color, var(--border-color));
 }
-.lesson-side > section:first-child > button {
+.lesson-side > section:first-child > .lesson-word-entry {
   color: var(--word-color, var(--border-color));
 }
-.lesson-side > section:first-child > button.active {
-  color: var(--word-color, var(--teal));
-}
-.lesson-side > section:first-child > button > b,
-.lesson-side > section:first-child > button.active > b {
+.lesson-side > section:first-child > .lesson-word-entry > b {
   background: var(--word-bg, #fff);
   color: var(--word-color, var(--border-color));
 }
-.lesson-side > section:first-child > button svg {
-  color: var(--word-color, var(--coral));
+.lesson-side .lesson-word-meaning summary {
+  color: var(--word-color, rgba(8, 40, 119, 0.7));
 }
 .matching-exercise {
   overflow: hidden;

@@ -3363,13 +3363,16 @@ function GeneratedStudyPage({
           <section>
             <h2>本组学习单词</h2>
             {words.map((word, index) => (
-              <button key={word.id} style={wordTone(index)}>
+              <div key={word.id} className="lesson-word-entry" style={wordTone(index)}>
                 <b>{index + 1}</b>
-                <span>
+                <div className="lesson-word-entry-copy">
                   <strong>{word.word}</strong>
-                  <small>{word.meaning.split('｜')[0]}</small>
-                </span>
-              </button>
+                  <details className="lesson-word-meaning">
+                    <summary>需要提示时查看词义</summary>
+                    <small>{word.meaning.split('｜')[0]}</small>
+                  </details>
+                </div>
+              </div>
             ))}
           </section>
           <section className="exercise-progress">

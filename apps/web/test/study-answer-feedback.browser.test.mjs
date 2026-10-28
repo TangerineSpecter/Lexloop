@@ -418,6 +418,57 @@ test(
         excerpt: document.body.innerText.slice(-700),
       })`);
       assert.ok(choiceState.buttonCount > 0, JSON.stringify({ ...choiceState, browserErrors }));
+      assert.equal(
+        await evaluate(
+          '(() => { const row = document.querySelector(".lesson-word-entry"); const disclosure = row?.querySelector("details.lesson-word-meaning"); return row?.tagName === "DIV" && disclosure?.open === false && getComputedStyle(disclosure.querySelector("small")).display === "none"; })()',
+        ),
+        true,
+        'the word list is not a fake button and its meaning hint starts collapsed',
+      );
+      await evaluate('document.querySelector(".lesson-word-meaning summary").focus()');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      assert.equal(
+        await evaluate('document.querySelector(".lesson-word-meaning").open'),
+        true,
+        'keyboard activation reveals the optional hint',
+      );
+      assert.equal(
+        await evaluate('document.activeElement.matches(".lesson-word-meaning summary")'),
+        true,
+        'keyboard focus stays on the native disclosure control',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+        text: ' ',
+        unmodifiedText: ' ',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+      });
+      assert.equal(
+        await evaluate('document.querySelector(".lesson-word-meaning").open'),
+        false,
+        'the optional hint can be collapsed again by keyboard',
+      );
       await evaluate('document.querySelector(".answer-options button").click()');
       await until('document.querySelector(".question-answer")');
       const persistedDrafts = await evaluate(`Object.entries(localStorage)
