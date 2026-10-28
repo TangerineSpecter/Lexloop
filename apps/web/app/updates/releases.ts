@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.57',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '写作参考分展示评分构成',
+        entry: '学习专项与处方 → 每日输出挑战 → 查看批改反馈',
+        usage:
+          '展开“评分构成”查看目标词、语法和连贯性的权重；分数只供本次练习参考，不代表英语等级。',
+      },
+    ],
+  },
+  {
     version: '1.27.56',
     date: '2026-10-28',
     items: [

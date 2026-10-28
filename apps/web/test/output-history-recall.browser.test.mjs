@@ -284,6 +284,29 @@ test(
       const currentComparison = await evaluate(
         'document.querySelector("[aria-label=\\"表达对照\\"]").innerText',
       );
+      assert.ok(
+        await evaluate(
+          'document.querySelector("[aria-label=\\"本次练习参考分\\"]")?.innerText.includes("不代表英语等级")',
+        ),
+      );
+      const writesBeforeScoreDetails = await evaluate('window.outputApiWrites.length');
+      await evaluate(
+        'document.querySelector("details[aria-label=\\"评分构成\\"] summary")?.click()',
+      );
+      await until('document.querySelector("details[aria-label=\\"评分构成\\"]")?.open === true');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("details[aria-label=\\"评分构成\\"] summary")?.tabIndex',
+        ),
+        0,
+      );
+      const scoreExplanation = await evaluate(
+        'document.querySelector("details[aria-label=\\"评分构成\\"]")?.innerText',
+      );
+      assert.ok(scoreExplanation.includes('目标词使用与用法占 60%'));
+      assert.ok(scoreExplanation.includes('模型评估语境与搭配'));
+      assert.ok(scoreExplanation.includes('不是英语等级或正式考试成绩'));
+      assert.equal(await evaluate('window.outputApiWrites.length'), writesBeforeScoreDetails);
       assert.ok(currentComparison.includes('写一段关于一次旅行的英文。'));
       assert.ok(currentComparison.includes('目标词或短语：journey · art · miss the bus'));
       assert.ok(
@@ -338,6 +361,14 @@ test(
       assert.equal(desktopPhraseLayout.visible, true);
       assert.ok(desktopPhraseLayout.page <= desktopPhraseLayout.viewport);
       assert.ok(desktopPhraseLayout.targetRight <= desktopPhraseLayout.cardRight);
+      const desktopScoreLayout = await evaluate(`(() => {
+        const summary = document.querySelector('[aria-label="本次练习参考分"]');
+        const box = summary?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, right: box?.right };
+      })()`);
+      assert.equal(desktopScoreLayout.viewport, 1440);
+      assert.ok(desktopScoreLayout.page <= desktopScoreLayout.viewport);
+      assert.ok(desktopScoreLayout.right <= desktopScoreLayout.viewport);
       const targetArtEvidence = await evaluate(
         'document.querySelector("[data-target-word=art]").innerText',
       );
@@ -376,6 +407,14 @@ test(
       assert.equal(mobilePhraseLayout.visible, true);
       assert.ok(mobilePhraseLayout.page <= mobilePhraseLayout.viewport);
       assert.ok(mobilePhraseLayout.targetRight <= mobilePhraseLayout.cardRight);
+      const mobileScoreLayout = await evaluate(`(() => {
+        const summary = document.querySelector('[aria-label="本次练习参考分"]');
+        const box = summary?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, right: box?.right };
+      })()`);
+      assert.equal(mobileScoreLayout.viewport, 390);
+      assert.ok(mobileScoreLayout.page <= mobileScoreLayout.viewport);
+      assert.ok(mobileScoreLayout.right <= mobileScoreLayout.viewport);
       await evaluate(`(() => {
         const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看回答与反馈'));
         if (record) record.open = true;

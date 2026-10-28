@@ -251,13 +251,37 @@
 .feedbackHead h3 {
   margin: 5px 0 0;
 }
-.feedbackHead > strong {
+.scoreSummary {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  flex: 0 0 auto;
+  text-align: right;
+}
+.scoreSummary > span {
+  font-size: 11px;
+  font-weight: 700;
+}
+.scoreSummary > strong {
   font:
     700 36px 'DM Mono',
     monospace;
 }
-.feedbackHead > strong small {
+.scoreSummary > strong small {
   font-size: 13px;
+}
+.scoreExplanation {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.scoreExplanation summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+.scoreExplanation p {
+  margin: 6px 0 0;
 }
 .scoreRow {
   display: flex;
