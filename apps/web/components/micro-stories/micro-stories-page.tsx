@@ -38,6 +38,7 @@ type Review = {
   explanation: string;
   ownSentence: string | null;
   reviewCount: number;
+  dueAt: string;
 };
 type Current = { completed: number; total: number; lesson: Lesson | null; review: Review | null };
 type ErrorCard = Pick<
@@ -59,6 +60,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const [interpretation, setInterpretation] = useState('');
   const [ownSentence, setOwnSentence] = useState('');
   const [reviewAttempt, setReviewAttempt] = useState('');
+  const [reviewDraftToRestore, setReviewDraftToRestore] = useState<string | null>(null);
   const [transcriptHidden, setTranscriptHidden] = useState(false);
   const [mismatch, setMismatch] = useState<boolean | null>(null);
   const [reviewShown, setReviewShown] = useState(false);
@@ -79,7 +81,11 @@ export function MicroStoriesPage({ session }: { session: Session }) {
     const storyDraft = readStoryDraft(session.user.id, next.lesson?.key ?? null);
     setInterpretation(next.lesson?.interpretation ?? storyDraft?.interpretation ?? '');
     setOwnSentence(storyDraft?.ownSentence ?? '');
-    setReviewAttempt(next.review ? readReviewDraft(session.user.id, next.review.id) : '');
+    const reviewDraft = next.review
+      ? readReviewDraft(session.user.id, next.review.id, next.review.dueAt)
+      : null;
+    setReviewAttempt(reviewDraft && !reviewDraft.requiresRestore ? reviewDraft.attempt : '');
+    setReviewDraftToRestore(reviewDraft?.requiresRestore ? reviewDraft.attempt : null);
     setMismatch(null);
     setReviewShown(false);
   }
@@ -298,10 +304,45 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                   onChange={(event) => {
                     const attempt = event.target.value;
                     setReviewAttempt(attempt);
-                    saveReviewDraft(session.user.id, reviewCard.id, attempt);
+                    saveReviewDraft(session.user.id, reviewCard.id, reviewCard.dueAt, attempt);
                   }}
                   placeholder="先回想句子的意思，再和上次的理解比较"
                 />
+                {reviewDraftToRestore !== null && (
+                  <div role="status">
+                    旧版本机回想草稿无法确认属于哪一轮复习，因此不会自动填入。
+                    <div className={styles.actions}>
+                      <button
+                        className={styles.secondary}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setReviewAttempt(reviewDraftToRestore);
+                          saveReviewDraft(
+                            session.user.id,
+                            reviewCard.id,
+                            reviewCard.dueAt,
+                            reviewDraftToRestore,
+                          );
+                          setReviewDraftToRestore(null);
+                        }}
+                      >
+                        恢复旧版回想草稿
+                      </button>
+                      <button
+                        className={styles.secondary}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setReviewDraftToRestore(null);
+                          clearReviewDraft(session.user.id, reviewCard.id);
+                        }}
+                      >
+                        清除旧版本机草稿
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className={styles.actions}>
                   <button
                     className={styles.secondary}

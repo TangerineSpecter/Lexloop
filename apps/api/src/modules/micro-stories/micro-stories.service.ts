@@ -73,6 +73,7 @@ export class MicroStoriesService {
               explanation: reviewStory.explanation,
               ownSentence: due.ownSentence,
               reviewCount: due.reviewCount,
+              dueAt: due.dueAt,
             }
           : null,
     };

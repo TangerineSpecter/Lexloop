@@ -33,7 +33,14 @@ const compiled = ts.transpile(source, {
   target: ts.ScriptTarget.ES2022,
 });
 runInNewContext(compiled, { module, exports: module.exports, localStorage, encodeURIComponent });
-const { clearMicroStoryDrafts, readStoryDraft, saveStoryDraft, saveReviewDraft } = module.exports;
+const {
+  clearMicroStoryDrafts,
+  clearReviewDraft,
+  readReviewDraft,
+  readStoryDraft,
+  saveStoryDraft,
+  saveReviewDraft,
+} = module.exports;
 
 test('draft reads are bounded to a user and exact story and tolerate unavailable storage', () => {
   storage.clear();
@@ -68,7 +75,7 @@ test('draft reads are bounded to a user and exact story and tolerate unavailable
 test('clear-all cleanup removes only this user’s story and review drafts', () => {
   storage.clear();
   storage.set('lexloop.micro-story.story.user%2Ea', 'story');
-  saveReviewDraft('user.a', 'review.1', '汤姆错过公交车');
+  saveReviewDraft('user.a', 'review.1', '2026-10-28T06:00:00.000Z', '汤姆错过公交车');
   storage.set('lexloop.micro-story.review.other.review%2E1', 'keep');
   storage.set('lexloop.output.draft.user.a', 'keep');
 
@@ -78,4 +85,25 @@ test('clear-all cleanup removes only this user’s story and review drafts', () 
   assert.equal(storage.has('lexloop.micro-story.review.user%2Ea.review%2E1'), false);
   assert.equal(storage.get('lexloop.micro-story.review.other.review%2E1'), 'keep');
   assert.equal(storage.get('lexloop.output.draft.user.a'), 'keep');
+});
+
+test('review drafts restore only within the same due cycle and preserve legacy text for explicit recovery', () => {
+  storage.clear();
+  const dueAt = '2026-10-28T06:00:00.000Z';
+  saveReviewDraft('user.a', 'review.1', dueAt, '汤姆错过公交车');
+
+  const sameCycleDraft = readReviewDraft('user.a', 'review.1', dueAt);
+  assert.equal(sameCycleDraft.attempt, '汤姆错过公交车');
+  assert.equal(sameCycleDraft.requiresRestore, false);
+  assert.equal(readReviewDraft('user.b', 'review.1', dueAt), null);
+  assert.equal(readReviewDraft('user.a', 'review.1', '2026-10-29T06:00:00.000Z'), null);
+  assert.equal(storage.has('lexloop.micro-story.review.user%2Ea.review%2E1'), false);
+
+  storage.set('lexloop.micro-story.review.user%2Ea.review%2E1', '旧版未标记轮次的答案');
+  const legacyDraft = readReviewDraft('user.a', 'review.1', dueAt);
+  assert.equal(legacyDraft.attempt, '旧版未标记轮次的答案');
+  assert.equal(legacyDraft.requiresRestore, true);
+  assert.equal(storage.has('lexloop.micro-story.review.user%2Ea.review%2E1'), true);
+  clearReviewDraft('user.a', 'review.1');
+  assert.equal(storage.has('lexloop.micro-story.review.user%2Ea.review%2E1'), false);
 });

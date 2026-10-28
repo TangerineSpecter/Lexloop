@@ -102,6 +102,28 @@ describe('one-minute stories', () => {
     expect(f.tx.microError.upsert).not.toHaveBeenCalled();
   });
 
+  it('returns the due-cycle timestamp with the owner-scoped review card', async () => {
+    const f = fixture();
+    const dueAt = new Date(Date.now() - 1000);
+    f.prisma.microError.findFirst.mockResolvedValue({
+      id: 'card',
+      userId: 'owner',
+      lessonKey: 'bus-01',
+      interpretation: '想念公交车',
+      ownSentence: null,
+      reviewCount: 2,
+      dueAt,
+    });
+
+    const current = await f.service.current('owner');
+
+    expect(current.review).toMatchObject({ id: 'card', reviewCount: 2, dueAt });
+    expect(f.prisma.microError.findFirst).toHaveBeenCalledWith({
+      where: { userId: 'owner', dueAt: { lte: expect.any(Date) } },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+    });
+  });
+
   it('reviews only the owner’s due card and moves it away from the due queue', async () => {
     const f = fixture();
     const row = { id: 'card', userId: 'owner', reviewCount: 0, dueAt: new Date(Date.now() - 1000) };

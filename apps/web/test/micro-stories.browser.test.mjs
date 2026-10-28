@@ -160,6 +160,7 @@ test(
       const fixtureKey = 'micro-fixture.' + fixtureUser;
       const savedFixture = JSON.parse(sessionStorage.getItem(fixtureKey) || 'null') || {};
       localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: fixtureUser, email: fixtureUser + '@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+      if (params.has('legacy-draft')) localStorage.setItem('lexloop.micro-story.review.' + fixtureUser + '.card1', '旧版本机答案');
       if (params.has('corrupt-story')) localStorage.setItem('lexloop.micro-story.story.' + fixtureUser, '{invalid');
       if (params.has('wrong-story')) localStorage.setItem('lexloop.micro-story.story.' + fixtureUser, JSON.stringify({ storyKey: 'bus-99', interpretation: '上一段的私密理解', ownSentence: '' }));
       if (params.has('storage-fail')) {
@@ -169,7 +170,7 @@ test(
           return nativeSetItem.call(this, key, value);
         };
       }
-      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0 };
+      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : params.has('due-review') ? 1 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || (params.has('due-review') ? '之前的理解' : ''), errors: savedFixture.errors || (params.has('due-review') ? [{ id: 'card1', english: 'Tom misses the bus.', interpretation: '之前的理解', reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: 'I missed the train.', dueAt: new Date().toISOString() }] : []), reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0 };
       document.addEventListener('click', event => { if (event.target instanceof Element && event.target.closest('details form button')) window.microFixture.notebookButtonClicks += 1; });
       document.addEventListener('submit', event => { if (event.target instanceof HTMLFormElement && event.target.closest('details')) window.microFixture.notebookSubmits += 1; });
       const audioAuditKey = 'lexloop.test.local-audio-audit';
@@ -228,7 +229,7 @@ test(
           f.notebookSaves.push({ body: JSON.parse(options.body), authorization: new Headers(options.headers).get('Authorization') });
           return Response.json({ id: 'saved-phrase', addedToReview: true });
         }
-        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
+        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' } : first, review: f.errors.length && (!f.reviewDone || params.has('next-review-cycle')) ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: params.has('next-review-cycle') ? 1 : 0, dueAt: params.has('next-review-cycle') ? '2026-10-29T06:00:00.000Z' : '2026-10-28T06:00:00.000Z' } : null });
         if (path.endsWith('/api/v1/micro-stories/completed')) return Response.json(f.index >= 9 ? [{ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english }] : []);
         if (path.endsWith('/api/v1/micro-stories/completed/bus-01')) return Response.json({ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english, reference: '汤姆出门晚了，没赶上公交车。', explanation: 'miss the bus 是“没赶上公交车”，不是“想念公交车”。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' });
         if (path.includes('/api/v1/micro-stories/errors')) return Response.json(f.errors);
@@ -243,6 +244,7 @@ test(
         }
         if (path.includes('/api/v1/micro-stories/reviews/card1')) {
           if (f.failReview) { f.failReview = false; sessionStorage.setItem(fixtureKey + '.review-failed', '1'); return Response.json({ message: 'Fixture review failure' }, { status: 500 }); }
+          if (params.has('lost-review') && sessionStorage.getItem(fixtureKey + '.review-response-lost') !== '1') { f.reviewDone = true; persistFixture(); sessionStorage.setItem(fixtureKey + '.review-response-lost', '1'); throw new TypeError('Failed to fetch'); }
           f.reviewDone = true; persistFixture(); return Response.json({ ok: true });
         }
         if (path.includes('/api/v1/')) throw new Error('Unexpected API request: ' + path);
@@ -760,7 +762,9 @@ test(
         `(() => { const input = document.querySelector('#review-attempt'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '汤姆没赶上公交车'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
       );
       assert.equal(
-        await evaluate('localStorage.getItem("lexloop.micro-story.review.fixture.card1")'),
+        await evaluate(
+          'JSON.parse(localStorage.getItem("lexloop.micro-story.review.fixture.card1")).attempt',
+        ),
         '汤姆没赶上公交车',
       );
       await evaluate(
@@ -809,7 +813,9 @@ test(
       );
       await until('document.body.textContent.includes("服务暂时不可用")');
       assert.equal(
-        await evaluate('localStorage.getItem("lexloop.micro-story.review.fixture.card1")'),
+        await evaluate(
+          'JSON.parse(localStorage.getItem("lexloop.micro-story.review.fixture.card1")).attempt',
+        ),
         '汤姆没赶上公交车',
       );
       assert.equal(
@@ -998,6 +1004,128 @@ test(
         ),
         true,
         await evaluate("sessionStorage.getItem('lexloop.test.local-audio-audit')"),
+      );
+
+      await send('Page.navigate', {
+        url: new URL(
+          '/dashboard/micro-stories?user=lost-review-owner&due-review=1&lost-review=1',
+          baseUrl,
+        ).href,
+      });
+      await until('document.querySelector("#review-attempt")');
+      await evaluate(
+        `(() => { const input = document.querySelector('#review-attempt'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '上一轮已经回想的答案'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      );
+      const pendingReviewDraft = await evaluate(
+        'JSON.parse(localStorage.getItem("lexloop.micro-story.review.lost-review-owner.card1"))',
+      );
+      assert.deepEqual(pendingReviewDraft, {
+        version: 1,
+        dueAt: '2026-10-28T06:00:00.000Z',
+        attempt: '上一轮已经回想的答案',
+      });
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先试着回想，查看上次偏差')).click()`,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('想起来了')).click()`,
+      );
+      await until('document.body.textContent.includes("请求未能完成，请检查 API 服务或跨域配置")');
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("lexloop.micro-story.review.lost-review-owner.card1")).attempt',
+        ),
+        '上一轮已经回想的答案',
+      );
+
+      await send('Page.navigate', {
+        url: new URL(
+          '/dashboard/micro-stories?user=lost-review-owner&due-review=1&lost-review=1',
+          baseUrl,
+        ).href,
+      });
+      await until('document.querySelector("#story-meaning")');
+      assert.equal(await evaluate('document.querySelector("#review-attempt")'), null);
+      assert.equal(
+        await evaluate('document.body.textContent.includes("上一轮已经回想的答案")'),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("lexloop.micro-story.review.lost-review-owner.card1")).attempt',
+        ),
+        '上一轮已经回想的答案',
+      );
+
+      await send('Page.navigate', {
+        url: new URL(
+          '/dashboard/micro-stories?user=lost-review-owner&due-review=1&lost-review=1&next-review-cycle=1',
+          baseUrl,
+        ).href,
+      });
+      await until('document.querySelector("#review-attempt")');
+      assert.equal(await evaluate('document.querySelector("#review-attempt").value'), '');
+      assert.equal(
+        await evaluate(
+          'localStorage.getItem("lexloop.micro-story.review.lost-review-owner.card1")',
+        ),
+        null,
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=legacy&due-review=1&legacy-draft=1', baseUrl)
+          .href,
+      });
+      await until('document.querySelector("#review-attempt")');
+      assert.equal(await evaluate('document.querySelector("#review-attempt").value'), '');
+      assert.equal(
+        await evaluate(
+          'document.body.textContent.includes("旧版本机回想草稿无法确认属于哪一轮复习")',
+        ),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await delay(100);
+      const legacyDesktop = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const status = document.querySelector("[role=status]"); const nodes = [status, ...status.querySelectorAll("button")]; const rects = nodes.map(node => node.getBoundingClientRect()); return { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)), viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(legacyDesktop.left >= 0 && legacyDesktop.right <= legacyDesktop.viewport);
+      assert.ok(legacyDesktop.scrollWidth <= legacyDesktop.viewport);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const legacyMobile = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const status = document.querySelector("[role=status]"); const nodes = [status, ...status.querySelectorAll("button")]; const rects = nodes.map(node => node.getBoundingClientRect()); return { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)), viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(legacyMobile.left >= 0 && legacyMobile.right <= legacyMobile.viewport);
+      assert.ok(legacyMobile.scrollWidth <= legacyMobile.viewport);
+      await send('Emulation.clearDeviceMetricsOverride');
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('恢复旧版回想草稿')).click()`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#review-attempt").value'),
+        '旧版本机答案',
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('清除本机回想草稿')).click()`,
+      );
+      assert.equal(
+        await evaluate('localStorage.getItem("lexloop.micro-story.review.legacy.card1")'),
+        null,
       );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();

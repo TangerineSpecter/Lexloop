@@ -1,6 +1,8 @@
 const STORY_DRAFT_PREFIX = 'lexloop.micro-story.story.';
 const REVIEW_DRAFT_PREFIX = 'lexloop.micro-story.review.';
 
+type ReviewDraft = { attempt: string; requiresRestore: boolean } | null;
+
 type StoryDraft = {
   storyKey: string;
   interpretation: string;
@@ -67,18 +69,49 @@ export function clearStoryDraft(userId: string) {
   }
 }
 
-export function readReviewDraft(userId: string, reviewId: string): string {
+export function readReviewDraft(userId: string, reviewId: string, dueAt: string): ReviewDraft {
   try {
     const value = localStorage.getItem(reviewDraftKey(userId, reviewId));
-    return value ? value.slice(0, 500) : '';
+    if (!value) return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      // Earlier releases stored the learner's text directly. Its review cycle is unknown,
+      // so keep it available for an explicit restore instead of pre-filling a new attempt.
+      return { attempt: value.slice(0, 500), requiresRestore: true };
+    }
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { attempt: value.slice(0, 500), requiresRestore: true };
+    }
+
+    const draft = parsed as { version?: unknown; attempt?: unknown; dueAt?: unknown };
+    if (
+      draft.version !== 1 ||
+      typeof draft.attempt !== 'string' ||
+      typeof draft.dueAt !== 'string'
+    ) {
+      return { attempt: value.slice(0, 500), requiresRestore: true };
+    }
+
+    if (draft.dueAt !== dueAt) {
+      localStorage.removeItem(reviewDraftKey(userId, reviewId));
+      return null;
+    }
+    return { attempt: draft.attempt.slice(0, 500), requiresRestore: false };
   } catch {
-    return '';
+    return null;
   }
 }
 
-export function saveReviewDraft(userId: string, reviewId: string, attempt: string) {
+export function saveReviewDraft(userId: string, reviewId: string, dueAt: string, attempt: string) {
   try {
-    localStorage.setItem(reviewDraftKey(userId, reviewId), attempt.slice(0, 500));
+    localStorage.setItem(
+      reviewDraftKey(userId, reviewId),
+      JSON.stringify({ version: 1, dueAt, attempt: attempt.slice(0, 500) }),
+    );
   } catch {
     // Storage is optional; the in-memory draft remains usable.
   }

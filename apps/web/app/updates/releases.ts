@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.51',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '微故事草稿按复习轮次恢复',
+        entry: '一分钟微故事 → 到期复习',
+        usage:
+          '草稿会绑定当前复习轮次；提交已在服务端成功但响应丢失时，旧答案不会自动带入下一次间隔复习。旧版无法确认轮次的本机草稿保留为显式恢复选项。',
+      },
+    ],
+  },
+  {
     version: '1.27.50',
     date: '2026-10-28',
     items: [
