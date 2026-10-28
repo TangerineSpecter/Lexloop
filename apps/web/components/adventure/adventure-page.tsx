@@ -36,7 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { request, userFacingError, type Session } from '../../lib/api';
+import { ApiRequestError, request, userFacingError, type Session } from '../../lib/api';
 import styles from './adventure-page.module.css';
 
 type View = 'map' | 'character' | 'inventory';
@@ -66,6 +66,30 @@ const initialBattle: BattleUi = {
   fx: null,
   loot: null,
 };
+function adventureRunStorageKey(userId: string) {
+  return `lexloop.adventureRun.${userId}`;
+}
+function savedAdventureRunId(userId: string) {
+  try {
+    return window.localStorage.getItem(adventureRunStorageKey(userId));
+  } catch {
+    return null;
+  }
+}
+function rememberAdventureRun(userId: string, runId: string) {
+  try {
+    window.localStorage.setItem(adventureRunStorageKey(userId), runId);
+  } catch {
+    // Recovery is best-effort when browser storage is unavailable.
+  }
+}
+function clearAdventureRun(userId: string) {
+  try {
+    window.localStorage.removeItem(adventureRunStorageKey(userId));
+  } catch {
+    // A completed result can still be dismissed when browser storage is unavailable.
+  }
+}
 function battleReducer(state: BattleUi, event: BattleEvent): BattleUi {
   if (event.type === 'answer') return { ...state, answer: event.value, feedback: null };
   if (event.type === 'skill') return { ...state, selectedSkill: event.value };
@@ -110,9 +134,31 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
         request<Inventory>('/adventure/inventory', {}, session.accessToken),
         request<DailyQuest[]>('/adventure/daily-quests', {}, session.accessToken),
       ]);
+      let recoveredRun = active;
+      if (active) {
+        rememberAdventureRun(session.user.id, active.id);
+      } else {
+        const runId = savedAdventureRunId(session.user.id);
+        if (runId) {
+          try {
+            recoveredRun = await request<DungeonRunState>(
+              `/adventure/runs/recover/${encodeURIComponent(runId)}`,
+              {},
+              session.accessToken,
+            );
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.status === 404) {
+              clearAdventureRun(session.user.id);
+              setNotice('上次探索记录已不存在，可以从地牢地图重新开始。');
+            } else {
+              setNotice(userFacingError(error, '上次探索结果暂时无法读取，刷新后可以重试。'));
+            }
+          }
+        }
+      }
       setProfile(nextProfile);
       setMap(nextMap);
-      setRun(active);
+      setRun(recoveredRun);
       setInventory(nextInventory);
       setQuests(nextQuests);
     } catch (error) {
@@ -147,13 +193,13 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
     setBusy(true);
     setNotice('');
     try {
-      setRun(
-        await request<DungeonRunState>(
-          '/adventure/runs',
-          { method: 'POST', body: JSON.stringify({ floorId: floor.id, durationMinutes }) },
-          session.accessToken,
-        ),
+      const nextRun = await request<DungeonRunState>(
+        '/adventure/runs',
+        { method: 'POST', body: JSON.stringify({ floorId: floor.id, durationMinutes }) },
+        session.accessToken,
       );
+      rememberAdventureRun(session.user.id, nextRun.id);
+      setRun(nextRun);
       setRouteFloor(null);
     } catch (error) {
       setNotice(userFacingError(error));
@@ -181,6 +227,7 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
         session={session}
         onRun={setRun}
         onFinished={() => {
+          clearAdventureRun(session.user.id);
           setRun(null);
           void load();
         }}

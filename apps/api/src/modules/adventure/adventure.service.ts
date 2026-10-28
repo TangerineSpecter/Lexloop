@@ -260,6 +260,10 @@ export class AdventureService {
     return run ? this.serializeRun(run.id, userId) : null;
   }
 
+  async recoverRun(userId: string, runId: string) {
+    return this.serializeRun(runId, userId);
+  }
+
   async act(
     userId: string,
     runId: string,

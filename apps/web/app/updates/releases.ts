@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.9',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '最后一步中断后可找回探索结算',
+        entry: '地下词环 → 进行中的探索',
+        usage:
+          '如果最后一题已经结算但页面没收到结果，重新打开时可找回本机保存的这局结算；确认返回地图后停止恢复显示。',
+      },
+    ],
+  },
+  {
     version: '1.27.8',
     date: '2026-10-28',
     items: [
