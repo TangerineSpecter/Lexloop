@@ -257,6 +257,8 @@ test(
           window.failStudyPlansReads = localStorage.getItem('lexloop.test.plan-read-failed') ? 0 : 1;
           window.studyPlanCreateAttempts = [];
           window.studyPlanCreateResolvers = [];
+          window.studyPlanCreations = [];
+          window.saveNextStudyPlanCreateBeforeLostResponse = false;
           window.resolveStudyPlanCreate = (response) => {
             const resolve = window.studyPlanCreateResolvers.shift();
             if (!resolve) throw new Error('No pending plan creation request');
@@ -327,9 +329,17 @@ test(
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
               window.studyPlanCreateAttempts.push(JSON.parse(options.body));
+              if (window.studyPlanCreations.length) {
+                return Response.json(window.studyPlanCreations[0]);
+              }
+              if (window.saveNextStudyPlanCreateBeforeLostResponse) {
+                window.saveNextStudyPlanCreateBeforeLostResponse = false;
+                window.studyPlanCreations.push(window.planCreateResponse);
+              }
               if (window.delayStudyPlanCreate) {
                 return new Promise((resolve) => window.studyPlanCreateResolvers.push(resolve));
               }
+              window.studyPlanCreations.push(window.planCreateResponse);
               return Response.json(window.planCreateResponse);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
@@ -464,13 +474,37 @@ test(
       await until(
         'document.querySelector(".book-message")?.textContent.includes("创建计划测试失败")',
       );
+      await evaluate('window.saveNextStudyPlanCreateBeforeLostResponse = true');
       await evaluate(`document.querySelector('.create').click();
         document.querySelector('.create').click();`);
       await until('window.studyPlanCreateAttempts.length === 2');
       assert.equal(await evaluate('window.studyPlanCreateAttempts[1].newWordCount'), 2);
       assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
-      await evaluate('window.resolveStudyPlanCreate(Response.json(window.planCreateResponse))');
+      await evaluate(
+        'window.resolveStudyPlanCreate(Promise.reject(new TypeError("Failed to fetch after the server created the plan")))',
+      );
+      await until('!document.querySelector(".create").disabled');
+      await until('document.querySelector(".book-message")?.textContent.includes("请求未能完成")');
+      assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
+      assert.equal(await evaluate('window.studyPlanCreations.length'), 1);
+      assert.equal(await evaluate('window.studyPlanCreations[0].id'), 'plan-book-b');
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent)',
+        ),
+        ['adapt', 'consider'],
+        'the selected words remain available after the create response is lost',
+      );
+      await evaluate(`document.querySelector('.create').click();
+        document.querySelector('.create').click();`);
+      await until('window.studyPlanCreateAttempts.length === 3');
       await until('document.querySelector(".plan-preview-layer")');
+      assert.equal(await evaluate('window.studyPlanCreations.length'), 1);
+      assert.deepEqual(
+        await evaluate('window.studyPlanCreateAttempts[1]'),
+        await evaluate('window.studyPlanCreateAttempts[2]'),
+      );
+      assert.equal(await evaluate('window.studyPlanCreations[0].id'), 'plan-book-b');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
         'adapt',

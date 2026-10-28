@@ -158,6 +158,17 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(await admin.studyPlanItem.count({ where: { planId } })).toBe(1);
         expect(await admin.userWordProgress.count({ where: { userId: firstUser.id } })).toBe(0);
         expect(await admin.wordReviewAttempt.count({ where: { userId: firstUser.id } })).toBe(0);
+
+        const retryAfterLostResponse = await services[0].createPlan(firstUser.id, 1);
+        expect(retryAfterLostResponse).toMatchObject({ id: planId, status: 'GENERATING' });
+        expect(
+          await admin.studyPlan.count({
+            where: { userId: firstUser.id, purpose: StudyPlanPurpose.NORMAL },
+          }),
+        ).toBe(1);
+        expect(await admin.studyPlanItem.count({ where: { planId } })).toBe(1);
+        expect(await admin.userWordProgress.count({ where: { userId: firstUser.id } })).toBe(0);
+        expect(await admin.wordReviewAttempt.count({ where: { userId: firstUser.id } })).toBe(0);
         expect(ai.generateForUser).not.toHaveBeenCalled();
       } finally {
         releaseDatabaseLock?.();
