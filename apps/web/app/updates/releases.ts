@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.23',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '更新成功后仍可立即更新',
+        entry: '设置 → 系统设置 → 系统更新',
+        usage: '最近一次更新已成功且仍有新版本时，「立即更新」和「重新载入」会同时出现。',
+      },
+    ],
+  },
+  {
     version: '1.27.22',
     date: '2026-10-28',
     items: [
