@@ -89,6 +89,12 @@ test(
       };
 
       await send('Page.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1425,
+        height: 1100,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'learner-a', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
@@ -145,6 +151,48 @@ test(
       assert.match(result.accuracyHint, /不代表稳定掌握/);
       assert.match(result.errorHint, /题数较少时仅作线索/);
       assert.doesNotMatch(`${result.accuracyHint} ${result.errorHint}`, /说明掌握得越稳定/);
+
+      const assertStatisticsLayout = async (width) => {
+        const layout = await evaluate(`(() => {
+          const selectors = ['.statistics-page', '.statistics-heading', '.statistics-history-link', '.statistics-range', '.statistics-chart', '.statistics-ranking-grid'];
+          const elements = selectors.map(selector => {
+            const element = document.querySelector(selector);
+            if (!element) return { selector, missing: true };
+            const rect = element.getBoundingClientRect();
+            return { selector, left: rect.left, right: rect.right, width: rect.width, height: rect.height, display: getComputedStyle(element).display };
+          });
+          return { viewport: innerWidth, documentWidth: document.documentElement.scrollWidth, elements };
+        })()`);
+        assert.equal(layout.viewport, width);
+        assert.ok(
+          layout.documentWidth <= width,
+          `${width}px statistics page overflows horizontally: ${JSON.stringify(layout)}`,
+        );
+        for (const element of layout.elements) {
+          assert.ok(!element.missing, `${width}px layout is missing ${element.selector}`);
+          assert.ok(
+            element.width > 0 && element.height > 0,
+            `${width}px ${element.selector} is not visible`,
+          );
+          assert.ok(
+            element.left >= -1 && element.right <= width + 1,
+            `${width}px ${element.selector} crosses the viewport: ${JSON.stringify(element)}`,
+          );
+        }
+        return layout;
+      };
+
+      const desktopLayout = await assertStatisticsLayout(1425);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileLayout = await assertStatisticsLayout(390);
+      process.stdout.write(
+        `statistics layout: desktop ${desktopLayout.documentWidth}/${desktopLayout.viewport}px, mobile ${mobileLayout.documentWidth}/${mobileLayout.viewport}px; key regions visible\n`,
+      );
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

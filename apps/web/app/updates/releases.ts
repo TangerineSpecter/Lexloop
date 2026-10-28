@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.40',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '新词统计记录实际入列时间',
+        entry: '学习计划 → 学习统计 → 阶段复盘',
+        usage:
+          '新词在学习内容生成完成、可以开始练习时记下首次时间；统计再按你的时区归日，重复读取不会改写时间或进度。',
+      },
+    ],
+  },
+  {
     version: '1.27.39',
     date: '2026-10-28',
     items: [

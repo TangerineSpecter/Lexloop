@@ -2,6 +2,7 @@ import { PrismaClient, StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
+import { ReportsService } from '../src/modules/reports/reports.service';
 import { StudyService, contentSignature } from '../src/modules/study/study.service';
 
 type PendingGeneration = {
@@ -208,6 +209,135 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             id: { in: words.map((word) => word.id) },
             bookWords: { none: {} },
           },
+        });
+        await prisma.$disconnect();
+      }
+    }, 60_000);
+
+    it('records when a new word becomes available and reports it on the learner local day', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const learner = await prisma.user.create({
+        data: {
+          email: `study-first-learned-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      const otherLearner = await prisma.user.create({
+        data: {
+          email: `study-first-learned-other-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      const book = await prisma.vocabularyBook.create({
+        data: {
+          ownerId: learner.id,
+          kind: 'PERSONAL',
+          sourceKey: fixtureId,
+          title: 'First learned timestamp test',
+          sourcePath: 'test',
+          category: 'GENERAL',
+        },
+        select: { id: true },
+      });
+      const word = await prisma.vocabularyWord.create({
+        data: {
+          normalized: `study-first-learned-${fixtureId}`,
+          text: 'steady',
+          meaning: '平稳的',
+          bookWords: { create: { bookId: book.id, position: 0 } },
+        },
+        select: { id: true, bookWords: { select: { id: true } } },
+      });
+      const plan = await prisma.studyPlan.create({
+        data: {
+          userId: learner.id,
+          mode: StudyPlanMode.GROUP,
+          purpose: StudyPlanPurpose.NORMAL,
+          status: 'GENERATING',
+          items: {
+            create: { bookWordId: word.bookWords[0].id, source: 'NEW', groupIndex: 0 },
+          },
+        },
+        select: { id: true },
+      });
+      const ai = {
+        generateForUser: vi
+          .fn()
+          .mockResolvedValue(generatedResponse(word.bookWords[0].id, 'steady', 'A steady path')),
+      };
+      const service = new StudyService(
+        prisma as never,
+        ai as never,
+        { selectedProvider: async () => ({ model: 'isolated-fixture' }) } as never,
+        {} as MistakesService,
+      );
+      const previousTimezone = process.env.TZ;
+      const introducedAt = new Date('2026-10-26T23:00:00.000Z');
+      process.env.TZ = 'UTC';
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(introducedAt);
+
+      try {
+        await service.generatePlan(learner.id, plan.id);
+        const completedPlan = await prisma.studyPlan.findUniqueOrThrow({
+          where: { id: plan.id },
+          select: { generatedAt: true },
+        });
+        const saved = await prisma.userWordProgress.findUniqueOrThrow({
+          where: { userId_bookWordId: { userId: learner.id, bookWordId: word.bookWords[0].id } },
+        });
+        expect(completedPlan.generatedAt).toEqual(introducedAt);
+        if (!saved.firstLearnedAt) throw new Error('Generated new word has no first learned time.');
+        expect(saved.firstLearnedAt).toEqual(introducedAt);
+        expect(
+          new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+          }).format(saved.firstLearnedAt),
+        ).toBe('2026-10-27');
+
+        const reports = new ReportsService(prisma as never, {} as never);
+        await expect(reports.statistics(learner.id, 1, 'Asia/Shanghai')).resolves.toMatchObject({
+          newWords: 1,
+        });
+        await expect(
+          reports.statistics(otherLearner.id, 1, 'Asia/Shanghai'),
+        ).resolves.toMatchObject({ newWords: 0 });
+
+        await service.generatePlan(learner.id, plan.id);
+        const replayed = await prisma.userWordProgress.findUniqueOrThrow({
+          where: { userId_bookWordId: { userId: learner.id, bookWordId: word.bookWords[0].id } },
+        });
+        expect(replayed.firstLearnedAt).toEqual(introducedAt);
+        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+        if (previousTimezone === undefined) delete process.env.TZ;
+        else process.env.TZ = previousTimezone;
+        await prisma.user.deleteMany({ where: { id: { in: [learner.id, otherLearner.id] } } });
+        const signature = contentSignature(
+          StudyPlanMode.GROUP,
+          [
+            {
+              id: word.bookWords[0].id,
+              word: 'steady',
+              part: '',
+              meaning: '平稳的',
+              cefrLevel: null,
+            },
+          ],
+          StudyPlanPurpose.NORMAL,
+        );
+        await prisma.studyContentCache.deleteMany({ where: { signature } });
+        await prisma.vocabularyWord.deleteMany({
+          where: { id: word.id, bookWords: { none: {} } },
         });
         await prisma.$disconnect();
       }

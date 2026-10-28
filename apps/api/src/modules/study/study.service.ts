@@ -347,6 +347,7 @@ export class StudyService {
       });
       const generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
       validateGeneratedContent(generatedContent, groupSpec);
+      const generatedAt = new Date();
       await this.prisma.$transaction(async (tx) => {
         const finalized = await tx.studyPlan.updateMany({
           where: {
@@ -359,7 +360,7 @@ export class StudyService {
             generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
             generationError: null,
             generationStartedAt: null,
-            generatedAt: new Date(),
+            generatedAt,
             status: StudyPlanStatus.ACTIVE,
           },
         });
@@ -401,7 +402,7 @@ export class StudyService {
               userId,
               bookWordId,
               state: WordProgressState.LEARNING,
-              firstLearnedAt: startOfToday(),
+              firstLearnedAt: generatedAt,
             })),
             skipDuplicates: true,
           });
