@@ -3431,11 +3431,17 @@ button {
   display: none;
 }
 .account-menu {
-  position: absolute;
-  z-index: 40;
-  top: 100%;
-  left: 8px;
-  width: calc(100% - 16px);
+  --border-color: #082877;
+  --soft: #fffefa;
+  --teal: #315eb6;
+  --gold: #ffdf4d;
+  --coral: #ff8351;
+  --card-shadow: 4px 4px 0 var(--border-color);
+  position: fixed;
+  z-index: 1000;
+  width: 272px;
+  max-width: calc(100vw - 16px);
+  font-family: 'DM Sans', 'PingFang SC', sans-serif;
   overflow: hidden;
   border: 3px solid var(--border-color);
   border-radius: 12px;
@@ -3460,8 +3466,13 @@ button {
   background: var(--gold);
 }
 .account-menu-user strong {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 18px;
   font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .account-menu button {
   width: 100%;

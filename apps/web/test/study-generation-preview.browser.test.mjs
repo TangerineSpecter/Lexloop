@@ -149,8 +149,8 @@ test(
             content: null,
             summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
           });
-          const firstSession = { accessToken: 'first-fixture', user: { id: 'study-user', email: 'first@example.invalid', displayName: 'First user', role: 'USER' } };
-          const secondSession = { accessToken: 'second-fixture', user: { id: 'second-study-user', email: 'second@example.invalid', displayName: 'Second user', role: 'USER' } };
+          const firstSession = { accessToken: 'first-fixture', user: { id: 'study-user', email: 'first@example.invalid', displayName: '丢失的猫咪', role: 'USER' } };
+          const secondSession = { accessToken: 'second-fixture', user: { id: 'second-study-user', email: 'second@example.invalid', displayName: 'Second user · 这是一个非常长的中文账户名称用于验证单行省略', role: 'USER' } };
           const secondActivePlan = makePlan('second-active', 'focused', 'ACTIVE');
           secondActivePlan.blocksNewPlanCreation = true;
           secondActivePlan.wordCount = 2;
@@ -186,7 +186,13 @@ test(
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: session?.user.id ?? null });
             if (path.endsWith('/api/v1/auth/refresh')) return Response.json({ message: 'No fixture session' }, { status: 401 });
             if (path.endsWith('/api/v1/auth/login') && method === 'POST') return Response.json(secondSession);
-            if (path.includes('/api/v1/vocabulary/default')) return Response.json({ id: 'book-a', title: 'Book A', totalWords: 10 });
+            if (path.includes('/api/v1/vocabulary/default')) {
+              return Response.json(
+                session?.user.id === 'study-user'
+                  ? { id: 'book-a', title: 'Book A', totalWords: 10 }
+                  : { id: 'book-b', title: 'Second account book', totalWords: 25 },
+              );
+            }
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 1, reviewWords: [
               { id: 'review-oldest', word: 'steady', part: 'adj.', meaning: '稳定的' },
@@ -372,6 +378,168 @@ test(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 500 });
+      await until('document.querySelector(".account-menu") === null');
+      await evaluate(`(() => {
+        const counts = (window.accountMenuPositionListeners = { added: 0, removed: 0 });
+        const add = window.addEventListener;
+        const remove = window.removeEventListener;
+        window.addEventListener = function (type, listener, options) {
+          if (type === 'resize' || type === 'scroll') counts.added += 1;
+          return add.call(this, type, listener, options);
+        };
+        window.removeEventListener = function (type, listener, options) {
+          if (type === 'resize' || type === 'scroll') counts.removed += 1;
+          return remove.call(this, type, listener, options);
+        };
+      })()`);
+      await evaluate('document.querySelector(".sidebar-book").click()');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
+      const clickOnlyMenu = await evaluate(`(() => {
+        const button = document.querySelector('.sidebar-book');
+        const menu = document.querySelector('.account-menu');
+        const item = menu.querySelector('button');
+        const rect = menu.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        const hit = document.elementFromPoint(itemRect.left + itemRect.width / 2, itemRect.top + itemRect.height / 2);
+        const style = getComputedStyle(menu);
+        return {
+          expanded: button.getAttribute('aria-expanded'),
+          visible: rect.width > 0 && rect.height > 0 && style.visibility === 'visible' && style.opacity === '1',
+          withinViewport: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight,
+          itemHit: menu.contains(hit),
+          itemLabel: item.textContent.trim(),
+          accountName: menu.querySelector('.account-menu-user strong').textContent.trim(),
+          accountNameHeight: menu.querySelector('.account-menu-user strong').getBoundingClientRect().height,
+          accountNameLineHeight: parseFloat(getComputedStyle(menu.querySelector('.account-menu-user strong')).lineHeight),
+          accountNameTitle: menu.querySelector('.account-menu-user strong').title,
+        };
+      })()`);
+      assert.equal(clickOnlyMenu.expanded, 'true', JSON.stringify(clickOnlyMenu));
+      assert.equal(clickOnlyMenu.visible, true, JSON.stringify(clickOnlyMenu));
+      assert.equal(clickOnlyMenu.withinViewport, true, JSON.stringify(clickOnlyMenu));
+      assert.equal(clickOnlyMenu.itemHit, true, JSON.stringify(clickOnlyMenu));
+      assert.equal(clickOnlyMenu.accountName, '丢失的猫咪', JSON.stringify(clickOnlyMenu));
+      assert.equal(
+        clickOnlyMenu.accountNameHeight <= clickOnlyMenu.accountNameLineHeight + 1,
+        true,
+        JSON.stringify(clickOnlyMenu),
+      );
+      assert.equal(clickOnlyMenu.accountNameTitle, '丢失的猫咪');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+      assert.deepEqual(await evaluate('window.accountMenuPositionListeners'), {
+        added: 2,
+        removed: 2,
+      });
+      await evaluate('document.querySelector(".sidebar-book").focus()');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
+      assert.equal(
+        await evaluate('document.querySelector(".sidebar-book").getAttribute("aria-expanded")'),
+        'true',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+      assert.deepEqual(await evaluate('window.accountMenuPositionListeners'), {
+        added: 4,
+        removed: 4,
+      });
+
+      // A physical mouse click at the control must leave the menu visible.
+      const physicalClickPoint = await evaluate(`(() => {
+        const rect = document.querySelector('.sidebar-book').getBoundingClientRect();
+        window.accountCardPointerTrace = [];
+        const wrapper = document.querySelector('.sidebar-account-wrap');
+        const button = document.querySelector('.sidebar-book');
+        wrapper.addEventListener('pointerenter', (event) => window.accountCardPointerTrace.push('wrap-enter:' + event.pointerType), { once: true });
+        wrapper.addEventListener('pointerleave', (event) => window.accountCardPointerTrace.push('wrap-leave:' + (event.relatedTarget?.className ?? 'none')), { once: true });
+        button.addEventListener('pointerenter', (event) => window.accountCardPointerTrace.push('enter:' + event.pointerType), { once: true });
+        button.addEventListener('click', (event) => window.accountCardPointerTrace.push('click:' + event.detail + ':pointer=' + (event.pointerType ?? 'none') + ':hover=' + window.matchMedia('(hover: hover) and (pointer: fine)').matches), { once: true });
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: physicalClickPoint.x,
+        y: physicalClickPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: physicalClickPoint.x,
+        y: physicalClickPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await delay(150);
+      const physicalClickState = await evaluate(`(() => ({
+        trace: window.accountCardPointerTrace,
+        hoverMedia: window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+        expanded: document.querySelector('.sidebar-book').getAttribute('aria-expanded'),
+        menuRect: document.querySelector('.account-menu')?.getBoundingClientRect().toJSON() ?? null,
+        hit: document.elementFromPoint(${physicalClickPoint.x}, ${physicalClickPoint.y})?.outerHTML?.slice(0, 180) ?? null,
+      }))()`);
+      assert.equal(physicalClickState.expanded, 'true', JSON.stringify(physicalClickState));
+      assert.ok(physicalClickState.menuRect?.height > 0, JSON.stringify(physicalClickState));
+      const mouseEnterIndex = physicalClickState.trace.findIndex((item) => item === 'enter:mouse');
+      const mouseClickIndex = physicalClickState.trace.findIndex((item) =>
+        item.startsWith('click:1:'),
+      );
+      assert.ok(
+        mouseEnterIndex >= 0 && mouseClickIndex > mouseEnterIndex,
+        JSON.stringify(physicalClickState),
+      );
+      assert.ok(physicalClickState.trace.some((item) => item.startsWith('click:')));
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 500 });
       const desktopCard = await evaluate(`(() => {
         const rect = document.querySelector('.sidebar-book').getBoundingClientRect();
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -381,20 +549,37 @@ test(
         x: desktopCard.x,
         y: desktopCard.y,
       });
-      await until('document.querySelector(".account-menu")');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
       const desktopMenuBounds = await evaluate(`(() => {
         const menu = document.querySelector('.account-menu').getBoundingClientRect();
         const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
         const trigger = document.querySelector('.sidebar-book').getBoundingClientRect();
-        return { left: menu.left, right: menu.right, top: menu.top, triggerBottom: trigger.bottom, sidebarRight: sidebar.right };
+        return { left: menu.left, right: menu.right, top: menu.top, triggerBottom: trigger.bottom, sidebarRight: sidebar.right, viewportWidth: innerWidth };
       })()`);
       assert.ok(desktopMenuBounds.left >= 0);
-      assert.ok(desktopMenuBounds.right <= desktopMenuBounds.sidebarRight);
-      assert.ok(desktopMenuBounds.top >= desktopMenuBounds.triggerBottom - 1);
+      assert.ok(desktopMenuBounds.left >= desktopMenuBounds.sidebarRight);
+      assert.ok(desktopMenuBounds.right <= desktopMenuBounds.viewportWidth);
+      assert.ok(desktopMenuBounds.top >= 0);
+      const gapPoint = {
+        x: desktopMenuBounds.sidebarRight + 4,
+        y: desktopMenuBounds.top + 35,
+      };
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: gapPoint.x,
+        y: gapPoint.y,
+      });
+      await delay(100);
+      assert.equal(
+        await evaluate('Boolean(document.querySelector(".account-menu[data-positioned=true]"))'),
+        true,
+        'The menu should stay open while the pointer crosses the gap from the account card',
+      );
       const menuHeaderPoint = await evaluate(`(() => {
         const rect = document.querySelector('.account-menu-user').getBoundingClientRect();
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, color: getComputedStyle(document.querySelector('.account-menu-user')).backgroundColor };
       })()`);
+      assert.equal(menuHeaderPoint.color, 'rgb(49, 94, 182)');
       await send('Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: menuHeaderPoint.x,
@@ -410,7 +595,7 @@ test(
         x: desktopCard.x,
         y: desktopCard.y,
       });
-      await until('document.querySelector(".account-menu")');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
       await send('Input.dispatchKeyEvent', {
         type: 'keyDown',
         key: 'Escape',
@@ -439,7 +624,7 @@ test(
       });
       await evaluate('document.querySelector(".topbar-account").click()');
       await until(
-        'document.querySelector(".study-sidebar.is-open") && document.querySelector(".account-menu")',
+        'document.querySelector(".study-sidebar.is-open") && document.querySelector(".account-menu[data-positioned=true]")',
       );
       await send('Input.dispatchKeyEvent', {
         type: 'keyDown',
@@ -462,16 +647,57 @@ test(
       );
       await evaluate('document.querySelector(".menu-trigger").click()');
       await until('document.querySelector(".study-sidebar.is-open")');
-      await evaluate('document.querySelector(".sidebar-book").click()');
-      await until('document.querySelector(".account-menu")');
-      const mobileMenuBounds = await evaluate(`(() => {
-        const menu = document.querySelector('.account-menu').getBoundingClientRect();
-        const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
-        return { left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom, sidebarRight: sidebar.right };
+      await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+      const touchPoint = await evaluate(`(() => {
+        const rect = document.querySelector('.sidebar-book').getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
       })()`);
+      await send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [
+          { x: touchPoint.x, y: touchPoint.y, radiusX: 2, radiusY: 2, force: 1, id: 1 },
+        ],
+      });
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
+      const mobileMenuBounds = await evaluate(`(() => {
+        const menuElement = document.querySelector('.account-menu');
+        const menu = menuElement.getBoundingClientRect();
+        const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
+        const item = menuElement.querySelector('button');
+        const itemRect = item.getBoundingClientRect();
+        const hit = document.elementFromPoint(itemRect.left + itemRect.width / 2, itemRect.top + itemRect.height / 2);
+        const name = menuElement.querySelector('.account-menu-user strong');
+        return { expanded: document.querySelector('.sidebar-book').getAttribute('aria-expanded'), left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom, viewportWidth: innerWidth, sidebarRight: sidebar.right, itemHit: menuElement.contains(hit), name: name.textContent.trim(), nameHeight: name.getBoundingClientRect().height, nameLineHeight: parseFloat(getComputedStyle(name).lineHeight), nameTitle: name.title };
+      })()`);
+      assert.equal(mobileMenuBounds.expanded, 'true');
       assert.ok(mobileMenuBounds.left >= 0);
-      assert.ok(mobileMenuBounds.right <= mobileMenuBounds.sidebarRight);
+      assert.ok(mobileMenuBounds.right <= mobileMenuBounds.viewportWidth);
       assert.ok(mobileMenuBounds.bottom <= 844);
+      assert.equal(mobileMenuBounds.itemHit, true, JSON.stringify(mobileMenuBounds));
+      assert.equal(mobileMenuBounds.name, '丢失的猫咪', JSON.stringify(mobileMenuBounds));
+      assert.ok(mobileMenuBounds.nameHeight <= mobileMenuBounds.nameLineHeight + 1);
+      assert.equal(mobileMenuBounds.nameTitle, '丢失的猫咪');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 320,
+        height: 700,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const resizedMenuBounds = await evaluate(`(() => {
+        const menu = document.querySelector('.account-menu').getBoundingClientRect();
+        return { left: menu.left, right: menu.right, bottom: menu.bottom, viewportWidth: innerWidth, viewportHeight: innerHeight };
+      })()`);
+      assert.ok(resizedMenuBounds.left >= 8, JSON.stringify(resizedMenuBounds));
+      assert.ok(resizedMenuBounds.right <= 320, JSON.stringify(resizedMenuBounds));
+      assert.ok(resizedMenuBounds.bottom <= 700, JSON.stringify(resizedMenuBounds));
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
       await send('Input.dispatchKeyEvent', {
         type: 'keyDown',
         key: 'Escape',
@@ -490,7 +716,7 @@ test(
         true,
       );
       await evaluate('document.querySelector(".sidebar-book").click()');
-      await until('document.querySelector(".account-menu")');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
       const logoutButton = await evaluate(`(() => {
         const rect = [...document.querySelectorAll('.account-menu button')]
           .find((button) => button.textContent.includes('退出登录')).getBoundingClientRect();
@@ -532,6 +758,53 @@ test(
       })()`);
       await until(
         'document.querySelector(".study-app .sidebar-book")?.innerText.includes("Second user")',
+      );
+      await until(
+        'document.querySelector(".study-app .sidebar-book > div > span")?.textContent === "Second account book"',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll(".progress-grid .metric-card")[0].querySelector(".metric-front b").textContent',
+        ),
+        '25',
+      );
+      await evaluate('document.querySelector(".topbar-account").click()');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
+      const longAccountName = await evaluate(`(() => {
+        const name = document.querySelector('.account-menu-user strong');
+        return {
+          text: name.textContent.trim(),
+          ariaLabel: name.getAttribute('aria-label'),
+          title: name.title,
+          whiteSpace: getComputedStyle(name).whiteSpace,
+          height: name.getBoundingClientRect().height,
+          lineHeight: parseFloat(getComputedStyle(name).lineHeight),
+          textOverflow: getComputedStyle(name).textOverflow,
+        };
+      })()`);
+      assert.equal(
+        longAccountName.text,
+        'Second user · 这是一个非常长的中文账户名称用于验证单行省略',
+      );
+      assert.equal(longAccountName.ariaLabel, longAccountName.text);
+      assert.equal(longAccountName.title, longAccountName.text);
+      assert.equal(longAccountName.whiteSpace, 'nowrap');
+      assert.ok(longAccountName.height <= longAccountName.lineHeight + 1);
+      assert.equal(longAccountName.textOverflow, 'ellipsis');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(
+        'document.querySelector(".account-menu") === null && !document.querySelector(".study-sidebar").classList.contains("is-open")',
       );
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',

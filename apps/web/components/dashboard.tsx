@@ -41,6 +41,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session } from '../lib/api';
 import { speakEnglish } from './english-audio-controls';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
@@ -152,6 +153,12 @@ type ProgressSummaryState = {
   ownerId: string;
   status: 'loading' | 'ready' | 'failed';
   summary: ProgressSummary | null;
+};
+type DefaultBook = { id: string; title: string; totalWords: number };
+type DefaultBookState = {
+  ownerId: string;
+  status: 'loading' | 'ready' | 'failed';
+  book: DefaultBook | null;
 };
 type LearningWord = Omit<Word, 'state'> & {
   state: 'LEARNING' | 'REVIEWING';
@@ -305,6 +312,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountMenuPortalContainer, setAccountMenuPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
+  const [accountMenuPosition, setAccountMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [page, setPage] = useState<
     | 'study'
     | 'travel'
@@ -318,11 +332,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   >('study');
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
-  const [currentBook, setCurrentBook] = useState<{
-    id: string;
-    title: string;
-    totalWords: number;
-  } | null>(null);
+  const [currentBookState, setCurrentBookState] = useState<DefaultBookState>({
+    ownerId: session.user.id,
+    status: 'loading',
+    book: null,
+  });
+  const [currentBookLoadAttempt, setCurrentBookLoadAttempt] = useState(0);
   const [progressSummaryState, setProgressSummaryState] = useState<ProgressSummaryState>({
     ownerId: session.user.id,
     status: 'loading',
@@ -331,11 +346,29 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [progressSummaryAttempt, setProgressSummaryAttempt] = useState(0);
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuPopoverRef = useRef<HTMLDivElement>(null);
+  const accountMenuHoverCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const defaultBookRequestRef = useRef(0);
   const sidebarAccountButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarAccountHoveredRef = useRef(false);
   const topbarAccountButtonRef = useRef<HTMLButtonElement>(null);
   const lastAccountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const currentUserIdRef = useRef(session.user.id);
   currentUserIdRef.current = session.user.id;
+  const cancelAccountMenuHoverClose = () => {
+    if (accountMenuHoverCloseTimeoutRef.current !== null) {
+      clearTimeout(accountMenuHoverCloseTimeoutRef.current);
+      accountMenuHoverCloseTimeoutRef.current = null;
+    }
+  };
+  const scheduleAccountMenuHoverClose = () => {
+    cancelAccountMenuHoverClose();
+    accountMenuHoverCloseTimeoutRef.current = setTimeout(() => {
+      accountMenuHoverCloseTimeoutRef.current = null;
+      sidebarAccountHoveredRef.current = false;
+      setAccountMenuOpen(false);
+    }, 180);
+  };
   const visiblePlans = plansOwnerId === session.user.id ? plans : [];
   const visiblePlansStatus = plansOwnerId === session.user.id ? plansLoadStatus : 'loading';
   const visiblePreviewPlan = previewOwnerId === session.user.id ? previewPlan : null;
@@ -343,6 +376,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     progressSummaryState.ownerId === session.user.id
       ? progressSummaryState
       : { ownerId: session.user.id, status: 'loading' as const, summary: null };
+  const visibleCurrentBookState =
+    currentBookState.ownerId === session.user.id
+      ? currentBookState
+      : { ownerId: session.user.id, status: 'loading' as const, book: null };
+  const currentBook = visibleCurrentBookState.book;
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
   const openPlanPreview = (plan: LearningPlan) => {
@@ -355,18 +393,110 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   };
 
   useEffect(() => {
+    setAccountMenuPortalContainer(document.body);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (accountMenuHoverCloseTimeoutRef.current !== null) {
+        clearTimeout(accountMenuHoverCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!accountMenuOpen || !accountMenuPortalContainer) {
+      setAccountMenuPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const trigger = sidebarAccountButtonRef.current;
+      const menu = accountMenuPopoverRef.current;
+      if (!trigger || !menu) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      if (!menuRect.width || !menuRect.height) return;
+
+      const desktop = window.matchMedia('(min-width: 921px)').matches;
+      const preferredLeft = desktop ? triggerRect.right + 8 : 8;
+      const preferredTop = desktop ? triggerRect.top + 10 : triggerRect.bottom + 8;
+      const maxLeft = Math.max(8, window.innerWidth - menuRect.width - 8);
+      const maxTop = Math.max(8, window.innerHeight - menuRect.height - 8);
+      const nextPosition = {
+        left: Math.round(Math.min(Math.max(8, preferredLeft), maxLeft)),
+        top: Math.round(Math.min(Math.max(8, preferredTop), maxTop)),
+      };
+
+      setAccountMenuPosition((current) =>
+        current?.left === nextPosition.left && current.top === nextPosition.top
+          ? current
+          : nextPosition,
+      );
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    const sidebar = sidebarAccountButtonRef.current?.closest('.study-sidebar');
+    sidebar?.addEventListener('transitionend', updatePosition);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+      sidebar?.removeEventListener('transitionend', updatePosition);
+    };
+  }, [accountMenuOpen, accountMenuPortalContainer, sidebarOpen]);
+
+  useEffect(() => {
     if (new URLSearchParams(window.location.search).get('view') === 'mistakes') setPage('mistakes');
   }, []);
 
   useEffect(() => {
-    request<{ id: string; title: string; totalWords: number } | null>(
-      '/vocabulary/default',
-      {},
-      session.accessToken,
-    )
-      .then(setCurrentBook)
-      .catch(() => setCurrentBook(null));
-  }, [session.accessToken]);
+    let active = true;
+    const ownerId = session.user.id;
+    const requestId = ++defaultBookRequestRef.current;
+    setCurrentBookState({ ownerId, status: 'loading', book: null });
+    request<DefaultBook | null>('/vocabulary/default', {}, session.accessToken)
+      .then((book) => {
+        if (
+          book !== null &&
+          (!book.id || !book.title || !Number.isSafeInteger(book.totalWords) || book.totalWords < 0)
+        ) {
+          throw new Error('默认词表数据无效');
+        }
+        if (
+          !active ||
+          defaultBookRequestRef.current !== requestId ||
+          currentUserIdRef.current !== ownerId
+        )
+          return;
+        setCurrentBookState({ ownerId, status: 'ready', book });
+      })
+      .catch(() => {
+        if (
+          !active ||
+          defaultBookRequestRef.current !== requestId ||
+          currentUserIdRef.current !== ownerId
+        )
+          return;
+        setCurrentBookState({ ownerId, status: 'failed', book: null });
+      });
+    return () => {
+      active = false;
+      if (defaultBookRequestRef.current === requestId) defaultBookRequestRef.current++;
+    };
+  }, [session.accessToken, session.user.id, currentBookLoadAttempt]);
+
+  const retryCurrentBookLoad = () => {
+    setCurrentBookLoadAttempt((attempt) => attempt + 1);
+  };
+
+  const activateCurrentBook = (book: DefaultBook) => {
+    defaultBookRequestRef.current++;
+    setCurrentBookState({ ownerId: session.user.id, status: 'ready', book });
+  };
 
   useEffect(() => {
     let active = true;
@@ -400,7 +530,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   useEffect(() => {
     if (!accountMenuOpen) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+      const target = event.target as Node;
+      if (
+        !accountMenuRef.current?.contains(target) &&
+        !accountMenuPopoverRef.current?.contains(target)
+      ) {
+        setAccountMenuOpen(false);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -453,21 +589,35 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           className={`sidebar-account-wrap${accountMenuOpen ? ' is-menu-open' : ''}`}
           ref={accountMenuRef}
           onPointerEnter={(event) => {
-            if (event.pointerType !== 'mouse') return;
+            cancelAccountMenuHoverClose();
+            sidebarAccountHoveredRef.current = event.pointerType === 'mouse';
+            if (!sidebarAccountHoveredRef.current) return;
             lastAccountMenuTriggerRef.current = sidebarAccountButtonRef.current;
             setAccountMenuOpen(true);
           }}
           onPointerLeave={(event) => {
-            if (event.pointerType === 'mouse') setAccountMenuOpen(false);
+            if (event.pointerType !== 'mouse') return;
+            const relatedTarget = event.relatedTarget;
+            if (
+              relatedTarget instanceof Node &&
+              accountMenuPopoverRef.current?.contains(relatedTarget)
+            ) {
+              cancelAccountMenuHoverClose();
+              sidebarAccountHoveredRef.current = true;
+              return;
+            }
+            sidebarAccountHoveredRef.current = false;
+            if (!accountMenuOpen) return;
+            scheduleAccountMenuHoverClose();
           }}
         >
           <button
             ref={sidebarAccountButtonRef}
             className="sidebar-book"
             onClick={(event) => {
+              cancelAccountMenuHoverClose();
               lastAccountMenuTriggerRef.current = sidebarAccountButtonRef.current;
-              const mouseHover =
-                event.detail > 0 && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+              const mouseHover = event.detail > 0 && sidebarAccountHoveredRef.current;
               setAccountMenuOpen((open) => (mouseHover ? true : !open));
             }}
             aria-expanded={accountMenuOpen}
@@ -476,29 +626,17 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <Avatar />
             <div>
               <strong>{name}</strong>
-              <span>{currentBook?.title ?? '请选择词表'}</span>
+              <span>
+                {currentBook?.title ??
+                  (visibleCurrentBookState.status === 'loading'
+                    ? '正在读取词表…'
+                    : visibleCurrentBookState.status === 'failed'
+                      ? '词表读取失败'
+                      : '请选择词表')}
+              </span>
             </div>
             <ChevronDown size={15} />
           </button>
-          {accountMenuOpen && (
-            <AccountMenu
-              name={name}
-              isAdmin={session.user.role === 'ADMIN'}
-              onSettings={() => {
-                setSettingsSection('account');
-                setPage('settings');
-                setAccountMenuOpen(false);
-                setSidebarOpen(false);
-              }}
-              onSystemSettings={() => {
-                setSettingsSection('system');
-                setPage('settings');
-                setAccountMenuOpen(false);
-                setSidebarOpen(false);
-              }}
-              onLogout={onLogout}
-            />
-          )}
         </div>
         <div className="sidebar-scroll">
           <Calendar />
@@ -708,8 +846,26 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <StreakCard session={session} />
               <Metric
                 title="词表总词数"
-                value={String(currentBook?.totalWords ?? 0)}
-                detail={currentBook?.title ?? '请选择一个系统词表'}
+                value={currentBook ? String(currentBook.totalWords) : '—'}
+                detail={
+                  currentBook?.title ??
+                  (visibleCurrentBookState.status === 'loading' ? (
+                    <span role="status">正在读取词表…</span>
+                  ) : visibleCurrentBookState.status === 'failed' ? (
+                    <>
+                      <span role="alert">词表信息暂时无法加载</span>
+                      <button type="button" onClick={retryCurrentBookLoad}>
+                        重试
+                      </button>
+                    </>
+                  ) : (
+                    '请选择一个系统词表'
+                  ))
+                }
+                detailClassName={
+                  visibleCurrentBookState.status === 'failed' ? 'metric-detail-error' : ''
+                }
+                className={visibleCurrentBookState.status === 'failed' ? 'has-detail-action' : ''}
                 backIcon={<BookOpen size={42} />}
                 backText="海量词库等你探索"
                 backColor="var(--sky)"
@@ -879,8 +1035,51 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           />
         )}
       </section>
+      {accountMenuOpen && accountMenuPortalContainer
+        ? createPortal(
+            <AccountMenu
+              name={name}
+              isAdmin={session.user.role === 'ADMIN'}
+              popoverRef={accountMenuPopoverRef}
+              position={accountMenuPosition}
+              onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') {
+                  cancelAccountMenuHoverClose();
+                  sidebarAccountHoveredRef.current = true;
+                }
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== 'mouse') return;
+                const relatedTarget = event.relatedTarget;
+                if (
+                  relatedTarget instanceof Node &&
+                  sidebarAccountButtonRef.current?.contains(relatedTarget)
+                ) {
+                  cancelAccountMenuHoverClose();
+                  sidebarAccountHoveredRef.current = true;
+                  return;
+                }
+                scheduleAccountMenuHoverClose();
+              }}
+              onSettings={() => {
+                setSettingsSection('account');
+                setPage('settings');
+                setAccountMenuOpen(false);
+                setSidebarOpen(false);
+              }}
+              onSystemSettings={() => {
+                setSettingsSection('system');
+                setPage('settings');
+                setAccountMenuOpen(false);
+                setSidebarOpen(false);
+              }}
+              onLogout={onLogout}
+            />,
+            accountMenuPortalContainer,
+          )
+        : null}
       {bookPickerOpen && (
-        <BookPicker session={session} onClose={closeBookPicker} onActivated={setCurrentBook} />
+        <BookPicker session={session} onClose={closeBookPicker} onActivated={activateCurrentBook} />
       )}
       {visiblePreviewPlan && (
         <PlanPreview
@@ -1158,21 +1357,45 @@ function isLearningStreakSummary(value: unknown): value is LearningStreakSummary
 function AccountMenu({
   name,
   isAdmin,
+  popoverRef,
+  position,
+  onPointerEnter,
+  onPointerLeave,
   onSettings,
   onSystemSettings,
   onLogout,
 }: {
   name: string;
   isAdmin: boolean;
+  popoverRef: React.RefObject<HTMLDivElement | null>;
+  position: { left: number; top: number } | null;
+  onPointerEnter: React.PointerEventHandler<HTMLDivElement>;
+  onPointerLeave: React.PointerEventHandler<HTMLDivElement>;
   onSettings: () => void;
   onSystemSettings: () => void;
   onLogout: () => void;
 }) {
   return (
-    <div className="account-menu" id="account-menu" aria-label="账户菜单">
+    <div
+      className="account-menu"
+      id="account-menu"
+      aria-label="账户菜单"
+      aria-hidden={!position}
+      data-positioned={position ? 'true' : 'false'}
+      ref={popoverRef}
+      style={{
+        left: position?.left ?? -10000,
+        top: position?.top ?? -10000,
+        visibility: position ? 'visible' : 'hidden',
+      }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+    >
       <div className="account-menu-user">
         <Avatar />
-        <strong>{name}</strong>
+        <strong aria-label={name} title={name}>
+          {name}
+        </strong>
       </div>
       <button onClick={onSettings}>
         <Settings2 size={22} />

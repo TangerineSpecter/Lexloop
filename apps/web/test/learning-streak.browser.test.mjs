@@ -122,6 +122,12 @@ test(
       };
       await send('Page.enable');
       await send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Shanghai' });
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
       if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
@@ -140,6 +146,18 @@ test(
           request.resolve(response);
         },
       };
+      window.defaultBookFixture = {
+        fail: query.has('default-book-error'),
+        hold: query.has('default-book-loading'),
+        requests: [],
+        resolvers: [],
+        resolve: (index, response) => {
+          const request = window.defaultBookFixture.resolvers.find((item) => item.index === index);
+          if (!request) throw new Error('No pending default book request at index ' + index);
+          window.defaultBookFixture.resolvers = window.defaultBookFixture.resolvers.filter((item) => item !== request);
+          request.resolve(response);
+        },
+      };
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
@@ -150,7 +168,15 @@ test(
           if (window.streakFixture.loading) await new Promise(resolve => setTimeout(resolve, 700));
           return Response.json({ currentStreak: window.streakFixture.currentStreak, todayActive: window.streakFixture.todayActive });
         }
-        if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+        if (path.includes('/api/v1/vocabulary/default')) {
+          const index = window.defaultBookFixture.requests.length;
+          window.defaultBookFixture.requests.push(index);
+          if (window.defaultBookFixture.fail) return Response.json({ message: 'Fixture book unavailable' }, { status: 503 });
+          if (window.defaultBookFixture.hold) {
+            return new Promise((resolve) => window.defaultBookFixture.resolvers.push({ index, resolve }));
+          }
+          return Response.json(window.defaultBookFixture.book ?? null);
+        }
         if (path.includes('/api/v1/vocabulary/progress-summary')) {
           const userId = JSON.parse(localStorage.getItem('lexloop.session')).user.id;
           const index = window.progressFixture.requests.length;
@@ -181,6 +207,18 @@ test(
       await until(
         'document.querySelectorAll(".progress-grid .metric-card")[1]?.querySelector(".metric-front b")?.textContent === "3"',
       );
+      const bookMetric = 'document.querySelectorAll(".progress-grid .metric-card")[0]';
+      await until(
+        `${bookMetric}.querySelector(".metric-front small")?.textContent === "请选择一个系统词表"`,
+      );
+      assert.equal(
+        await evaluate(`${bookMetric}.querySelector(".metric-front b")?.textContent`),
+        '—',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sidebar-book > div > span")?.textContent'),
+        '请选择词表',
+      );
       assert.equal(
         await evaluate(
           'document.querySelectorAll(".progress-grid .metric-card")[1].querySelector(".metric-front small")?.textContent',
@@ -196,6 +234,134 @@ test(
       assert.equal(
         await evaluate('window.streakFixture.requests[0].url.includes("timeZone=Asia%2FShanghai")'),
         true,
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?default-book-loading=1', baseUrl).href,
+      });
+      await until(
+        'location.search.includes("default-book-loading") && document.readyState === "complete"',
+      );
+      await send('Page.reload');
+      await until('window.defaultBookFixture?.hold');
+      await until(
+        `${bookMetric}.querySelector(".metric-front small [role=status]")?.textContent === "正在读取词表…"`,
+      );
+      assert.equal(
+        await evaluate(`${bookMetric}.querySelector(".metric-front b")?.textContent`),
+        '—',
+      );
+      const pendingDefaultBook = await evaluate('window.defaultBookFixture.requests.at(-1)');
+      await evaluate(
+        `window.defaultBookFixture.resolve(${pendingDefaultBook}, Response.json({ id: 'book-zero', title: '空词表测试', totalWords: 0 }))`,
+      );
+      await until(`${bookMetric}.querySelector(".metric-front b")?.textContent === "0"`);
+      assert.equal(
+        await evaluate(`${bookMetric}.querySelector(".metric-front small")?.textContent`),
+        '空词表测试',
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?default-book-error=1', baseUrl).href,
+      });
+      await until(
+        'location.search.includes("default-book-error") && document.readyState === "complete"',
+      );
+      await send('Page.reload');
+      await until('window.defaultBookFixture?.fail');
+      await until(`${bookMetric}.querySelector(".metric-detail-error button")`);
+      assert.equal(
+        await evaluate(`${bookMetric}.querySelector(".metric-front b")?.textContent`),
+        '—',
+      );
+      assert.equal(
+        await evaluate(
+          `${bookMetric}.querySelector(".metric-detail-error [role=alert]")?.textContent`,
+        ),
+        '词表信息暂时无法加载',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sidebar-book > div > span")?.textContent'),
+        '词表读取失败',
+      );
+      const failedDefaultBookRequestCount = await evaluate(
+        'window.defaultBookFixture.requests.length',
+      );
+      const desktopFailureLayout = await evaluate(`(() => {
+        const metric = ${bookMetric};
+        const retry = metric.querySelector('.metric-detail-error button');
+        const rect = retry.getBoundingClientRect();
+        return {
+          viewport: document.documentElement.clientWidth,
+          document: document.documentElement.scrollWidth,
+          retryLeft: rect.left,
+          retryRight: rect.right,
+          retryVisible: rect.width > 0 && rect.bottom <= innerHeight,
+        };
+      })()`);
+      assert.equal(
+        desktopFailureLayout.document <= desktopFailureLayout.viewport,
+        true,
+        JSON.stringify(desktopFailureLayout),
+      );
+      assert.equal(desktopFailureLayout.retryLeft >= 0, true, JSON.stringify(desktopFailureLayout));
+      assert.equal(
+        desktopFailureLayout.retryRight <= desktopFailureLayout.viewport,
+        true,
+        JSON.stringify(desktopFailureLayout),
+      );
+      assert.equal(desktopFailureLayout.retryVisible, true, JSON.stringify(desktopFailureLayout));
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileFailureLayout = await evaluate(`(() => {
+        const metric = ${bookMetric};
+        const retry = metric.querySelector('.metric-detail-error button');
+        const rect = retry.getBoundingClientRect();
+        return {
+          viewport: document.documentElement.clientWidth,
+          document: document.documentElement.scrollWidth,
+          retryLeft: rect.left,
+          retryRight: rect.right,
+          retryVisible: rect.width > 0 && rect.bottom <= innerHeight,
+        };
+      })()`);
+      assert.equal(
+        mobileFailureLayout.document <= mobileFailureLayout.viewport,
+        true,
+        JSON.stringify(mobileFailureLayout),
+      );
+      assert.equal(mobileFailureLayout.retryLeft >= 0, true, JSON.stringify(mobileFailureLayout));
+      assert.equal(
+        mobileFailureLayout.retryRight <= mobileFailureLayout.viewport,
+        true,
+        JSON.stringify(mobileFailureLayout),
+      );
+      assert.equal(mobileFailureLayout.retryVisible, true, JSON.stringify(mobileFailureLayout));
+      await evaluate(`window.defaultBookFixture.fail = false;
+        window.defaultBookFixture.book = { id: 'book-retry', title: '恢复后的词表', totalWords: 12 };
+        ${bookMetric}.querySelector('.metric-detail-error button').click();`);
+      await until(`${bookMetric}.querySelector(".metric-front b")?.textContent === "12"`);
+      assert.equal(
+        await evaluate('window.defaultBookFixture.requests.length'),
+        failedDefaultBookRequestCount + 1,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      assert.equal(
+        await evaluate(`${bookMetric}.querySelector(".metric-front small")?.textContent`),
+        '恢复后的词表',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sidebar-book > div > span")?.textContent'),
+        '恢复后的词表',
       );
 
       await send('Page.navigate', {
@@ -334,6 +500,13 @@ test(
       await send('Page.reload');
       await until('window.progressFixture?.holdUserB');
       await untilProgressRequestsSettle('user-b');
+      await until(
+        `${bookMetric}.querySelector(".metric-front small")?.textContent === "请选择一个系统词表"`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sidebar-book > div > span")?.textContent'),
+        '请选择词表',
+      );
       assert.equal(
         await evaluate(`${progressCard}.querySelector(".metric-front b")?.textContent`),
         '—',
