@@ -106,6 +106,7 @@ type Word = {
   question?: GeneratedQuestion;
   completed?: boolean;
   result?: boolean;
+  savedContext?: { scenario: string | null; example: string };
   nextReviewAt?: string | null;
   activeWeaknesses?: Array<{
     questionType: string;
@@ -2966,6 +2967,16 @@ function WordMeaningCard({ word }: { word: Word }) {
   );
 }
 
+function SavedReviewContext({ context }: { context: NonNullable<Word['savedContext']> }) {
+  return (
+    <aside className="saved-review-context">
+      <strong>收藏时的原句</strong>
+      {context.scenario && <small>{context.scenario}</small>}
+      <p lang="en">{context.example}</p>
+    </aside>
+  );
+}
+
 function WordSenseDemo() {
   return (
     <article className="exercise-card word-sense-demo">
@@ -3935,6 +3946,7 @@ function GeneratedQuestionCard({
           </p>
           <p className="question-explanation">{explanation}</p>
           <WordMeaningCard word={word} />
+          {word.savedContext && <SavedReviewContext context={word.savedContext} />}
         </>
       )}
     </article>

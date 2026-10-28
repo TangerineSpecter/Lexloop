@@ -57,6 +57,7 @@ type StudyPlanReviewWord = {
   word: string;
   result?: boolean;
   selectedAnswer?: string[];
+  savedContext?: { scenario: string | null; example: string };
   question: {
     type?: string;
     prompt?: string;
@@ -483,6 +484,15 @@ function PlanHistoryCard({
                         </div>
                         {word.question.explanation && (
                           <p className="history-review-explanation">{word.question.explanation}</p>
+                        )}
+                        {word.savedContext && (
+                          <aside className="saved-review-context history-saved-review-context">
+                            <strong>收藏时的原句</strong>
+                            {word.savedContext.scenario && (
+                              <small>{word.savedContext.scenario}</small>
+                            )}
+                            <p lang="en">{word.savedContext.example}</p>
+                          </aside>
                         )}
                       </article>
                     );

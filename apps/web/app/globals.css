@@ -621,6 +621,28 @@
   background: #fff9d9;
 }
 
+.saved-review-context {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--coral);
+  background: #fff4ed;
+  color: var(--border-color);
+  overflow-wrap: anywhere;
+}
+.saved-review-context strong {
+  font-size: 13px;
+}
+.saved-review-context small {
+  color: rgba(8, 40, 119, 0.7);
+  line-height: 1.45;
+}
+.saved-review-context p {
+  margin: 0;
+  line-height: 1.6;
+}
+
 .start-challenge:disabled,
 .check-matches:disabled {
   cursor: not-allowed;
@@ -11192,6 +11214,9 @@ button {
   background: #fff9dc;
   overflow-wrap: anywhere;
   line-height: 1.65;
+}
+.history-saved-review-context {
+  font-size: 14px;
 }
 .history-type-list {
   display: grid;

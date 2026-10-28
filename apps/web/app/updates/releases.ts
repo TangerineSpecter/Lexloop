@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.35',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '复习反馈带回收藏时的原句',
+        entry: '学习序列 → 提交答案 → 查看反馈',
+        usage:
+          '答案提交后可回到收藏表达的来源场景与原句，历史逐题回顾也保留这份语境；提交前不显示原句，旧记录无原句时照常回看。',
+      },
+    ],
+  },
+  {
     version: '1.27.34',
     date: '2026-10-28',
     items: [

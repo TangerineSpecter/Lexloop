@@ -147,6 +147,10 @@ test(
             word: 'bright',
             result: false,
             selectedAnswer: ['暗的'],
+            savedContext: {
+              scenario: '微故事 · 上班路上 · 第 1 段',
+              example: 'Maya missed the bus, so she called a taxi.',
+            },
             question: {
               type: 'MEANING_RECOGNITION',
               prompt: 'Choose the meaning of bright.',
@@ -239,6 +243,19 @@ test(
         true,
       );
       assert.equal(await evaluate('document.body.innerText.includes("help 表示提供帮助")'), true);
+      assert.equal(
+        await evaluate('document.querySelector(".saved-review-context p")?.textContent'),
+        'Maya missed the bus, so she called a taxi.',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".saved-review-context small").textContent'),
+        /微故事 · 上班路上/,
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll(".saved-review-context").length'),
+        1,
+        'older items without saved source context keep their existing review layout',
+      );
       assert.equal(await evaluate('window.studyHistoryFixture.reviewCalls.length'), 2);
 
       const desktopLayout = await evaluate(
@@ -258,11 +275,34 @@ test(
       });
       await delay(100);
       const mobileLayout = await evaluate(
-        `(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, review: document.querySelector('.history-review-list')?.getBoundingClientRect().width ?? 0 }))()`,
+        `(() => {
+          const review = document.querySelector('.history-review-list')?.getBoundingClientRect();
+          const context = document.querySelector('.saved-review-context')?.getBoundingClientRect();
+          return {
+            viewport: document.documentElement.clientWidth,
+            document: document.documentElement.scrollWidth,
+            body: document.body.scrollWidth,
+            review: review?.width ?? 0,
+            reviewLeft: review?.left ?? 0,
+            reviewRight: review?.right ?? 0,
+            context: context?.width ?? 0,
+            contextLeft: context?.left ?? 0,
+            contextRight: context?.right ?? 0,
+          };
+        })()`,
       );
       assert.equal(mobileLayout.document, mobileLayout.viewport, JSON.stringify(mobileLayout));
       assert.equal(mobileLayout.body, mobileLayout.viewport, JSON.stringify(mobileLayout));
       assert.ok(mobileLayout.review > 0, JSON.stringify(mobileLayout));
+      assert.ok(
+        mobileLayout.context > 0 && mobileLayout.context <= mobileLayout.review,
+        JSON.stringify(mobileLayout),
+      );
+      assert.ok(mobileLayout.contextLeft >= mobileLayout.reviewLeft, JSON.stringify(mobileLayout));
+      assert.ok(
+        mobileLayout.contextRight <= mobileLayout.reviewRight,
+        JSON.stringify(mobileLayout),
+      );
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(
         `study history review layout: desktop ${desktopLayout.viewport}px, mobile ${mobileLayout.viewport}px; review requests ${2}`,

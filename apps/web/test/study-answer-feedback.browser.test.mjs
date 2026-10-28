@@ -207,6 +207,7 @@ test(
               words: [
                 { id: 'word-1', word: 'bright', part: 'adj.', meaning: '明亮的', source: 'REVIEW', groupIndex: 0,
                   question: firstSubmitted ? questionAfterSubmit : questionBeforeSubmit, completed: firstSubmitted, result: firstSubmitted ? false : undefined,
+                  ...(firstSubmitted ? { savedContext: { scenario: '微故事 · 上班路上 · 第 1 段', example: 'Maya missed the bus, so she called a taxi.' } } : {}),
                   nextReviewAt: firstSubmitted ? nextReviewAt[0] : null,
                   activeWeaknesses: firstSubmitted ? [{ questionType: 'MEANING_RECOGNITION', wrongCount: 1, consecutiveCorrect: 0, remainingCorrect: 2 }] : [] },
                 { id: 'word-2', word: 'help', part: 'vt.', meaning: '帮助', source: 'NEW', groupIndex: 1,
@@ -464,6 +465,13 @@ test(
         excerpt: document.body.innerText.slice(-700),
       })`);
       assert.ok(choiceState.buttonCount > 0, JSON.stringify({ ...choiceState, browserErrors }));
+      assert.equal(
+        await evaluate(
+          'document.body.innerText.includes("Maya missed the bus, so she called a taxi.")',
+        ),
+        false,
+        'the saved source sentence stays hidden before the answer is accepted',
+      );
       assert.deepEqual(
         await evaluate(
           `Array.from(document.querySelectorAll('.generated-passage mark')).map((node) => node.textContent)`,
@@ -731,6 +739,14 @@ test(
       assert.match(
         await evaluate('document.querySelector(".question-explanation").textContent'),
         /bright 描述光线充足/,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".saved-review-context p")?.textContent'),
+        'Maya missed the bus, so she called a taxi.',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".saved-review-context small").textContent'),
+        /微故事 · 上班路上/,
       );
       assert.deepEqual(
         await evaluate(

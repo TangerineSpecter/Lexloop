@@ -600,6 +600,14 @@ export class StudyService {
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
+      ...(item.completedAt && item.attempts[0] && item.bookWord.sourceExample?.trim()
+        ? {
+            savedContext: {
+              scenario: item.bookWord.sourceScenario?.trim() || null,
+              example: item.bookWord.sourceExample.trim(),
+            },
+          }
+        : {}),
       ...(includeSelectedAnswers &&
       submittedGroups.has(item.groupIndex) &&
       isStringAnswerArray(item.attempts[0]?.selectedAnswer)
