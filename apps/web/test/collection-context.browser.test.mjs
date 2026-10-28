@@ -597,7 +597,9 @@ test(
         code: 'Escape',
         windowsVirtualKeyCode: 27,
       });
-      await until('!document.querySelector("[data-notebook-collection-content]").hidden');
+      await until(
+        '!document.querySelector("[data-notebook-collection-content]").hidden && document.activeElement?.matches("[data-spelling-start]")',
+      );
       assert.equal(
         await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
         20,

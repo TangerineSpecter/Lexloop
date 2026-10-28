@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
-import { contentSignature, gradeQuestion, hasValidGeneratedMatchingPairs, unfamiliarityScore } from '../src/modules/study/study.service';
+import {
+  contentSignature,
+  gradeQuestion,
+  hasValidGeneratedMatchingPairs,
+  unfamiliarityScore,
+} from '../src/modules/study/study.service';
 import { reviewSchedule } from '../src/modules/study/review-scheduling';
 
 describe('dynamic review unfamiliarity', () => {
   const stable = {
-    accuracy: .9,
+    accuracy: 0.9,
     overdueDays: 0,
     actualGap: 4,
     lastIntervalDays: 4,
@@ -30,30 +35,103 @@ describe('dynamic review unfamiliarity', () => {
   });
 
   it('treats persistent low accuracy as more serious than an early mistake', () => {
-    const early = unfamiliarityScore({ ...stable, accuracy: .45, reviewCount: 1, consecutiveCorrect: 0 });
-    const persistent = unfamiliarityScore({ ...stable, accuracy: .45, reviewCount: 6, consecutiveCorrect: 0 });
+    const early = unfamiliarityScore({
+      ...stable,
+      accuracy: 0.45,
+      reviewCount: 1,
+      consecutiveCorrect: 0,
+    });
+    const persistent = unfamiliarityScore({
+      ...stable,
+      accuracy: 0.45,
+      reviewCount: 6,
+      consecutiveCorrect: 0,
+    });
     expect(persistent).toBeGreaterThan(early);
   });
 
   it('always clamps the score to the 0–100 range', () => {
     expect(unfamiliarityScore({ ...stable, accuracy: 1, consecutiveCorrect: 100 })).toBe(0);
-    const highestRisk = unfamiliarityScore({ ...stable, accuracy: 0, overdueDays: 1000, postponedCount: 100 });
+    const highestRisk = unfamiliarityScore({
+      ...stable,
+      accuracy: 0,
+      overdueDays: 1000,
+      postponedCount: 100,
+    });
     expect(highestRisk).toBeGreaterThanOrEqual(0);
     expect(highestRisk).toBeLessThanOrEqual(100);
   });
 });
 
 describe('shared dynamic review schedule', () => {
+  it('brings a missed mature word back the next day instead of multiplying its long interval', () => {
+    const now = new Date('2026-10-28T00:00:00.000Z');
+    const result = reviewSchedule(
+      {
+        reviewCount: 6,
+        totalAttempts: 6,
+        correctAttempts: 6,
+        consecutiveCorrect: 6,
+        lastIntervalDays: 180,
+        postponedCount: 0,
+        lastReviewedAt: new Date('2026-04-01T00:00:00.000Z'),
+        nextReviewAt: now,
+      },
+      false,
+      now,
+    );
+
+    expect(result.lastIntervalDays).toBe(1);
+    expect(result.nextReviewAt.getTime()).toBe(now.getTime() + 86_400_000);
+    expect(result.totalAttempts).toEqual({ increment: 1 });
+    expect(result.correctAttempts).toBeUndefined();
+    expect(result.consecutiveCorrect).toBe(0);
+  });
+
+  it('schedules a first-time mistake for the next day without adding a correct attempt', () => {
+    const now = new Date('2026-10-28T00:00:00.000Z');
+    const result = reviewSchedule(
+      {
+        reviewCount: 0,
+        totalAttempts: 0,
+        correctAttempts: 0,
+        consecutiveCorrect: 0,
+        lastIntervalDays: 0,
+        postponedCount: 0,
+        lastReviewedAt: null,
+        nextReviewAt: null,
+      },
+      false,
+      now,
+    );
+
+    expect(result.lastIntervalDays).toBe(1);
+    expect(result.nextReviewAt.getTime()).toBe(now.getTime() + 86_400_000);
+    expect(result.totalAttempts).toEqual({ increment: 1 });
+    expect(result.correctAttempts).toBeUndefined();
+  });
+
   it('preserves a mature interval when a correct answer comes from another learning mode', () => {
     const now = new Date('2026-09-14T00:00:00.000Z');
-    const result = reviewSchedule({
-      reviewCount: 12, totalAttempts: 14, correctAttempts: 13, consecutiveCorrect: 5,
-      lastIntervalDays: 30, postponedCount: 0,
-      lastReviewedAt: new Date('2026-08-15T00:00:00.000Z'), nextReviewAt: now,
-    }, true, now);
+    const result = reviewSchedule(
+      {
+        reviewCount: 12,
+        totalAttempts: 14,
+        correctAttempts: 13,
+        consecutiveCorrect: 5,
+        lastIntervalDays: 30,
+        postponedCount: 0,
+        lastReviewedAt: new Date('2026-08-15T00:00:00.000Z'),
+        nextReviewAt: now,
+      },
+      true,
+      now,
+    );
 
     expect(result.lastIntervalDays).toBeGreaterThan(30);
-    expect(result.nextReviewAt.getTime()).toBe(now.getTime() + result.lastIntervalDays * 86_400_000);
+    expect(result.nextReviewAt.getTime()).toBe(
+      now.getTime() + result.lastIntervalDays * 86_400_000,
+    );
   });
 });
 
@@ -64,14 +142,17 @@ describe('shared generated content signature', () => {
   ];
 
   it('is account-independent and stable when the same words arrive in another order', () => {
-    expect(contentSignature(StudyPlanMode.GROUP, words))
-      .toBe(contentSignature(StudyPlanMode.GROUP, [...words].reverse()));
+    expect(contentSignature(StudyPlanMode.GROUP, words)).toBe(
+      contentSignature(StudyPlanMode.GROUP, [...words].reverse()),
+    );
   });
 
   it('separates learning modes and invalidates content after a meaning change', () => {
     const original = contentSignature(StudyPlanMode.GROUP, words);
     expect(contentSignature(StudyPlanMode.INDIVIDUAL, words)).not.toBe(original);
-    expect(contentSignature(StudyPlanMode.GROUP, [{ ...words[0], meaning: '忧郁的' }, words[1]])).not.toBe(original);
+    expect(
+      contentSignature(StudyPlanMode.GROUP, [{ ...words[0], meaning: '忧郁的' }, words[1]]),
+    ).not.toBe(original);
   });
 
   it('keeps normal-plan cache keys compatible while isolating weakness variants', () => {
@@ -82,10 +163,12 @@ describe('shared generated content signature', () => {
       'book-word-2': 'READING_COMPREHENSION',
     });
     expect(weakness).not.toBe(normal);
-    expect(contentSignature(StudyPlanMode.GROUP, words, StudyPlanPurpose.WEAKNESS, {
-      'book-word-2': 'READING_COMPREHENSION',
-      'book-word-1': 'MEANING_RECOGNITION',
-    })).toBe(weakness);
+    expect(
+      contentSignature(StudyPlanMode.GROUP, words, StudyPlanPurpose.WEAKNESS, {
+        'book-word-2': 'READING_COMPREHENSION',
+        'book-word-1': 'MEANING_RECOGNITION',
+      }),
+    ).toBe(weakness);
   });
 });
 
@@ -100,10 +183,13 @@ describe('server-side study answer grading', () => {
   });
 
   it('grades multiple selections without trusting their order', () => {
-    const result = gradeQuestion({
-      type: 'WORD_MNEMONIC',
-      correctAnswers: ['选项 A', '选项 C'],
-    }, ['选项 C', '选项 A']);
+    const result = gradeQuestion(
+      {
+        type: 'WORD_MNEMONIC',
+        correctAnswers: ['选项 A', '选项 C'],
+      },
+      ['选项 C', '选项 A'],
+    );
     expect(result.isCorrect).toBe(true);
     expect(result.selectedAnswer).toEqual(['选项 A', '选项 C']);
   });
@@ -118,19 +204,25 @@ describe('server-side study answer grading', () => {
     ['MEANING_RECOGNITION', ['预订'], ['预订']],
     ['SYNONYM_REPLACEMENT', ['volume'], ['volume']],
     ['READING_COMPREHENSION', ['on the desk'], ['on the desk']],
-  ] as const)('grades %s from its stored correct option', (type, correctAnswers, selectedAnswer) => {
-    expect(gradeQuestion({ type, correctAnswers }, selectedAnswer).isCorrect).toBe(true);
-  });
+  ] as const)(
+    'grades %s from its stored correct option',
+    (type, correctAnswers, selectedAnswer) => {
+      expect(gradeQuestion({ type, correctAnswers }, selectedAnswer).isCorrect).toBe(true);
+    },
+  );
 
   it('derives matching answers from the persisted pairs', () => {
-    const result = gradeQuestion({
-      type: 'WORD_MATCHING',
-      correctAnswers: [],
-      pairs: [
-        { left: 'blue sky', right: '蓝天' },
-        { left: 'feel blue', right: '感到沮丧' },
-      ],
-    }, ['feel blue=>感到沮丧', 'blue sky=>蓝天']);
+    const result = gradeQuestion(
+      {
+        type: 'WORD_MATCHING',
+        correctAnswers: [],
+        pairs: [
+          { left: 'blue sky', right: '蓝天' },
+          { left: 'feel blue', right: '感到沮丧' },
+        ],
+      },
+      ['feel blue=>感到沮丧', 'blue sky=>蓝天'],
+    );
     expect(result.isCorrect).toBe(true);
     expect(result.questionType).toBe('WORD_MATCHING');
   });
@@ -146,26 +238,32 @@ describe('generated matching-pair validation', () => {
 
   it('requires four unique words and four unique Chinese definitions', () => {
     expect(hasValidGeneratedMatchingPairs(pairs)).toBe(true);
-    expect(hasValidGeneratedMatchingPairs([
-      pairs[0],
-      { ...pairs[1], left: pairs[0].left },
-      pairs[2],
-      pairs[3],
-    ])).toBe(false);
-    expect(hasValidGeneratedMatchingPairs([
-      pairs[0],
-      { ...pairs[1], right: pairs[0].right },
-      pairs[2],
-      pairs[3],
-    ])).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        pairs[0],
+        { ...pairs[1], left: pairs[0].left },
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        pairs[0],
+        { ...pairs[1], right: pairs[0].right },
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
   });
 
   it('rejects a tip that leaks its matching phrase', () => {
-    expect(hasValidGeneratedMatchingPairs([
-      { ...pairs[0], tip: 'school bag 指上学时使用的包。' },
-      pairs[1],
-      pairs[2],
-      pairs[3],
-    ])).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        { ...pairs[0], tip: 'school bag 指上学时使用的包。' },
+        pairs[1],
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
   });
 });

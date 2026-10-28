@@ -686,6 +686,108 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(await attemptsFor(reviewPlan.id)).toEqual(attemptsBeforeReview);
         expect(await progressFor(users[0].id)).toEqual(progressBeforeReview);
         expect(await readState()).toEqual(summaryStateBeforeReview);
+
+        const lapsePlan = await createPlan(users[1].id, 'ACTIVE', []);
+        const matureReviewAt = new Date(Date.now() - 180 * 86_400_000);
+        await prisma.userWordProgress.updateMany({
+          where: { userId: users[1].id, bookWordId: { in: bookWords.map((word) => word.id) } },
+          data: {
+            state: 'REVIEWING',
+            reviewCount: 6,
+            totalAttempts: 6,
+            correctAttempts: 6,
+            consecutiveCorrect: 6,
+            lastIntervalDays: 180,
+            lastReviewedAt: matureReviewAt,
+            nextReviewAt: new Date(matureReviewAt.getTime() + 180 * 86_400_000),
+          },
+        });
+        const lapseResult = await serviceWithMistakes.completeGroup(
+          users[1].id,
+          lapsePlan.id,
+          0,
+          answersFor(false),
+        );
+        expect(lapseResult.words.map((word) => word.result)).toEqual([false, false]);
+        const lapseProgress = await prisma.userWordProgress.findMany({
+          where: { userId: users[1].id, bookWordId: { in: bookWords.map((word) => word.id) } },
+          orderBy: { bookWordId: 'asc' },
+          select: {
+            bookWordId: true,
+            totalAttempts: true,
+            correctAttempts: true,
+            consecutiveCorrect: true,
+            reviewCount: true,
+            lastIntervalDays: true,
+            lastReviewedAt: true,
+            nextReviewAt: true,
+          },
+        });
+        expect(
+          lapseProgress.every(
+            (progress) =>
+              progress.totalAttempts === 7 &&
+              progress.correctAttempts === 6 &&
+              progress.consecutiveCorrect === 0 &&
+              progress.reviewCount === 7 &&
+              progress.lastIntervalDays === 1 &&
+              progress.lastReviewedAt &&
+              progress.nextReviewAt &&
+              progress.nextReviewAt.getTime() - progress.lastReviewedAt.getTime() === 86_400_000,
+          ),
+        ).toBe(true);
+        const lapseAttempts = await attemptsFor(lapsePlan.id);
+        expect(lapseAttempts).toHaveLength(2);
+        expect(lapseAttempts.every((attempt) => !attempt.isCorrect)).toBe(true);
+        const lapseWeaknesses = await prisma.weaknessSignal.findMany({
+          where: { userId: users[1].id },
+          orderBy: [{ bookWordId: 'asc' }, { questionType: 'asc' }],
+          select: {
+            bookWordId: true,
+            questionType: true,
+            status: true,
+            wrongCount: true,
+            consecutiveCorrect: true,
+          },
+        });
+
+        const lateCorrectedAnswer = await serviceWithMistakes.completeGroup(
+          users[1].id,
+          lapsePlan.id,
+          0,
+          answersFor(true),
+        );
+        expect(lateCorrectedAnswer.words.map((word) => word.result)).toEqual([false, false]);
+        expect(await attemptsFor(lapsePlan.id)).toEqual(lapseAttempts);
+        expect(
+          await prisma.userWordProgress.findMany({
+            where: { userId: users[1].id, bookWordId: { in: bookWords.map((word) => word.id) } },
+            orderBy: { bookWordId: 'asc' },
+            select: {
+              bookWordId: true,
+              totalAttempts: true,
+              correctAttempts: true,
+              consecutiveCorrect: true,
+              reviewCount: true,
+              lastIntervalDays: true,
+              lastReviewedAt: true,
+              nextReviewAt: true,
+            },
+          }),
+        ).toEqual(lapseProgress);
+        expect(
+          await prisma.weaknessSignal.findMany({
+            where: { userId: users[1].id },
+            orderBy: [{ bookWordId: 'asc' }, { questionType: 'asc' }],
+            select: {
+              bookWordId: true,
+              questionType: true,
+              status: true,
+              wrongCount: true,
+              consecutiveCorrect: true,
+            },
+          }),
+        ).toEqual(lapseWeaknesses);
       } finally {
         if (users.length) {
           await prisma.user.deleteMany({ where: { id: { in: users.map(({ id }) => id) } } });

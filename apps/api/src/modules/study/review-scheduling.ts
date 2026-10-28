@@ -28,17 +28,19 @@ export function reviewSchedule(
     ? Math.max(1, (now.getTime() - progress.lastReviewedAt.getTime()) / DAY)
     : 1;
   const base = Math.max(1, progress.lastIntervalDays || 1);
-  const quality = correct ? (accuracy >= 0.85 ? 2.2 : accuracy >= 0.65 ? 1.45 : 0.9) : 0.45;
+  const quality = accuracy >= 0.85 ? 2.2 : accuracy >= 0.65 ? 1.45 : 0.9;
   const overdueFactor = Math.max(0.4, 1 - Math.min(0.55, (overdueDays / base) * 0.18));
   const postponeFactor = Math.max(0.55, 1 - Math.min(0.4, progress.postponedCount * 0.08));
   const persistentDifficulty = progress.reviewCount >= 4 && accuracy < 0.6;
-  const interval = Math.max(
-    1,
-    Math.min(
-      persistentDifficulty ? 2 : 180,
-      Math.round(base * quality * overdueFactor * postponeFactor),
-    ),
-  );
+  const interval = correct
+    ? Math.max(
+        1,
+        Math.min(
+          persistentDifficulty ? 2 : 180,
+          Math.round(base * quality * overdueFactor * postponeFactor),
+        ),
+      )
+    : 1;
   const nextReviewAt = new Date(now.getTime() + interval * DAY);
   const unfamiliarity = unfamiliarityScore({
     accuracy,
