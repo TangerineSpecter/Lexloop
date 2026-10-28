@@ -44,6 +44,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session } from '../lib/api';
 import { speakEnglish } from './english-audio-controls';
+import { findTargetWordMatches } from '../lib/target-word-highlighting';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
 import {
   clearStudyDraft,
@@ -3832,23 +3833,27 @@ function GeneratedReadingContent({
 }
 
 function HighlightedSentence({ text, words }: { text: string; words: Word[] }) {
-  const escaped = words.map((word) => word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-  if (!escaped) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, index) => {
-        const wordIndex = words.findIndex((word) => word.word.toLowerCase() === part.toLowerCase());
-        return wordIndex >= 0 ? (
-          <mark key={`${part}-${index}`} style={wordTone(wordIndex)}>
-            {part}
-          </mark>
-        ) : (
-          <span key={`${part}-${index}`}>{part}</span>
-        );
-      })}
-    </>
+  const matches = findTargetWordMatches(
+    text,
+    words.map((word) => word.word),
   );
+  if (!matches.length) return <>{text}</>;
+
+  const parts: React.ReactNode[] = [];
+  let offset = 0;
+  matches.forEach((match, index) => {
+    if (match.start > offset) {
+      parts.push(<span key={`text-${offset}`}>{text.slice(offset, match.start)}</span>);
+    }
+    parts.push(
+      <mark key={`target-${match.start}-${index}`} style={wordTone(match.wordIndex)}>
+        {text.slice(match.start, match.end)}
+      </mark>,
+    );
+    offset = match.end;
+  });
+  if (offset < text.length) parts.push(<span key={`text-${offset}`}>{text.slice(offset)}</span>);
+  return <>{parts}</>;
 }
 
 function gradeGeneratedAnswer(question: GeneratedQuestion, selected: string[]) {

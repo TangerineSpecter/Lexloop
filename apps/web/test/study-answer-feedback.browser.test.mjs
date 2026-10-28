@@ -127,6 +127,12 @@ test(
 
       await send('Page.enable');
       await send('Runtime.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           const questionBeforeSubmit = {
@@ -175,7 +181,7 @@ test(
               ],
               content: { groups: [
                 { index: 0, title: 'A bright morning', wordOccurrences: { bright: 1 },
-                  sentences: [{ english: 'The bright room felt warm.', chinese: '明亮的房间让人感到温暖。', simplified: '明亮的房间很温暖。', grammar: 'bright 修饰 room。' }],
+                  sentences: [{ english: 'Bright rooms are bright; brightness matters when rooms are brightly lit.', chinese: '明亮的房间里，明亮程度很重要。', simplified: '房间越明亮，越让人在意光线。', grammar: 'bright 修饰 rooms；brightness 是名词，brightly 是副词。' }],
                   questions: [firstSubmitted ? questionAfterSubmit : questionBeforeSubmit] },
                 { index: 1, title: 'A helping hand', wordOccurrences: { help: 1 },
                   sentences: [{ english: 'They help people learn.', chinese: '他们帮助人们学习。', simplified: '他们帮助人们学习。', grammar: 'help 作谓语动词。' }],
@@ -418,6 +424,44 @@ test(
         excerpt: document.body.innerText.slice(-700),
       })`);
       assert.ok(choiceState.buttonCount > 0, JSON.stringify({ ...choiceState, browserErrors }));
+      assert.deepEqual(
+        await evaluate(
+          `Array.from(document.querySelectorAll('.generated-passage mark')).map((node) => node.textContent)`,
+        ),
+        ['Bright', 'bright'],
+        'the reading highlights exact target words without highlighting brightness or brightly',
+      );
+      const desktopLayout = await evaluate(`(() => {
+        const card = document.querySelector('.reading-card').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardLeft: card.left, cardRight: card.right };
+      })()`);
+      assert.ok(desktopLayout.page <= desktopLayout.viewport, JSON.stringify(desktopLayout));
+      assert.ok(
+        desktopLayout.cardLeft >= 0 && desktopLayout.cardRight <= desktopLayout.viewport,
+        JSON.stringify(desktopLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileLayout = await evaluate(`(() => {
+        const card = document.querySelector('.reading-card').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardLeft: card.left, cardRight: card.right };
+      })()`);
+      assert.equal(mobileLayout.viewport, 390);
+      assert.ok(mobileLayout.page <= mobileLayout.viewport, JSON.stringify(mobileLayout));
+      assert.ok(
+        mobileLayout.cardLeft >= 0 && mobileLayout.cardRight <= mobileLayout.viewport,
+        JSON.stringify(mobileLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       assert.equal(
         await evaluate(
           '(() => { const row = document.querySelector(".lesson-word-entry"); const disclosure = row?.querySelector("details.lesson-word-meaning"); return row?.tagName === "DIV" && disclosure?.open === false && getComputedStyle(disclosure.querySelector("small")).display === "none"; })()',
