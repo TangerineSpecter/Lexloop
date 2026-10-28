@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.11',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '每周处方按本地日历统计近七天',
+        entry: '学习专项与处方 → 每周学习处方',
+        usage: '跨越夏令时切换时，学习记录仍按七个本地日期统计，避免多算一天并影响任务建议。',
+      },
+    ],
+  },
+  {
     version: '1.27.10',
     date: '2026-10-28',
     items: [

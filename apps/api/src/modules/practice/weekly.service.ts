@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { WeeklyPrescription } from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CONFUSION_CATALOG } from './confusion.catalog';
-import { practiceDate, practiceDayStart, practiceWeek, weeklyActions } from './practice.rules';
+import { practiceDate, practiceLookbackStart, practiceWeek, weeklyActions } from './practice.rules';
 
 @Injectable()
 export class WeeklyService {
@@ -13,9 +13,10 @@ export class WeeklyService {
   ) {}
   async prescription(userId: string): Promise<WeeklyPrescription> {
     const timezone = this.config.get<string>('APP_TIMEZONE') ?? 'Asia/Shanghai';
-    const date = practiceDate(new Date(), timezone);
+    const now = new Date();
+    const date = practiceDate(now, timezone);
     const week = practiceWeek(date);
-    const start = practiceDayStart(new Date(Date.now() - 6 * 86_400_000), timezone);
+    const start = practiceLookbackStart(now, 7, timezone);
     const [attempts, correct, dueReviews, weaknesses, outputs, contrasts, top] = await Promise.all([
       this.prisma.wordReviewAttempt.count({ where: { userId, createdAt: { gte: start } } }),
       this.prisma.wordReviewAttempt.count({
@@ -25,7 +26,7 @@ export class WeeklyService {
         where: {
           userId,
           state: { in: ['LEARNING', 'REVIEWING'] },
-          nextReviewAt: { lte: new Date() },
+          nextReviewAt: { lte: now },
         },
       }),
       this.prisma.weaknessSignal.count({ where: { userId, status: 'ACTIVE' } }),
