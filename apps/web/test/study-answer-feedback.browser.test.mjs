@@ -105,7 +105,11 @@ test(
           await delay(100);
         }
         const pageState = await evaluate(
-          `({ path: location.pathname, text: document.body.innerText.slice(-900) })`,
+          `({ path: location.pathname, text: document.body.innerText.slice(-900),
+            hasFixtureSession: Boolean(localStorage.getItem('lexloop.session')),
+            fixtureUser: JSON.parse(localStorage.getItem('lexloop.session') ?? 'null')?.user?.id ?? null,
+            speechMock: typeof window.studySpeech,
+            planReads: window.studyPlansReadCount ?? null })`,
         ).catch(() => null);
         assert.fail(
           `Timed out waiting for ${expression}; state=${JSON.stringify({ pageState, browserErrors })}`,
@@ -135,6 +139,40 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
+          window.studySpeech = {
+            voices: [
+              { lang: 'zh-CN', name: 'Fixture Chinese' },
+              { lang: 'en-US', name: 'Fixture English' },
+            ],
+            cancelCount: 0,
+            spoken: [],
+            queue: [],
+            active: null,
+          };
+          window.StudyUtteranceFixture = class {
+            constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; }
+          };
+          Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+            configurable: true,
+            writable: true,
+            value: window.StudyUtteranceFixture,
+          });
+          Object.defineProperty(window, 'speechSynthesis', {
+            configurable: true,
+            value: {
+              getVoices: () => window.studySpeech.voices,
+              cancel: () => {
+                window.studySpeech.cancelCount += 1;
+                window.studySpeech.queue = [];
+                window.studySpeech.active = null;
+              },
+              speak: utterance => {
+                window.studySpeech.active = utterance;
+                window.studySpeech.queue.push(utterance);
+                window.studySpeech.spoken.push({ text: utterance.text, lang: utterance.lang, voice: utterance.voice?.lang });
+              },
+            },
+          });
           const questionBeforeSubmit = {
             bookWordId: 'word-1', type: 'MEANING_RECOGNITION', prompt: 'Choose the meaning of bright.',
             options: ['暗的', '明亮的'],
@@ -231,6 +269,7 @@ test(
           window.studySubmissionAttempts = [];
           window.studyAlerts = [];
           window.mistakeRequests = [];
+          window.apiFetchLog = [];
           window.alert = (message) => window.studyAlerts.push(String(message));
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           const nativeFetch = window.fetch;
@@ -238,6 +277,7 @@ test(
             const path = String(url);
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
+            window.apiFetchLog.push({ path, method });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(window.defaultBook);
             if (path.endsWith('/api/v1/vocabulary/learning')) return Response.json(window.learningBooks);
@@ -440,12 +480,90 @@ test(
         desktopLayout.cardLeft >= 0 && desktopLayout.cardRight <= desktopLayout.viewport,
         JSON.stringify(desktopLayout),
       );
+      const apiCallsBeforeSpeech = await evaluate('window.apiFetchLog.length');
+      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
+      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
+      assert.equal(await evaluate('window.studySpeech.spoken.length'), 2);
+      assert.equal(await evaluate('window.studySpeech.spoken.at(-1).lang'), 'en-US');
+      assert.equal(await evaluate('window.studySpeech.spoken.at(-1).voice'), 'en-US');
+      assert.ok(await evaluate('window.studySpeech.cancelCount >= 2'));
+      assert.equal(await evaluate('window.studySpeech.active.text.length > 0'), true);
+      assert.equal(await evaluate('window.studySpeech.queue.length'), 1);
+      await evaluate(`window.studySpeech.voices = [];
+        document.querySelector('button[aria-label="朗读全文"]').click()`);
+      await until(
+        'document.querySelector(".reading-speech-status")?.textContent.includes("没有可用的英语语音")',
+      );
+      assert.equal(await evaluate('window.studySpeech.spoken.length'), 2);
+      assert.equal(await evaluate('window.studySpeech.active === null'), true);
+      assert.ok(
+        await evaluate('document.querySelector(".generated-passage")?.innerText.length > 0'),
+      );
+      await evaluate(`window.SpeechSynthesisUtterance = undefined;
+        document.querySelector('button[aria-label="朗读全文"]').click()`);
+      await until(
+        'document.querySelector(".reading-speech-status")?.textContent.includes("不支持语音播放")',
+      );
+      assert.ok(
+        await evaluate('document.querySelector(".generated-passage")?.innerText.length > 0'),
+      );
+      await evaluate(`window.SpeechSynthesisUtterance = window.StudyUtteranceFixture;
+        window.studySpeech.voices = [{ lang: 'en-US', name: 'Fixture English' }];
+        document.querySelector('button[aria-label="展开分句阅读"]').click()`);
+      await until('document.querySelector(".sentence-tools button[aria-label=朗读]")');
+      await evaluate('document.querySelector(".sentence-tools button[aria-label=朗读]").click()');
+      assert.equal(await evaluate('window.studySpeech.spoken.length'), 3);
+      assert.equal(
+        await evaluate('window.studySpeech.active.text'),
+        'Bright rooms are bright; brightness matters when rooms are brightly lit.',
+      );
+      assert.equal(await evaluate('window.studySpeech.queue.length'), 1);
+      await evaluate('document.querySelector(\'button[aria-label="收起分句阅读"]\').click()');
+      assert.equal(await evaluate('window.studySpeech.active === null'), true);
+      assert.equal(await evaluate('window.studySpeech.queue.length'), 0);
+      assert.equal(await evaluate('document.querySelector(".generated-passage") !== null'), true);
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
         height: 844,
         deviceScaleFactor: 1,
         mobile: true,
       });
+      await evaluate(`window.studySpeech.voices = [];
+        document.querySelector('button[aria-label="朗读全文"]').click()`);
+      await until(
+        'document.querySelector(".reading-speech-status")?.textContent.includes("没有可用的英语语音")',
+      );
+      const mobileSpeechStatus = await evaluate(`(() => {
+        const card = document.querySelector('.reading-card').getBoundingClientRect();
+        const status = document.querySelector('.reading-speech-status').getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          cardLeft: card.left,
+          cardRight: card.right,
+          statusLeft: status.left,
+          statusRight: status.right,
+        };
+      })()`);
+      assert.ok(
+        mobileSpeechStatus.page <= mobileSpeechStatus.viewport,
+        JSON.stringify(mobileSpeechStatus),
+      );
+      assert.ok(
+        mobileSpeechStatus.statusLeft >= mobileSpeechStatus.cardLeft,
+        JSON.stringify(mobileSpeechStatus),
+      );
+      assert.ok(
+        mobileSpeechStatus.statusRight <= mobileSpeechStatus.cardRight,
+        JSON.stringify(mobileSpeechStatus),
+      );
+      await evaluate(`window.studySpeech.voices = [
+          { lang: 'zh-CN', name: 'Fixture Chinese' },
+          { lang: 'en-US', name: 'Fixture English' },
+        ];
+        document.querySelector('button[aria-label="朗读全文"]').click()`);
+      await until('document.querySelector(".reading-speech-status")?.textContent === ""');
+      assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeSpeech);
       const mobileLayout = await evaluate(`(() => {
         const card = document.querySelector('.reading-card').getBoundingClientRect();
         return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardLeft: card.left, cardRight: card.right };
@@ -629,10 +747,15 @@ test(
         false,
       );
 
+      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
+      assert.notEqual(await evaluate('window.studySpeech.active'), null);
+      const speechCancelCount = await evaluate('window.studySpeech.cancelCount');
       await evaluate(
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("继续下一组")).click()',
       );
       await until('document.querySelectorAll(".match-phrases button").length === 4');
+      assert.equal(await evaluate('window.studySpeech.active === null'), true);
+      assert.ok(await evaluate(`window.studySpeech.cancelCount > ${speechCancelCount}`));
       assert.equal(
         await evaluate('document.querySelectorAll(".match-definitions button").length'),
         4,

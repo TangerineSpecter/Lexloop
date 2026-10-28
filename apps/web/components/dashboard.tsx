@@ -3567,7 +3567,7 @@ function GeneratedStudyPage({
               <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
               <GeneratedReadingContent
                 session={session}
-                key={group.index}
+                key={`${activePlan.id}:${group.index}`}
                 sentences={group.sentences}
                 words={words}
               />
@@ -3704,9 +3704,28 @@ function GeneratedReadingContent({
   const [sentenceMode, setSentenceMode] = useState(false);
   const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
   const [sentenceDetails, setSentenceDetails] = useState<Record<number, Detail | undefined>>({});
+  const [speechNotice, setSpeechNotice] = useState('');
+
+  useEffect(
+    () => () => {
+      window.speechSynthesis?.cancel();
+    },
+    [],
+  );
+
   const speak = (text: string) => {
-    window.speechSynthesis?.cancel();
-    window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
+    if (!text.trim()) {
+      setSpeechNotice('暂无可朗读的英文内容。');
+      return;
+    }
+    const result = speakEnglish(text);
+    setSpeechNotice(
+      result === 'no-voice'
+        ? '当前没有可用的英语语音；可直接阅读原文。'
+        : result === 'unsupported'
+          ? '当前浏览器不支持语音播放，可直接阅读原文。'
+          : '',
+    );
   };
   const toggleDetail = (index: number, detail: Detail) =>
     setSentenceDetails((current) => ({
@@ -3730,7 +3749,11 @@ function GeneratedReadingContent({
           aria-label={sentenceMode ? '收起分句阅读' : '展开分句阅读'}
           aria-pressed={sentenceMode}
           data-tip={sentenceMode ? '收起分句阅读' : '展开分句阅读'}
-          onClick={() => setSentenceMode((value) => !value)}
+          onClick={() => {
+            window.speechSynthesis?.cancel();
+            setSpeechNotice('');
+            setSentenceMode((value) => !value);
+          }}
         >
           ☰
         </button>
@@ -3760,6 +3783,9 @@ function GeneratedReadingContent({
           <Volume2 size={18} />
         </button>
       </div>
+      <p className="reading-speech-status" role="status" aria-live="polite">
+        {speechNotice}
+      </p>
       <CollectWordForm
         session={session}
         sourceType="READING"

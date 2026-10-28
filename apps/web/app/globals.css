@@ -12728,6 +12728,15 @@ button {
   transform: translate(-1px, -1px);
   box-shadow: 2px 2px 0 var(--border-color);
 }
+.reading-speech-status {
+  margin: 0 52px 10px 0;
+  color: var(--coral);
+  font-size: 13px;
+  font-weight: 700;
+}
+.reading-speech-status:empty {
+  display: none;
+}
 .sentence-reading {
   display: grid;
   gap: 9px;

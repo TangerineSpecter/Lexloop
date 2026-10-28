@@ -7,6 +7,28 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.30',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '分组阅读朗读使用英语语音并随导航停止',
+        entry: '学习序列 → 分组阅读 → 朗读',
+        usage: '播放时优先选择英语语音；无可用语音或浏览器不支持时仍可阅读原文。',
+      },
+    ],
+  },
+  {
+    version: '1.27.29',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '分组阅读只高亮完整目标词',
+        entry: '学习序列 → 分组阅读',
+        usage: '目标词独立匹配，不会误标成长词中的字母片段；词形变化仍按不同词处理。',
+      },
+    ],
+  },
+  {
     version: '1.27.28',
     date: '2026-10-28',
     items: [
