@@ -239,8 +239,8 @@ describe('one-minute stories', () => {
     expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
   });
 
-  it('preserves the first nine story keys and continues learners onto new A2 scenes', async () => {
-    const originalKeys = [
+  it('preserves the original story order and advances from A2 into a B1 scene', async () => {
+    const originalA1Keys = [
       'bus-01',
       'bus-02',
       'bus-03',
@@ -251,33 +251,72 @@ describe('one-minute stories', () => {
       'meeting-02',
       'meeting-03',
     ];
-    expect(MICRO_STORIES.slice(0, originalKeys.length).map((story) => story.key)).toEqual(
-      originalKeys,
-    );
-    expect(MICRO_STORIES).toHaveLength(15);
-    expect(MICRO_STORIES.slice(originalKeys.length).map((story) => story.key)).toEqual([
+    const originalA2Keys = [
       'weekend-01',
       'weekend-02',
       'weekend-03',
       'home-repair-01',
       'home-repair-02',
       'home-repair-03',
-    ]);
+    ];
+    const originalKeys = [...originalA1Keys, ...originalA2Keys];
+    const b1Keys = ['deadline-01', 'deadline-02', 'deadline-03'];
+    expect(MICRO_STORIES.slice(0, originalA1Keys.length).map((story) => story.key)).toEqual(
+      originalA1Keys,
+    );
     expect(
-      MICRO_STORIES.slice(originalKeys.length).every(
+      MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).map((story) => story.key),
+    ).toEqual(originalA2Keys);
+    expect(MICRO_STORIES).toHaveLength(18);
+    expect(MICRO_STORIES.slice(originalKeys.length).map((story) => story.key)).toEqual(b1Keys);
+    expect(
+      MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).every(
         (story) => story.level === 'A2' && story.english && story.reference && story.example,
       ),
     ).toBe(true);
+    expect(
+      MICRO_STORIES.slice(originalKeys.length).every(
+        (story, index) =>
+          story.level === 'B1' && story.part === index + 1 && story.series === '项目改期',
+      ),
+    ).toBe(true);
+    expect(MICRO_STORIES.at(-3)).toMatchObject({
+      key: 'deadline-01',
+      focusPhrase: 'running behind schedule',
+      reference: '客户把截止日期提前了一周。妮娜意识到设计团队已经落后于进度。',
+    });
+    expect(MICRO_STORIES.at(-2)).toMatchObject({
+      key: 'deadline-02',
+      english:
+        'The client asks for an update, so Nina explains what the team has finished and which tasks will take one more day.',
+      focusPhrase: 'take one more day',
+      reference: '客户询问进度，妮娜便说明了已经完成的内容，并解释哪些任务还需要一天。',
+    });
+    expect(MICRO_STORIES.at(-1)).toMatchObject({
+      key: 'deadline-03',
+      focusPhrase: 'by Friday',
+      reference:
+        '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在可以在周五前完成核心功能。',
+    });
 
     const f = fixture();
-    f.progress.completedKeys = originalKeys;
-    const next = await f.service.current('owner');
-    expect(next).toMatchObject({
+    f.progress.completedKeys = originalA1Keys;
+    const nextA2 = await f.service.current('owner');
+    expect(nextA2).toMatchObject({
       completed: 9,
-      total: 15,
+      total: 18,
       lesson: { key: 'weekend-01', level: 'A2', interpretation: null },
     });
-    expect(next.lesson).not.toHaveProperty('reference');
+    expect(nextA2.lesson).not.toHaveProperty('reference');
+
+    f.progress.completedKeys = originalKeys;
+    const nextB1 = await f.service.current('owner');
+    expect(nextB1).toMatchObject({
+      completed: 15,
+      total: 18,
+      lesson: { key: 'deadline-01', level: 'B1', interpretation: null },
+    });
+    expect(nextB1.lesson).not.toHaveProperty('reference');
   });
 
   it('keeps the next unread story stable when content is reordered or inserted', () => {

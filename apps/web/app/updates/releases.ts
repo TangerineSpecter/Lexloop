@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.53',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '微故事从 A2 进阶到 B1',
+        entry: '一分钟微故事 → 项目改期',
+        usage:
+          '完成原有故事后，继续读一组连续的项目沟通场景：说明进度、讨论截止日期并确认安排。仍可先写自己的理解，再查看参考意思和用法；旧进度不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.52',
     date: '2026-10-28',
     items: [

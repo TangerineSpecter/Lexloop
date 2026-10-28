@@ -2,7 +2,7 @@ export type MicroStory = {
   key: string;
   series: string;
   part: number;
-  level: 'A1' | 'A2';
+  level: 'A1' | 'A2' | 'B1';
   english: string;
   reference: string;
   explanation: string;
@@ -219,6 +219,52 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     example: 'Could you show me how to reset the router?',
     focusPhrase: 'turn off the water',
     focusMeaning: '关掉水源；这里指关掉供水阀。',
+  },
+  {
+    key: 'deadline-01',
+    series: '项目改期',
+    part: 1,
+    level: 'B1',
+    english:
+      'The client moves the deadline up by a week. Nina realizes the design team is already running behind schedule.',
+    reference: '客户把截止日期提前了一周。妮娜意识到设计团队已经落后于进度。',
+    explanation:
+      'move the deadline up 表示把截止日期提前；run behind schedule 表示工作进度落后于原计划。',
+    frame: "We're running behind schedule on ___.",
+    example: "We're running behind schedule on the new menu.",
+    focusPhrase: 'running behind schedule',
+    focusMeaning: '进度落后于原计划。',
+  },
+  {
+    key: 'deadline-02',
+    series: '项目改期',
+    part: 2,
+    level: 'B1',
+    english:
+      'The client asks for an update, so Nina explains what the team has finished and which tasks will take one more day.',
+    reference: '客户询问进度，妮娜便说明了已经完成的内容，并解释哪些任务还需要一天。',
+    explanation:
+      'what the team has finished 和 which tasks will take one more day 都是嵌入式内容从句；explain 在这里表示说明进度。',
+    frame: 'I can lay out ___ so we can ___.',
+    example: 'I can lay out the options so we can decide.',
+    focusPhrase: 'take one more day',
+    focusMeaning: '还需要一天时间。',
+  },
+  {
+    key: 'deadline-03',
+    series: '项目改期',
+    part: 3,
+    level: 'B1',
+    english:
+      'After they agree to postpone the optional animation, Nina confirms the new scope in an email. The team can now finish the core features by Friday.',
+    reference:
+      '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在可以在周五前完成核心功能。',
+    explanation:
+      'postpone 表示把事情推迟；confirm the new scope 可以把改过的工作范围写清楚；by Friday 表示最迟在周五前。',
+    frame: 'We can finish ___ by Friday if we ___.',
+    example: 'We can finish the draft by Friday if we get the data today.',
+    focusPhrase: 'by Friday',
+    focusMeaning: '最迟周五前；强调完成期限。',
   },
 ];
 

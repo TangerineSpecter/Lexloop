@@ -19,7 +19,7 @@ type Lesson = {
   key: string;
   series: string;
   part: number;
-  level: 'A1' | 'A2';
+  level: 'A1' | 'A2' | 'B1';
   english: string;
   interpretation: string | null;
   reference?: string;
