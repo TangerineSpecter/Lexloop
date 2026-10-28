@@ -2837,7 +2837,11 @@ function PlanPreview({
             <ChevronRight size={26} />
           </button>
         </div>
-        {generationMessage && <p className="book-message">{generationMessage}</p>}
+        {generationMessage && (
+          <p className="book-message" role="alert" aria-live="assertive">
+            {generationMessage}
+          </p>
+        )}
         {plan.status === 'FAILED' || generationMessage ? (
           <button
             className="start-challenge"

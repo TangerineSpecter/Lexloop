@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.46',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '学习计划生成失败会明确提示并可重试',
+        entry: '学习计划预习 → 生成失败',
+        usage:
+          '模型未设置时可直接打开阅读材料模型设置；生成校验失败时会明确播报错误，并可重试同一计划。重试不会改写其他已完成计划、作答或复习记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.45',
     date: '2026-10-28',
     items: [

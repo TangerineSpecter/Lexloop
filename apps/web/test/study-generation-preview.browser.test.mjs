@@ -113,10 +113,14 @@ test(
           '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("今日学习历史")).click()',
         );
       };
-      const openRetry = async (index) => {
-        await evaluate(
-          `document.querySelectorAll(".history-grid article")[${index}].querySelector("button").click()`,
-        );
+      const openRetry = async (cardLabel) => {
+        await evaluate(`(() => {
+          const card = [...document.querySelectorAll('.history-grid article')]
+            .find((article) => article.innerText.includes(${JSON.stringify(cardLabel)}));
+          const button = card?.querySelector('footer button');
+          if (!button) throw new Error('No retry action found for history card: ' + ${JSON.stringify(cardLabel)});
+          button.click();
+        })()`);
         await until('document.querySelector(".plan-preview-layer")');
       };
       const startGeneration = async (expectedCount) => {
@@ -127,6 +131,7 @@ test(
         await evaluate(`(() => {
           const plan = window.planLists["study-user"].find((item) => item.id === ${JSON.stringify(id)});
           plan.status = ${JSON.stringify(status)};
+          if (plan.status === 'ACTIVE') plan.generationError = null;
           window.resolveGeneration(${JSON.stringify(id)}, ${response});
         })()`);
       };
@@ -141,8 +146,8 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          const makePlan = (id, word, status = 'FAILED') => ({
-            id, mode: 'group', purpose: 'normal', status,
+          const makePlan = (id, word, status = 'FAILED', mode = 'group') => ({
+            id, mode, purpose: 'normal', status,
             blocksNewPlanCreation: false,
             wordCount: 1, groupCount: 1, completed: 0,
             createdAt: new Date().toISOString(), completedAt: null,
@@ -160,16 +165,43 @@ test(
             { ...secondActivePlan.words[0], source: 'REVIEW' },
             { ...secondActivePlan.words[0], id: 'second-active-new', word: 'steady', source: 'NEW' },
           ];
+          const historicalPlan = makePlan('preview-history', 'steady', 'COMPLETED');
+          historicalPlan.completed = 1;
+          historicalPlan.words[0] = {
+            ...historicalPlan.words[0],
+            completed: true,
+            selectedAnswer: ['稳定的'],
+            result: true,
+            question: {
+              type: 'MEANING_RECOGNITION',
+              prompt: 'What does steady mean here?',
+              options: ['稳定的', '突然的', '狭窄的', '遥远的'],
+              correctAnswers: ['稳定的'],
+              explanation: '结合语境判断词义。',
+            },
+          };
+          historicalPlan.content = {
+            groups: [{ index: 0, questions: [historicalPlan.words[0].question] }],
+          };
+          historicalPlan.summary = {
+            totalQuestions: 1,
+            correctQuestions: 1,
+            durationSeconds: 4,
+            typeStats: [{ type: 'MEANING_RECOGNITION', total: 1, correct: 1 }],
+          };
+          const savedHistoricalPlan = JSON.stringify(historicalPlan);
           localStorage.setItem('lexloop.session', JSON.stringify(firstSession));
           window.planLists = {
             'study-user': [
               makePlan('preview-a', 'bright'),
-              makePlan('preview-b', 'gentle'),
-              makePlan('preview-c', 'calm'),
+              makePlan('preview-b', 'gentle', 'FAILED', 'exam'),
+              makePlan('preview-c', 'calm', 'FAILED', 'individual'),
               makePlan('preview-account', 'useful'),
+              historicalPlan,
             ],
             'second-study-user': [secondActivePlan],
           };
+          window.savedHistoricalPlan = savedHistoricalPlan;
           window.generationAttempts = [];
           window.studyPlanCreateBodies = [];
           window.generationResolvers = {};
@@ -225,7 +257,7 @@ test(
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 4');
+      await until('document.querySelectorAll(".history-grid article").length === 5');
 
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
@@ -287,11 +319,11 @@ test(
       );
       assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 4');
+      await until('document.querySelectorAll(".history-grid article").length === 5');
 
       // Closing the first preview leaves its server request alive. A double
       // click still starts only one client request.
-      await openRetry(0);
+      await openRetry('分组学习');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'bright',
@@ -306,7 +338,7 @@ test(
 
       // Escape acts like Back/close without cancelling the plan. The previous
       // success and failure must not replace the third plan selected below.
-      await openRetry(1);
+      await openRetry('应试语境');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'gentle',
@@ -326,7 +358,7 @@ test(
       });
       await until('document.querySelector(".plan-preview-layer") === null');
 
-      await openRetry(2);
+      await openRetry('单词模式');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'calm',
@@ -366,17 +398,23 @@ test(
       await evaluate('document.querySelector(".plan-preview-scrim").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 
-      // A cache miss without a selected model exposes a direct setup action.
-      // The same plan remains retryable after the learner configures a model.
-      await openRetry(1);
+      // An invalid or missing cache without a selected model exposes a direct
+      // setup action and keeps the same failed plan available for retry.
+      await openRetry('应试语境');
       await startGeneration(4);
       await resolvePlan(
         'preview-b',
         'FAILED',
-        'Response.json({ message: "部分学习材料未命中缓存，请先在阅读材料模型设置中选择可用的大模型" }, { status: 400 })',
+        'Response.json({ message: "部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型" }, { status: 400 })',
       );
       await until(
-        'document.querySelector(".plan-preview .book-message")?.textContent.includes("未命中缓存")',
+        'document.querySelector(".plan-preview .book-message")?.textContent.includes("缺失或未通过内容校验")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview .book-message").getAttribute("role")',
+        ),
+        'alert',
       );
       assert.equal(
         await evaluate(
@@ -432,10 +470,60 @@ test(
       await evaluate('document.querySelector(".study-settings-drawer header button").click()');
       await until('document.querySelector(".study-settings-drawer") === null');
 
+      // Simulate a configured model: regeneration can still fail validation.
+      // The exact error is announced and the learner can retry the same plan.
+      await openRetry('应试语境');
+      await startGeneration(5);
+      await resolvePlan(
+        'preview-b',
+        'FAILED',
+        'Response.json({ message: "学习计划生成失败：单词 steady 的选项语言、数量或唯一性不符合题型要求" }, { status: 502 })',
+      );
+      await until(
+        'document.querySelector(".plan-preview .book-message")?.textContent.includes("选项语言、数量或唯一性")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview .book-message").getAttribute("role")',
+        ),
+        'alert',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview header p")?.textContent.includes("学习计划生成失败")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("重新生成学习计划")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.stringify(window.planLists["study-user"][4]) === window.savedHistoricalPlan',
+        ),
+        true,
+      );
+      await startGeneration(6);
+      await resolvePlan('preview-b', 'ACTIVE', 'Response.json(window.planLists["study-user"][1])');
+      await until(
+        'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("开始今天的挑战")',
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.stringify(window.planLists["study-user"][4]) === window.savedHistoricalPlan',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".plan-preview-scrim").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+
       // An outstanding response from the prior account cannot populate the
       // next account's dashboard after logout and login.
-      await openRetry(3);
-      await startGeneration(5);
+      await openRetry('生成失败');
+      await startGeneration(7);
       await evaluate('document.querySelector(".plan-preview header button").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 
