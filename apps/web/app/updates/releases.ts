@@ -7,6 +7,28 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.19',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '完成后可回看每道题的作答',
+        entry: '学习历史 → 学习序列 → 逐题回顾',
+        usage: '按需对照当时选择、正确答案和解析；回看不会新增练习记录。',
+      },
+    ],
+  },
+  {
+    version: '1.27.18',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '学习计划列表减少等待',
+        entry: '首页 → 当前学习序列或学习历史',
+        usage: '计划与题目关联数据批量读取，减少按计划逐条加载。',
+      },
+    ],
+  },
+  {
     version: '1.27.17',
     date: '2026-10-28',
     items: [

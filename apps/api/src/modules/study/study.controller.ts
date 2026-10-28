@@ -47,6 +47,12 @@ export class StudyController {
   ) {
     return this.study.listCompletedPlans(request.user.sub, query.page, query.pageSize);
   }
+  @Get('plans/:planId/review') review(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+  ) {
+    return this.study.getCompletedPlanReview(request.user.sub, planId);
+  }
   @Post('plans') create(@Req() request: AuthenticatedRequest, @Body() dto: CreatePlanDto) {
     return this.study.createPlan(
       request.user.sub,

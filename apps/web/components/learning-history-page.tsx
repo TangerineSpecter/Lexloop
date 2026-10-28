@@ -18,7 +18,7 @@ import {
   MapPin,
   TriangleAlert,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 
 const modeLabel: Record<LearningHistoryPlanItem['mode'], string> = {
@@ -50,6 +50,26 @@ const emptyTotals: LearningHistoryResponse['totals'] = {
   correctQuestions: 0,
   assessments: 0,
   scenarios: 0,
+};
+
+type StudyPlanReviewWord = {
+  id: string;
+  word: string;
+  result?: boolean;
+  selectedAnswer?: string[];
+  question: {
+    type?: string;
+    prompt?: string;
+    correctAnswers?: string[];
+    explanation?: string;
+    pairs?: Array<{ left: string; right: string }>;
+  };
+};
+
+type StudyPlanReview = {
+  id: string;
+  status: string;
+  words: StudyPlanReviewWord[];
 };
 
 export function LearningHistoryPage({
@@ -206,6 +226,7 @@ export function LearningHistoryPage({
             <PlanHistoryCard
               key={`plan-${item.id}`}
               item={item}
+              session={session}
               expanded={expandedId === item.id}
               onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
             />
@@ -237,12 +258,63 @@ export function LearningHistoryPage({
 function PlanHistoryCard({
   expanded,
   item,
+  session,
   onToggle,
 }: {
   expanded: boolean;
   item: LearningHistoryPlanItem;
+  session: Session;
   onToggle: () => void;
 }) {
+  const reviewOwnerRef = useRef(session.user.id);
+  reviewOwnerRef.current = session.user.id;
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewState, setReviewState] = useState<
+    | { ownerId: string; status: 'idle' | 'loading' }
+    | { ownerId: string; status: 'error'; message: string }
+    | { ownerId: string; status: 'ready'; review: StudyPlanReview }
+  >({ ownerId: session.user.id, status: 'idle' });
+  const visibleReviewState =
+    reviewState.ownerId === session.user.id
+      ? reviewState
+      : { ownerId: session.user.id, status: 'idle' as const };
+  useEffect(() => {
+    setReviewState({ ownerId: session.user.id, status: 'idle' });
+    setReviewOpen(false);
+  }, [session.user.id]);
+  const loadReview = async () => {
+    const ownerId = session.user.id;
+    const current = reviewState.ownerId === ownerId ? reviewState : null;
+    if (current?.status === 'loading' || current?.status === 'ready') return;
+    setReviewState({ ownerId, status: 'loading' });
+    try {
+      const review = await request<StudyPlanReview>(
+        `/study/plans/${encodeURIComponent(item.id)}/review`,
+        {},
+        session.accessToken,
+      );
+      if (reviewOwnerRef.current !== ownerId) return;
+      if (review.id !== item.id || review.status !== 'COMPLETED') {
+        throw new Error('这条学习记录暂时无法回看');
+      }
+      setReviewState({ ownerId, status: 'ready', review });
+    } catch (error) {
+      if (reviewOwnerRef.current !== ownerId) return;
+      setReviewState({
+        ownerId,
+        status: 'error',
+        message: error instanceof Error ? error.message : '题目回顾加载失败',
+      });
+    }
+  };
+  const toggleReview = () => {
+    if (visibleReviewState.status === 'ready') {
+      setReviewOpen((open) => !open);
+      return;
+    }
+    setReviewOpen(true);
+    void loadReview();
+  };
   const accuracy = item.totalQuestions
     ? Math.round((item.correctQuestions / item.totalQuestions) * 100)
     : 0;
@@ -328,6 +400,96 @@ function PlanHistoryCard({
                 这次练习全部答对，真棒。
               </p>
             )}
+          </section>
+          <section className="history-question-review">
+            <h2>逐题回顾</h2>
+            <p>只读取这份已完成练习中保存的作答，不会新增练习记录。</p>
+            <button
+              type="button"
+              className="history-review-button"
+              aria-expanded={reviewOpen}
+              aria-controls={`history-review-content-${item.id}`}
+              onClick={toggleReview}
+              disabled={visibleReviewState.status === 'loading'}
+            >
+              {visibleReviewState.status === 'loading'
+                ? '正在加载本次作答…'
+                : visibleReviewState.status === 'error'
+                  ? '重试加载作答'
+                  : visibleReviewState.status === 'ready' && reviewOpen
+                    ? '收起逐题回顾'
+                    : visibleReviewState.status === 'ready'
+                      ? '展开逐题回顾'
+                      : '查看我的答案与解析'}
+            </button>
+            <div className="history-review-content" id={`history-review-content-${item.id}`}>
+              {visibleReviewState.status === 'error' && (
+                <p role="alert" className="history-review-error">
+                  {visibleReviewState.message}
+                </p>
+              )}
+              {reviewOpen && visibleReviewState.status === 'ready' && (
+                <div className="history-review-list">
+                  {visibleReviewState.review.words.map((word) => {
+                    const correctAnswers =
+                      word.question.type === 'WORD_MATCHING' && word.question.pairs?.length
+                        ? word.question.pairs.map(({ left, right }) => `${left} → ${right}`)
+                        : (word.question.correctAnswers ?? []);
+                    return (
+                      <article
+                        key={word.id}
+                        className={`history-review-question ${word.result === false ? 'is-wrong' : word.result === true ? 'is-correct' : ''}`}
+                      >
+                        <header>
+                          <strong>{word.word}</strong>
+                          <span>
+                            {word.result === true
+                              ? '答对'
+                              : word.result === false
+                                ? '答错'
+                                : '没有正误记录'}
+                          </span>
+                        </header>
+                        {word.question.prompt && (
+                          <p className="history-review-prompt">{word.question.prompt}</p>
+                        )}
+                        <div className="history-review-answers">
+                          <div>
+                            <b>你的答案</b>
+                            {word.selectedAnswer?.length ? (
+                              <ul>
+                                {word.selectedAnswer.map((answer, index) => (
+                                  <li key={`${index}:${answer}`}>
+                                    {answer.replaceAll('=>', ' → ')}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p>这条历史记录没有保存具体选项。</p>
+                            )}
+                          </div>
+                          <div>
+                            <b>正确答案</b>
+                            {correctAnswers.length ? (
+                              <ul>
+                                {correctAnswers.map((answer, index) => (
+                                  <li key={`${index}:${answer}`}>{answer}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p>本题没有可回看的标准答案。</p>
+                            )}
+                          </div>
+                        </div>
+                        {word.question.explanation && (
+                          <p className="history-review-explanation">{word.question.explanation}</p>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </section>
         </div>
       )}

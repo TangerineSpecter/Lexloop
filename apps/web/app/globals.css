@@ -11043,6 +11043,134 @@ button {
   margin: 0;
   font-size: 15px;
 }
+.history-question-review {
+  grid-column: 1/-1;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 18px;
+  border-top: 2px dashed rgba(8, 40, 119, 0.42);
+}
+.history-question-review > p {
+  margin: -5px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.72;
+}
+.history-review-button {
+  justify-self: start;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: #fffefa;
+  color: var(--border-color);
+  box-shadow: 2px 2px 0 var(--border-color);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.history-review-button:hover:not(:disabled) {
+  background: var(--gold);
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 var(--border-color);
+}
+.history-review-button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+.history-review-button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+.history-review-error {
+  margin: 0 !important;
+  color: #a6372c;
+  font-weight: 800;
+}
+.history-review-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.history-review-question {
+  min-width: 0;
+  padding: 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  background: #fffefa;
+}
+.history-review-question > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.history-review-question > header strong,
+.history-review-question > header span {
+  overflow-wrap: anywhere;
+}
+.history-review-question > header span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: #eaf2ff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.history-review-question.is-wrong > header span {
+  background: #fff0e9;
+}
+.history-review-prompt {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.history-review-answers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.history-review-answers > div {
+  min-width: 0;
+  padding: 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: #fff0e9;
+}
+.history-review-answers > div + div {
+  background: #eaf2ff;
+}
+.history-review-answers b {
+  font-size: 12px;
+}
+.history-review-answers ul {
+  display: grid;
+  gap: 5px;
+  margin: 7px 0 0;
+  padding-left: 20px;
+}
+.history-review-answers li,
+.history-review-answers p {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.history-review-answers p {
+  margin: 7px 0 0;
+  font-size: 13px;
+}
+.history-review-explanation {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--gold);
+  background: #fff9dc;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
 .history-type-list {
   display: grid;
   gap: 7px;
@@ -11277,6 +11405,9 @@ button {
   }
   .history-score p {
     grid-column: 1/-1;
+  }
+  .history-review-answers {
+    grid-template-columns: 1fr;
   }
   .learning-history-empty-card {
     padding: 42px 20px;

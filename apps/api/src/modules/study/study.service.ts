@@ -458,6 +458,15 @@ export class StudyService {
     };
   }
 
+  async getCompletedPlanReview(userId: string, planId: string) {
+    const plan = await this.prisma.studyPlan.findFirst({
+      where: { id: planId, userId, status: StudyPlanStatus.COMPLETED },
+      include: studyPlanInclude(userId),
+    });
+    if (!plan) throw new NotFoundException('已完成学习记录不存在');
+    return this.serializePlanRecord(plan, true);
+  }
+
   async completeGroup(
     userId: string,
     planId: string,
@@ -567,7 +576,7 @@ export class StudyService {
     return this.serializePlanRecord(plan);
   }
 
-  private serializePlanRecord(plan: StudyPlanWithItems) {
+  private serializePlanRecord(plan: StudyPlanWithItems, includeSelectedAnswers = false) {
     const itemsByGroup = new Map<number, typeof plan.items>();
     for (const item of plan.items) {
       const groupItems = itemsByGroup.get(item.groupIndex) ?? [];
@@ -590,6 +599,11 @@ export class StudyService {
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
+      ...(includeSelectedAnswers &&
+      submittedGroups.has(item.groupIndex) &&
+      isStringAnswerArray(item.attempts[0]?.selectedAnswer)
+        ? { selectedAnswer: item.attempts[0]!.selectedAnswer as string[] }
+        : {}),
       nextReviewAt: item.completedAt ? (item.bookWord.progress[0]?.nextReviewAt ?? null) : null,
       activeWeaknesses: item.completedAt
         ? item.bookWord.weaknesses.map((signal) => ({
@@ -643,6 +657,10 @@ export class StudyService {
       words: items,
     };
   }
+}
+
+function isStringAnswerArray(value: Prisma.JsonValue | null | undefined): value is string[] {
+  return Array.isArray(value) && value.every((answer) => typeof answer === 'string');
 }
 
 function buildGroups(ids: string[], mode: StudyPlanMode) {

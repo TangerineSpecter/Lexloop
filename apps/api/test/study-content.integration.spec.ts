@@ -139,6 +139,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           id: string;
           source: 'NEW' | 'REVIEW';
           result?: boolean;
+          selectedAnswer?: string[];
           nextReviewAt: Date | string | null;
           activeWeaknesses: Array<{
             questionType: string;
@@ -168,6 +169,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           'correctAnswers',
         );
         expect(partialPlanSummary.words[0].question).not.toHaveProperty('correctAnswers');
+        expect(partialPlanSummary.words[0]).not.toHaveProperty('selectedAnswer');
         expect(partialPlanSummary.words[0].nextReviewAt).toBeNull();
         expect(partialPlanSummary.words[0].activeWeaknesses).toEqual([]);
         expect(partialPlanSummary.content!.groups[0].questions[1]).not.toHaveProperty(
@@ -227,6 +229,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             orderBy: { bookWordId: 'asc' },
             select: {
               bookWordId: true,
+              nextReviewAt: true,
               totalAttempts: true,
               correctAttempts: true,
               consecutiveCorrect: true,
@@ -629,6 +632,60 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         ).toMatchObject({ status: 'COMPLETED' });
         expect(await attemptsFor(otherUserPlan.id)).toHaveLength(2);
+
+        const reviewPlan = await createPlan(users[0].id, 'ACTIVE', []);
+        await serviceWithMistakes.completeGroup(users[0].id, reviewPlan.id, 0, answersFor(false));
+        const attemptsBeforeReview = await attemptsFor(reviewPlan.id);
+        const progressBeforeReview = await progressFor(users[0].id);
+        const summaryStateBeforeReview = await readState();
+        const [review, repeatedReview] = await Promise.all([
+          serviceWithMistakes.getCompletedPlanReview(users[0].id, reviewPlan.id),
+          serviceWithMistakes.getCompletedPlanReview(users[0].id, reviewPlan.id),
+        ]);
+        const reviewWords = review.words as unknown as SerializedPlanWord[];
+        const repeatedReviewWords = repeatedReview.words as unknown as SerializedPlanWord[];
+        expect(
+          reviewWords.map(({ id, result, selectedAnswer, question }) => ({
+            id,
+            result,
+            selectedAnswer,
+            correctAnswers: question.correctAnswers,
+            explanation: question.explanation,
+          })),
+        ).toEqual([
+          {
+            id: bookWords[0].id,
+            result: false,
+            selectedAnswer: ['暗的'],
+            correctAnswers: ['明亮的'],
+            explanation: 'bright 描述光线充足或颜色鲜明。',
+          },
+          {
+            id: bookWords[1].id,
+            result: false,
+            selectedAnswer: ['拒绝'],
+            correctAnswers: ['帮助'],
+            explanation: 'help 表示提供帮助。',
+          },
+        ]);
+        expect(repeatedReviewWords.map(({ selectedAnswer }) => selectedAnswer)).toEqual(
+          reviewWords.map(({ selectedAnswer }) => selectedAnswer),
+        );
+        const defaultPlanRead = (await serviceWithMistakes.listPlans(
+          users[0].id,
+        )) as unknown as SerializedPlan[];
+        expect(
+          defaultPlanRead.find((plan) => plan.id === reviewPlan.id)!.words[0],
+        ).not.toHaveProperty('selectedAnswer');
+        await expect(
+          serviceWithMistakes.getCompletedPlanReview(users[1].id, reviewPlan.id),
+        ).rejects.toThrow('已完成学习记录不存在');
+        await expect(
+          serviceWithMistakes.getCompletedPlanReview(users[1].id, partialPlan.id),
+        ).rejects.toThrow('已完成学习记录不存在');
+        expect(await attemptsFor(reviewPlan.id)).toEqual(attemptsBeforeReview);
+        expect(await progressFor(users[0].id)).toEqual(progressBeforeReview);
+        expect(await readState()).toEqual(summaryStateBeforeReview);
       } finally {
         if (users.length) {
           await prisma.user.deleteMany({ where: { id: { in: users.map(({ id }) => id) } } });
