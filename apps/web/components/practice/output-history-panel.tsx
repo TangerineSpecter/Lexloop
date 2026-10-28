@@ -94,7 +94,7 @@ function OutputHistoryPanelForUser({ session }: { session: Session }) {
                   <span>查看表达与反馈</span>
                 </summary>
                 <p className={styles.historyPrompt}>{item.prompt}</p>
-                <div className={styles.targets} role="group" aria-label="本次目标词">
+                <div className={styles.targets} role="group" aria-label="本次目标词或短语">
                   {item.targets.map((target) => (
                     <div key={target.bookWordId}>
                       <strong>{target.word}</strong>

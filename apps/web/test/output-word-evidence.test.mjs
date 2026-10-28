@@ -18,6 +18,15 @@ test('matches the target spelling around hyphens and apostrophes', () => {
   assert.equal(findTargetExcerpt("“CAN'T,” she said.", "can't")?.match, "CAN'T");
 });
 
+test('matches a complete phrase across spacing and line breaks with surrounding punctuation', () => {
+  const excerpt = findTargetExcerpt('We might MISS   the\nbus, today.', 'miss the bus');
+
+  assert.equal(excerpt?.match, 'MISS   the\nbus');
+  assert.equal(findTargetExcerpt('We might dismiss the bus today.', 'miss the bus'), null);
+  assert.equal(findTargetExcerpt('We might miss the buses today.', 'miss the bus'), null);
+  assert.equal(findTargetExcerpt('We might miss-the-bus today.', 'miss the bus'), null);
+});
+
 test('respects complete-word boundaries instead of matching substrings or inflections', () => {
   assert.equal(findTargetExcerpt('The party started early.', 'art'), null);
   assert.equal(findTargetExcerpt('This is effective.', 'effect'), null);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFUSION_CATALOG } from '../src/modules/practice/confusion.catalog';
 import {
   englishWordPresent,
+  normalizeOutputTarget,
   normalizeOutputFeedback,
   practiceDate,
   practiceDayStart,
@@ -59,6 +60,22 @@ describe('daily output evidence', () => {
     expect(normalizeOutputFeedback(valid(), targets, 'The effect may affect my plans.').score).toBe(
       92,
     );
+  });
+  it('accepts short English expressions and rejects unbounded or punctuated candidates', () => {
+    expect(normalizeOutputTarget('  miss   the bus  ')).toBe('miss the bus');
+    expect(normalizeOutputTarget("can't-wait for it")).toBe("can't-wait for it");
+    expect(normalizeOutputTarget('well-known')).toBe('well-known');
+    expect(normalizeOutputTarget('I missed the bus yesterday')).toBeNull();
+    expect(normalizeOutputTarget('a very long expression that has too many words')).toBeNull();
+    expect(normalizeOutputTarget('miss the bus.')).toBeNull();
+    expect(normalizeOutputTarget('你好')).toBeNull();
+    expect(normalizeOutputTarget('a'.repeat(49))).toBeNull();
+  });
+  it('matches a complete phrase across whitespace and punctuation without matching substrings', () => {
+    expect(englishWordPresent('We might MISS   the\nbus, today.', 'miss the bus')).toBe(true);
+    expect(englishWordPresent('We might dismiss the bus today.', 'miss the bus')).toBe(false);
+    expect(englishWordPresent('We might miss the buses today.', 'miss the bus')).toBe(false);
+    expect(englishWordPresent('We might miss-the-bus today.', 'miss the bus')).toBe(false);
   });
 });
 

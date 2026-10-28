@@ -270,7 +270,7 @@ export function DailyOutputPanel({ session }: { session: Session }) {
       <header className={styles.sectionHead}>
         <div>
           <small>{daily.date} · DAILY OUTPUT</small>
-          <h2 id="output-title">今天，用这几个词写一段话。</h2>
+          <h2 id="output-title">今天，用这些词或短语写一段话。</h2>
         </div>
         <span className={styles.badge}>剩余 {daily.remaining} 次</span>
       </header>

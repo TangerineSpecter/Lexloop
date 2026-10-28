@@ -1,7 +1,12 @@
 export type TargetWordExcerpt = { before: string; match: string; after: string };
 
 export function findTargetExcerpt(answer: string, word: string): TargetWordExcerpt | null {
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = word
+    .trim()
+    .split(/\s+/u)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  if (!escaped) return null;
   const match = new RegExp(`(?<![a-z])${escaped}(?![a-z])`, 'i').exec(answer);
   if (!match) return null;
 

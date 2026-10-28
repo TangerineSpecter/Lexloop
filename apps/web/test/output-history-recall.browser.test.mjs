@@ -97,7 +97,7 @@ test(
         assert.fail(`Timed out waiting for ${expression}`);
       };
       const target = (word, meaning, bookWordId) => ({ word, meaning, bookWordId });
-      const feedback = (bookWordId, correctedText, missingWordId) => ({
+      const feedback = (bookWordId, correctedText, missingWordId, additionalWordIds = []) => ({
         score: 72,
         grammarScore: 80,
         coherenceScore: 68,
@@ -115,6 +115,12 @@ test(
                 },
               ]
             : []),
+          ...additionalWordIds.map((id) => ({
+            bookWordId: id,
+            used: true,
+            correct: true,
+            feedback: '这个短语完整出现在表达中。',
+          })),
         ],
       });
       const makeHistoryItem = (id, answer, correctedText) => ({
@@ -157,17 +163,20 @@ test(
         targets: [
           target('journey', '旅程', 'today-word'),
           target('art', '艺术；技艺', 'today-art-word'),
+          target('miss the bus', '没赶上公交车', 'today-phrase-word'),
         ],
         remaining: 3,
         submissions: [
           {
             id: 'today-submission',
-            answer: 'The party started early. Our journey lasted for two days.',
+            answer:
+              'The party started early. We might MISS the bus, then continue. Our journey lasted for two days.',
             status: 'COMPLETED',
             feedback: feedback(
               'today-word',
-              'Our journey began after the party.',
+              'We might miss the bus, then our journey began after the party.',
               'today-art-word',
+              ['today-phrase-word'],
             ),
             error: null,
             createdAt: '2026-10-27T09:30:00.000Z',
@@ -213,6 +222,12 @@ test(
       ];
 
       await send('Page.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-a', user: { id: 'user-a', email: 'fixture-a@example.invalid', displayName: 'Fixture A', role: 'USER' } }));
@@ -274,22 +289,59 @@ test(
         'document.querySelector("[aria-label=\\"表达对照\\"]").innerText',
       );
       assert.ok(currentComparison.includes('写一段关于一次旅行的英文。'));
-      assert.ok(currentComparison.includes('目标词：journey · art'));
+      assert.ok(currentComparison.includes('目标词或短语：journey · art · miss the bus'));
       assert.ok(
-        currentComparison.includes('The party started early. Our journey lasted for two days.'),
+        currentComparison.includes(
+          'The party started early. We might MISS the bus, then continue. Our journey lasted for two days.',
+        ),
       );
-      assert.ok(currentComparison.includes('Our journey began after the party.'));
+      assert.ok(
+        currentComparison.includes(
+          'We might miss the bus, then our journey began after the party.',
+        ),
+      );
       const targetJourneyEvidence = await evaluate(
         'document.querySelector("[data-target-word=journey]").innerText',
       );
-      assert.ok(
-        targetJourneyEvidence.includes('The party started early. Our journey lasted for two days.'),
-      );
+      assert.ok(targetJourneyEvidence.includes('We might MISS the bus, then continue.'));
       assert.ok(targetJourneyEvidence.includes('首个完整拼写片段'));
       assert.equal(
         await evaluate('document.querySelector("[data-target-word=journey] mark")?.textContent'),
         'journey',
       );
+      const phraseTarget = await evaluate(`(() => {
+        const target = [...document.querySelectorAll('strong')].find((item) => item.textContent === 'miss the bus');
+        return target?.parentElement?.innerText;
+      })()`);
+      assert.ok(phraseTarget.includes('miss the bus'));
+      assert.ok(phraseTarget.includes('没赶上公交车'));
+      const phraseEvidence = await evaluate(
+        'document.querySelector("[data-target-word=\\"miss the bus\\"]")?.innerText',
+      );
+      assert.ok(phraseEvidence?.includes('这个短语完整出现在表达中。'));
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-target-word=\\"miss the bus\\"] mark")?.textContent',
+        ),
+        'MISS the bus',
+      );
+      const desktopPhraseLayout = await evaluate(`(() => {
+        const target = [...document.querySelectorAll('strong')].find((item) => item.textContent === 'miss the bus');
+        const card = target?.closest('section');
+        const targetBox = target?.getBoundingClientRect();
+        const cardBox = card?.getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          targetRight: targetBox?.right,
+          cardRight: cardBox?.right,
+          visible: Boolean(targetBox && targetBox.width > 0 && targetBox.height > 0),
+        };
+      })()`);
+      assert.equal(desktopPhraseLayout.viewport, 1440);
+      assert.equal(desktopPhraseLayout.visible, true);
+      assert.ok(desktopPhraseLayout.page <= desktopPhraseLayout.viewport);
+      assert.ok(desktopPhraseLayout.targetRight <= desktopPhraseLayout.cardRight);
       const targetArtEvidence = await evaluate(
         'document.querySelector("[data-target-word=art]").innerText',
       );
@@ -301,7 +353,7 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#output-answer").value'),
-        'The party started early. Our journey lasted for two days.',
+        'The party started early. We might MISS the bus, then continue. Our journey lasted for two days.',
       );
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
@@ -312,6 +364,22 @@ test(
       await until(
         'getComputedStyle(document.querySelector("[aria-label=\\"表达对照\\"] > div")).gridTemplateColumns.split(" ").length === 1',
       );
+      const mobilePhraseLayout = await evaluate(`(() => {
+        const target = [...document.querySelectorAll('strong')].find((item) => item.textContent === 'miss the bus');
+        const card = target?.closest('section');
+        const targetBox = target?.getBoundingClientRect();
+        const cardBox = card?.getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          targetRight: targetBox?.right,
+          cardRight: cardBox?.right,
+          visible: Boolean(targetBox && targetBox.width > 0 && targetBox.height > 0),
+        };
+      })()`);
+      assert.equal(mobilePhraseLayout.visible, true);
+      assert.ok(mobilePhraseLayout.page <= mobilePhraseLayout.viewport);
+      assert.ok(mobilePhraseLayout.targetRight <= mobilePhraseLayout.cardRight);
       await evaluate(`(() => {
         const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看回答与反馈'));
         if (record) record.open = true;
@@ -321,9 +389,15 @@ test(
       );
       assert.ok(todayRecordComparison.includes('写一段关于一次旅行的英文。'));
       assert.ok(
-        todayRecordComparison.includes('The party started early. Our journey lasted for two days.'),
+        todayRecordComparison.includes(
+          'The party started early. We might MISS the bus, then continue. Our journey lasted for two days.',
+        ),
       );
-      assert.ok(todayRecordComparison.includes('Our journey began after the party.'));
+      assert.ok(
+        todayRecordComparison.includes(
+          'We might miss the bus, then our journey began after the party.',
+        ),
+      );
       await evaluate(`(() => {
         const record = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看回答与反馈'));
         if (record) record.open = false;
@@ -387,7 +461,7 @@ test(
         'document.querySelector("#output-history-answer-history-a").parentElement.querySelector("[aria-label=\\"表达对照\\"]").innerText',
       );
       assert.ok(savedComparison.includes('写一段关于如何解决小问题的英文。'));
-      assert.ok(savedComparison.includes('目标词：approach'));
+      assert.ok(savedComparison.includes('目标词或短语：approach · carefully'));
       assert.ok(savedComparison.includes('I will approach the problem slowly.'));
       assert.ok(savedComparison.includes('I will approach the problem more carefully.'));
       const approachEvidence = await evaluate(

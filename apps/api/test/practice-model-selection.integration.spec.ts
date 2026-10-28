@@ -12,8 +12,11 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
       });
       const fixtureId = randomUUID();
       const createdWordIds: string[] = [];
+      const otherWordIds: string[] = [];
       let bookId: string | undefined;
       let userId: string | undefined;
+      let otherBookId: string | undefined;
+      let otherUserId: string | undefined;
       const queue = { add: vi.fn().mockResolvedValue({ id: 'isolated-output-job' }) };
       const evidence = {} as never;
       const provider = {
@@ -33,6 +36,14 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
           select: { id: true },
         });
         userId = user.id;
+        const otherUser = await prisma.user.create({
+          data: {
+            email: `practice-model-other-${fixtureId}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        otherUserId = otherUser.id;
         const book = await prisma.vocabularyBook.create({
           data: {
             ownerId: user.id,
@@ -43,13 +54,23 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
             category: 'GENERAL',
             userBooks: { create: { userId: user.id, isDefault: true } },
             bookWords: {
-              create: ['journey', 'bright', 'steady'].map((text, position) => ({
+              create: [
+                {
+                  text: 'miss the bus',
+                  meaning: '赶公交车',
+                  contextMeaning: '因交通延误没赶上公交车',
+                },
+                { text: 'journey', meaning: '旅程' },
+                { text: 'bright', meaning: '明亮的' },
+                { text: 'I missed the bus yesterday', meaning: '昨天我错过了公交车' },
+              ].map(({ text, meaning, contextMeaning }, position) => ({
                 position,
+                contextMeaning,
                 word: {
                   create: {
                     normalized: `practice-model-${fixtureId}-${text}`,
                     text,
-                    meaning: `Fixture meaning for ${text}`,
+                    meaning,
                   },
                 },
               })),
@@ -59,6 +80,35 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
         });
         bookId = book.id;
         createdWordIds.push(...book.bookWords.map((item) => item.wordId));
+        const otherBook = await prisma.vocabularyBook.create({
+          data: {
+            ownerId: otherUser.id,
+            kind: 'PERSONAL',
+            sourceKey: `practice-model-other-${fixtureId}`,
+            title: 'Other account expression fixture',
+            sourcePath: 'test',
+            category: 'GENERAL',
+            userBooks: { create: { userId: otherUser.id, isDefault: true } },
+            bookWords: {
+              create: [
+                {
+                  position: 0,
+                  contextMeaning: '为任务按时完成期限',
+                  word: {
+                    create: {
+                      normalized: `practice-model-${fixtureId}-other-meet-a-deadline`,
+                      text: 'meet a deadline',
+                      meaning: '赶上截止日期',
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          select: { id: true, bookWords: { select: { wordId: true } } },
+        });
+        otherBookId = otherBook.id;
+        otherWordIds.push(...otherBook.bookWords.map((item) => item.wordId));
         await prisma.userWordProgress.createMany({
           data: book.bookWords.map((item) => ({
             userId: user.id,
@@ -79,8 +129,14 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
         expect(daily?.targets.map((target) => target.word).sort()).toEqual([
           'bright',
           'journey',
-          'steady',
+          'miss the bus',
         ]);
+        expect(daily?.targets.find((target) => target.word === 'miss the bus')).toMatchObject({
+          word: 'miss the bus',
+          meaning: '因交通延误没赶上公交车',
+        });
+        const otherDaily = await unavailableModelService.daily(otherUser.id);
+        expect(otherDaily?.targets.map((target) => target.word)).toEqual(['meet a deadline']);
 
         const answer = 'Our journey stayed bright and steady after the rain.';
         const clientRequestId = randomUUID();
@@ -131,9 +187,13 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
         ).toBe(0);
       } finally {
         if (userId) await prisma.user.deleteMany({ where: { id: userId } });
+        if (otherUserId) await prisma.user.deleteMany({ where: { id: otherUserId } });
         if (bookId) await prisma.vocabularyBook.deleteMany({ where: { id: bookId } });
+        if (otherBookId) await prisma.vocabularyBook.deleteMany({ where: { id: otherBookId } });
         if (createdWordIds.length)
           await prisma.vocabularyWord.deleteMany({ where: { id: { in: createdWordIds } } });
+        if (otherWordIds.length)
+          await prisma.vocabularyWord.deleteMany({ where: { id: { in: otherWordIds } } });
         await prisma.$disconnect();
       }
     }, 30_000);

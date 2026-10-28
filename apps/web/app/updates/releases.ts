@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.36',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '每日输出可练习收藏的短语',
+        entry: '每日输出挑战',
+        usage:
+          '符合长度范围并进入今日候选的收藏短语可与单词一起作为写作目标；反馈检查完整拼写，不代表用法正确或已经掌握。',
+      },
+    ],
+  },
+  {
     version: '1.27.35',
     date: '2026-10-28',
     items: [

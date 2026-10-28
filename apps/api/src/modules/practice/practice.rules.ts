@@ -45,8 +45,25 @@ export function practiceLookbackStart(
   const firstDate = new Date(practiceDate(now, timezone).getTime() - (calendarDays - 1) * DAY);
   return practiceDateStart(firstDate, timezone);
 }
+export function normalizeOutputTarget(value: string) {
+  const target = value.normalize('NFC').trim().replace(/\s+/gu, ' ');
+  const words = target.split(' ');
+  if (
+    !target ||
+    target.length > 48 ||
+    words.length > 4 ||
+    !words.every((word) => /^[a-z]+(?:['’-][a-z]+)*$/i.test(word))
+  )
+    return null;
+  return target;
+}
 export function englishWordPresent(answer: string, word: string) {
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = word
+    .trim()
+    .split(/\s+/u)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  if (!escaped) return false;
   return new RegExp(`(?<![a-z])${escaped}(?![a-z])`, 'i').test(answer);
 }
 function text(value: unknown, limit: number) {

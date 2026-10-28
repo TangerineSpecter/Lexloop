@@ -15,7 +15,7 @@ import type { DailyOutput, OutputSubmissionView, OutputTarget } from '@lexloop/t
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { PracticeEvidenceService } from './practice-evidence.service';
-import { normalizeOutputFeedback, practiceDate } from './practice.rules';
+import { normalizeOutputFeedback, normalizeOutputTarget, practiceDate } from './practice.rules';
 
 const LIFETIME = 15 * 60_000;
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -121,18 +121,19 @@ export class OutputService {
       const targets: OutputTarget[] = [];
       const seen = new Set<string>();
       for (const item of candidates) {
-        const normalized = item.word.text.toLowerCase();
-        if (!/^[a-z]+(?:-[a-z]+)?$/i.test(normalized) || seen.has(normalized)) continue;
+        const word = normalizeOutputTarget(item.word.text);
+        const normalized = word?.toLowerCase();
+        if (!word || !normalized || seen.has(normalized)) continue;
         targets.push({
           bookWordId: item.id,
-          word: item.word.text,
+          word,
           meaning: item.contextMeaning ?? item.word.meaning ?? '',
         });
         seen.add(normalized);
         if (targets.length === 3) break;
       }
       if (!targets.length) return null;
-      const prompt = `${TOPICS[Math.floor(date.getTime() / 86_400_000) % TOPICS.length]}使用全部目标词，保留给定拼写；建议 20–80 个英文词，也可以自由选择合适话题。`;
+      const prompt = `${TOPICS[Math.floor(date.getTime() / 86_400_000) % TOPICS.length]}使用全部目标词或短语，保留给定拼写；建议 20–80 个英文词，也可以自由选择合适话题。`;
       challenge = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw(
           Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`output-daily:${userId}:${date.toISOString()}`}))`,

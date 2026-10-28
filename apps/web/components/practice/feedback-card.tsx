@@ -67,7 +67,7 @@ export function FeedbackCard({
         <h4>回看这道题</h4>
         <p className={styles.historyPrompt}>{daily.prompt}</p>
         <p className={styles.hint}>
-          目标词：{daily.targets.map((target) => target.word).join(' · ')}
+          目标词或短语：{daily.targets.map((target) => target.word).join(' · ')}
         </p>
         <div className={styles.comparison}>
           <div>
