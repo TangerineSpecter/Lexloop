@@ -293,6 +293,13 @@
 .spellingHeading p {
   margin: 4px 0 0;
 }
+.spellingStarts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
 .spellingQuestion {
   display: grid;
   min-width: 0;
@@ -308,6 +315,27 @@
   font-size: 20px;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+.spellingContext {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border-left: 4px solid #315eb6;
+  border-radius: 0 8px 8px 0;
+  background: #eaf2ff;
+  font-size: 18px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.contextBlank {
+  display: inline-block;
+  min-width: 5ch;
+  margin: 0 0.12em;
+  border-bottom: 2px dashed #082877;
+  color: transparent;
+  user-select: none;
+  vertical-align: baseline;
 }
 .spellingActions {
   display: flex;
@@ -551,9 +579,12 @@
   }
   .spellingActions > button,
   .spellingForm > button,
-  .spellingHeading > button {
+  .spellingStarts > button {
     max-width: 100%;
     white-space: normal;
+  }
+  .spellingStarts {
+    justify-content: flex-start;
   }
   .spellingDifferenceRow {
     grid-template-columns: minmax(0, 1fr);

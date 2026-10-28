@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.54',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '用收藏原句回想词语',
+        entry: '个人生词本 → 按原句补词',
+        usage:
+          '从已保存的例句中补出目标词；提交后再对照原句。只检查拼写，不保存作答或改变复习状态。',
+      },
+    ],
+  },
+  {
     version: '1.27.53',
     date: '2026-10-28',
     items: [

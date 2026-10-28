@@ -96,6 +96,37 @@ test(
         ).catch((error) => String(error));
         assert.fail(`Timed out waiting for ${expression}; page=${pageState}`);
       };
+      const clickVisible = async (selector) => {
+        await evaluate(
+          `document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: 'center', inline: 'center' })`,
+        );
+        const point = await evaluate(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { x, y, visible: rect.width > 0 && rect.height > 0, enabled: !element.disabled, hit: hit === element || element.contains(hit) };
+        })()`);
+        assert.ok(point?.visible, `Expected visible control: ${selector}`);
+        assert.equal(point.enabled, true, `Expected enabled control: ${selector}`);
+        assert.equal(point.hit, true, `Expected unobstructed control: ${selector}`);
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+      };
       const lesson = (id) => ({
         id,
         kind: 'READING',
@@ -144,7 +175,7 @@ test(
                   index,
                   'in the long run',
                   '从长远来看',
-                  'Small habits matter in the long run.',
+                  'Small habits matter in the long run. In the long run, simple routines help.',
                 )
               : makeNotebookWord(
                   'fixture',
@@ -737,6 +768,26 @@ test(
       await evaluate(`(() => {
         const form = document.querySelector('[data-notebook-filters]');
         const input = form.querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'phrase number 3');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        form.requestSubmit();
+      })()`);
+      await until(
+        'document.querySelector("[data-notebook-target]")?.textContent === "phrase number 3"',
+      );
+      assert.equal(await evaluate('document.querySelector("[data-context-start]").disabled'), true);
+      assert.equal(
+        await evaluate('document.querySelector("[data-context-unavailable]") !== null'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-start]").disabled'),
+        false,
+      );
+
+      await evaluate(`(() => {
+        const form = document.querySelector('[data-notebook-filters]');
+        const input = form.querySelector('input');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'run');
         input.dispatchEvent(new Event('input', { bubbles: true }));
         form.requestSubmit();
@@ -758,6 +809,116 @@ test(
         ),
         'false',
       );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await delay(100);
+      const contextRequestsBefore = await evaluate('window.apiRequests.length');
+      const contextStorageBefore = await evaluate(
+        'JSON.stringify(Object.keys(localStorage).sort())',
+      );
+      const contextStartTime = await evaluate('performance.now()');
+      await clickVisible('[data-context-start]');
+      await until(
+        'document.querySelector("[data-practice-mode]")?.dataset.practiceMode === "context"',
+      );
+      const contextPromptBeforeAnswer = await evaluate(`(() => {
+        const prompt = document.querySelector('[data-context-prompt]');
+        const practice = document.querySelector('[data-notebook-spelling-practice]');
+        const box = practice.getBoundingClientRect();
+        return { prompt: prompt.textContent, blanks: prompt.querySelectorAll('[data-context-blank]').length, viewport: innerWidth, page: document.documentElement.scrollWidth, left: box.left, right: box.right, collectionHidden: document.querySelector('[data-notebook-collection-content]').hidden, elapsedMs: performance.now() - ${contextStartTime} };
+      })()`);
+      assert.equal(contextPromptBeforeAnswer.blanks, 2);
+      assert.equal(contextPromptBeforeAnswer.prompt.includes('in the long run'), false);
+      assert.equal(contextPromptBeforeAnswer.viewport, 1440);
+      assert.ok(contextPromptBeforeAnswer.page <= contextPromptBeforeAnswer.viewport);
+      assert.ok(contextPromptBeforeAnswer.left >= 0 && contextPromptBeforeAnswer.right <= 1440);
+      assert.equal(contextPromptBeforeAnswer.collectionHidden, true);
+      assert.ok(contextPromptBeforeAnswer.elapsedMs < 500);
+      assert.equal(await evaluate('document.body.innerText.includes("in the long run")'), false);
+
+      await clickVisible('[data-spelling-submit]');
+      await until(
+        'document.querySelector("[data-spelling-notice]")?.textContent.includes("句中缺失")',
+      );
+      assert.equal(await evaluate('document.querySelector("[data-spelling-result]")'), null);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-context-prompt]").textContent.includes("in the long run")',
+        ),
+        false,
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(
+        '!document.querySelector("[data-notebook-collection-content]").hidden && document.activeElement?.matches("[data-spelling-start]")',
+      );
+      assert.equal(await evaluate('document.querySelector("[data-practice-mode]")'), null);
+
+      await clickVisible('[data-context-start]');
+      await until(
+        'document.querySelector("[data-practice-mode]")?.dataset.practiceMode === "context"',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-context-prompt]").textContent.includes("in the long run")',
+        ),
+        false,
+      );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const contextMobileLayout = await evaluate(`(() => {
+        const practice = document.querySelector('[data-notebook-spelling-practice]').getBoundingClientRect();
+        const prompt = document.querySelector('[data-context-prompt]').getBoundingClientRect();
+        const input = document.querySelector('[data-spelling-answer-input]').getBoundingClientRect();
+        const button = document.querySelector('[data-spelling-submit]').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, practiceLeft: practice.left, practiceRight: practice.right, promptLeft: prompt.left, promptRight: prompt.right, inputRight: input.right, buttonRight: button.right };
+      })()`);
+      assert.equal(contextMobileLayout.viewport, 390);
+      assert.ok(contextMobileLayout.page <= 390);
+      assert.ok(contextMobileLayout.practiceLeft >= 0 && contextMobileLayout.practiceRight <= 390);
+      assert.ok(contextMobileLayout.promptLeft >= 0 && contextMobileLayout.promptRight <= 390);
+      assert.ok(contextMobileLayout.inputRight <= 390 && contextMobileLayout.buttonRight <= 390);
+
+      await send('Input.insertText', { text: 'IN THE LONG RUN' });
+      await clickVisible('[data-spelling-submit]');
+      await until(
+        'document.querySelector("[data-spelling-result]")?.textContent.includes("拼写与原句中的目标表达一致")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-context-prompt]").textContent'),
+        'Small habits matter in the long run. In the long run, simple routines help.',
+      );
+      assert.match(
+        await evaluate('document.querySelector("[data-spelling-result]").textContent'),
+        /本练习不计成绩，也不改变复习状态/,
+      );
+      assert.equal(await evaluate('window.apiRequests.length'), contextRequestsBefore);
+      assert.equal(
+        await evaluate('JSON.stringify(Object.keys(localStorage).sort())'),
+        contextStorageBefore,
+      );
+      await clickVisible('[data-spelling-end]');
+      await until('!document.querySelector("[data-notebook-collection-content]").hidden');
 
       await evaluate(`(() => {
         const session = JSON.parse(localStorage.getItem('lexloop.session'));
@@ -788,6 +949,7 @@ test(
         '',
       );
       assert.equal(await evaluate('document.body.innerText.includes("认为……理所当然")'), false);
+      assert.equal(await evaluate('document.body.innerText.includes("in the long run")'), false);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

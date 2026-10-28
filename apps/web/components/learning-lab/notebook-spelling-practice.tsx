@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NotebookWord } from '@lexloop/types';
 import { speakEnglish } from '../english-audio-controls';
+import { buildNotebookContextPrompt } from '../../lib/target-word-highlighting';
 import {
   compareSpelling,
   normalizeSpelling,
@@ -12,6 +13,7 @@ import {
 import styles from './lab.module.css';
 
 type AnswerState = 'correct' | 'incorrect' | 'revealed';
+type PracticeMode = 'spelling' | 'context';
 
 function SpellingDiffText({
   parts,
@@ -86,24 +88,38 @@ export function NotebookSpellingPractice({
     () => items.filter((item) => item.text.trim() && item.meaning?.trim()),
     [items],
   );
+  const contextCandidates = useMemo(
+    () => candidates.filter((item) => buildNotebookContextPrompt(item.example, item.text) !== null),
+    [candidates],
+  );
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [answer, setAnswer] = useState('');
   const [answerState, setAnswerState] = useState<AnswerState | null>(null);
+  const [mode, setMode] = useState<PracticeMode>('spelling');
   const [notice, setNotice] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const current = candidates.find((item) => item.id === currentId) ?? null;
   const active = current !== null;
+  const contextPrompt = useMemo(
+    () =>
+      mode === 'context' && current
+        ? buildNotebookContextPrompt(current.example, current.text)
+        : null,
+    [current, mode],
+  );
   const spellingDifference = useMemo(
     () => (answerState === 'incorrect' && current ? compareSpelling(answer, current.text) : null),
     [answer, answerState, current],
   );
 
-  function chooseNext() {
-    if (!candidates.length) return;
-    const choices = candidates.filter((item) => item.id !== currentId);
-    const pool = choices.length ? choices : candidates;
+  function chooseNext(nextMode: PracticeMode) {
+    const available = nextMode === 'context' ? contextCandidates : candidates;
+    if (!available.length) return;
+    const choices = available.filter((item) => item.id !== currentId);
+    const pool = choices.length ? choices : available;
     const selected = pool[Math.floor(Math.random() * pool.length)];
+    setMode(nextMode);
     setCurrentId(selected.id);
     setAnswer('');
     setAnswerState(null);
@@ -145,7 +161,11 @@ export function NotebookSpellingPractice({
     event.preventDefault();
     if (!current || answerState) return;
     if (!answer.trim()) {
-      setNotice('先写下听到的拼写；也可以直接显示答案并结束本题。');
+      setNotice(
+        mode === 'context'
+          ? '先写下句中缺失的词或短语；也可以直接显示答案并结束本题。'
+          : '先写下听到的拼写；也可以直接显示答案并结束本题。',
+      );
       return;
     }
     setAnswerState(
@@ -170,34 +190,83 @@ export function NotebookSpellingPractice({
     <section className={styles.spellingPractice} data-notebook-spelling-practice>
       <div className={styles.spellingHeading}>
         <div>
-          <h3>听音拼写</h3>
+          <h3>生词主动回想</h3>
           <p className={styles.meta}>
-            从当前页有释义的词中抽一项。先听发音并输入拼写，再对照；这里不保存答案或复习状态。
+            用当前页的收藏做一次短练习。答案只在本页对照，不保存作答、成绩或复习状态。
           </p>
         </div>
-        <button
-          ref={startButtonRef}
-          className={active ? styles.button : styles.primary}
-          type="button"
-          data-spelling-start
-          aria-expanded={active}
-          disabled={!candidates.length}
-          onClick={chooseNext}
-        >
-          {active ? (answerState ? '再练一个' : '换一个词') : '开始听音拼写'}
-        </button>
+        <div className={styles.spellingStarts}>
+          <button
+            ref={startButtonRef}
+            className={active ? styles.button : styles.primary}
+            type="button"
+            data-spelling-start
+            aria-expanded={active}
+            disabled={!candidates.length}
+            onClick={() => chooseNext(active ? mode : 'spelling')}
+          >
+            {active ? (answerState ? '再练一个' : '换一个词') : '开始听音拼写'}
+          </button>
+          {!active && (
+            <button
+              className={styles.button}
+              type="button"
+              data-context-start
+              disabled={!contextCandidates.length}
+              onClick={() => chooseNext('context')}
+            >
+              按原句补词
+            </button>
+          )}
+        </div>
       </div>
+      {!active && candidates.length > 0 && contextCandidates.length === 0 && (
+        <p className={styles.meta} data-context-unavailable role="status">
+          当前页没有含完整目标词的已存原句；可以继续使用听音拼写。
+        </p>
+      )}
 
       {active && current && (
-        <div className={styles.spellingQuestion} role="group" aria-label="听音拼写练习">
+        <div
+          className={styles.spellingQuestion}
+          role="group"
+          aria-label={mode === 'context' ? '原句补词练习' : '听音拼写练习'}
+          data-practice-mode={mode}
+        >
           <p className={styles.meta}>目标词的中文释义</p>
           <p className={styles.spellingMeaning} lang="zh">
             {current.meaning ?? ''}
           </p>
+          {mode === 'context' && contextPrompt && (
+            <>
+              <p className={styles.meta}>按你收藏时保存的原句，回想缺失的词或短语。</p>
+              <blockquote className={styles.spellingContext} data-context-prompt lang="en">
+                {answerState
+                  ? current.example
+                  : contextPrompt.parts.map((part) =>
+                      part.kind === 'text' ? (
+                        part.value
+                      ) : (
+                        <span
+                          key={part.key}
+                          className={styles.contextBlank}
+                          data-context-blank
+                          role="note"
+                          aria-label="缺失的词或短语"
+                        >
+                          ______
+                        </span>
+                      ),
+                    )}
+              </blockquote>
+            </>
+          )}
           <div className={styles.spellingActions}>
-            <button className={styles.button} type="button" data-spelling-play onClick={playWord}>
-              播放单词发音
-            </button>
+            {mode === 'spelling' && (
+              <button className={styles.button} type="button" data-spelling-play onClick={playWord}>
+                播放单词发音
+              </button>
+            )}
             <button
               className={styles.button}
               type="button"
@@ -214,7 +283,9 @@ export function NotebookSpellingPractice({
             </button>
           </div>
           <form className={styles.spellingForm} onSubmit={submitAnswer}>
-            <label htmlFor="notebook-spelling-answer">输入你听到的英文拼写</label>
+            <label htmlFor="notebook-spelling-answer">
+              {mode === 'context' ? '写下句中缺失的表达' : '输入你听到的英文拼写'}
+            </label>
             <input
               id="notebook-spelling-answer"
               ref={inputRef}
@@ -231,7 +302,9 @@ export function NotebookSpellingPractice({
               aria-describedby="notebook-spelling-guidance"
             />
             <p id="notebook-spelling-guidance" className={styles.meta}>
-              忽略大小写和多余空格；标点与拼写须对应原词。
+              {mode === 'context'
+                ? '按原句填入完整词或短语；这里只比对拼写，不评价整句用法。'
+                : '忽略大小写和多余空格；标点与拼写须对应原词。'}
             </p>
             <button
               className={styles.primary}
@@ -245,9 +318,13 @@ export function NotebookSpellingPractice({
           {answerState && (
             <p className={styles.spellingResult} data-spelling-result role="status">
               {answerState === 'correct'
-                ? '拼写与目标词一致。'
+                ? mode === 'context'
+                  ? '拼写与原句中的目标表达一致。'
+                  : '拼写与目标词一致。'
                 : answerState === 'incorrect'
-                  ? '拼写不一致。黄色标记错字或漏字，橙色删除线标记多写。'
+                  ? mode === 'context'
+                    ? '拼写与原句中的目标表达不一致。黄色标记错字或漏字，橙色删除线标记多写。'
+                    : '拼写不一致。黄色标记错字或漏字，橙色删除线标记多写。'
                   : '已显示标准写法。'}{' '}
               <strong data-spelling-revealed lang="en">
                 {current.text}

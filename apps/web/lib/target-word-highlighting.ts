@@ -47,3 +47,35 @@ export function findTargetWordMatches(text: string, targets: string[]): TargetWo
   }
   return matches;
 }
+
+export type NotebookContextRecallPart =
+  { kind: 'text'; value: string } | { kind: 'blank'; key: number };
+
+export type NotebookContextPrompt = {
+  parts: NotebookContextRecallPart[];
+  occurrenceCount: number;
+};
+
+/** Replaces every complete target occurrence so the saved sentence cannot reveal the answer. */
+export function buildNotebookContextPrompt(
+  example: string | null | undefined,
+  target: string,
+): NotebookContextPrompt | null {
+  if (!example?.trim() || !target.trim()) return null;
+
+  const matches = findTargetWordMatches(example, [target]);
+  if (matches.length === 0) return null;
+
+  const parts: NotebookContextRecallPart[] = [];
+  let cursor = 0;
+  for (const [index, match] of matches.entries()) {
+    if (match.start < cursor) continue;
+    if (match.start > cursor)
+      parts.push({ kind: 'text', value: example.slice(cursor, match.start) });
+    parts.push({ kind: 'blank', key: index });
+    cursor = match.end;
+  }
+  if (cursor < example.length) parts.push({ kind: 'text', value: example.slice(cursor) });
+
+  return { parts, occurrenceCount: matches.length };
+}
