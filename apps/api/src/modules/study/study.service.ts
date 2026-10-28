@@ -55,6 +55,7 @@ type PlanWord = {
   part: string;
   meaning: string;
   senses?: MeaningLine[];
+  cefrLevel?: string | null;
 };
 type GeneratedQuestion = {
   bookWordId: string;
@@ -267,6 +268,7 @@ export class StudyService {
         part: lexical.part,
         meaning: lexical.meaning,
         senses: lexical.meanings,
+        cefrLevel: item.bookWord.word.cefrLevel,
       };
     });
     const groupSpec = [...grouped.entries()].map(([index, items]) => ({
@@ -775,10 +777,21 @@ export function contentSignature(
   purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
   targetQuestionTypes: Record<string, string> = {},
 ) {
+  const hasKnownCefrLevel = words.some((word) => Boolean(word.cefrLevel));
   const canonicalWords = [...words]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map((word) => ({ id: word.id, word: word.word, part: word.part, meaning: word.meaning }));
-  if (purpose === StudyPlanPurpose.NORMAL && !Object.keys(targetQuestionTypes).length) {
+    .map((word) => ({
+      id: word.id,
+      word: word.word,
+      part: word.part,
+      meaning: word.meaning,
+      ...(word.cefrLevel ? { cefrLevel: word.cefrLevel } : {}),
+    }));
+  if (
+    !hasKnownCefrLevel &&
+    purpose === StudyPlanPurpose.NORMAL &&
+    !Object.keys(targetQuestionTypes).length
+  ) {
     return createHash('sha256')
       .update(JSON.stringify({ version: 3, mode, words: canonicalWords }))
       .digest('hex');
@@ -789,7 +802,7 @@ export function contentSignature(
   return createHash('sha256')
     .update(
       JSON.stringify({
-        version: 4,
+        version: hasKnownCefrLevel ? 5 : 4,
         mode,
         purpose,
         words: canonicalWords,
@@ -819,6 +832,10 @@ export function generationPrompt(
           : '随机分组';
   return `为 Lexloop 生成一份${label}学习计划。
 输入分组：${JSON.stringify(groups)}
+难度参考规则：
+- 输入中每个词条的 cefrLevel 只描述该词条，不代表学习者水平。若有已知级别，保持目标词及其释义准确，并让周围词汇和句法对该级别的学习材料保持可理解；不要据此宣称或推断学习者的 CEFR 水平。
+- 同组目标词级别不同时，不要让最高级目标词抬高整篇材料的难度；用更常见的周边词汇和清晰句式托住较难目标词。
+- cefrLevel 为 null 或缺失时，级别未知，不要猜测或补造级别；周围文本优先使用常见词汇和清晰句式。
 ${
   exam
     ? `

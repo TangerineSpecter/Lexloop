@@ -79,6 +79,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               normalized: `study-generation-${fixtureId}-${text}`,
               text,
               meaning: '平稳的',
+              cefrLevel: position === 0 ? 'A2' : null,
               bookWords: { create: { bookId: book.id, position } },
             },
             select: { id: true, bookWords: { select: { id: true } } },
@@ -107,7 +108,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       );
       const ai = {
         generateForUser: vi.fn(
-          () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+          (_input: { prompt: string }) =>
+            new Promise((resolve, reject) => pending.push({ resolve, reject })),
         ),
       };
       const service = new StudyService(
@@ -125,6 +127,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               word: word === words[0] ? 'steady' : 'gentle',
               part: '',
               meaning: '平稳的',
+              cefrLevel: word === words[0] ? 'A2' : null,
             },
           ],
           StudyPlanPurpose.NORMAL,
@@ -165,6 +168,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         // An old request that succeeds late must not replace the lesson or
         // question saved by the current generation claim.
         const successRace = await startSupersededPair(plans[1].id, 2);
+        const prompts = ai.generateForUser.mock.calls.map(([input]) => input.prompt);
+        expect(prompts.some((prompt) => prompt.includes('"cefrLevel":"A2"'))).toBe(true);
+        expect(prompts.some((prompt) => prompt.includes('"cefrLevel":null'))).toBe(true);
+        expect(prompts.every((prompt) => !prompt.includes('overallLevel'))).toBe(true);
         pending[3].resolve(generatedResponse(words[1].bookWords[0].id, 'gentle', 'current lesson'));
         const newerAfterSuccess = await successRace.second;
         pending[2].resolve(

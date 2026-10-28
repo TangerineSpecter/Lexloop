@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.31',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '新生成材料参考已知词条难度',
+        entry: '学习计划 → 阅读材料',
+        usage:
+          '生成时参考目标词已有的 CEFR 标记；不会推断学习者水平。已知级别使用独立缓存，首次可能需由所选模型生成；未知级别沿用通用缓存。',
+      },
+    ],
+  },
+  {
     version: '1.27.30',
     date: '2026-10-28',
     items: [

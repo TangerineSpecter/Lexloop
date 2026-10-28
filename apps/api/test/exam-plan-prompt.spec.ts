@@ -31,6 +31,25 @@ describe('exam study plans', () => {
     expect(group).not.toContain('应试语境补充规则');
   });
 
+  it('uses known target-word levels without assigning a level to the learner', () => {
+    const prompt = generationPrompt(StudyPlanMode.GROUP, [
+      {
+        index: 0,
+        words: [
+          { id: 'word-a', word: 'gentle', part: 'adj.', meaning: '温和的', cefrLevel: 'A2' },
+          { id: 'word-b', word: 'steady', part: 'adj.', meaning: '稳定的', cefrLevel: null },
+        ],
+      },
+    ]);
+
+    expect(prompt).toContain('"cefrLevel":"A2"');
+    expect(prompt).toContain('"cefrLevel":null');
+    expect(prompt).toContain('周围词汇和句法');
+    expect(prompt).toContain('级别未知，不要猜测或补造级别');
+    expect(prompt).toContain('不要据此宣称或推断学习者的 CEFR 水平');
+    expect(prompt).toContain('不要让最高级目标词抬高整篇材料的难度');
+  });
+
   it('creates an exam plan with target question types instead of rejecting the mode', async () => {
     const tx = {
       $queryRaw: vi.fn(),
