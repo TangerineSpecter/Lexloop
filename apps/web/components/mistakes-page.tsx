@@ -10,7 +10,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { partitionMistakePracticeSelection } from '../lib/mistake-practice-selection';
 import type { LearningPlan } from './dashboard';
@@ -96,34 +96,80 @@ export function MistakesPage({
   const [result, setResult] = useState<ListResponse | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [creatingPlan, setCreatingPlan] = useState(false);
   const [message, setMessage] = useState('');
   const [showPracticeChoices, setShowPracticeChoices] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const listRequestId = useRef(0);
+  const listAbort = useRef<AbortController | null>(null);
+  const detailRequestId = useRef(0);
+  const detailAbort = useRef<AbortController | null>(null);
 
-  const load = useCallback(
-    async (resetSelection = false) => {
-      setLoading(true);
-      setMessage('');
-      try {
-        const query = new URLSearchParams({ status, page: String(page), pageSize: '20' });
-        if (questionType) query.set('questionType', questionType);
-        const response = await request<ListResponse>(`/mistakes?${query}`, {}, session.accessToken);
-        setResult(response);
-        if (status === 'active' && (resetSelection || !selected.length))
-          setSelected(response.items.slice(0, 10).map((item) => item.bookWordId));
-        if (status !== 'active') setSelected([]);
-      } catch (error) {
+  const prepareForListChange = () => {
+    listRequestId.current += 1;
+    listAbort.current?.abort();
+    listAbort.current = null;
+    detailRequestId.current += 1;
+    detailAbort.current?.abort();
+    detailAbort.current = null;
+    setResult(null);
+    setSelected([]);
+    setDetail(null);
+    setShowPracticeChoices(false);
+    setMessage('');
+    setLoading(true);
+  };
+
+  const load = useCallback(async () => {
+    const requestId = ++listRequestId.current;
+    listAbort.current?.abort();
+    const abort = new AbortController();
+    listAbort.current = abort;
+    setLoading(true);
+    setMessage('');
+    setResult(null);
+    setSelected([]);
+    detailRequestId.current += 1;
+    detailAbort.current?.abort();
+    detailAbort.current = null;
+    setDetail(null);
+    setShowPracticeChoices(false);
+    try {
+      const query = new URLSearchParams({ status, page: String(page), pageSize: '20' });
+      if (questionType) query.set('questionType', questionType);
+      const response = await request<ListResponse>(
+        `/mistakes?${query}`,
+        { signal: abort.signal },
+        session.accessToken,
+      );
+      if (requestId !== listRequestId.current) return;
+      setResult(response);
+      setSelected(
+        status === 'active' ? response.items.slice(0, 10).map((item) => item.bookWordId) : [],
+      );
+    } catch (error) {
+      if (requestId === listRequestId.current)
         setMessage(error instanceof Error ? error.message : '错题本加载失败');
-      } finally {
+    } finally {
+      if (requestId === listRequestId.current) {
         setLoading(false);
+        if (listAbort.current === abort) listAbort.current = null;
       }
-    },
-    [page, questionType, session.accessToken, status],
-  );
+    }
+  }, [page, questionType, session.accessToken, status]);
 
   useEffect(() => {
-    void load(true);
-  }, [load]);
+    void load();
+    return () => {
+      listRequestId.current += 1;
+      listAbort.current?.abort();
+      listAbort.current = null;
+      detailRequestId.current += 1;
+      detailAbort.current?.abort();
+      detailAbort.current = null;
+    };
+  }, [load, revision]);
 
   useEffect(() => {
     if (!detail) return;
@@ -138,10 +184,23 @@ export function MistakesPage({
   }, [detail]);
 
   const openDetail = async (id: string) => {
+    const requestId = ++detailRequestId.current;
+    detailAbort.current?.abort();
+    const abort = new AbortController();
+    detailAbort.current = abort;
     try {
-      setDetail(await request<MistakeDetail>(`/mistakes/${id}`, {}, session.accessToken));
+      const response = await request<MistakeDetail>(
+        `/mistakes/${id}`,
+        { signal: abort.signal },
+        session.accessToken,
+      );
+      if (requestId === detailRequestId.current) setDetail(response);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '错题详情加载失败');
+      if (requestId === detailRequestId.current)
+        setMessage(error instanceof Error ? error.message : '错题详情加载失败');
+    } finally {
+      if (requestId === detailRequestId.current && detailAbort.current === abort)
+        detailAbort.current = null;
     }
   };
   const changeStatus = async (weakness: Weakness, next: 'ACTIVE' | 'IGNORED') => {
@@ -153,7 +212,7 @@ export function MistakesPage({
         session.accessToken,
       );
       setDetail(null);
-      await load(true);
+      setRevision((value) => value + 1);
     } catch (error) {
       setDetail(null);
       setMessage(error instanceof Error ? error.message : '更新薄弱项状态失败');
@@ -164,7 +223,7 @@ export function MistakesPage({
     selectedPractice.outputWordIds.length > 0 || selectedPractice.confusionWordIds.length > 0;
   const createPlanFor = async (bookWordIds: string[]) => {
     if (!bookWordIds.length) return;
-    setLoading(true);
+    setCreatingPlan(true);
     setMessage('');
     try {
       const plan = await request<LearningPlan>(
@@ -176,7 +235,7 @@ export function MistakesPage({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '创建薄弱词专项失败');
     } finally {
-      setLoading(false);
+      setCreatingPlan(false);
     }
   };
   const createPlan = async () => {
@@ -210,6 +269,8 @@ export function MistakesPage({
               className={status === value ? 'active' : ''}
               key={value}
               onClick={() => {
+                if (value === status && page === 1) return;
+                prepareForListChange();
                 setStatus(value);
                 setPage(1);
               }}
@@ -221,6 +282,7 @@ export function MistakesPage({
         <select
           value={questionType}
           onChange={(event) => {
+            prepareForListChange();
             setQuestionType(event.target.value);
             setPage(1);
           }}
@@ -236,7 +298,7 @@ export function MistakesPage({
         {status === 'active' && (
           <button
             className="mistakes-create"
-            disabled={!selected.length || loading}
+            disabled={!selected.length || !result || loading || creatingPlan}
             onClick={() => void createPlan()}
           >
             <Sparkles size={17} />
@@ -244,8 +306,8 @@ export function MistakesPage({
           </button>
         )}
       </div>
-      {message && (
-        <p className="book-message" role="status">
+      {message && result && (
+        <p className="book-message" role="alert">
           {message}
         </p>
       )}
@@ -262,7 +324,7 @@ export function MistakesPage({
             {selectedPractice.standardWordIds.length > 0 && (
               <button
                 className="is-primary"
-                disabled={loading}
+                disabled={creatingPlan}
                 onClick={() => void createPlanFor(selectedPractice.standardWordIds)}
               >
                 只生成普通专项（{selectedPractice.standardWordIds.length} 词）
@@ -270,7 +332,7 @@ export function MistakesPage({
             )}
             {selectedPractice.outputWordIds.length > 0 && (
               <button
-                disabled={loading}
+                disabled={creatingPlan}
                 onClick={() => window.location.assign('/dashboard/practice?tab=output')}
               >
                 打开每日输出
@@ -278,20 +340,29 @@ export function MistakesPage({
             )}
             {selectedPractice.confusionWordIds.length > 0 && (
               <button
-                disabled={loading}
+                disabled={creatingPlan}
                 onClick={() => window.location.assign('/dashboard/practice?tab=confusion')}
               >
                 打开易混词训练
               </button>
             )}
-            <button disabled={loading} onClick={() => setShowPracticeChoices(false)}>
+            <button disabled={creatingPlan} onClick={() => setShowPracticeChoices(false)}>
               返回调整选择
             </button>
           </div>
         </section>
       )}
       {loading && !result ? (
-        <div className="mistakes-empty">正在读取薄弱词…</div>
+        <div className="mistakes-empty" role="status">
+          正在读取薄弱词…
+        </div>
+      ) : !result && message ? (
+        <div className="mistakes-empty" role="alert">
+          <CircleAlert size={34} />
+          <strong>薄弱词暂时无法加载</strong>
+          <p>{message}</p>
+          <button onClick={() => void load()}>重试</button>
+        </div>
       ) : !result?.items.length ? (
         <div className="mistakes-empty">
           <Check size={34} />
@@ -348,12 +419,24 @@ export function MistakesPage({
       )}
       {result && result.total > 20 && (
         <div className="mistakes-pagination">
-          <button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>
+          <button
+            disabled={page === 1 || loading}
+            onClick={() => {
+              prepareForListChange();
+              setPage((value) => value - 1);
+            }}
+          >
             <ChevronLeft size={16} />
             上一页
           </button>
           <span>第 {page} 页</span>
-          <button disabled={!result.hasMore} onClick={() => setPage((value) => value + 1)}>
+          <button
+            disabled={!result.hasMore || loading}
+            onClick={() => {
+              prepareForListChange();
+              setPage((value) => value + 1);
+            }}
+          >
             下一页
             <ChevronRight size={16} />
           </button>

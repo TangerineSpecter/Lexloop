@@ -976,6 +976,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <LearningWordsPage session={session} onBack={() => setPage('study')} />
         ) : page === 'mistakes' ? (
           <MistakesPage
+            key={session.user.id}
             session={session}
             onBack={() => setPage('study')}
             onOpenTutorSettings={
