@@ -13,6 +13,34 @@ function findEnglishVoice(voices: SpeechSynthesisVoice[]) {
   );
 }
 
+export function createEnglishUtterance(text: string, rate = 1) {
+  if (
+    typeof window === 'undefined' ||
+    !('speechSynthesis' in window) ||
+    typeof window.SpeechSynthesisUtterance !== 'function'
+  ) {
+    return 'unsupported' as const;
+  }
+  const voice = findEnglishVoice(window.speechSynthesis.getVoices());
+  if (!voice) {
+    window.speechSynthesis.cancel();
+    return 'no-voice' as const;
+  }
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = voice.lang || 'en-US';
+  utterance.rate = rate;
+  utterance.voice = voice;
+  return utterance;
+}
+
+export function speakEnglish(text: string, rate = 1) {
+  const utterance = createEnglishUtterance(text, rate);
+  if (typeof utterance === 'string') return utterance;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+  return 'played' as const;
+}
+
 export function EnglishAudioControls({ text, context }: { text: string; context: string }) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [playingRate, setPlayingRate] = useState<number | null>(null);
@@ -43,20 +71,16 @@ export function EnglishAudioControls({ text, context }: { text: string; context:
   function play(rate: number) {
     if (!supported) return;
 
-    const voice = findEnglishVoice(window.speechSynthesis.getVoices());
-    if (!voice) {
+    const utterance = createEnglishUtterance(text, rate);
+    if (utterance === 'unsupported') return;
+    if (utterance === 'no-voice') {
       playbackId.current += 1;
-      window.speechSynthesis.cancel();
       setPlayingRate(null);
       setEnglishVoiceUnavailable(true);
       return;
     }
 
     setEnglishVoiceUnavailable(false);
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = rate;
-    utterance.voice = voice;
     const currentPlaybackId = ++playbackId.current;
     const finishPlayback = () => {
       if (playbackId.current === currentPlaybackId) setPlayingRate(null);

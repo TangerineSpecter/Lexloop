@@ -1,7 +1,22 @@
+'use client';
+
+import { useState } from 'react';
 import styles from './practice-entries.module.css';
 
 export function PracticeEntries() {
+  const [open, setOpen] = useState(false);
   return (
+    <section className={styles.section}>
+      <button
+        type="button"
+        className={styles.toggle}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>学习专项</span>
+        <small>{open ? '收起' : '展开 7 个入口'}</small>
+      </button>
+      {open ? (
     <nav className={styles.entries} aria-label="学习专项">
       <a href="/dashboard/micro-stories">
         <small>START · 60 SEC</small>
@@ -51,5 +66,7 @@ export function PracticeEntries() {
         <span>回访表达问题，讲解与变式练习。</span>
       </a>
     </nav>
+      ) : null}
+    </section>
   );
 }

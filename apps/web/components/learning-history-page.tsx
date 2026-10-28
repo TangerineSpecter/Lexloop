@@ -5,7 +5,7 @@ import { ArrowLeft, Award, BookOpen, CheckCircle2, Clock3, Languages, ListChecks
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
 
-const modeLabel: Record<LearningHistoryPlanItem['mode'], string> = { group: '分组学习', individual: '单词逐个学', exam: '真题模式' };
+const modeLabel: Record<LearningHistoryPlanItem['mode'], string> = { group: '分组学习', individual: '单词逐个学', exam: '应试语境' };
 const exerciseLabel: Record<string, string> = { WORD_MNEMONIC: '词根联想', MEANING_RECOGNITION: '词义识别', WORD_MATCHING: '词义配对', SYNONYM_REPLACEMENT: '同义替换', READING_COMPREHENSION: '阅读理解', OTHER: '综合练习' };
 const categoryLabel: Record<string, string> = { AIRPORT: '机场', HOTEL: '酒店', RESTAURANT: '餐厅', SHOPPING: '购物', TRANSPORT: '交通', HELP: '求助' };
 const emptyTotals: LearningHistoryResponse['totals'] = { records: 0, plans: 0, words: 0, questions: 0, correctQuestions: 0, assessments: 0, scenarios: 0 };

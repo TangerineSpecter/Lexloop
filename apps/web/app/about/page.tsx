@@ -11,7 +11,7 @@ const loop = [
 const modes = [
   { title: '分组学习', english: 'GUIDED LOOP', copy: '当天新词按小组推进。每一组结合词汇、阅读和练习，完成后再进入下一组。', tag: '适合稳定刷完词书', icon: Layers3 },
   { title: '自由刷词', english: 'FREE STUDY', copy: '按词表、随机词、错词或高频词自由选择，留给碎片时间和定向查漏补缺。', tag: '适合灵活安排时间', icon: Sparkles },
-  { title: '真题模式', english: 'EXAM FOCUS', copy: '从历年真题语境切入，关注熟词僻义、固定搭配与阅读做题能力。', tag: '适合备考专项强化', icon: MessageSquareText },
+  { title: '应试语境', english: 'EXAM FOCUS', copy: '用原创短文练习熟词僻义、固定搭配和同义替换，不引用真题原卷。', tag: '适合备考语境强化', icon: MessageSquareText },
 ];
 
 const aiActions = [

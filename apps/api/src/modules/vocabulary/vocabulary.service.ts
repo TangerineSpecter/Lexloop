@@ -9,6 +9,7 @@ import {
   WordProgressState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { presentLexicalWord } from './lexical';
 
 const categoryLabels: Record<VocabularyCategory, string> = {
   PRIMARY: '小学',
@@ -428,9 +429,7 @@ export class VocabularyService {
     });
     return masteredWords.map((item) => ({
       id: item.wordId,
-      word: item.word.text,
-      part: this.getPartOfSpeech(item.word.meaning),
-      meaning: this.getMeaning(item.word.meaning),
+      ...presentLexicalWord(item.word),
       masteredAt: item.masteredAt,
     }));
   }
@@ -653,27 +652,18 @@ export class VocabularyService {
   private toDashboardWord(bookWord: {
     id: string;
     contextMeaning?: string | null;
-    word: { text: string; meaning: string | null };
+    word: {
+      text: string;
+      meaning: string | null;
+      ukPhonetic?: string | null;
+      usPhonetic?: string | null;
+      cefrLevel?: string | null;
+    };
   }) {
-    const meaning = bookWord.contextMeaning ?? bookWord.word.meaning;
     return {
       id: bookWord.id,
-      word: bookWord.word.text,
-      part: this.getPartOfSpeech(meaning),
-      meaning: this.getMeaning(meaning),
+      ...presentLexicalWord(bookWord.word, bookWord.contextMeaning),
     };
-  }
-
-  private getPartOfSpeech(meaning: string | null) {
-    return (
-      meaning?.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[1] ?? ''
-    );
-  }
-
-  private getMeaning(meaning: string | null) {
-    const rawMeaning = meaning ?? '暂无释义';
-    const match = rawMeaning.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i);
-    return rawMeaning.slice(match?.[0].length ?? 0);
   }
 
   async activateBook(userId: string, bookId: string) {

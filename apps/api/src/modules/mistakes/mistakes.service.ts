@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StudyPlanItemSource, StudyPlanMode, StudyPlanPurpose, StudyPlanStatus, WeaknessStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { presentLexicalWord } from '../vocabulary/lexical';
 
 type Transaction = Prisma.TransactionClient;
 type ListQuery = { status?: 'active' | 'ignored' | 'resolved'; questionType?: string; page?: number; pageSize?: number };
@@ -66,9 +67,7 @@ export class MistakesService {
     return {
       items: selected.map(group => ({
         bookWordId: group[0].bookWordId,
-        word: group[0].bookWord.word.text,
-        part: part(group[0].bookWord.word.meaning),
-        meaning: meaning(group[0].bookWord.word.meaning),
+        ...presentLexicalWord(group[0].bookWord.word, group[0].bookWord.contextMeaning),
         bookTitle: group[0].bookWord.book.title,
         severity: Math.max(...group.map(item => Math.min(100, item.wrongCount * 18 + (item.consecutiveCorrect ? 5 : 20)))),
         lastWrongAt: group.reduce((latest, item) => item.lastWrongAt > latest ? item.lastWrongAt : latest, group[0].lastWrongAt),
@@ -83,8 +82,8 @@ export class MistakesService {
     if (!signal) throw new NotFoundException('薄弱项不存在');
     const attempts = await this.prisma.wordReviewAttempt.findMany({ where: { userId, bookWordId: signal.bookWordId, questionType: signal.questionType }, orderBy: { createdAt: 'desc' }, take: 50, include: { item: true } });
     return {
-      ...this.serializeSignal(signal), bookWordId: signal.bookWordId, word: signal.bookWord.word.text,
-      part: part(signal.bookWord.word.meaning), meaning: meaning(signal.bookWord.word.meaning), bookTitle: signal.bookWord.book.title,
+      ...this.serializeSignal(signal), bookWordId: signal.bookWordId,
+      ...presentLexicalWord(signal.bookWord.word, signal.bookWord.contextMeaning), bookTitle: signal.bookWord.book.title,
       attempts: attempts.map(attempt => {
         const saved = attempt.selectedAnswer && typeof attempt.selectedAnswer === 'object' && !Array.isArray(attempt.selectedAnswer) ? attempt.selectedAnswer as Record<string, Prisma.JsonValue> : null;
         return { id: attempt.id, isCorrect: attempt.isCorrect, selectedAnswer: saved?.answer ?? attempt.selectedAnswer, responseTimeMs: attempt.responseTimeMs, createdAt: attempt.createdAt, question: attempt.item?.question ?? saved?.question ?? null };
@@ -131,10 +130,7 @@ export class MistakesService {
       id: plan.id, mode: plan.mode.toLowerCase(), purpose: plan.purpose.toLowerCase(), status: plan.status, createdAt: plan.createdAt,
       wordCount: plan.items.length, completed: plan.items.filter(item => item.completedAt).length,
       groupCount: new Set(plan.items.map(item => item.groupIndex)).size, content: plan.generatedContent,
-      words: plan.items.map(item => ({ id: item.bookWordId, word: item.bookWord.word.text, part: part(item.bookWord.word.meaning), meaning: meaning(item.bookWord.word.meaning), source: item.source, groupIndex: item.groupIndex, targetQuestionType: item.targetQuestionType, completed: Boolean(item.completedAt) })),
+      words: plan.items.map(item => ({ id: item.bookWordId, ...presentLexicalWord(item.bookWord.word, item.bookWord.contextMeaning), source: item.source, groupIndex: item.groupIndex, targetQuestionType: item.targetQuestionType, completed: Boolean(item.completedAt) })),
     };
   }
 }
-
-function part(value: string | null) { return value?.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[1] ?? ''; }
-function meaning(value: string | null) { const raw = value ?? '暂无释义'; return raw.slice(raw.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[0].length ?? 0); }

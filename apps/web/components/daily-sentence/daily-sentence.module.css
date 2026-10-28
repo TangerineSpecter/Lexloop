@@ -5,6 +5,16 @@
   border-radius: 12px;
 }
 .card { margin: 24px 0; padding: 22px 24px; }
+.strip { margin: 18px 0 0; padding: 12px 16px; }
+.strip .header { grid-template-columns: auto minmax(0, 1fr) auto; }
+.stripPreview {
+  min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; color: inherit; cursor: pointer;
+}
+.strip .english {
+  margin: 0; font-size: 16px; font-weight: 700; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.strip .empty { padding: 0; }
 .settingsRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; }
 .settingsRow h3 { margin: 0; font-size: 20px; }
 .settingsRow .button { min-width: 90px; }
@@ -68,6 +78,8 @@
 .historyItem > span:last-child { font-size: 13px; }
 @media (max-width: 680px) {
   .card { padding: 18px 16px; }
+  .strip .header { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .strip .header .button { grid-row: auto; grid-column: auto; }
   .header { grid-template-columns: 1fr auto; gap: 12px; }
   .header .meta { grid-row: 2; grid-column: 1 / -1; }
   .header .button { grid-row: 1; grid-column: 2; padding: 8px; }

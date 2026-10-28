@@ -14,11 +14,9 @@ import {
   Circle,
   CircleX,
   Check,
-  CircleHelp,
   Copy,
   Eye,
   EyeOff,
-  FileText,
   Flame,
   Grid2X2,
   LayoutList,
@@ -44,6 +42,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browserTimeZone, request, type Session } from '../lib/api';
+import { speakEnglish } from './english-audio-controls';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
 import {
   clearStudyDraft,
@@ -88,11 +87,16 @@ type GeneratedGroup = {
   sentences: ReadingSentence[];
   questions: GeneratedQuestion[];
 };
+type MeaningLine = { part: string; text: string };
 type Word = {
   id?: string;
   word: string;
   part: string;
   meaning: string;
+  meanings?: MeaningLine[];
+  ukPhonetic?: string | null;
+  usPhonetic?: string | null;
+  cefrLevel?: string | null;
   state?: 'review';
   source?: 'NEW' | 'REVIEW';
   groupIndex?: number;
@@ -110,6 +114,17 @@ type Word = {
 type DashboardWords = { defaultNewWordCount: number; reviewWords: Word[]; newWords: Word[] };
 type MasteredWord = Word & { id: string; masteredAt: string };
 type StudyMode = 'group' | 'individual' | 'exam';
+type IndividualWordSource = 'book' | 'mistakes' | 'random' | 'frequent';
+const INDIVIDUAL_SOURCES: Array<{ id: IndividualWordSource; label: string; hint: string }> = [
+  { id: 'book', label: '词表', hint: '按默认词书顺序，取还没学过的词，一词一组。' },
+  { id: 'mistakes', label: '错词', hint: '从错题本里待巩固的词开刷，不另建薄弱专项。' },
+  { id: 'random', label: '随机', hint: '从默认词书尚未掌握的词里随机抽取。' },
+  {
+    id: 'frequent',
+    label: '高频',
+    hint: '优先已学次数、口语优先度和较低 CEFR；词表没有这些标记时取词书前部。',
+  },
+];
 export type LearningPlan = {
   id: string;
   mode: StudyMode;
@@ -183,6 +198,28 @@ function splitPlanWords(words: Word[]) {
     ),
   );
 }
+function meaningLinesOf(word: Pick<Word, 'part' | 'meaning' | 'meanings'>): MeaningLine[] {
+  if (word.meanings?.length) return word.meanings;
+  if (word.meaning.includes('｜')) {
+    return word.meaning
+      .split('｜')
+      .filter(Boolean)
+      .map((text, index) => ({ part: index === 0 ? word.part : '', text }));
+  }
+  return [{ part: word.part, text: word.meaning }];
+}
+
+function formatPhonetic(value: string | null | undefined, wordText: string) {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed || trimmed === '无') return null;
+  const wrapped =
+    (trimmed.startsWith('/') && trimmed.endsWith('/') && trimmed.length > 2) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.length > 2);
+  const inner = (wrapped ? trimmed.slice(1, -1) : trimmed).trim();
+  if (!inner || inner.toLowerCase() === wordText.trim().toLowerCase()) return null;
+  return `/${inner}/`;
+}
+
 function wordTone(index: number) {
   const tone = WORD_TONES[index % WORD_TONES.length];
   return { '--word-bg': tone.background, '--word-color': tone.color } as React.CSSProperties;
@@ -437,6 +474,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             />
           )}
         </div>
+        <div className="sidebar-scroll">
         <Calendar />
         <nav className="sidebar-nav" aria-label="主导航">
           <span className="nav-label">APP</span>
@@ -553,6 +591,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <span>账户设置</span>
           </button>
         </nav>
+        </div>
         <div className="sidebar-bottom">
           <button className="switch-book" onClick={() => setBookPickerOpen(true)}>
             <Plus size={15} />
@@ -668,8 +707,6 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
             </section>
 
-            <DailySentenceCard key={session.user.id} session={session} />
-            <PracticeEntries />
             <div className="learning-tabs" role="tablist" aria-label="学习内容">
               <button
                 role="tab"
@@ -727,6 +764,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onRetry={openPlanPreview}
               />
             )}
+            <DailySentenceCard key={session.user.id} session={session} layout="strip" />
+            <PracticeEntries />
           </div>
         ) : page === 'travel' || page === 'assessment' ? (
           <TravelScenarioPage
@@ -910,10 +949,8 @@ function MasteredWordsPage({
             <article key={word.id}>
               <div>
                 <strong>{word.word}</strong>
-                <p>
-                  {word.part && <span>{word.part}</span>}
-                  {word.meaning}
-                </p>
+                <PhoneticLine word={word} />
+                <MeaningLines word={word} />
               </div>
               <div className="mastered-word-actions">
                 <time dateTime={word.masteredAt}>已掌握</time>
@@ -984,11 +1021,9 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
             <article key={word.id}>
               <div>
                 <strong>{word.word}</strong>
-                <p>
-                  {word.part && <b>{word.part}</b>}
-                  {word.meaning}
-                  <small>{word.bookTitle}</small>
-                </p>
+                <PhoneticLine word={word} />
+                <MeaningLines word={word} />
+                <small>{word.bookTitle}</small>
               </div>
               <span
                 className={`learning-state ${word.state === 'REVIEWING' ? 'is-reviewing' : ''}`}
@@ -1661,8 +1696,10 @@ function WordsPanel({
   onProgressChanged: () => void;
 }) {
   const [mode, setMode] = useState<StudyMode>('group');
+  const [individualSource, setIndividualSource] = useState<IndividualWordSource>('book');
+  const [individualCount, setIndividualCount] = useState(10);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [drawer, setDrawer] = useState<'reading' | 'exam' | null>(null);
+  const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
   const [dashboardWords, setDashboardWords] = useState<DashboardWords>({
     defaultNewWordCount: 10,
     reviewWords: [],
@@ -1763,11 +1800,20 @@ function WordsPanel({
         '/study/plans',
         {
           method: 'POST',
-          body: JSON.stringify({
-            newWordCount: visibleDashboardWords.newWords.length,
-            reviewWordCount: selectedReviewCount,
-            mode,
-          }),
+          body: JSON.stringify(
+            mode === 'individual'
+              ? {
+                  mode,
+                  selection: individualSource,
+                  newWordCount: individualCount,
+                  reviewWordCount: 0,
+                }
+              : {
+                  newWordCount: visibleDashboardWords.newWords.length,
+                  reviewWordCount: selectedReviewCount,
+                  mode,
+                },
+          ),
         },
         session.accessToken,
       );
@@ -1775,7 +1821,7 @@ function WordsPanel({
     } catch (error) {
       const text = error instanceof Error ? error.message : '创建学习计划失败';
       setMessage(text);
-      if (text.includes('大模型')) setDrawer('reading');
+      if (text.includes('大模型')) setReadingSettingsOpen(true);
     } finally {
       creatingPlanRef.current = false;
       setCreatingPlan(false);
@@ -1825,20 +1871,29 @@ function WordsPanel({
             <LayoutList size={15} />
             独立单词
           </button>
-          <button
-            className={`real ${mode === 'exam' ? 'selected' : ''}`}
-            onClick={() => setMode('exam')}
-          >
-            <span>◎</span> 真题 <em>NEW</em>
-          </button>
+          <Tooltip label="原创应试语境，练熟词僻义和搭配">
+            <button
+              className={`real ${mode === 'exam' ? 'selected' : ''}`}
+              onClick={() => setMode('exam')}
+            >
+              <span>◎</span> 应试语境
+            </button>
+          </Tooltip>
           <button
             className="create"
             onClick={() => void createPlan()}
             disabled={
               creatingPlan ||
               !planListReady ||
-              (!existingPlan && !bookWordsReady) ||
-              (!existingPlan && !visibleDashboardWords.newWords.length && selectedReviewCount === 0)
+              (!existingPlan &&
+                mode === 'individual' &&
+                individualSource !== 'mistakes' &&
+                !bookWordsReady) ||
+              (!existingPlan && mode !== 'individual' && !bookWordsReady) ||
+              (!existingPlan &&
+                mode !== 'individual' &&
+                !visibleDashboardWords.newWords.length &&
+                selectedReviewCount === 0)
             }
           >
             {existingPlan?.status === 'FAILED' ? <Sparkles size={15} /> : <BookOpen size={15} />}
@@ -1855,14 +1910,51 @@ function WordsPanel({
           <Tooltip label="模型设置">
             <button
               className="mode-settings-trigger"
-              aria-label={mode === 'exam' ? '真题题库设置' : '阅读材料模型设置'}
-              onClick={() => setDrawer(mode === 'exam' ? 'exam' : 'reading')}
+              aria-label="阅读材料模型设置"
+              onClick={() => setReadingSettingsOpen(true)}
             >
-              {mode === 'exam' ? <ExamBookIcon /> : <FilterSettingsIcon />}
+              <FilterSettingsIcon />
             </button>
           </Tooltip>
         </div>
       </header>
+      {mode === 'exam' && !existingPlan && (
+        <p className="mode-note">
+          应试语境使用本次复习词和新词，生成原创短文。题型侧重熟词僻义、固定搭配和同义替换，不引用真题原卷。
+        </p>
+      )}
+      {mode === 'individual' && !existingPlan && (
+        <div className="word-source-bar">
+          <span>选词来源</span>
+          <div role="group" aria-label="独立单词来源">
+            {INDIVIDUAL_SOURCES.map((source) => (
+              <button
+                key={source.id}
+                type="button"
+                className={individualSource === source.id ? 'selected' : ''}
+                aria-pressed={individualSource === source.id}
+                onClick={() => setIndividualSource(source.id)}
+              >
+                {source.label}
+              </button>
+            ))}
+          </div>
+          <label htmlFor="individual-word-count">
+            数量
+            <input
+              id="individual-word-count"
+              type="range"
+              min={1}
+              max={20}
+              step={1}
+              value={individualCount}
+              onChange={(event) => setIndividualCount(Number(event.target.value))}
+            />
+            <output htmlFor="individual-word-count">{individualCount}</output>
+          </label>
+          <p>{INDIVIDUAL_SOURCES.find((source) => source.id === individualSource)?.hint}</p>
+        </div>
+      )}
       {existingPlan ? (
         <div className="review-session-control" role="status">
           <strong>
@@ -1878,7 +1970,7 @@ function WordsPanel({
             {existingPlan.status !== 'FAILED' && ' 完成后可再选择下一次的复习数量。'}
           </p>
         </div>
-      ) : reviewCount > 0 ? (
+      ) : mode !== 'individual' && reviewCount > 0 ? (
         <div className="review-session-control">
           <label htmlFor="review-session-count">本次复习数量</label>
           <input
@@ -2022,10 +2114,9 @@ function WordsPanel({
           }}
         />
       )}
-      {drawer === 'reading' && (
-        <ReadingModelDrawer session={session} onClose={() => setDrawer(null)} />
+      {readingSettingsOpen && (
+        <ReadingModelDrawer session={session} onClose={() => setReadingSettingsOpen(false)} />
       )}
-      {drawer === 'exam' && <ExamLibraryDrawer onClose={() => setDrawer(null)} />}
     </section>
   );
 }
@@ -2122,89 +2213,6 @@ function ReadingModelDrawer({ session, onClose }: { session: Session; onClose: (
             {item.isSelected && <Check size={24} />}
           </button>
         ))}
-      </div>
-    </StudySettingsDrawer>
-  );
-}
-
-function ExamLibraryDrawer({ onClose }: { onClose: () => void }) {
-  const libraries = [
-    ['CET4 真题', '2014–2025', '66 套', '11,000+ 条'],
-    ['考研英语一', '2009–2023', '15 套', '2,000+ 条'],
-    ['考研英语二', '2009–2024', '16 套', '2,000+ 条'],
-  ];
-  const [automatic, setAutomatic] = useState(true);
-  const [selected, setSelected] = useState<string[]>([]);
-  const selectLibrary = (name: string) => {
-    const nextSelected = selected.includes(name)
-      ? selected.filter((item) => item !== name)
-      : [...selected, name];
-    setSelected(nextSelected);
-    setAutomatic(nextSelected.length === 0);
-  };
-  return (
-    <StudySettingsDrawer title="真题题库设置" onClose={onClose}>
-      <div className={`exam-mode-card ${automatic ? 'is-current' : ''}`}>
-        <FileText size={28} />
-        <div>
-          <button
-            className="mode-choice"
-            onClick={() => {
-              setAutomatic(true);
-              setSelected([]);
-            }}
-            aria-pressed={automatic}
-          >
-            <i className={automatic ? 'checked' : ''} />
-            <strong>自动模式</strong>
-            {automatic ? <b>当前生效</b> : <small>跟随词表</small>}
-            <CircleHelp size={18} />
-          </button>
-          <span>CET4 真题</span>
-        </div>
-      </div>
-      <div className={`exam-mode-card ${!automatic ? 'is-current' : ''}`}>
-        <FileText size={28} />
-        <div className="exam-manual">
-          <button
-            className="mode-choice"
-            onClick={() => selected.length > 0 && setAutomatic(false)}
-            aria-pressed={!automatic}
-          >
-            <i className={!automatic ? 'checked' : ''} />
-            <strong>手动模式</strong>
-            {automatic ? (
-              <small>勾选下方题库后切换</small>
-            ) : (
-              <>
-                <b>当前生效</b>
-                <small>已选 {selected.length}</small>
-              </>
-            )}
-          </button>
-          {!automatic && (
-            <div className="selected-exam-libraries" aria-label="已选题库">
-              {selected.map((name) => (
-                <span key={name}>{name}</span>
-              ))}
-            </div>
-          )}
-          {automatic && <p>从下方题库中勾选范围</p>}
-          {libraries.map(([name, year, sets, count]) => (
-            <button
-              className="exam-library"
-              key={name}
-              onClick={() => selectLibrary(name)}
-              aria-pressed={selected.includes(name)}
-            >
-              <i className={selected.includes(name) ? 'checked' : ''} />
-              <strong>{name}</strong>
-              <span>{year}</span>
-              <span>{sets}</span>
-              <span>{count}</span>
-            </button>
-          ))}
-        </div>
       </div>
     </StudySettingsDrawer>
   );
@@ -2379,10 +2387,8 @@ function WordRow({
     <article className="word-row">
       <div className="word-copy">
         <strong>{word.word}</strong>
-        <p>
-          {word.part && <span>{word.part}</span>}
-          {word.meaning}
-        </p>
+        <PhoneticLine word={word} />
+        <MeaningLines word={word} />
       </div>
       <div className="word-actions">
         {word.state === 'review' && (
@@ -2413,26 +2419,33 @@ function WordRow({
   );
 }
 
-function ExamBookIcon() {
+function MeaningLines({ word }: { word: Pick<Word, 'part' | 'meaning' | 'meanings'> }) {
+  const lines = meaningLinesOf(word);
   return (
-    <svg className="exam-book-icon" viewBox="0 0 1024 1024" aria-hidden="true">
-      <path
-        d="M658.285714 512m-182.857143 0a182.857143 182.857143 0 1 0 365.714286 0 182.857143 182.857143 0 1 0-365.714286 0Z"
-        fill="#D4FD46"
-      />
-      <path
-        d="M362.660571 149.284571H360.228571c-33.097143 0-61.622857 0-84.443428 3.072-24.484571 3.291429-47.926857 10.697143-66.962286 29.732572-19.017143 19.017143-26.441143 42.477714-29.732571 66.962286-3.072 22.838857-3.072 51.346286-3.072 84.443428v431.798857c0 72.155429 58.514286 130.651429 130.669714 130.651429H810.660571a37.339429 37.339429 0 1 0 0-74.660572H306.669714a56.009143 56.009143 0 0 1 0-112H663.771429c33.097143 0 61.622857 0 84.443428-3.072 24.484571-3.291429 47.945143-10.697143 66.962286-29.732571 19.017143-19.017143 26.441143-42.477714 29.732571-66.962286 3.072-22.820571 3.072-51.346286 3.072-84.443428V333.494857c0-33.097143 0-61.622857-3.072-84.443428-3.291429-24.466286-10.697143-47.926857-29.732571-66.962286-19.017143-19.017143-42.477714-26.441143-66.962286-29.732572-22.838857-3.072-51.346286-3.072-84.443428-3.072H362.660571z m-55.990857 485.339429a130.176 130.176 0 0 0-56.009143 12.562286v-311.222857c0-36.260571 0.091429-59.702857 2.413715-76.982858 2.176-16.182857 5.668571-21.248 8.521143-24.100571 2.852571-2.834286 7.917714-6.345143 24.118857-8.521143 17.261714-2.322286 40.704-2.413714 76.946285-2.413714h298.678858c36.242286 0 59.684571 0.091429 76.946285 2.413714 16.201143 2.176 21.266286 5.686857 24.118857 8.521143 2.834286 2.852571 6.345143 7.917714 8.521143 24.118857 2.322286 17.261714 2.413714 40.704 2.413715 76.946286v186.678857c0 36.242286-0.091429 59.684571-2.413715 76.946286-2.176 16.201143-5.668571 21.266286-8.521143 24.118857-2.852571 2.834286-7.917714 6.345143-24.118857 8.521143-17.261714 2.322286-40.704 2.413714-76.946285 2.413714H306.651429z"
-        fill="currentColor"
-      />
-      <path
-        d="M609.554286 363.190857l-3.072 91.392c0 31.488 2.56 57.984 7.68 79.488 5.376 21.504 15.232 36.352 29.568 44.544-17.664 11.008-35.584 16.512-53.76 16.512-32 0-51.712-25.856-59.136-77.568h-78.336c-4.864 16.64-7.296 29.44-7.296 38.4 0 8.704 1.024 15.744 3.072 21.12-18.944 12.032-35.84 18.048-50.688 18.048-22.784 0-34.176-13.824-34.176-41.472 0-13.824 4.224-31.232 12.672-52.224 8.704-20.992 20.096-45.056 34.176-72.192 14.336-27.136 23.424-45.056 27.264-53.76a674.102857 674.102857 0 0 0-9.6-40.704c13.312-9.216 26.112-16.128 38.4-20.736a110.555429 110.555429 0 0 1 40.32-7.296c14.592 0 24.704 3.2 30.336 9.6 14.592-6.4 26.624-9.6 36.096-9.6s16.512 1.536 21.12 4.608c4.608 3.072 7.936 7.552 9.984 13.44 3.584 10.24 5.376 23.04 5.376 38.4z m-77.184 8.832h-12.288c-23.04 44.544-40.192 79.616-51.456 105.216h59.52c0-27.904 1.408-62.976 4.224-105.216z"
-        fill="currentColor"
-      />
-    </svg>
+    <div className="meaning-lines">
+      {lines.map((line, index) => (
+        <p key={`${line.part}-${index}`}>
+          {line.part ? <span>{line.part}</span> : null}
+          {line.text}
+        </p>
+      ))}
+    </div>
   );
 }
 
-const modeLabel = { group: '分组学习', individual: '单词模式', exam: '真题' } as const;
+function PhoneticLine({ word }: { word: Pick<Word, 'word' | 'ukPhonetic' | 'usPhonetic'> }) {
+  const uk = formatPhonetic(word.ukPhonetic, word.word);
+  const us = formatPhonetic(word.usPhonetic, word.word);
+  if (!uk && !us) return null;
+  return (
+    <small className="word-phonetic">
+      {uk ? <span>英 {uk}</span> : null}
+      {us ? <span>美 {us}</span> : null}
+    </small>
+  );
+}
+
+const modeLabel = { group: '分组学习', individual: '单词模式', exam: '应试语境' } as const;
 
 function PlanPreview({
   plan,
@@ -2450,6 +2463,7 @@ function PlanPreview({
   const [index, setIndex] = useState(0);
   const [generating, setGenerating] = useState(plan.status === 'GENERATING');
   const [generationMessage, setGenerationMessage] = useState('');
+  const [audioNote, setAudioNote] = useState('');
   const generationStartedRef = useRef(false);
   const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
@@ -2472,10 +2486,21 @@ function PlanPreview({
         event.preventDefault();
         onClose();
       }
+      if (event.key === ' ' || event.code === 'Space') {
+        event.preventDefault();
+        const result = speakEnglish(word.word);
+        setAudioNote(
+          result === 'played'
+            ? ''
+            : result === 'no-voice'
+              ? '当前没有可用的英语语音，可直接看词。'
+              : '当前浏览器不支持语音播放。',
+        );
+      }
     };
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
-  }, [onClose, plan.wordCount]);
+  }, [onClose, plan.wordCount, word.word]);
 
   const refreshPlan = useCallback(async () => {
     const plans = await request<LearningPlan[]>('/study/plans', {}, session.accessToken);
@@ -2581,16 +2606,39 @@ function PlanPreview({
               <span>New</span>
             </div>
             <div className="preview-pronunciation">
-              /{word.word}/{' '}
-              <button aria-label={`播放 ${word.word} 发音`}>
+              {formatPhonetic(word.ukPhonetic, word.word) ||
+              formatPhonetic(word.usPhonetic, word.word) ? (
+                <>
+                  {formatPhonetic(word.ukPhonetic, word.word) && (
+                    <span>英 {formatPhonetic(word.ukPhonetic, word.word)}</span>
+                  )}
+                  {formatPhonetic(word.usPhonetic, word.word) && (
+                    <span>美 {formatPhonetic(word.usPhonetic, word.word)}</span>
+                  )}
+                </>
+              ) : (
+                <span className="phonetic-empty">暂无音标</span>
+              )}
+              <button
+                type="button"
+                aria-label={`播放 ${word.word} 发音`}
+                onClick={() => {
+                  const result = speakEnglish(word.word);
+                  setAudioNote(
+                    result === 'played'
+                      ? ''
+                      : result === 'no-voice'
+                        ? '当前没有可用的英语语音，可直接看词。'
+                        : '当前浏览器不支持语音播放。',
+                  );
+                }}
+              >
                 <SpeakerIcon />
               </button>
             </div>
+            {audioNote && <p className="phonetic-note">{audioNote}</p>}
             <hr />
-            <p>
-              <b>{word.part}</b>
-              {word.meaning}
-            </p>
+            <MeaningLines word={word} />
             <small>可使用左右方向键切换，空格键播放发音</small>
           </article>
           <button
@@ -2692,69 +2740,34 @@ function PlanPanel({
   );
 }
 
-function SenseLevelBadge({ word }: { word: Word }) {
-  const levels: Record<string, [number, string]> = {
-    health: [5, 'A1'],
-    view: [4, 'B1'],
-    first: [3, 'B2'],
-    public: [4, 'A2'],
-    video: [3, 'B1'],
-  };
-  const [frequency, cefr] = levels[word.word] ?? [3, 'B2'];
+function CefrBadge({ level }: { level: string }) {
   return (
-    <span
-      className={`sense-level level-${frequency}`}
-      tabIndex={0}
-      aria-label={`使用频率 ${frequency}/5，CEFR ${cefr}`}
-    >
-      <i>
-        {Array.from({ length: 5 }, (_, index) => (
-          <b key={index} className={index < frequency ? 'filled' : ''} />
-        ))}
-      </i>
-      <em>{cefr}</em>
+    <span className="sense-level" tabIndex={0} aria-label={`CEFR ${level}`}>
+      <em>{level}</em>
       <span className="sense-level-tooltip">
-        <strong>词义级别说明</strong>
-        <b>使用频率 {frequency}/5</b>
-        <p>
-          {frequency >= 4
-            ? '高频词义，日常对话和常见阅读中经常出现。'
-            : frequency >= 2
-              ? '常用词义，在新闻、书籍和正式场合中稳定出现。'
-              : '低频词义，适合在特定语境中重点辨认。'}
-        </p>
-        <b>
-          CEFR 级别 <em>{cefr}</em>
-        </b>
-        <p>
-          {cefr === 'A1'
-            ? '基础入门词义，适合日常简单交流。'
-            : cefr.startsWith('B')
-              ? '进阶表达词义，用于更复杂的交流与阅读。'
-              : '常用学习阶段词义。'}
-        </p>
+        <strong>CEFR {level}</strong>
+        <p>这是词条上记录的等级。没有等级时不显示徽章。</p>
       </span>
     </span>
   );
 }
 
 function WordMeaningCard({ word }: { word: Word }) {
-  const senses = word.meaning.split('｜');
+  const lines = meaningLinesOf(word);
   return (
     <section className="word-meaning-card">
       <div className="word-meaning-word">
-        <span>{word.part}</span>
         <strong>{word.word}</strong>
       </div>
       <div className="meaning-senses">
-        {senses.map((sense, index) => (
-          <p key={sense}>
-            <b>{index + 1}</b>
-            {sense}
+        {lines.map((line, index) => (
+          <p key={`${line.part}-${index}`}>
+            {line.part ? <b className="pos-label">{line.part}</b> : <b>{index + 1}</b>}
+            {line.text}
           </p>
         ))}
       </div>
-      <SenseLevelBadge word={word} />
+      {word.cefrLevel ? <CefrBadge level={word.cefrLevel} /> : null}
     </section>
   );
 }

@@ -20,9 +20,24 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
+import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
 
 const DAY = 86_400_000;
 const MAX_DAILY_REVIEW_WORDS = 40;
+const MAX_INDIVIDUAL_WORDS = 20;
+const EXAM_QUESTION_CYCLE = [
+  'MEANING_RECOGNITION',
+  'MEANING_RECOGNITION',
+  'WORD_MATCHING',
+  'WORD_MATCHING',
+  'MEANING_RECOGNITION',
+  'SYNONYM_REPLACEMENT',
+  'WORD_MATCHING',
+  'SYNONYM_REPLACEMENT',
+  'MEANING_RECOGNITION',
+  'READING_COMPREHENSION',
+] as const;
+export type IndividualWordSelection = 'book' | 'mistakes' | 'random' | 'frequent';
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -34,7 +49,13 @@ const modeMap = {
   exam: StudyPlanMode.EXAM,
 } as const;
 type RequestedMode = keyof typeof modeMap;
-type PlanWord = { id: string; word: string; part: string; meaning: string };
+type PlanWord = {
+  id: string;
+  word: string;
+  part: string;
+  meaning: string;
+  senses?: MeaningLine[];
+};
 type GeneratedQuestion = {
   bookWordId: string;
   type:
@@ -87,6 +108,7 @@ export class StudyService {
     requestedNewWordCount?: number,
     requestedMode: RequestedMode = 'group',
     requestedReviewWordCount?: number,
+    selection?: IndividualWordSelection,
   ) {
     const mode = modeMap[requestedMode];
     if (!mode) throw new BadRequestException('不支持的学习模式');
@@ -98,8 +120,15 @@ export class StudyService {
     ) {
       throw new BadRequestException(`本次复习数量必须在 0 到 ${MAX_DAILY_REVIEW_WORDS} 之间`);
     }
-    if (mode === StudyPlanMode.EXAM)
-      throw new BadRequestException('真题模式正在建设中，当前不会调用大模型');
+    if (selection && mode !== StudyPlanMode.INDIVIDUAL) {
+      throw new BadRequestException('选词来源只适用于独立单词模式');
+    }
+    if (selection) {
+      const count = requestedNewWordCount ?? 10;
+      if (!Number.isInteger(count) || count < 1 || count > MAX_INDIVIDUAL_WORDS) {
+        throw new BadRequestException(`独立单词每次可选 1 到 ${MAX_INDIVIDUAL_WORDS} 个`);
+      }
+    }
     if (!(await this.modelConfigs.selectedProvider(userId))) {
       throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     }
@@ -128,39 +157,15 @@ export class StudyService {
         where: { id: userId },
         select: { defaultNewWordCount: true },
       });
-      const [review, defaultBook] = await Promise.all([
-        tx.userWordProgress.findMany({
-          where: {
+      const picked = selection
+        ? await selectIndividualWords(tx, userId, selection, requestedNewWordCount ?? 10)
+        : await selectDailyWords(
+            tx,
             userId,
-            state: WordProgressState.REVIEWING,
-            nextReviewAt: { lte: new Date() },
-            bookWord: { word: { masteredBy: { none: { userId } } } },
-          },
-          orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }, { bookWordId: 'asc' }],
-          take: requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS,
-          select: { bookWordId: true },
-        }),
-        tx.userVocabularyBook.findFirst({
-          where: { userId, isDefault: true },
-          select: { bookId: true },
-        }),
-      ]);
-      const newWordCount = requestedNewWordCount ?? user.defaultNewWordCount;
-      const newWords = defaultBook
-        ? await tx.vocabularyBookWord.findMany({
-            where: {
-              bookId: defaultBook.bookId,
-              progress: { none: { userId } },
-              word: { masteredBy: { none: { userId } } },
-            },
-            orderBy: { position: 'asc' },
-            take: newWordCount,
-            select: { id: true },
-          })
-        : [];
-      const reviewIds = review.map((item) => item.bookWordId);
-      const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
-      const ids = shuffle([...reviewIds, ...newIds]);
+            requestedNewWordCount ?? user.defaultNewWordCount,
+            requestedReviewWordCount,
+          );
+      const ids = selection ? picked.orderedIds : shuffle(picked.orderedIds);
       if (!ids.length) throw new BadRequestException('当前没有可加入学习计划的单词');
       const groups = buildGroups(ids, mode);
       const created = await tx.studyPlan.create({
@@ -171,15 +176,19 @@ export class StudyService {
           status: StudyPlanStatus.GENERATING,
         },
       });
+      let examIndex = 0;
       await tx.studyPlanItem.createMany({
         data: groups.flatMap((group, groupIndex) =>
           group.map((bookWordId) => ({
             planId: created.id,
             bookWordId,
-            source: reviewIds.includes(bookWordId)
+            source: picked.reviewIds.includes(bookWordId)
               ? StudyPlanItemSource.REVIEW
               : StudyPlanItemSource.NEW,
             groupIndex,
+            ...(mode === StudyPlanMode.EXAM
+              ? { targetQuestionType: examQuestionType(examIndex++) }
+              : {}),
           })),
         ),
       });
@@ -201,8 +210,6 @@ export class StudyService {
     if (!plan) throw new NotFoundException('学习计划不存在');
     if (plan.status === StudyPlanStatus.ACTIVE || plan.status === StudyPlanStatus.COMPLETED)
       return this.serializePlan(planId, userId);
-    if (plan.mode === StudyPlanMode.EXAM)
-      throw new BadRequestException('真题模式不使用 AI 生成内容');
     if (!(await this.modelConfigs.selectedProvider(userId))) {
       throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     }
@@ -228,12 +235,16 @@ export class StudyService {
       result.set(item.groupIndex, current);
       return result;
     }, new Map<number, typeof plan.items>());
-    const words = plan.items.map((item) => ({
-      id: item.bookWordId,
-      word: item.bookWord.word.text,
-      part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
-      meaning: meaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
-    }));
+    const words = plan.items.map((item) => {
+      const lexical = lexicalFields(item.bookWord.contextMeaning ?? item.bookWord.word.meaning);
+      return {
+        id: item.bookWordId,
+        word: item.bookWord.word.text,
+        part: lexical.part,
+        meaning: lexical.meaning,
+        senses: lexical.meanings,
+      };
+    });
     const groupSpec = [...grouped.entries()].map(([index, items]) => ({
       index,
       words: items.map((item) => words.find((word) => word.id === item.bookWordId)!),
@@ -563,9 +574,7 @@ export class StudyService {
     );
     const items = plan.items.map((item) => ({
       id: item.bookWordId,
-      word: item.bookWord.word.text,
-      part: part(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
-      meaning: meaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
+      ...presentLexicalWord(item.bookWord.word, item.bookWord.contextMeaning),
       source: item.source,
       groupIndex: item.groupIndex,
       question: publicStudyQuestion(item.question, submittedGroups.has(item.groupIndex)),
@@ -763,13 +772,40 @@ export function contentSignature(
     .digest('hex');
 }
 
-function generationPrompt(
+export function examQuestionType(index: number) {
+  return EXAM_QUESTION_CYCLE[index % EXAM_QUESTION_CYCLE.length];
+}
+
+export function generationPrompt(
   mode: StudyPlanMode,
   groups: Array<{ index: number; words: PlanWord[]; targetQuestionTypes?: Record<string, string> }>,
   purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
 ) {
-  return `为 Lexloop 生成一份${purpose === StudyPlanPurpose.WEAKNESS ? '薄弱词专项' : mode === StudyPlanMode.INDIVIDUAL ? '独立单词' : '随机分组'}学习计划。
+  const exam = mode === StudyPlanMode.EXAM;
+  const label =
+    purpose === StudyPlanPurpose.WEAKNESS
+      ? '薄弱词专项'
+      : exam
+        ? '应试语境'
+        : mode === StudyPlanMode.INDIVIDUAL
+          ? '独立单词'
+          : '随机分组';
+  return `为 Lexloop 生成一份${label}学习计划。
 输入分组：${JSON.stringify(groups)}
+${
+  exam
+    ? `
+应试语境补充规则：
+- 材料必须原创。禁止复述、翻译、改写或仿写任何真实试卷、真题原文、版权阅读篇章或听力原文。
+- 语境贴近阅读、完形或翻译题里的新闻、学术或校园场景，但句子、题干和选项都要新写。
+- 输入里的 targetQuestionTypes 是本题型配比，必须严格使用，不要改成其他题型，也不要使用 WORD_MNEMONIC。
+- MEANING_RECOGNITION 优先考查熟词僻义：正确项对应当前语境里较不常用或易混的义项，干扰项使用该词更常见的义项。senses 里列出的各词性都要考虑。
+- WORD_MATCHING 考查同一目标词的固定搭配，以及不同搭配下的语义差别。
+- SYNONYM_REPLACEMENT 考查在当前应试句子里可以原样替换的近义表达。
+- READING_COMPREHENSION 只依据本组原创短文考查词义或细节。
+`
+    : ''
+}
 
 必须只返回以下 JSON 结构：
 {"groups":[{"index":0,"title":"英文短标题","wordOccurrences":{"word":2},"sentences":[{"english":"英文句子","chinese":"完整中文翻译","simplified":"除目标单词保留英文外，其余内容翻成中文的中英混合句","grammar":"中文语法结构提示"}],"questions":[{"bookWordId":"输入中的 id","type":"WORD_MNEMONIC|MEANING_RECOGNITION|WORD_MATCHING|SYNONYM_REPLACEMENT|READING_COMPREHENSION","prompt":"题干","options":["选项"],"correctAnswers":["正确选项原文"],"explanation":"中文简明解析","optionNotes":["与 options 对齐的中文提示"],"pairs":[{"left":"包含目标词的英文单词或短语","right":"中文功能或语义描述","tip":"补充说明该释义侧重的语境或功能"}]}]}]}
@@ -778,7 +814,7 @@ function generationPrompt(
 1. 每组 2–4 个自然、连贯且难度适中的英文句子，全文尽量不超过 90 个英文单词；独立单词材料尽量不超过 55 个英文单词。
 2. 每组每个目标单词必须至少自然出现一次，并准确填写 wordOccurrences；不要为了次数生硬重复。
 3. 每个英文句子必须有逐句 chinese、simplified 和 grammar。simplified 中目标单词保持英文原样，其余译成自然中文；grammar 用中文简要说明句子主干或目标词作用。
-4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；五种题型轮换使用。所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
+4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；${exam ? '题型以 targetQuestionTypes 为准。' : '五种题型轮换使用。'}所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
 5. WORD_MNEMONIC 是多选题：英文题干和 4 个英文候选项，围绕可靠的词根、词缀、派生词或形音义联想；correctAnswers 可多项。解析用中文逐项说明关系，不得编造词源。
 6. MEANING_RECOGNITION 是单选题：英文语境题干中必须自然出现目标词；4 个 options 必须是相近、同粒度的中文释义，正确项只对应当前语境，其他项是该词其他义项或合理近义干扰项。
 7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。
@@ -900,12 +936,141 @@ export { unfamiliarityScore };
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-function part(value: string | null) {
-  return value?.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[1] ?? '';
+
+type PlanWordPick = { orderedIds: string[]; reviewIds: string[] };
+
+async function selectDailyWords(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  newWordCount: number,
+  requestedReviewWordCount?: number,
+): Promise<PlanWordPick> {
+  const [review, defaultBook] = await Promise.all([
+    tx.userWordProgress.findMany({
+      where: {
+        userId,
+        state: WordProgressState.REVIEWING,
+        nextReviewAt: { lte: new Date() },
+        bookWord: { word: { masteredBy: { none: { userId } } } },
+      },
+      orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }, { bookWordId: 'asc' }],
+      take: requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS,
+      select: { bookWordId: true },
+    }),
+    tx.userVocabularyBook.findFirst({
+      where: { userId, isDefault: true },
+      select: { bookId: true },
+    }),
+  ]);
+  const reviewIds = review.map((item) => item.bookWordId);
+  const newWords = defaultBook
+    ? await tx.vocabularyBookWord.findMany({
+        where: {
+          bookId: defaultBook.bookId,
+          progress: { none: { userId } },
+          word: { masteredBy: { none: { userId } } },
+        },
+        orderBy: { position: 'asc' },
+        take: newWordCount,
+        select: { id: true },
+      })
+    : [];
+  const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
+  return { orderedIds: [...reviewIds, ...newIds], reviewIds };
 }
-function meaning(value: string | null) {
-  const raw = value ?? '暂无释义';
-  return raw.slice(
-    raw.match(/^((?:adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.)\s*/i)?.[0].length ?? 0,
-  );
+
+async function selectIndividualWords(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  selection: IndividualWordSelection,
+  count: number,
+): Promise<PlanWordPick> {
+  if (selection === 'mistakes') {
+    const signals = await tx.weaknessSignal.findMany({
+      where: {
+        userId,
+        status: WeaknessStatus.ACTIVE,
+        bookWord: { word: { masteredBy: { none: { userId } } } },
+      },
+      orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }, { bookWordId: 'asc' }],
+      select: { bookWordId: true },
+      take: 100,
+    });
+    const ids = [...new Set(signals.map((item) => item.bookWordId))].slice(0, count);
+    if (!ids.length) throw new BadRequestException('错题本里还没有可练习的待巩固词');
+    return { orderedIds: ids, reviewIds: ids };
+  }
+
+  const defaultBook = await tx.userVocabularyBook.findFirst({
+    where: { userId, isDefault: true },
+    select: { bookId: true },
+  });
+  if (!defaultBook) throw new BadRequestException('请先选择一本默认词书');
+
+  let ids: string[] = [];
+  if (selection === 'book') {
+    const rows = await tx.vocabularyBookWord.findMany({
+      where: {
+        bookId: defaultBook.bookId,
+        progress: { none: { userId } },
+        word: { masteredBy: { none: { userId } } },
+      },
+      orderBy: { position: 'asc' },
+      take: count,
+      select: { id: true },
+    });
+    ids = rows.map((row) => row.id);
+    if (!ids.length) throw new BadRequestException('当前默认词书没有还没学过的词');
+    return { orderedIds: ids, reviewIds: [] };
+  }
+
+  if (selection === 'random') {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT bw.id
+      FROM "VocabularyBookWord" bw
+      JOIN "VocabularyWord" w ON w.id = bw."wordId"
+      WHERE bw."bookId" = ${defaultBook.bookId}
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserMasteredWord" m
+          WHERE m."userId" = ${userId} AND m."wordId" = w.id
+        )
+      ORDER BY random()
+      LIMIT ${count}
+    `);
+    ids = rows.map((row) => row.id);
+  } else {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT bw.id
+      FROM "VocabularyBookWord" bw
+      JOIN "VocabularyWord" w ON w.id = bw."wordId"
+      LEFT JOIN "UserWordProgress" p
+        ON p."bookWordId" = bw.id AND p."userId" = ${userId}
+      WHERE bw."bookId" = ${defaultBook.bookId}
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserMasteredWord" m
+          WHERE m."userId" = ${userId} AND m."wordId" = w.id
+        )
+      ORDER BY
+        COALESCE(w."spokenPriority", 0) DESC,
+        COALESCE(p."totalAttempts", 0) DESC,
+        CASE w."cefrLevel"::text
+          WHEN 'A1' THEN 0
+          WHEN 'A2' THEN 1
+          WHEN 'B1' THEN 2
+          WHEN 'B2' THEN 3
+          WHEN 'C1' THEN 4
+          ELSE 5
+        END ASC,
+        bw.position ASC
+      LIMIT ${count}
+    `);
+    ids = rows.map((row) => row.id);
+  }
+  if (!ids.length) throw new BadRequestException('当前默认词书没有可练习的词');
+  const progressed = await tx.userWordProgress.findMany({
+    where: { userId, bookWordId: { in: ids } },
+    select: { bookWordId: true },
+  });
+  const reviewIds = progressed.map((item) => item.bookWordId);
+  return { orderedIds: ids, reviewIds };
 }

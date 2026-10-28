@@ -3345,13 +3345,28 @@ button {
 .study-sidebar {
   width: 220px;
   flex: 0 0 220px;
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #fff;
   color: var(--border-color);
   border-right: 3px solid var(--border-color);
   z-index: 10;
+}
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sidebar-account-wrap,
+.sidebar-bottom,
+.study-sidebar::after {
+  flex-shrink: 0;
 }
 .sidebar-account-wrap {
   position: relative;
@@ -4079,9 +4094,10 @@ button {
 .panel-top {
   min-height: 86px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   padding: 16px 28px;
-  gap: 24px;
+  gap: 16px 24px;
   border-bottom: 3px dashed var(--border-color);
   background: var(--soft);
   border-radius: 9px 9px 0 0;
@@ -4090,7 +4106,8 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 230px;
+  min-width: 0;
+  flex: 0 1 auto;
   color: var(--border-color);
 }
 .panel-title svg {
@@ -4101,8 +4118,9 @@ button {
   font-weight: 800;
 }
 .panel-progress {
-  flex: 1;
-  width: 100%;
+  flex: 1 1 220px;
+  width: auto;
+  min-width: min(100%, 200px);
   max-width: 310px;
   color: var(--border-color);
 }
@@ -4253,8 +4271,14 @@ button {
 }
 .toolbar {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
+  flex: 1 1 auto;
+  min-width: min(100%, 460px);
+  max-width: 100%;
   margin-left: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: #fff;
   padding: 6px;
   border-radius: 12px;
@@ -4263,10 +4287,12 @@ button {
 }
 .toolbar button {
   height: 40px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 16px;
+  white-space: nowrap;
   color: var(--border-color);
   border: 2px solid transparent;
   background: transparent;
@@ -4335,6 +4361,61 @@ button {
 .toolbar .mode-settings-trigger:active {
   transform: none;
   box-shadow: none;
+}
+.mode-note,
+.word-source-bar {
+  color: var(--border-color);
+}
+.mode-note {
+  margin: 0;
+  padding: 14px 28px 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.word-source-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px 28px;
+  border-bottom: 2px dashed rgba(8, 40, 119, 0.35);
+}
+.word-source-bar > span,
+.word-source-bar label,
+.word-source-bar p {
+  font-size: 13px;
+  font-weight: 800;
+}
+.word-source-bar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.word-source-bar button {
+  height: 36px;
+  padding: 0 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--border-color);
+  font-weight: 800;
+  cursor: pointer;
+}
+.word-source-bar button.selected {
+  background: var(--gold);
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+.word-source-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.word-source-bar p {
+  flex: 1 1 220px;
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .word-columns {
   display: grid;
@@ -4449,8 +4530,8 @@ button {
   padding: 0;
 }
 .word-row {
-  height: 128px;
-  min-height: 128px;
+  height: auto;
+  min-height: 96px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -4479,18 +4560,48 @@ button {
   font-size: 22px;
   font-weight: 800;
 }
-.word-copy p {
-  max-height: 48px;
+.word-copy p,
+.meaning-lines p {
+  max-height: none;
   margin: 0;
   overflow: hidden;
   color: var(--border-color);
   opacity: 0.85;
   font-size: 16px;
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   font-weight: 600;
+}
+.word-copy .meaning-lines {
+  max-height: 52px;
+  overflow: hidden;
+}
+.meaning-lines p + p {
+  margin-top: 4px;
+}
+.meaning-lines p span,
+.word-phonetic {
+  color: var(--border-color);
+}
+.meaning-lines p span {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--gold);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  opacity: 1;
+}
+.word-phonetic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -2px 0 6px;
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
 }
 .word-copy p span {
   display: inline-block;
@@ -4818,12 +4929,22 @@ button {
 }
 .preview-pronunciation {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-top: 20px;
   font-family: 'DM Mono', monospace;
   font-size: 18px;
   font-weight: 800;
+}
+.phonetic-empty,
+.phonetic-note {
+  font-family: 'DM Sans', 'PingFang SC', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+.phonetic-note {
+  margin: 8px 0 0;
 }
 .preview-pronunciation button {
   display: grid;
@@ -7533,6 +7654,11 @@ button {
 @media (max-width: 920px) {
   .study-sidebar {
     position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100dvh;
+    max-height: 100dvh;
     z-index: 20;
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.81, -0.04, 0.38, 1.5);
@@ -7563,7 +7689,10 @@ button {
   .panel-top {
     flex-wrap: wrap;
   }
+  .panel-progress,
   .toolbar {
+    flex: 1 1 100%;
+    max-width: 100%;
     margin-left: 0;
   }
   .word-columns {
@@ -7627,15 +7756,12 @@ button {
     max-width: none;
   }
   .toolbar {
-    overflow: auto;
+    overflow-x: auto;
     max-width: 100%;
     padding-bottom: 4px;
   }
   .toolbar button {
     flex-shrink: 0;
-  }
-  .toolbar .create {
-    display: none;
   }
   .word-columns {
     grid-template-columns: 1fr;
@@ -8221,7 +8347,7 @@ button {
 }
 .study-sidebar::after {
   content: '学习笔记';
-  margin: auto 17px 18px;
+  margin: 0 17px 18px;
   padding-top: 13px;
   border-top: 2px dashed rgba(8, 40, 119, 0.35);
   color: var(--border-color);
@@ -13981,6 +14107,15 @@ button {
   background: #eaf2ff;
   font-family: 'DM Mono', monospace;
   font-size: 11px;
+}
+.word-meaning-card .meaning-senses p > b.pos-label {
+  width: auto;
+  height: auto;
+  padding: 1px 6px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: #fff4b9;
+  font-size: 12px;
 }
 .word-meaning-card > .sense-level {
   justify-self: end;

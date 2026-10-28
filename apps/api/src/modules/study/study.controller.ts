@@ -26,6 +26,11 @@ class CreatePlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100) newWordCount?: number;
   @IsOptional() @IsInt() @Min(0) @Max(40) reviewWordCount?: number;
   @IsOptional() @IsIn(['group', 'individual', 'exam']) mode?: 'group' | 'individual' | 'exam';
+  @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent']) selection?:
+    | 'book'
+    | 'mistakes'
+    | 'random'
+    | 'frequent';
 }
 class CompletedHistoryQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
@@ -46,7 +51,13 @@ export class StudyController {
     return this.study.listCompletedPlans(request.user.sub, query.page, query.pageSize);
   }
   @Post('plans') create(@Req() request: AuthenticatedRequest, @Body() dto: CreatePlanDto) {
-    return this.study.createPlan(request.user.sub, dto.newWordCount, dto.mode, dto.reviewWordCount);
+    return this.study.createPlan(
+      request.user.sub,
+      dto.newWordCount,
+      dto.mode,
+      dto.reviewWordCount,
+      dto.selection,
+    );
   }
   @Post('plans/:planId/generate') generate(
     @Req() request: AuthenticatedRequest,
