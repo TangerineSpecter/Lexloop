@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.50',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '新作答不会被迟到的忽略操作覆盖',
+        entry: '错题本 → 薄弱项 → 暂时忽略',
+        usage:
+          '若答题与手动调整薄弱项状态同时发生，服务端会保留新作答；已纠正的薄弱项不能被旧请求改回忽略，其他冲突会提示刷新后重试。',
+      },
+    ],
+  },
+  {
     version: '1.27.49',
     date: '2026-10-28',
     items: [

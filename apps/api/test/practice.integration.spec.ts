@@ -331,4 +331,175 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       await prisma.$disconnect();
     }
   }, 30_000);
+
+  it('keeps newer weakness corrections when an older ignore request finishes late', async () => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: process.env.PRACTICE_TEST_DATABASE_URL! } },
+    });
+    const fixtureId = randomUUID();
+    const user = await prisma.user.create({
+      data: {
+        email: `weakness-status-${fixtureId}@example.invalid`,
+        passwordHash: 'isolated-test-fixture',
+      },
+    });
+    const anotherUser = await prisma.user.create({
+      data: {
+        email: `weakness-status-other-${fixtureId}@example.invalid`,
+        passwordHash: 'isolated-test-fixture',
+      },
+    });
+    let bookId: string | undefined;
+    try {
+      const book = await prisma.vocabularyBook.create({
+        data: {
+          ownerId: user.id,
+          kind: 'PERSONAL',
+          sourceKey: fixtureId,
+          title: 'Weakness status race test',
+          sourcePath: 'test',
+          category: 'GENERAL',
+        },
+      });
+      bookId = book.id;
+      const words = await Promise.all(
+        ['resolved', 'reactivated'].map((text) =>
+          prisma.vocabularyWord.create({
+            data: {
+              normalized: `weakness-status-${fixtureId}-${text}`,
+              text,
+              meaning: '状态竞态测试',
+            },
+          }),
+        ),
+      );
+      const bookWords = await Promise.all(
+        words.map((word, position) =>
+          prisma.vocabularyBookWord.create({
+            data: { bookId: book.id, wordId: word.id, position },
+          }),
+        ),
+      );
+      const now = new Date(Date.now() - 1_000);
+      const signals = await Promise.all(
+        bookWords.map((bookWord) =>
+          prisma.weaknessSignal.create({
+            data: {
+              userId: user.id,
+              bookWordId: bookWord.id,
+              questionType: 'MEANING_RECOGNITION',
+              status: 'ACTIVE',
+              wrongCount: 1,
+              consecutiveCorrect: 1,
+              lastWrongAt: now,
+              lastAttemptAt: now,
+            },
+          }),
+        ),
+      );
+      const mistakes = new MistakesService(prisma as never);
+      await expect(mistakes.setStatus(anotherUser.id, signals[0].id, 'IGNORED')).rejects.toThrow(
+        '薄弱项不存在',
+      );
+      expect(
+        await prisma.weaknessSignal.findUniqueOrThrow({ where: { id: signals[0].id } }),
+      ).toMatchObject({ status: 'ACTIVE', consecutiveCorrect: 1 });
+
+      const pauseStatusRequestAfterRead = (signalId: string) => {
+        let markRead!: () => void;
+        let resume!: () => void;
+        const read = new Promise<void>((resolve) => {
+          markRead = resolve;
+        });
+        const paused = new Promise<void>((resolve) => {
+          resume = resolve;
+        });
+        let firstReadPaused = false;
+        const delayedPrisma = {
+          weaknessSignal: {
+            findFirst: async (args: { where?: { id?: string } }) => {
+              const current = await prisma.weaknessSignal.findFirst(args as never);
+              if (!firstReadPaused && args.where?.id === signalId) {
+                firstReadPaused = true;
+                markRead();
+                await paused;
+              }
+              return current;
+            },
+            updateManyAndReturn: (args: never) => prisma.weaknessSignal.updateManyAndReturn(args),
+          },
+        };
+        return {
+          service: new MistakesService(delayedPrisma as never),
+          read,
+          resume,
+        };
+      };
+
+      const delayedResolution = pauseStatusRequestAfterRead(signals[0].id);
+      const staleIgnore = delayedResolution.service.setStatus(user.id, signals[0].id, 'IGNORED');
+      await delayedResolution.read;
+      await prisma.$transaction((tx) =>
+        mistakes.recordAttempt(tx, {
+          userId: user.id,
+          bookWordId: bookWords[0].id,
+          questionType: 'MEANING_RECOGNITION',
+          isCorrect: true,
+          at: new Date(),
+        }),
+      );
+      delayedResolution.resume();
+      await expect(staleIgnore).rejects.toThrow('已纠正的薄弱项不能手动修改状态');
+      expect(
+        await prisma.weaknessSignal.findUniqueOrThrow({ where: { id: signals[0].id } }),
+      ).toMatchObject({ status: 'RESOLVED', consecutiveCorrect: 2, ignoredAt: null });
+
+      const delayedReactivation = pauseStatusRequestAfterRead(signals[1].id);
+      const staleIgnoreAfterError = delayedReactivation.service.setStatus(
+        user.id,
+        signals[1].id,
+        'IGNORED',
+      );
+      await delayedReactivation.read;
+      await prisma.$transaction((tx) =>
+        mistakes.recordAttempt(tx, {
+          userId: user.id,
+          bookWordId: bookWords[1].id,
+          questionType: 'MEANING_RECOGNITION',
+          isCorrect: false,
+          at: new Date(),
+        }),
+      );
+      delayedReactivation.resume();
+      await expect(staleIgnoreAfterError).rejects.toThrow('薄弱项刚有新的作答，请刷新错题本后重试');
+      expect(
+        await prisma.weaknessSignal.findUniqueOrThrow({ where: { id: signals[1].id } }),
+      ).toMatchObject({
+        status: 'ACTIVE',
+        wrongCount: 2,
+        consecutiveCorrect: 0,
+        ignoredAt: null,
+      });
+
+      expect(await mistakes.setStatus(user.id, signals[1].id, 'IGNORED')).toMatchObject({
+        status: 'IGNORED',
+        wrongCount: 2,
+        ignoredAt: expect.any(Date),
+      });
+      expect(await mistakes.setStatus(user.id, signals[1].id, 'ACTIVE')).toMatchObject({
+        status: 'ACTIVE',
+        wrongCount: 2,
+        ignoredAt: null,
+      });
+    } finally {
+      await prisma.weaknessSignal.deleteMany({ where: { userId: user.id } });
+      if (bookId) await prisma.vocabularyBook.deleteMany({ where: { id: bookId } });
+      await prisma.vocabularyWord.deleteMany({
+        where: { normalized: { startsWith: `weakness-status-${fixtureId}-` } },
+      });
+      await prisma.user.delete({ where: { id: user.id } });
+      await prisma.user.delete({ where: { id: anotherUser.id } });
+      await prisma.$disconnect();
+    }
+  }, 30_000);
 });

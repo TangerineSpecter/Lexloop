@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   Prisma,
   StudyPlanItemSource,
@@ -190,10 +195,25 @@ export class MistakesService {
     if (!signal) throw new NotFoundException('薄弱项不存在');
     if (signal.status === WeaknessStatus.RESOLVED)
       throw new BadRequestException('已纠正的薄弱项不能手动修改状态');
-    return this.prisma.weaknessSignal.update({
-      where: { id },
+
+    const [updated] = await this.prisma.weaknessSignal.updateManyAndReturn({
+      where: {
+        id,
+        userId,
+        status: signal.status,
+        wrongCount: signal.wrongCount,
+        consecutiveCorrect: signal.consecutiveCorrect,
+      },
       data: { status, ignoredAt: status === 'IGNORED' ? new Date() : null },
     });
+    if (updated) return updated;
+
+    const current = await this.prisma.weaknessSignal.findFirst({ where: { id, userId } });
+    if (!current) throw new NotFoundException('薄弱项不存在');
+    if (current.status === WeaknessStatus.RESOLVED)
+      throw new BadRequestException('已纠正的薄弱项不能手动修改状态');
+    if (current.status === status) return current;
+    throw new ConflictException('薄弱项刚有新的作答，请刷新错题本后重试');
   }
 
   async createPracticePlan(userId: string, requestedBookWordIds: string[]) {
