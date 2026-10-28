@@ -58,6 +58,11 @@ export class TravelController {
   @Get('scenario-sessions/active') resumableScenario(@Req() request: AuthenticatedRequest) {
     return this.travel.resumableScenario(request.user.sub);
   }
+  @Get('scenario-sessions/latest-report') latestScenarioReport(
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.travel.latestScenarioReport(request.user.sub);
+  }
   @Post('scenario-sessions') startScenario(
     @Req() request: AuthenticatedRequest,
     @Body() dto: StartScenarioDto,

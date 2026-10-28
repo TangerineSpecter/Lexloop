@@ -148,6 +148,7 @@ test(
               });
             }
             if (path.endsWith('/api/v1/scenario-sessions/session-a/complete') && method === 'POST') return Response.json({ outcome: 'PARTIAL', dimensions: { vocabulary: 50, grammar: 50, sentenceBuilding: 50, taskCompletion: 50, naturalness: 50 }, rewrites: [{ type: 'naturalness', original: 'I want check in.', natural: 'I’d like to check in.', explanation: 'would like to 是更礼貌的请求表达。' }], grammarFrames: scenario.grammarFrames, evidence: scenario.objectives.map(objective => ({ objective, completed: false })), vocabulary: [], recommendation: '先复习这页句子骨架，再试一次。' });
+            if (path.endsWith('/api/v1/scenario-sessions/latest-report')) return Response.json(null);
             if (path.includes('/api/v1/')) {
               window.travelFeedbackFixture.errors.push(method + ' ' + path);
               return Response.json([]);

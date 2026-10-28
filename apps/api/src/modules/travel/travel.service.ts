@@ -306,6 +306,27 @@ export class TravelService {
     };
   }
 
+  async latestScenarioReport(userId: string) {
+    const session = await this.prisma.scenarioSession.findFirst({
+      where: {
+        userId,
+        status: ScenarioSessionStatus.COMPLETED,
+        completedAt: { not: null },
+        report: { isNot: null },
+      },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+      include: { template: true, report: true },
+    });
+    if (!session?.report || !session.completedAt) return null;
+
+    return {
+      session: this.publicSession(session),
+      completedAt: session.completedAt,
+      template: this.publicTemplate(session.template),
+      report: this.publicReport(session.report),
+    };
+  }
+
   async startScenario(userId: string, templateId: string) {
     const template = await this.prisma.scenarioTemplate.findFirst({
       where: { id: templateId, isActive: true },

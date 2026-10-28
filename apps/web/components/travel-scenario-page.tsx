@@ -143,6 +143,12 @@ type Report = {
   vocabulary: VocabularyCandidate[];
   recommendation: string;
 };
+type LatestScenarioReport = {
+  session: ScenarioSession;
+  completedAt: string;
+  template: Scenario;
+  report: Report;
+};
 type PersonalItem = {
   id: string;
   text: string;
@@ -186,6 +192,11 @@ export function TravelScenarioPage({
   const [personal, setPersonal] = useState<PersonalItem[]>([]);
   const [resumable, setResumable] = useState<ScenarioStart | null>(null);
   const [resumableOwnerId, setResumableOwnerId] = useState(session.user.id);
+  const [latestReport, setLatestReport] = useState<LatestScenarioReport | null>(null);
+  const [latestReportStatus, setLatestReportStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  const [latestReportError, setLatestReportError] = useState('');
   const [category, setCategory] = useState<Category | 'ALL'>('ALL');
   const [assessment, setAssessment] = useState<AssessmentState | null>(null);
   const [active, setActive] = useState<ScenarioStart | null>(null);
@@ -196,11 +207,33 @@ export function TravelScenarioPage({
   const currentUserIdRef = useRef(session.user.id);
   currentUserIdRef.current = session.user.id;
 
+  const loadLatestReport = useCallback(async () => {
+    const ownerId = session.user.id;
+    setLatestReportStatus('loading');
+    setLatestReportError('');
+    setLatestReport(null);
+    try {
+      const result = await request<LatestScenarioReport | null>(
+        '/scenario-sessions/latest-report',
+        {},
+        session.accessToken,
+      );
+      if (currentUserIdRef.current !== ownerId) return;
+      setLatestReport(result);
+      setLatestReportStatus('ready');
+    } catch (error) {
+      if (currentUserIdRef.current !== ownerId) return;
+      setLatestReportError(userFacingError(error, '暂时无法读取最近一次复盘'));
+      setLatestReportStatus('error');
+    }
+  }, [session.accessToken, session.user.id]);
+
   const load = useCallback(async () => {
     const ownerId = session.user.id;
     setLoading(true);
     setResumableOwnerId(ownerId);
     setResumable(null);
+    void loadLatestReport();
     try {
       const [nextProfile, nextPlan, nextScenarios, nextPersonal, nextResumable] = await Promise.all(
         [
@@ -223,7 +256,7 @@ export function TravelScenarioPage({
     } finally {
       if (currentUserIdRef.current === ownerId) setLoading(false);
     }
-  }, [session.accessToken, session.user.id]);
+  }, [loadLatestReport, session.accessToken, session.user.id]);
 
   const startAssessment = useCallback(async () => {
     setMessage('');
@@ -308,16 +341,17 @@ export function TravelScenarioPage({
         onClose={() => setAssessment(null)}
       />
     );
-  if (active && report)
+  if (report && active)
     return (
       <ReportView
         report={report}
         scenario={active.template}
         onSave={(candidate) => void saveVocabulary(candidate, active.template.title)}
         onAgain={() => {
+          const scenario = active.template;
           setActive(null);
           setReport(null);
-          void startScenario(active.template);
+          void startScenario(scenario);
         }}
         onDone={() => {
           setActive(null);
@@ -381,6 +415,47 @@ export function TravelScenarioPage({
             {resumable.pendingRetry && <span>上一句尚未收到回复，继续后可以安全重试。</span>}
           </div>
           <button onClick={() => setActive(resumable)}>继续上次场景</button>
+        </section>
+      )}
+
+      {latestReportStatus === 'loading' && (
+        <p className={resumeStyles.status} role="status">
+          正在读取最近一次旅行复盘…
+        </p>
+      )}
+      {latestReportStatus === 'error' && (
+        <section className={`${resumeStyles.resume} travel-report-recovery`} aria-live="polite">
+          <div className={resumeStyles.copy}>
+            <small>最近一次旅行复盘</small>
+            <h2>暂时无法读取</h2>
+            <p>{latestReportError}</p>
+          </div>
+          <button onClick={() => void loadLatestReport()}>重试读取</button>
+        </section>
+      )}
+      {latestReportStatus === 'ready' && latestReport && (
+        <section
+          className={`${resumeStyles.resume} travel-report-recovery`}
+          aria-labelledby="travel-report-recovery-title"
+        >
+          <div className={resumeStyles.copy}>
+            <small>最近一次旅行复盘</small>
+            <h2 id="travel-report-recovery-title">{latestReport.template.title}</h2>
+            <p>这次的反馈和句型已保存，可以随时回来查看。</p>
+          </div>
+          <button
+            onClick={() => {
+              setMessage('');
+              setActive({
+                session: latestReport.session,
+                template: latestReport.template,
+                turns: [],
+              });
+              setReport(latestReport.report);
+            }}
+          >
+            查看复盘
+          </button>
         </section>
       )}
 

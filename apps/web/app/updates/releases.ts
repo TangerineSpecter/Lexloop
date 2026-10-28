@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.16',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '完成后可找回旅行复盘',
+        entry: '场景口语 → 最近一次旅行复盘',
+        usage: '刷新或返回后可重新打开最近一次结算反馈；读取失败时可以重试。',
+      },
+    ],
+  },
+  {
     version: '1.27.15',
     date: '2026-10-28',
     items: [

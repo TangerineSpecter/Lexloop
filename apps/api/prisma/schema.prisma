@@ -892,6 +892,7 @@ model ScenarioSession {
   report             ScenarioReport?
 
   @@index([userId, status, startedAt])
+  @@index([userId, status, completedAt, id])
   @@index([templateId, completedAt])
 }
 

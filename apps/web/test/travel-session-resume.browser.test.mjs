@@ -140,7 +140,7 @@ test(
             turns: initialTurns,
             pendingRetry: { clientMessageId: 'pending-message-123', content: 'Could you repeat the name?' },
           };
-          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [] };
+          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [], reportReads: [], reportReadFailuresRemaining: 0, completionCalls: [], latestReport: null };
           const persistFixture = () => sessionStorage.setItem('travel-resume-fixture', JSON.stringify(window.travelResumeFixture));
           const currentUser = () => JSON.parse(localStorage.getItem('lexloop.session'));
           window.fetch = async (input, options = {}) => {
@@ -163,6 +163,16 @@ test(
               persistFixture();
               return Response.json(userId === 'travel-user-a' ? window.travelResumeFixture.activeA : null);
             }
+            if (path.endsWith('/api/v1/scenario-sessions/latest-report')) {
+              window.travelResumeFixture.reportReads.push(userId);
+              if (userId === 'travel-user-a' && window.travelResumeFixture.reportReadFailuresRemaining > 0) {
+                window.travelResumeFixture.reportReadFailuresRemaining -= 1;
+                persistFixture();
+                return Response.json({ message: 'temporary read failure' }, { status: 503 });
+              }
+              persistFixture();
+              return Response.json(userId === 'travel-user-a' ? window.travelResumeFixture.latestReport : null);
+            }
             if (path.endsWith('/api/v1/scenario-sessions/session-a/turns') && method === 'POST') {
               const body = JSON.parse(options.body);
               window.travelResumeFixture.turnCalls.push({ userId, body });
@@ -180,6 +190,25 @@ test(
               };
               persistFixture();
               return Response.json({ turn: newTurn, evaluation, session: window.travelResumeFixture.activeA.session });
+            }
+            if (path.endsWith('/api/v1/scenario-sessions/session-a/complete') && method === 'POST') {
+              window.travelResumeFixture.completionCalls.push(userId);
+              window.travelResumeFixture.activeA = null;
+              window.travelResumeFixture.reportReadFailuresRemaining = 1;
+              window.travelResumeFixture.latestReport = {
+                session: { id: 'session-a', templateId: scenario.id, level: 'A1', status: 'COMPLETED', turnCount: 2 },
+                completedAt: '2026-10-28T09:00:00.000Z', template: scenario,
+                report: {
+                  outcome: 'PARTIAL',
+                  dimensions: { vocabulary: 60, grammar: 61, sentenceBuilding: 62, taskCompletion: 63, naturalness: 64 },
+                  rewrites: [{ type: 'grammar', original: 'A_PRIVATE_COMPLETED_EXPRESSION', natural: 'Could you help me with this?', explanation: '礼貌求助时用 could 提出请求。' }],
+                  grammarFrames: scenario.grammarFrames,
+                  evidence: [{ objective: 'Confirm a reservation', completed: true }],
+                  vocabulary: [], recommendation: '换一个相近情境再说一遍。',
+                },
+              };
+              persistFixture();
+              return Response.json({ message: 'response lost after commit' }, { status: 503 });
             }
             if (path.includes('/api/v1/')) return Response.json([]);
             return new Response('Not found', { status: 404 });
@@ -218,7 +247,7 @@ test(
         const card = document.querySelector('.travel-session-resume');
         card.scrollIntoView({ block: 'center' });
         const button = card.querySelector('button').getBoundingClientRect();
-        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, buttonWidth: button.width, buttonRight: button.right };
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, buttonWidth: button.width, buttonRight: button.right };
       })()`);
       assert.equal(mobileLayout.scrollWidth, mobileLayout.viewport, JSON.stringify(mobileLayout));
       assert.ok(
@@ -281,17 +310,98 @@ test(
       });
 
       await evaluate(
-        `document.querySelector('.conversation-head button[aria-label="退出场景"]').click()`,
+        '[...document.querySelectorAll(".conversation-actions button")].find(button => button.textContent.includes("完成场景")).click()',
       );
-      await until('document.querySelector(".travel-session-resume")');
-      await evaluate(`(() => {
+      await until('window.travelResumeFixture.completionCalls.length === 1');
+      await until(
+        'document.querySelector(".scene-retry-notice")?.textContent.includes("服务暂时不可用")',
+      );
+      assert.equal(
+        await evaluate('window.travelResumeFixture.latestReport.session.id'),
+        'session-a',
+      );
+
+      await evaluate('location.reload()');
+      await openTravel();
+      await until(
+        'document.querySelector(".travel-report-recovery h2")?.textContent.includes("暂时无法读取")',
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("没有历史复盘")'), false);
+      assert.equal(
+        await evaluate(
+          'Boolean([...document.querySelectorAll(".travel-report-recovery button")].find(button => button.textContent.includes("查看复盘")))',
+        ),
+        false,
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-recovery button")].find(button => button.textContent.includes("重试读取")).click()',
+      );
+      await until(
+        '[...document.querySelectorAll(".travel-report-recovery button")].some(button => button.textContent.includes("查看复盘"))',
+      );
+      const desktopReportCardLayout = await evaluate(`(() => {
+        const card = document.querySelector('.travel-report-recovery');
+        card.scrollIntoView({ block: 'center' });
+        const button = card.querySelector('button').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, buttonWidth: button.width, buttonRight: button.right };
+      })()`);
+      assert.equal(
+        desktopReportCardLayout.scrollWidth,
+        desktopReportCardLayout.viewport,
+        JSON.stringify(desktopReportCardLayout),
+      );
+      assert.ok(
+        desktopReportCardLayout.buttonWidth > 0 &&
+          desktopReportCardLayout.buttonRight <= desktopReportCardLayout.viewport,
+        JSON.stringify(desktopReportCardLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileReportCardLayout = await evaluate(`(() => {
+        const card = document.querySelector('.travel-report-recovery');
+        card.scrollIntoView({ block: 'center' });
+        const button = card.querySelector('button').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, buttonWidth: button.width, buttonRight: button.right };
+      })()`);
+      assert.equal(
+        mobileReportCardLayout.scrollWidth,
+        mobileReportCardLayout.viewport,
+        JSON.stringify(mobileReportCardLayout),
+      );
+      assert.ok(
+        mobileReportCardLayout.buttonWidth > 0 &&
+          mobileReportCardLayout.buttonRight <= mobileReportCardLayout.viewport,
+        JSON.stringify(mobileReportCardLayout),
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-recovery button")].find(button => button.textContent.includes("查看复盘")).click()',
+      );
+      await until('document.querySelector(".travel-report-page")');
+      assert.equal(
+        await evaluate('document.body.innerText.includes("A_PRIVATE_COMPLETED_EXPRESSION")'),
+        true,
+      );
+      assert.equal(await evaluate('window.travelResumeFixture.completionCalls.length'), 1);
+
+      await evaluate(
+        `(() => {
         const saved = JSON.parse(localStorage.getItem('lexloop.session'));
         localStorage.setItem('lexloop.session', JSON.stringify({ ...saved, accessToken: 'fixture-b', user: { id: 'travel-user-b', email: 'b@example.invalid', displayName: 'Learner B', role: 'USER' } }));
         location.reload();
-      })()`);
+      })()`,
+      );
       await openTravel();
       assert.equal(
         await evaluate('document.querySelector(".travel-session-resume") === null'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".travel-report-recovery") === null'),
         true,
       );
       assert.equal(
@@ -304,6 +414,10 @@ test(
       );
       assert.equal(
         await evaluate('window.travelResumeFixture.activeReads.at(-1)'),
+        'travel-user-b',
+      );
+      assert.equal(
+        await evaluate('window.travelResumeFixture.reportReads.at(-1)'),
         'travel-user-b',
       );
       assert.deepEqual(browserErrors, []);

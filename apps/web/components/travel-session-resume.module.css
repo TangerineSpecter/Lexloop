@@ -44,6 +44,15 @@
   font-weight: 750;
 }
 
+.status {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  color: rgba(8, 40, 119, 0.75);
+  font-size: 13px;
+}
+
 .resume button {
   min-height: 40px;
   padding: 0 13px;
