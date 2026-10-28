@@ -9,8 +9,8 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'daily output retries preserve submission identity across failures, reloads, expiry, and accounts',
-  { skip: !baseUrl, timeout: 60_000 },
+  'daily output retries preserve submission identity across failures, reloads, expiry, accounts, and a pending cross-tab switch',
+  { skip: !baseUrl, timeout: 90_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-output-retry-test-'));
     const browser = spawnChromium(
@@ -20,6 +20,7 @@ test(
         '--no-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
+        '--disable-popup-blocking',
         '--remote-debugging-port=0',
         '--remote-debugging-address=127.0.0.1',
         `--user-data-dir=${profile}`,
@@ -30,6 +31,7 @@ test(
     let launchError;
     browser.on('error', (error) => (launchError = error));
     let socket;
+    let secondSocket;
     const browserEvents = [];
     const waiting = new Map();
     let sequence = 0;
@@ -48,7 +50,9 @@ test(
       }
       assert.ok(port, 'Chromium did not start');
       const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      socket = new WebSocket(targets[0].webSocketDebuggerUrl);
+      const firstTarget = targets.find((target) => target.type === 'page');
+      assert.ok(firstTarget, 'Chromium did not expose an initial page target');
+      socket = new WebSocket(firstTarget.webSocketDebuggerUrl);
       await new Promise((resolve, reject) => {
         socket.addEventListener('open', resolve, { once: true });
         socket.addEventListener('error', reject, { once: true });
@@ -87,6 +91,46 @@ test(
             result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
           );
         return result.result.value;
+      };
+      const connectSecondTab = async (webSocketDebuggerUrl) => {
+        secondSocket = new WebSocket(webSocketDebuggerUrl);
+        const secondWaiting = new Map();
+        let secondSequence = 0;
+        await new Promise((resolve, reject) => {
+          secondSocket.addEventListener('open', resolve, { once: true });
+          secondSocket.addEventListener('error', reject, { once: true });
+        });
+        secondSocket.addEventListener('message', (event) => {
+          const message = JSON.parse(event.data);
+          if (!message.id) return;
+          const pending = secondWaiting.get(message.id);
+          if (!pending) return;
+          secondWaiting.delete(message.id);
+          if (message.error) pending.reject(new Error(message.error.message));
+          else pending.resolve(message.result);
+        });
+        const sendSecond = (method, params = {}) =>
+          new Promise((resolve, reject) => {
+            const id = ++secondSequence;
+            secondWaiting.set(id, { resolve, reject });
+            secondSocket.send(JSON.stringify({ id, method, params }));
+          });
+        const evaluateSecond = async (expression) => {
+          const result = await sendSecond('Runtime.evaluate', {
+            expression,
+            returnByValue: true,
+            awaitPromise: true,
+          });
+          if (result.exceptionDetails) {
+            throw new Error(
+              result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
+            );
+          }
+          return result.result.value;
+        };
+        await sendSecond('Page.enable');
+        await sendSecond('Runtime.enable');
+        return { evaluate: evaluateSecond, send: sendSecond };
       };
       const clickAt = async (elementExpression) => {
         const inspectPoint = () =>
@@ -236,6 +280,17 @@ test(
                 row.error = null;
                 writeRows(userId, rows);
                 throw new TypeError('simulated response lost after server accepted submission');
+              }
+              if (mode === 'hold') {
+                row.status = 'QUEUED';
+                row.error = null;
+                writeRows(userId, rows);
+                localStorage.setItem('fixture.output.pending.' + userId, JSON.stringify({
+                  id: row.id,
+                  answer: row.answer,
+                  clientRequestId: row.clientRequestId ?? payload.clientRequestId,
+                }));
+                return new Promise(() => {});
               }
               if (mode === 'expired') {
                 row.status = 'FAILED';
@@ -587,8 +642,172 @@ test(
         'JSON.parse(localStorage.getItem("fixture.output.fetch-log")).filter((entry) => entry.method === "PATCH" && entry.path.endsWith("/api/v1/ai/models/fixture-model/select"))',
       );
       assert.equal(modelSelections.length, 1);
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const answerA = 'A_PRIVATE_ALPHA: My journey became bright after breakfast.';
+      await evaluate(`(() => {
+        localStorage.setItem('lexloop.session', JSON.stringify({
+          accessToken: 'fixture-a',
+          user: { id: 'user-a', email: 'a@example.invalid', displayName: 'A', role: 'USER' },
+        }));
+        localStorage.setItem('fixture.output.rows.user-a', '[]');
+        localStorage.removeItem('lexloop.output.draft.user-a');
+        localStorage.setItem('fixture.output.mode', 'hold');
+      })()`);
+      await send('Page.reload');
+      await until('document.querySelector("#output-answer")?.value === ""');
+
+      const openedSecondTab = await evaluate(
+        `Boolean(window.open(${JSON.stringify(new URL('/login', baseUrl).href)}, '_blank'))`,
+      );
+      assert.equal(openedSecondTab, true, 'could not open the same-origin account control tab');
+      let secondTarget;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const currentTargets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+        secondTarget = currentTargets.find(
+          (target) =>
+            target.type === 'page' &&
+            target.id !== firstTarget.id &&
+            target.url.startsWith(new URL('/login', baseUrl).href),
+        );
+        if (secondTarget) break;
+        await delay(100);
+      }
+      assert.ok(secondTarget, 'second tab did not reach the account control page');
+      const secondTab = await connectSecondTab(secondTarget.webSocketDebuggerUrl);
+
+      await evaluate(`(() => {
+        const input = document.querySelector('#output-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(answerA)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until('document.querySelector("#output-answer")?.value === ' + JSON.stringify(answerA));
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交批改")).click()',
+      );
+      await until(
+        'JSON.parse(localStorage.getItem("fixture.output.pending.user-a") || "null")?.answer === ' +
+          JSON.stringify(answerA),
+      );
+      const pendingDraftA = await evaluate(
+        'JSON.parse(localStorage.getItem("lexloop.output.draft.user-a"))',
+      );
+      assert.equal(pendingDraftA.answer, answerA);
+      assert.ok(pendingDraftA.clientRequestId);
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests")).find((entry) => entry.userId === "user-a" && entry.clientRequestId === ' +
+            JSON.stringify(pendingDraftA.clientRequestId) +
+            ')?.answer',
+        ),
+        answerA,
+      );
+      assert.equal(await evaluate('document.querySelector("#output-answer").disabled'), true);
+
+      await secondTab.evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-b',
+        user: { id: 'user-b', email: 'b@example.invalid', displayName: 'B', role: 'USER' },
+      }))`);
+      await until(
+        'document.querySelector("#output-answer")?.value === ' + JSON.stringify(answerAfterSetup),
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("A_PRIVATE_ALPHA")'), false);
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.pending.user-a") || "null")?.clientRequestId',
+        ),
+        pendingDraftA.clientRequestId,
+      );
+      const draftBBeforeRelease = await evaluate(
+        'JSON.parse(localStorage.getItem("lexloop.output.draft.user-b"))',
+      );
+      assert.equal(draftBBeforeRelease.answer, answerAfterSetup);
+      assert.equal(draftBBeforeRelease.answer.includes('A_PRIVATE_ALPHA'), false);
+      const rowsBBeforeRelease = await evaluate(
+        'JSON.parse(localStorage.getItem("fixture.output.rows.user-b"))',
+      );
+      assert.equal(
+        rowsBBeforeRelease.some((row) => row.answer.includes('A_PRIVATE_ALPHA')),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests")).some((entry) => entry.userId === "user-b" && entry.answer.includes("A_PRIVATE_ALPHA"))',
+        ),
+        false,
+      );
+
+      // The old document is gone after the session switch. This fixture releases
+      // the service-side accepted A submission after B is active; A must recover
+      // it later through the normal account-scoped output read.
+      await secondTab.evaluate(`(() => {
+        const key = 'fixture.output.rows.user-a';
+        const rows = JSON.parse(localStorage.getItem(key) || '[]');
+        const row = rows.find((item) => item.id === ${JSON.stringify(`submission-${pendingDraftA.clientRequestId}`)});
+        if (!row) throw new Error('held account A submission is missing');
+        Object.assign(row, {
+          status: 'COMPLETED',
+          error: null,
+          feedback: {
+            score: 82,
+            grammarScore: 80,
+            coherenceScore: 84,
+            correctedText: 'My journey was bright after breakfast.',
+            comments: ['A_RESULT_ONLY'],
+            words: [{ bookWordId: 'user-a-w1', used: true, correct: true, feedback: '自然使用。' }],
+          },
+        });
+        localStorage.setItem(key, JSON.stringify(rows));
+        localStorage.setItem('fixture.output.release.user-a', row.id);
+      })()`);
+      await delay(200);
+      assert.equal(await evaluate('document.body.innerText.includes("A_PRIVATE_ALPHA")'), false);
+      assert.equal(await evaluate('document.body.innerText.includes("A_RESULT_ONLY")'), false);
+      assert.equal(
+        await evaluate('JSON.parse(localStorage.getItem("lexloop.output.draft.user-b")).answer'),
+        answerAfterSetup,
+      );
+      const rowsBAfterRelease = await evaluate(
+        'JSON.parse(localStorage.getItem("fixture.output.rows.user-b"))',
+      );
+      assert.equal(
+        rowsBAfterRelease.some((row) => row.answer.includes('A_PRIVATE_ALPHA')),
+        false,
+      );
+
+      await secondTab.evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-a',
+        user: { id: 'user-a', email: 'a@example.invalid', displayName: 'A', role: 'USER' },
+      }))`);
+      await until('document.body.innerText.includes("A_RESULT_ONLY")');
+      assert.equal(
+        await evaluate('document.body.innerText.includes(' + JSON.stringify(answerA) + ')'),
+        true,
+      );
+      assert.equal(
+        await evaluate('JSON.parse(localStorage.getItem("lexloop.output.draft.user-a")).answer'),
+        answerA,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("lexloop.output.draft.user-a")).clientRequestId',
+        ),
+        pendingDraftA.clientRequestId,
+      );
+      assert.equal(
+        await evaluate(
+          'document.body.innerText.includes(' + JSON.stringify(answerAfterSetup) + ')',
+        ),
+        false,
+      );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
+      if (secondSocket?.readyState === WebSocket.OPEN) secondSocket.close();
       await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
