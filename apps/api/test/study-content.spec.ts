@@ -105,8 +105,7 @@ describe('study answer visibility', () => {
     };
     const prisma = {
       studyPlan: {
-        findMany: vi.fn().mockResolvedValue([{ id: 'plan1' }]),
-        findFirst: vi.fn().mockResolvedValue(row),
+        findMany: vi.fn().mockResolvedValue([row]),
       },
     };
     const service = new StudyService(prisma as never, {} as never, {} as never, {} as never);
@@ -116,9 +115,26 @@ describe('study answer visibility', () => {
       content: { groups: Array<{ questions: unknown[] }> };
       words: Array<{ question: unknown }>;
     };
-    expect(prisma.studyPlan.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'plan1', userId: 'owner' } }),
+    expect(prisma.studyPlan.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'owner' },
+        include: expect.objectContaining({
+          items: expect.objectContaining({
+            include: expect.objectContaining({
+              bookWord: expect.objectContaining({
+                include: expect.objectContaining({
+                  progress: expect.objectContaining({ where: { userId: 'owner' } }),
+                  weaknesses: expect.objectContaining({
+                    where: { userId: 'owner', status: 'ACTIVE' },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
     );
+    expect(prisma.studyPlan.findMany).toHaveBeenCalledTimes(1);
     expect(returned.content.groups[0].questions[0]).not.toHaveProperty('correctAnswers');
     expect(returned.words[0].question).not.toHaveProperty('correctAnswers');
     expect(

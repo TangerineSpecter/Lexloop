@@ -91,6 +91,30 @@ type GradedAnswer = {
   selectedAnswer: string[];
 };
 
+const studyPlanInclude = (userId: string) =>
+  ({
+    items: {
+      orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
+      include: {
+        bookWord: {
+          include: {
+            word: true,
+            progress: { where: { userId }, select: { nextReviewAt: true } },
+            weaknesses: {
+              where: { userId, status: WeaknessStatus.ACTIVE },
+              select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
+            },
+          },
+        },
+        attempts: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    },
+  }) satisfies Prisma.StudyPlanInclude;
+
+type StudyPlanWithItems = Prisma.StudyPlanGetPayload<{
+  include: ReturnType<typeof studyPlanInclude>;
+}>;
+
 class StudyGroupCompletionAlreadyClaimed extends Error {}
 class StudyPlanGenerationSuperseded extends Error {}
 
@@ -412,9 +436,9 @@ export class StudyService {
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      select: { id: true },
+      include: studyPlanInclude(userId),
     });
-    return Promise.all(plans.map((plan) => this.serializePlan(plan.id, userId)));
+    return plans.map((plan) => this.serializePlanRecord(plan));
   }
 
   async listCompletedPlans(userId: string, requestedPage = 1, requestedPageSize = 20) {
@@ -425,13 +449,11 @@ export class StudyService {
       orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize + 1,
-      select: { id: true },
+      include: studyPlanInclude(userId),
     });
     const hasMore = plans.length > pageSize;
     return {
-      items: await Promise.all(
-        plans.slice(0, pageSize).map((plan) => this.serializePlan(plan.id, userId)),
-      ),
+      items: plans.slice(0, pageSize).map((plan) => this.serializePlanRecord(plan)),
       hasMore,
     };
   }
@@ -539,26 +561,13 @@ export class StudyService {
   private async serializePlan(planId: string, userId: string) {
     const plan = await this.prisma.studyPlan.findFirst({
       where: { id: planId, userId },
-      include: {
-        items: {
-          orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
-          include: {
-            bookWord: {
-              include: {
-                word: true,
-                progress: { where: { userId }, select: { nextReviewAt: true } },
-                weaknesses: {
-                  where: { userId, status: WeaknessStatus.ACTIVE },
-                  select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
-                },
-              },
-            },
-            attempts: { orderBy: { createdAt: 'desc' }, take: 1 },
-          },
-        },
-      },
+      include: studyPlanInclude(userId),
     });
     if (!plan) throw new NotFoundException('学习计划不存在');
+    return this.serializePlanRecord(plan);
+  }
+
+  private serializePlanRecord(plan: StudyPlanWithItems) {
     const itemsByGroup = new Map<number, typeof plan.items>();
     for (const item of plan.items) {
       const groupItems = itemsByGroup.get(item.groupIndex) ?? [];
