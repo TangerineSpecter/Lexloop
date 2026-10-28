@@ -313,9 +313,16 @@ test(
               const groupIndex = Number(path.split('/groups/')[1].split('/')[0]);
               const body = JSON.parse(options.body);
               window.studySubmissionAttempts.push(body);
+              const groupAlreadyCompleted = window.studyPlanResponse.words
+                .filter((word) => word.groupIndex === groupIndex)
+                .every((word) => word.completed);
+              if (groupAlreadyCompleted) return Response.json(window.studyPlanResponse);
               if (window.studySubmissionAttempts.length === 1) return Response.json({ message: 'Fixture submission failed' }, { status: 503 });
               window.studyPlanWrites.push(body);
               window.studyPlanResponse = makePlan(groupIndex + 1);
+              if (window.studySubmissionAttempts.length === 2) {
+                throw new TypeError('Failed to fetch after the server saved the group');
+              }
               return Response.json(window.studyPlanResponse);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
@@ -744,6 +751,22 @@ test(
       );
 
       await evaluate('[...document.querySelectorAll(".exercises .check-matches")].at(-1).click()');
+      await until('window.studyAlerts.length === 2');
+      assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
+      assert.equal(
+        await evaluate('document.querySelector(".question-explanation") === null'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".answer-options button.selected")?.textContent'),
+        '暗的',
+        'the original answer draft remains available when the server response is lost',
+      );
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 1);
+      assert.equal(await evaluate('window.studyPlanResponse.words[0].completed'), true);
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 2);
+
+      await evaluate('[...document.querySelectorAll(".exercises .check-matches")].at(-1).click()');
       await until('document.querySelector(".answer-feedback")');
       assert.equal(
         await evaluate(
@@ -777,7 +800,12 @@ test(
         ),
         [{ bookWordId: 'word-1', selectedAnswer: ['暗的'] }],
       );
-      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 2);
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 3);
+      assert.equal(
+        await evaluate('window.studyPlanWrites.length'),
+        1,
+        'retry after a lost success response returns the saved result without recording a second attempt',
+      );
       assert.equal(await evaluate('window.studyPlanResponse.status'), 'ACTIVE');
       assert.equal(
         await evaluate(
@@ -875,7 +903,7 @@ test(
         await evaluate('window.studyPlanWrites[1].answers[0].selectedAnswer.length'),
         4,
       );
-      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 3);
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 4);
 
       await evaluate(
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("查看今日总结")).click()',
