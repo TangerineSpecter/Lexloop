@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.27',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '微故事报告情境译文更准确',
+        entry: '微故事 → 开会之前 · 第 2 小段',
+        usage: '“help with the report” 译为帮忙完成报告，并说明其中也包括核对数字等工作。',
+      },
+    ],
+  },
+  {
     version: '1.27.25',
     date: '2026-10-28',
     items: [

@@ -71,6 +71,7 @@ describe('one-minute stories', () => {
     const revealed = await f.service.interpret('owner', 'bus-01', '想念公交车');
     expect(revealed.reference).toContain('没赶上公交车');
     expect((await f.service.current('owner')).lesson).toHaveProperty('reference');
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
     await f.service.complete('owner', 'bus-01', true, 'I missed the train.');
     expect(f.tx.microError.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -154,6 +155,42 @@ describe('one-minute stories', () => {
 
   it('keeps published story keys unique so old cards retain their context', () => {
     expect(new Set(MICRO_STORIES.map((story) => story.key)).size).toBe(MICRO_STORIES.length);
+  });
+
+  it('reveals an accurate report explanation only after the learner writes an interpretation', async () => {
+    const story = MICRO_STORIES.find(({ key }) => key === 'meeting-02');
+    expect(story?.reference).toBe(
+      '汤姆主动提出帮忙完成这份报告。米娅把笔记发给他，好让他核对数字。',
+    );
+    expect(story?.explanation).toContain('help with the report');
+    expect(story?.explanation).toContain('不只指写作');
+
+    const f = fixture();
+    f.progress.completedKeys = MICRO_STORIES.slice(0, 7).map(({ key }) => key);
+    const before = await f.service.current('owner');
+    expect(before.lesson).toMatchObject({ key: 'meeting-02', english: story?.english });
+    expect(before.lesson).not.toHaveProperty('reference');
+
+    const revealed = await f.service.interpret('owner', 'meeting-02', '汤姆主动提出帮忙。');
+    expect(revealed.reference).toBe(story?.reference);
+    expect(revealed.explanation).toBe(story?.explanation);
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
+
+    f.prisma.microError.findMany.mockResolvedValue([
+      {
+        id: 'report-card',
+        lessonKey: 'meeting-02',
+        interpretation: '汤姆要帮忙写报告。',
+        ownSentence: null,
+        dueAt: new Date(),
+      },
+    ]);
+    const existingCard = await f.service.errors('owner');
+    expect(existingCard[0]).toMatchObject({
+      reference: story?.reference,
+      explanation: story?.explanation,
+    });
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
   });
 
   it('preserves the first nine story keys and continues learners onto new A2 scenes', async () => {

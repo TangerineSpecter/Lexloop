@@ -96,8 +96,9 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     level: 'A2',
     english:
       'Tom offers to help with the report. Mia sends him the notes so he can check the numbers.',
-    reference: '汤姆主动提出帮忙写报告。米娅把笔记发给他，好让他核对数字。',
-    explanation: 'offer to do 是“主动提出做”；so he can... 表示这样他就能做某事。',
+    reference: '汤姆主动提出帮忙完成这份报告。米娅把笔记发给他，好让他核对数字。',
+    explanation:
+      'help with the report 表示帮忙做这项报告工作，不只指写作；offer to help 是“主动提出帮忙”；so he can... 表示这样他就能做某事。',
     frame: 'I can ___ so you can ___.',
     example: 'I can send the file so you can read it.',
   },
