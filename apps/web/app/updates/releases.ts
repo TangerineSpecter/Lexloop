@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.45',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '练习题拒绝重复选项',
+        entry: '学习计划 → 阅读材料与题目',
+        usage:
+          '生成或复用材料前检查选项是否只是大小写、空白或 Unicode 形式不同；无效的新内容不会进入练习或缓存，旧的无效缓存会在正常生成成功后修复。',
+      },
+    ],
+  },
+  {
     version: '1.27.44',
     date: '2026-10-28',
     items: [

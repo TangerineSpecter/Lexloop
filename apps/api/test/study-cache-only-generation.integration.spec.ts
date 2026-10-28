@@ -174,7 +174,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(failedPlan).toMatchObject({
           status: 'FAILED',
           generationStartedAt: null,
-          generationError: expect.stringContaining('未命中缓存'),
+          generationError: expect.stringContaining('缺失或未通过内容校验'),
         });
 
         modelAvailable = true;

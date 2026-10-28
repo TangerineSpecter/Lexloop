@@ -214,6 +214,173 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       }
     }, 60_000);
 
+    it('rejects duplicate generated or cached choices without activating the plan', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const user = await prisma.user.create({
+        data: {
+          email: `study-duplicate-options-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      const book = await prisma.vocabularyBook.create({
+        data: {
+          ownerId: user.id,
+          kind: 'PERSONAL',
+          sourceKey: fixtureId,
+          title: 'Duplicate options test',
+          sourcePath: 'test',
+          category: 'GENERAL',
+        },
+        select: { id: true },
+      });
+      const word = await prisma.vocabularyWord.create({
+        data: {
+          normalized: `study-duplicate-options-${fixtureId}`,
+          text: 'steady',
+          meaning: '平稳的',
+          bookWords: { create: { bookId: book.id, position: 0 } },
+        },
+        select: { id: true, bookWords: { select: { id: true } } },
+      });
+      const plan = await prisma.studyPlan.create({
+        data: {
+          userId: user.id,
+          mode: StudyPlanMode.GROUP,
+          purpose: StudyPlanPurpose.NORMAL,
+          status: 'GENERATING',
+          items: {
+            create: {
+              bookWordId: word.bookWords[0].id,
+              source: 'NEW',
+              groupIndex: 0,
+            },
+          },
+        },
+        select: { id: true },
+      });
+      const signature = contentSignature(
+        StudyPlanMode.GROUP,
+        [
+          {
+            id: word.bookWords[0].id,
+            word: 'steady',
+            part: '',
+            meaning: '平稳的',
+            cefrLevel: null,
+          },
+        ],
+        StudyPlanPurpose.NORMAL,
+      );
+      const invalidContent = JSON.parse(
+        generatedResponse(word.bookWords[0].id, 'steady', 'A steady path').choices[0].message
+          .content,
+      );
+      invalidContent.groups[0].questions[0].options[2] = ' 平稳的　';
+      const ai = {
+        generateForUser: vi
+          .fn()
+          .mockResolvedValueOnce({
+            choices: [{ message: { content: JSON.stringify(invalidContent) } }],
+          })
+          .mockResolvedValueOnce(
+            generatedResponse(word.bookWords[0].id, 'steady', 'A repaired steady path'),
+          ),
+      };
+      let providerAvailable = true;
+      const modelConfigs = {
+        selectedProvider: vi.fn(async () =>
+          providerAvailable ? { model: 'isolated-fixture' } : null,
+        ),
+      };
+      const service = new StudyService(
+        prisma as never,
+        ai as never,
+        modelConfigs as never,
+        {} as MistakesService,
+      );
+
+      try {
+        await expect(service.generatePlan(user.id, plan.id)).rejects.toThrow(
+          '选项语言、数量或唯一性',
+        );
+        let savedPlan = await prisma.studyPlan.findUniqueOrThrow({
+          where: { id: plan.id },
+          select: { status: true, generatedContent: true, generationError: true },
+        });
+        expect(savedPlan).toMatchObject({ status: 'FAILED', generatedContent: null });
+        expect(savedPlan.generationError).toContain('选项语言、数量或唯一性');
+        expect(await prisma.studyContentCache.count({ where: { signature } })).toBe(0);
+        expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(0);
+
+        await prisma.studyContentCache.create({
+          data: {
+            signature,
+            mode: StudyPlanMode.GROUP,
+            material: invalidContent.groups[0],
+          },
+        });
+        providerAvailable = false;
+        await expect(service.generatePlan(user.id, plan.id)).rejects.toThrow(
+          '缺失或未通过内容校验',
+        );
+        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+        expect(modelConfigs.selectedProvider).toHaveBeenCalledTimes(2);
+        const waitingPlan = await prisma.studyPlan.findUniqueOrThrow({
+          where: { id: plan.id },
+          select: { status: true, generatedContent: true, generationError: true },
+        });
+        expect(waitingPlan).toMatchObject({ status: 'FAILED', generatedContent: null });
+        expect(waitingPlan.generationError).toContain('缺失或未通过内容校验');
+        expect(
+          await prisma.studyContentCache.findFirstOrThrow({ where: { signature } }),
+        ).toMatchObject({ hitCount: 0 });
+        expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(0);
+
+        providerAvailable = true;
+        const repairedPlan = await service.generatePlan(user.id, plan.id);
+        expect(repairedPlan.status).toBe('ACTIVE');
+        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+        savedPlan = await prisma.studyPlan.findUniqueOrThrow({
+          where: { id: plan.id },
+          select: { status: true, generatedContent: true, generationError: true },
+        });
+        expect(savedPlan).toMatchObject({ status: 'ACTIVE', generationError: null });
+        const savedQuestion = (
+          savedPlan.generatedContent as {
+            groups: Array<{ questions: Array<{ options: string[] }> }>;
+          }
+        ).groups[0].questions[0];
+        expect(
+          new Set(
+            savedQuestion.options.map((option) => option.normalize('NFKC').trim().toLowerCase()),
+          ).size,
+        ).toBe(4);
+        const repairedCache = await prisma.studyContentCache.findFirstOrThrow({
+          where: { signature },
+        });
+        expect(repairedCache.hitCount).toBe(1);
+        expect(
+          (repairedCache.material as { questions: Array<{ options: string[] }> }).questions[0]
+            .options,
+        ).toEqual(savedQuestion.options);
+        expect(
+          await prisma.studyPlanItem.findFirstOrThrow({ where: { planId: plan.id } }),
+        ).toMatchObject({ contentCacheId: repairedCache.id });
+        expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(1);
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        await prisma.studyContentCache.deleteMany({ where: { signature } });
+        await prisma.vocabularyWord.deleteMany({
+          where: { id: word.id, bookWords: { none: {} } },
+        });
+        await prisma.$disconnect();
+      }
+    }, 60_000);
+
     it('records when a new word becomes available and reports it on the learner local day', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

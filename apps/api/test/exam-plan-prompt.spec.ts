@@ -28,6 +28,8 @@ describe('exam study plans', () => {
     const group = generationPrompt(StudyPlanMode.GROUP, [], StudyPlanPurpose.NORMAL);
     expect(group).toContain('随机分组');
     expect(group).toContain('五种题型轮换使用');
+    expect(group).toContain('4 个彼此不同的选项');
+    expect(group).toContain('Unicode 兼容形式');
     expect(group).not.toContain('应试语境补充规则');
   });
 

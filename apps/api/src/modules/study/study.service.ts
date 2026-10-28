@@ -276,6 +276,7 @@ export class StudyService {
     }));
 
     try {
+      const invalidCacheIds = new Map<number, string>();
       const cached = await Promise.all(
         groupSpec.map(async (spec): Promise<ResolvedGroup | null> => {
           const signature = contentSignature(
@@ -295,11 +296,18 @@ export class StudyService {
             orderBy: [{ hitCount: 'desc' }, { createdAt: 'asc' }],
           });
           if (!cache) return null;
+          const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
+          try {
+            validateGeneratedContent({ groups: [group] }, [spec]);
+          } catch {
+            invalidCacheIds.set(spec.index, cache.id);
+            return null;
+          }
           return {
             cacheId: cache.id,
             signature,
             reused: true,
-            group: { ...(cache.material as unknown as GeneratedGroup), index: spec.index },
+            group,
           };
         }),
       );
@@ -308,7 +316,7 @@ export class StudyService {
       if (missingSpecs.length) {
         if (!(await this.modelConfigs.selectedProvider(userId))) {
           throw new BadRequestException(
-            '部分学习材料未命中缓存，请先在阅读材料模型设置中选择可用的大模型',
+            '部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型',
           );
         }
         const response = await this.ai.generateForUser(
@@ -336,6 +344,7 @@ export class StudyService {
         );
         return {
           group,
+          cacheId: invalidCacheIds.get(spec.index),
           signature: contentSignature(
             plan.mode,
             spec.words,
@@ -371,7 +380,18 @@ export class StudyService {
           if (cacheId) {
             await tx.studyContentCache.update({
               where: { id: cacheId },
-              data: { hitCount: { increment: 1 }, lastUsedAt: new Date() },
+              data: {
+                hitCount: { increment: 1 },
+                lastUsedAt: new Date(),
+                ...(!resolvedGroup.reused
+                  ? {
+                      material: {
+                        ...resolvedGroup.group,
+                        index: 0,
+                      } as unknown as Prisma.InputJsonValue,
+                    }
+                  : {}),
+              },
             });
           } else {
             const created = await tx.studyContentCache.create({
@@ -873,7 +893,8 @@ ${
 8. SYNONYM_REPLACEMENT 是单选题：英文语境题干中标出目标词；4 个 options 都是纯英文候选词或短语。正确项在当前句子的词义、词性、数和搭配上可直接替换；其余项必须是语义相关但不能替换的干扰项。不得附中文释义。
 9. READING_COMPREHENSION 是单选题：英文问题和 4 个纯英文选项，必须依据本组英文文章考查目标词相关的细节、词义、推断或主旨，不考文章外知识，也不得附中文释义。
 10. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation 必须使用自然中文，说明语境依据与干扰项为何不成立；界面会单独先展示正确答案，因此 explanation 不要重复答案或输出英文解析。optionNotes 为空数组或省略。
-11. 输入分组若包含 targetQuestionTypes，则对应 bookWordId 必须严格生成指定题型；题目必须是新的语境和选项，不能复述历史原题。`;
+11. 输入分组若包含 targetQuestionTypes，则对应 bookWordId 必须严格生成指定题型；题目必须是新的语境和选项，不能复述历史原题。
+12. 每道有选项的题目都必须提供 4 个彼此不同的选项；忽略首尾空白、连续空白、大小写和 Unicode 兼容形式后仍不能相同。`;
 }
 
 function parseGeneratedContent(response: unknown): GeneratedContent {
@@ -895,7 +916,7 @@ function containsChinese(value: unknown) {
   return typeof value === 'string' && /[\u3400-\u9fff]/.test(value);
 }
 
-function validateGeneratedContent(
+export function validateGeneratedContent(
   content: GeneratedContent,
   expected: Array<{
     index: number;
@@ -950,9 +971,10 @@ function validateGeneratedContent(
           question.options.length !== 4 ||
           question.options.some((option) =>
             expectsChineseOptions ? !containsChinese(option) : !containsEnglish(option),
-          ))
+          ) ||
+          !hasUniqueOptions(question.options))
       ) {
-        throw new Error(`单词 ${word.word} 的选项语言或数量不符合题型要求`);
+        throw new Error(`单词 ${word.word} 的选项语言、数量或唯一性不符合题型要求`);
       }
       if (
         (!isMatching &&
@@ -984,6 +1006,16 @@ function validateGeneratedContent(
 }
 
 export { unfamiliarityScore };
+
+function hasUniqueOptions(options: unknown): boolean {
+  if (!Array.isArray(options)) return false;
+  const normalized = options.map((option) =>
+    typeof option === 'string'
+      ? option.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase()
+      : '',
+  );
+  return normalized.every(Boolean) && new Set(normalized).size === normalized.length;
+}
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
