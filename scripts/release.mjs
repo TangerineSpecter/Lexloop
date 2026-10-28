@@ -35,23 +35,54 @@ function git(args, { capture = false, allowFailure = false } = {}) {
 }
 
 function showHelp() {
-  console.log(`用法：pnpm release <版本号>
+  console.log(`用法：node scripts/release.mjs <版本号> --summary "中文功能摘要" --body-file <说明文件>
 
 示例：
-  pnpm release 1.2.0
-  pnpm release v1.2.0-beta.1
+  node scripts/release.mjs 1.2.0 --summary "修复复习日期边界" --body-file /tmp/lexloop-release.md
+  node scripts/release.mjs v1.2.0-beta.1 --summary "新增语境复习" --body-file /tmp/lexloop-release.md
 
-脚本会同步所有 workspace package.json 的版本号，将当前工作区改动提交为
-chore(release): v<版本号>，推送当前分支，然后创建对应的 v<版本号> tag。
+说明文件必须包含“主要改动：”“兼容边界：”和“测试结果：”三段。
+脚本会把摘要和说明写入提交标题、提交正文和注释 tag，再推送当前分支。
 远端或本地已存在同名 tag 时会停止，避免覆盖版本历史。`);
 }
 
-const input = process.argv[2];
+const args = process.argv.slice(2);
+const input = args[0];
 if (!input || input === '--help' || input === '-h') {
   showHelp();
   process.exit(input ? 0 : 1);
 }
-if (process.argv.length > 3) fail('只接受一个版本号参数。');
+
+let summary = '';
+let bodyFile = '';
+for (let index = 1; index < args.length; index += 1) {
+  const option = args[index];
+  const value = args[index + 1];
+  if (option === '--summary' && value) {
+    summary = value.trim();
+    index += 1;
+  } else if (option === '--body-file' && value) {
+    bodyFile = value;
+    index += 1;
+  } else {
+    fail(`未知或缺少参数值：${option}`);
+  }
+}
+if (!summary || /[\r\n]/.test(summary) || !/\p{Script=Han}/u.test(summary))
+  fail('必须提供一行中文功能摘要。');
+if (summary.length > 60) fail('提交摘要不能超过 60 个字符。');
+if (!bodyFile) fail('必须通过 --body-file 提供发布说明文件。');
+
+let releaseBody;
+try {
+  releaseBody = readFileSync(bodyFile, 'utf8').trim();
+} catch (error) {
+  fail(`无法读取发布说明文件：${error instanceof Error ? error.message : String(error)}`);
+}
+for (const section of ['主要改动', '兼容边界', '测试结果']) {
+  if (!new RegExp(`^${section}[：:]`, 'm').test(releaseBody))
+    fail(`发布说明必须包含“${section}：”段落。`);
+}
 
 const version = input.startsWith('v') ? input.slice(1) : input;
 if (!SEMVER_PATTERN.test(version)) {
@@ -143,16 +174,25 @@ git(['add', '--all']);
 const hasStagedChanges = git(['diff', '--cached', '--quiet'], { allowFailure: true }) !== 0;
 if (hasStagedChanges) {
   console.log('正在提交当前工作区改动与版本号…');
-  git(['commit', '-m', `chore(release): ${tag}`]);
+  git(['commit', '-m', `chore(release): ${tag} — ${summary}`, '-m', releaseBody]);
 } else {
-  console.log('工作区没有新改动，将使用当前提交发布。');
+  fail('工作区没有待发布改动；为避免版本提交只剩摘要，请先准备并验收本次改动。');
 }
 
 console.log(`正在推送 ${branch}…`);
 git(['push', 'origin', `HEAD:refs/heads/${branch}`]);
 
 console.log(`正在创建 ${tag}…`);
-git(['tag', '--annotate', tag, '--message', `Release ${tag}`, 'HEAD']);
+git([
+  'tag',
+  '--annotate',
+  tag,
+  '--message',
+  `Release ${tag} — ${summary}`,
+  '--message',
+  releaseBody,
+  'HEAD',
+]);
 git(['push', 'origin', `refs/tags/${tag}`]);
 
 console.log(
