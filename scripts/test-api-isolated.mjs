@@ -188,6 +188,13 @@ async function main() {
 
   await run(
     resolve(apiDir, 'node_modules/.bin/prisma'),
+    ['generate', '--schema', 'prisma/schema.prisma'],
+    'Generating the API Prisma Client',
+    { cwd: apiDir, env: testEnv },
+  );
+
+  await run(
+    resolve(apiDir, 'node_modules/.bin/prisma'),
     ['migrate', 'deploy', '--schema', 'prisma/schema.prisma'],
     'Applying API migrations to the temporary database',
     { cwd: apiDir, env: testEnv },

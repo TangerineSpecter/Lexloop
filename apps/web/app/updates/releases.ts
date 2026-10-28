@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.38',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '旅行复盘可先改写再看建议',
+        entry: '场景口语 → 完成场景 → 场景复盘',
+        usage:
+          '先改写一条本次表达，再对照建议；没有纠错时可借句型骨架试说。可跳过，不评分、不保存或计入掌握进度。',
+      },
+    ],
+  },
+  {
     version: '1.27.37',
     date: '2026-10-28',
     items: [

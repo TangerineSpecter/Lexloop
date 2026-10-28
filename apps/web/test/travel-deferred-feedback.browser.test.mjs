@@ -92,6 +92,40 @@ test(
         }
         return result.result.value;
       };
+      const clickPointer = async (selector) => {
+        const point = await evaluate(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) throw new Error('Missing pointer target: ' + ${JSON.stringify(selector)});
+          element.scrollIntoView({ block: 'center', inline: 'nearest' });
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return {
+            x,
+            y,
+            hitMatches: Boolean(hit && (element === hit || element.contains(hit))),
+            hit: hit?.getAttribute('aria-label') ?? hit?.textContent?.trim().slice(0, 60) ?? null,
+            target: element.getAttribute('aria-label') ?? element.textContent.trim(),
+          };
+        })()`);
+        assert.equal(point.hitMatches, true, JSON.stringify(point));
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+      };
       const until = async (expression) => {
         for (let attempt = 0; attempt < 120; attempt++) {
           try {
@@ -120,10 +154,11 @@ test(
             grammarFrames: [{ intent: '说明预订', natural: 'I have a reservation under…', frame: 'I have a reservation under + name', explanation: '用 under 引出预订姓名。' }],
             completedCount: 0, bestOutcome: null,
           };
-          window.travelFeedbackFixture = { turnPending: false, turnRequests: 0, errors: [] };
+          window.travelFeedbackFixture = { turnPending: false, turnRequests: 0, errors: [], apiRequests: [], completedReport: null };
           window.fetch = async (input, options = {}) => {
             const path = String(input);
             const method = options.method ?? 'GET';
+            if (path.includes('/api/v1/')) window.travelFeedbackFixture.apiRequests.push({ method, path });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: user.id });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
@@ -136,7 +171,8 @@ test(
             if (path.includes('/api/v1/scenarios')) return Response.json([scenario]);
             if (path.includes('/api/v1/vocabulary/notebook')) return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
             if (path.endsWith('/api/v1/scenario-sessions/active') && method === 'GET') return Response.json(null);
-            if (path.endsWith('/api/v1/scenario-sessions/reports')) return Response.json({ items: [], nextCursor: null });
+            if (path.endsWith('/api/v1/scenario-sessions/reports')) return Response.json({ items: window.travelFeedbackFixture.completedReport ? [{ sessionId: 'session-a', completedAt: '2026-10-28T12:00:00.000Z', level: 'A1', template: { id: scenario.id, title: scenario.title, category: scenario.category, categoryLabel: scenario.categoryLabel }, outcome: 'PARTIAL' }] : [], nextCursor: null });
+            if (path.endsWith('/api/v1/scenario-sessions/session-a/report') && method === 'GET') return Response.json({ session: { id: 'session-a', templateId: scenario.id, level: 'A1', status: 'COMPLETED', turnCount: 1 }, completedAt: '2026-10-28T12:00:00.000Z', template: scenario, report: window.travelFeedbackFixture.completedReport });
             if (path.endsWith('/api/v1/scenario-sessions') && method === 'POST') return Response.json({ session: { id: 'session-a', templateId: scenario.id, level: 'A1', status: 'ACTIVE', turnCount: 0 }, template: scenario, turns: [] });
             if (path.endsWith('/api/v1/scenario-sessions/session-a/turns') && method === 'POST') {
               window.travelFeedbackFixture.turnPending = true;
@@ -148,7 +184,10 @@ test(
                 };
               });
             }
-            if (path.endsWith('/api/v1/scenario-sessions/session-a/complete') && method === 'POST') return Response.json({ outcome: 'PARTIAL', dimensions: { vocabulary: 50, grammar: 50, sentenceBuilding: 50, taskCompletion: 50, naturalness: 50 }, rewrites: [{ type: 'naturalness', original: 'I want check in.', natural: 'I’d like to check in.', explanation: 'would like to 是更礼貌的请求表达。' }], grammarFrames: scenario.grammarFrames, evidence: scenario.objectives.map(objective => ({ objective, completed: false })), vocabulary: [], recommendation: '先复习这页句子骨架，再试一次。' });
+            if (path.endsWith('/api/v1/scenario-sessions/session-a/complete') && method === 'POST') {
+              window.travelFeedbackFixture.completedReport = { outcome: 'PARTIAL', dimensions: { vocabulary: 50, grammar: 50, sentenceBuilding: 50, taskCompletion: 50, naturalness: 50 }, rewrites: [{ type: 'naturalness', original: 'I want check in.', natural: 'I’d like to check in.', explanation: 'would like to 是更礼貌的请求表达。' }, { type: 'politeness', original: 'Tell me my room number.', natural: 'Could you tell me my room number?', explanation: '用间接问句提出请求。' }], grammarFrames: [{ intent: '礼貌提出入住请求', natural: 'I’d like to check in.', frame: 'I’d like to + verb', explanation: '用 would like to 礼貌表达愿望。' }, ...scenario.grammarFrames], evidence: scenario.objectives.map(objective => ({ objective, completed: false })), vocabulary: [], recommendation: '先复习这页句子骨架，再试一次。' };
+              return Response.json(window.travelFeedbackFixture.completedReport);
+            }
             if (path.endsWith('/api/v1/scenario-sessions/latest-report')) return Response.json(null);
             if (path.includes('/api/v1/')) {
               window.travelFeedbackFixture.errors.push(method + ' ' + path);
@@ -299,10 +338,164 @@ test(
       await evaluate(
         '[...document.querySelectorAll(".conversation-actions button")].find(button => button.textContent.includes("完成场景")).click()',
       );
-      await until('document.querySelector(".rewrite-notes")');
+      await until('document.querySelector(".travel-report-rehearsal")');
+      const rehearsalRequestCount = await evaluate(
+        'window.travelFeedbackFixture.apiRequests.length',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".travel-report-rehearsal textarea").value'),
+        '',
+      );
       assert.equal(
         await evaluate(
-          'document.querySelector(".rewrite-notes").innerText.includes("I’d like to check in.")',
+          '[...document.querySelectorAll(".travel-report-rehearsal button")].find(button => button.textContent.includes("对照建议")).disabled',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".travel-report-page").innerText.includes("I’d like to check in.")',
+        ),
+        false,
+      );
+
+      await evaluate(`(() => {
+        const input = document.querySelector('.travel-report-rehearsal textarea');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'I would like to check in, please.');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        [...document.querySelectorAll('.travel-report-rehearsal button')].find(button => button.textContent.includes('对照建议')).focus();
+      })()`);
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('document.querySelector(".travel-report-rehearsal article[aria-live]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".travel-report-rehearsal").innerText.includes("I’d like to check in.")',
+        ),
+        true,
+      );
+      await clickPointer('.travel-report-rehearsal [aria-label="收起建议，再试一次"]');
+      assert.equal(
+        await evaluate('document.querySelector(".travel-report-rehearsal textarea").value'),
+        'I would like to check in, please.',
+      );
+      await evaluate(`(() => {
+        const button = document.querySelector('.travel-report-rehearsal [aria-label="跳过并查看建议"]');
+        button.addEventListener('click', () => {
+          const startedAt = performance.now();
+          requestAnimationFrame(() => { window.travelFeedbackFixture.revealFrameMs = performance.now() - startedAt; });
+        }, { once: true });
+      })()`);
+      await clickPointer('.travel-report-rehearsal [aria-label="跳过并查看建议"]');
+      await until('typeof window.travelFeedbackFixture.revealFrameMs === "number"');
+      const revealFrameMs = await evaluate('window.travelFeedbackFixture.revealFrameMs');
+      assert.ok(
+        revealFrameMs < 1000,
+        `reference reveal took ${revealFrameMs}ms in the browser fixture`,
+      );
+      assert.equal(
+        await evaluate('window.travelFeedbackFixture.apiRequests.length'),
+        rehearsalRequestCount,
+      );
+      assert.deepEqual(await evaluate('window.travelFeedbackFixture.errors'), []);
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const desktopReport = await evaluate(`(() => {
+        const section = document.querySelector('.travel-report-rehearsal').getBoundingClientRect();
+        const input = document.querySelector('.travel-report-rehearsal textarea').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, sectionLeft: section.left, sectionRight: section.right, inputRight: input.right };
+      })()`);
+      assert.equal(
+        desktopReport.scrollWidth,
+        desktopReport.viewport,
+        JSON.stringify(desktopReport),
+      );
+      assert.ok(
+        desktopReport.sectionLeft >= 0 && desktopReport.sectionRight <= desktopReport.viewport,
+        JSON.stringify(desktopReport),
+      );
+      assert.ok(
+        desktopReport.inputRight <= desktopReport.sectionRight,
+        JSON.stringify(desktopReport),
+      );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(350);
+      const mobileReport = await evaluate(`(() => {
+        const section = document.querySelector('.travel-report-rehearsal').getBoundingClientRect();
+        const input = document.querySelector('.travel-report-rehearsal textarea').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, sectionLeft: section.left, sectionRight: section.right, inputRight: input.right, buttons: [...document.querySelectorAll('.travel-report-rehearsal button')].map(button => { const rect = button.getBoundingClientRect(); return { left: rect.left, right: rect.right, width: rect.width }; }) };
+      })()`);
+      assert.equal(mobileReport.scrollWidth, mobileReport.viewport, JSON.stringify(mobileReport));
+      assert.ok(
+        mobileReport.sectionLeft >= 0 && mobileReport.sectionRight <= mobileReport.viewport,
+        JSON.stringify(mobileReport),
+      );
+      assert.ok(mobileReport.inputRight <= mobileReport.sectionRight, JSON.stringify(mobileReport));
+      assert.ok(
+        mobileReport.buttons.every(
+          (button) =>
+            button.width > 0 &&
+            button.left >= mobileReport.sectionLeft &&
+            button.right <= mobileReport.sectionRight,
+        ),
+        JSON.stringify(mobileReport),
+      );
+      await clickPointer('.travel-report-rehearsal [aria-label="收起建议，再试一次"]');
+      assert.equal(
+        await evaluate('document.querySelector(".travel-report-rehearsal [aria-live]") === null'),
+        true,
+      );
+      await clickPointer('.travel-report-rehearsal [aria-label="跳过并查看建议"]');
+      assert.equal(
+        await evaluate('Boolean(document.querySelector(".travel-report-rehearsal [aria-live]"))'),
+        true,
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
+
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-page footer button")].find(button => button.textContent.includes("回到场景地图")).click()',
+      );
+      await until('document.querySelector(".travel-report-recovery")');
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-recovery button")].find(button => button.textContent.includes("查看复盘")).click()',
+      );
+      await until('document.querySelector(".travel-report-rehearsal textarea")');
+      assert.equal(
+        await evaluate('document.querySelector(".travel-report-rehearsal textarea").value'),
+        '',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".travel-report-page").innerText.includes("I’d like to check in.")',
+        ),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".rewrite-notes").innerText.includes("Could you tell me my room number?")',
         ),
         true,
       );

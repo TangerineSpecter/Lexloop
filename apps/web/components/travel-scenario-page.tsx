@@ -28,6 +28,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import type { NotebookPage } from '@lexloop/types';
 import { request, type Session, userFacingError } from '../lib/api';
 import { TravelDeferredFeedback } from './travel-deferred-feedback';
+import { TravelReportRehearsal } from './travel-report-rehearsal';
 import resumeStyles from './travel-session-resume.module.css';
 
 type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
@@ -412,6 +413,7 @@ export function TravelScenarioPage({
   if (report && active)
     return (
       <ReportView
+        key={active.session.id}
         report={report}
         scenario={active.template}
         onSave={(candidate) => void saveVocabulary(candidate, active.template.title)}
@@ -1149,6 +1151,12 @@ function ReportView({
   const scoreEntries = dimensions.map(
     ([key, label]) => [key, label, report.dimensions[key] ?? 0] as const,
   );
+  const rehearsalReference = report.rewrites[0]?.natural.trim().replace(/\s+/g, ' ').toLowerCase();
+  const visibleGrammarFrames = (
+    report.rewrites.length ? report.grammarFrames : report.grammarFrames.slice(1)
+  )
+    .filter((item) => item.natural.trim().replace(/\s+/g, ' ').toLowerCase() !== rehearsalReference)
+    .slice(0, 3);
   return (
     <div className="travel-report-page">
       <header>
@@ -1202,8 +1210,12 @@ function ReportView({
             </div>
           </div>
         </div>
+        <TravelReportRehearsal
+          rewrite={report.rewrites[0] ?? null}
+          grammarFrame={report.rewrites.length ? null : (report.grammarFrames[0] ?? null)}
+        />
         {report.rewrites.length ? (
-          report.rewrites.map((item, index) => (
+          report.rewrites.slice(1).map((item, index) => (
             <article key={`${item.natural}-${index}`}>
               <small>{item.type}</small>
               <del>{item.original}</del>
@@ -1220,7 +1232,7 @@ function ReportView({
       <section className="report-bottom">
         <article>
           <h2>最值得带走的句子骨架</h2>
-          {report.grammarFrames.slice(0, 3).map((item) => (
+          {visibleGrammarFrames.map((item) => (
             <div key={item.natural}>
               <span>{item.intent}</span>
               <b>{item.natural}</b>
