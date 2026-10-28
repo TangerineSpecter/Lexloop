@@ -56,6 +56,8 @@ export class MicroStoriesService {
                   explanation: story.explanation,
                   frame: story.frame,
                   example: story.example,
+                  focusPhrase: story.focusPhrase,
+                  focusMeaning: story.focusMeaning,
                 }
               : {}),
           }

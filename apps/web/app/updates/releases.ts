@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.34',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '微故事重点表达可收藏并加入复习',
+        entry: '微故事 → 查看解析',
+        usage:
+          '答案揭晓后，可编辑并收藏本段重点表达、语境义和原文到个人生词本，沿用现有复习安排；不改变故事进度或偏差卡。',
+      },
+    ],
+  },
+  {
     version: '1.27.33',
     date: '2026-10-28',
     items: [

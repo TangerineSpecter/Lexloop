@@ -12,6 +12,7 @@ type CollectWordProps = {
   example?: string;
   text?: string;
   meaning?: string;
+  summary?: string;
   onSaved?: () => void;
 };
 
@@ -22,6 +23,8 @@ export function CollectWordForm(props: CollectWordProps) {
     props.example,
     props.text,
     props.meaning,
+    props.summary,
+    props.session.user.id,
   ]);
   return <CollectWordFields key={context} {...props} />;
 }
@@ -33,6 +36,7 @@ function CollectWordFields({
   example = '',
   text = '',
   meaning = '',
+  summary,
   onSaved,
 }: CollectWordProps) {
   const id = useId();
@@ -72,7 +76,7 @@ function CollectWordFields({
   }
   return (
     <details className={styles.collect}>
-      <summary>＋ 收藏单词或短语到生词本</summary>
+      <summary>{summary ?? '＋ 收藏单词或短语到生词本'}</summary>
       <form onSubmit={(event) => void save(event)} className={styles.form}>
         <label htmlFor={`${id}-word`}>
           英文单词或短语

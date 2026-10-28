@@ -65,12 +65,18 @@ describe('one-minute stories', () => {
     const f = fixture();
     const before = await f.service.current('owner');
     expect(before.lesson).not.toHaveProperty('reference');
+    expect(before.lesson).not.toHaveProperty('focusPhrase');
     await expect(f.service.complete('owner', 'bus-01', true, '')).rejects.toBeInstanceOf(
       BadRequestException,
     );
     const revealed = await f.service.interpret('owner', 'bus-01', '想念公交车');
     expect(revealed.reference).toContain('没赶上公交车');
+    expect(revealed).toMatchObject({
+      focusPhrase: 'miss the bus',
+      focusMeaning: '没赶上公交车；不是“想念公交车”。',
+    });
     expect((await f.service.current('owner')).lesson).toHaveProperty('reference');
+    expect((await f.service.current('owner')).lesson).toHaveProperty('focusPhrase', 'miss the bus');
     expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
     await f.service.complete('owner', 'bus-01', true, 'I missed the train.');
     expect(f.tx.microError.upsert).toHaveBeenCalledWith(
@@ -144,6 +150,7 @@ describe('one-minute stories', () => {
 
     const answer = await f.service.revisit('owner', 'bus-01');
     expect(answer.reference).toContain('没赶上公交车');
+    expect(answer).toHaveProperty('focusPhrase', 'miss the bus');
     await expect(f.service.revisit('owner', 'bus-03')).rejects.toBeInstanceOf(NotFoundException);
     f.progress.completedKeys = [];
     await expect(f.service.revisit('other', 'bus-01')).rejects.toBeInstanceOf(NotFoundException);
@@ -155,6 +162,23 @@ describe('one-minute stories', () => {
 
   it('keeps published story keys unique so old cards retain their context', () => {
     expect(new Set(MICRO_STORIES.map((story) => story.key)).size).toBe(MICRO_STORIES.length);
+    expect(
+      MICRO_STORIES.every(
+        (story) =>
+          story.focusPhrase.trim().length > 0 &&
+          story.focusPhrase.length <= 120 &&
+          story.focusMeaning.trim().length > 0 &&
+          story.focusMeaning.length <= 500,
+      ),
+    ).toBe(true);
+    expect(
+      MICRO_STORIES.every((story) =>
+        [story.english, story.explanation, story.frame, story.example]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(story.focusPhrase.toLocaleLowerCase()),
+      ),
+    ).toBe(true);
   });
 
   it('reveals an accurate report explanation only after the learner writes an interpretation', async () => {

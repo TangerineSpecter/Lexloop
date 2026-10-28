@@ -11,7 +11,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
     it('reveals only an owned completed story without changing learning records', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+        log: [{ emit: 'event', level: 'query' }],
       });
+      const queries: string[] = [];
+      prisma.$on('query', () => queries.push('query'));
       const fixtureId = randomUUID();
       const userIds: string[] = [];
       const service = new MicroStoriesService(
@@ -46,8 +49,28 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(preview[0]).toMatchObject({ key: 'bus-01', english: expect.any(String) });
         expect(preview[0]).not.toHaveProperty('reference');
         expect(preview[0]).not.toHaveProperty('explanation');
+        const ownerCurrent = await service.current(users[0].id);
+        const otherCurrent = await service.current(users[1].id);
+        expect(ownerCurrent.lesson).not.toHaveProperty('focusPhrase');
+        expect(otherCurrent.lesson).not.toHaveProperty('focusPhrase');
         console.log(
           `micro-story completed list: ${preview.length} stories in ${lookupDurationMs.toFixed(1)} ms`,
+        );
+
+        await service.interpret(users[0].id, 'bus-02', '汤姆说自己上班会迟到。');
+        const queryStart = queries.length;
+        const currentStarted = performance.now();
+        const revealedCurrent = await service.current(users[0].id);
+        const currentDurationMs = performance.now() - currentStarted;
+        const currentQueries = queries.length - queryStart;
+        const currentResponseBytes = Buffer.byteLength(JSON.stringify(revealedCurrent));
+        expect(currentQueries).toBe(2);
+        expect(revealedCurrent.lesson).toMatchObject({
+          key: 'bus-02',
+          focusPhrase: 'be late for work',
+        });
+        console.log(
+          `micro-story revealed current: ${currentQueries} database queries/${currentDurationMs.toFixed(1)} ms, ${currentResponseBytes} response bytes`,
         );
 
         const before = {
@@ -57,6 +80,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         };
         const answer = await service.revisit(users[0].id, 'bus-01');
         expect(answer.reference).toBeTruthy();
+        expect(answer.focusPhrase).toBe('miss the bus');
         await expect(service.revisit(users[0].id, 'bus-02')).rejects.toBeInstanceOf(
           NotFoundException,
         );

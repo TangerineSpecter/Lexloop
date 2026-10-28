@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { request, type Session, userFacingError } from '../../lib/api';
+import { CollectWordForm } from '../learning-lab/collect-word-form';
 import {
   clearReviewDraft,
   clearStoryDraft,
@@ -25,6 +26,8 @@ type Lesson = {
   explanation?: string;
   frame?: string;
   example?: string;
+  focusPhrase?: string;
+  focusMeaning?: string;
 };
 type Review = {
   id: string;
@@ -47,6 +50,8 @@ type CompletedStoryAnswer = CompletedStoryPreview & {
   explanation: string;
   frame: string;
   example: string;
+  focusPhrase: string;
+  focusMeaning: string;
 };
 
 export function MicroStoriesPage({ session }: { session: Session }) {
@@ -525,6 +530,17 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                     例如：<span lang="en">{lesson.example}</span>
                   </small>
                 </div>
+                {lesson.focusPhrase && lesson.focusMeaning && (
+                  <CollectWordForm
+                    session={session}
+                    sourceType="READING"
+                    source={`微故事 · ${lesson.series} · 第 ${lesson.part} 段`}
+                    text={lesson.focusPhrase}
+                    meaning={lesson.focusMeaning}
+                    example={lesson.english}
+                    summary={`＋ 收藏重点表达「${lesson.focusPhrase}」并加入复习`}
+                  />
+                )}
                 <fieldset className={styles.choice}>
                   <legend>刚才的理解有偏差吗？</legend>
                   <label>
@@ -698,6 +714,15 @@ export function MicroStoriesPage({ session }: { session: Session }) {
                       <span lang="en">{completedAnswer.example}</span>
                     </p>
                   </div>
+                  <CollectWordForm
+                    session={session}
+                    sourceType="READING"
+                    source={`微故事 · ${completedAnswer.series} · 第 ${completedAnswer.part} 段`}
+                    text={completedAnswer.focusPhrase}
+                    meaning={completedAnswer.focusMeaning}
+                    example={completedAnswer.english}
+                    summary={`＋ 收藏重点表达「${completedAnswer.focusPhrase}」并加入复习`}
+                  />
                 </>
               )}
             </article>

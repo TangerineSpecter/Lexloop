@@ -8,6 +8,8 @@ export type MicroStory = {
   explanation: string;
   frame: string;
   example: string;
+  focusPhrase: string;
+  focusMeaning: string;
 };
 
 // Stable keys matter: saved misunderstanding cards must continue to point to the same text.
@@ -22,6 +24,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'miss the bus 在赶车的场景里是“没赶上公交车”，不是“想念公交车”。',
     frame: 'I missed the bus.',
     example: 'I missed the train.',
+    focusPhrase: 'miss the bus',
+    focusMeaning: '没赶上公交车；不是“想念公交车”。',
   },
   {
     key: 'bus-02',
@@ -33,6 +37,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'be late for work 是“上班迟到”；will 表示接下来会发生的事。',
     frame: 'I will be late for ___.',
     example: 'I will be late for class.',
+    focusPhrase: 'be late for work',
+    focusMeaning: '上班迟到。',
   },
   {
     key: 'bus-03',
@@ -44,6 +50,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'give someone a ride 是“开车捎某人一程”；on time 是“准时”。',
     frame: '___ gives me a ride.',
     example: 'My sister gives me a ride.',
+    focusPhrase: 'give someone a ride',
+    focusMeaning: '开车捎某人一程。',
   },
   {
     key: 'cafe-01',
@@ -55,6 +63,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'order 在咖啡店里是“点单”，不是“命令”。',
     frame: 'I order ___.',
     example: 'I order a cup of tea.',
+    focusPhrase: 'order',
+    focusMeaning: '点单；这里指在咖啡店点饮品。',
   },
   {
     key: 'cafe-02',
@@ -66,6 +76,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'if 在 asks if... 中引出“是否”；a little 修饰牛奶这类不可数的东西。',
     frame: 'Do you want ___? Just a little, please.',
     example: 'Do you want sugar? Just a little, please.',
+    focusPhrase: 'just a little',
+    focusMeaning: '只要一点点；这里指牛奶加一点点就好。',
   },
   {
     key: 'cafe-03',
@@ -77,6 +89,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'left it at home 指“把它落在家里”；pay for 后接所付钱购买的东西。',
     frame: 'I left ___ at home.',
     example: 'I left my keys at home.',
+    focusPhrase: 'left it at home',
+    focusMeaning: '把它落在家里；这里的 it 指钱包。',
   },
   {
     key: 'meeting-01',
@@ -88,6 +102,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'need to 后接动词原形；first 表示先做这件事。',
     frame: 'I need to ___ first.',
     example: 'I need to call my manager first.',
+    focusPhrase: 'needs to finish a short report first',
+    focusMeaning: '需要先完成一份简短报告。',
   },
   {
     key: 'meeting-02',
@@ -101,6 +117,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
       'help with the report 表示帮忙做这项报告工作，不只指写作；offer to help 是“主动提出帮忙”；so he can... 表示这样他就能做某事。',
     frame: 'I can ___ so you can ___.',
     example: 'I can send the file so you can read it.',
+    focusPhrase: 'help with the report',
+    focusMeaning: '帮忙做这份报告相关的工作，不只指写作。',
   },
   {
     key: 'meeting-03',
@@ -113,6 +131,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'before 引出“在……之前”；because 引出原因。',
     frame: 'I feel ready because ___.',
     example: 'I feel ready because I have my notes.',
+    focusPhrase: 'feel ready',
+    focusMeaning: '觉得准备好了；这里指准备好参加会议。',
   },
   {
     key: 'weekend-01',
@@ -125,6 +145,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'ask if... 是“询问是否……”；be free 在安排见面时表示“有空”。',
     frame: 'Are you free on ___?',
     example: 'Are you free on Friday?',
+    focusPhrase: 'be free',
+    focusMeaning: '周六有空；用于询问见面安排。',
   },
   {
     key: 'weekend-02',
@@ -137,6 +159,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'suggest + 动词-ing 表示提议做某事；instead 表示改做另一种安排。',
     frame: 'How about meeting ___ instead?',
     example: 'How about meeting after work instead?',
+    focusPhrase: 'meeting after lunch',
+    focusMeaning: '午饭后见面；故事里是改到这个时间。',
   },
   {
     key: 'weekend-03',
@@ -149,6 +173,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'catch up 在这里指“聊聊彼此近况”；over coffee 表示边喝咖啡边聊。',
     frame: "Let's catch up over ___.",
     example: "Let's catch up over lunch.",
+    focusPhrase: 'catch up over coffee',
+    focusMeaning: '边喝咖啡边聊彼此近况。',
   },
   {
     key: 'home-repair-01',
@@ -162,6 +188,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
       'is leaking 和 is dripping 用现在进行时，表示漏水正在发生；explain that... 引出具体情况。',
     frame: 'Something is leaking in ___.',
     example: 'Something is leaking in the bathroom.',
+    focusPhrase: 'is leaking',
+    focusMeaning: '正在漏水；这里指水管持续漏水。',
   },
   {
     key: 'home-repair-02',
@@ -175,6 +203,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
       'when someone can come by 是嵌入式问句，语序用“主语 + can”；come by 在这里指上门一趟。',
     frame: 'Could someone come by ___?',
     example: 'Could someone come by tomorrow morning?',
+    focusPhrase: 'come by',
+    focusMeaning: '顺道过来；这里指上门一趟。',
   },
   {
     key: 'home-repair-03',
@@ -187,6 +217,8 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     explanation: 'show someone how to... 表示教某人怎么做；so he can... 说明拍照的目的。',
     frame: 'Could you show me how to ___?',
     example: 'Could you show me how to reset the router?',
+    focusPhrase: 'turn off the water',
+    focusMeaning: '关掉水源；这里指关掉供水阀。',
   },
 ];
 

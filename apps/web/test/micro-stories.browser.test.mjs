@@ -88,6 +88,56 @@ test(
           );
         return result.result.value;
       };
+      const clickVisible = async (selector) => {
+        let point = await evaluate(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return null;
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit) };
+        })()`);
+        assert.ok(point?.visible, `Expected visible click target: ${selector}`);
+        assert.equal(point.hit, true, `Expected unobstructed click target: ${selector}`);
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: point.x,
+          y: point.y,
+          button: 'none',
+        });
+        await delay(50);
+        point = await evaluate(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit) };
+        })()`);
+        assert.ok(point?.visible, `Expected visible click target after hover: ${selector}`);
+        assert.equal(
+          point.hit,
+          true,
+          `Expected unobstructed click target after hover: ${selector}`,
+        );
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+      };
       const until = async (expression) => {
         for (let attempt = 0; attempt < 100; attempt++) {
           try {
@@ -99,7 +149,7 @@ test(
         }
         let state = 'page state unavailable';
         try {
-          state = `page text: ${(await evaluate('document.body.innerText')).slice(0, 800)}; browser state: ${await evaluate("JSON.stringify({ session: localStorage.getItem('lexloop.session'), fixture: window.microFixture, storage: Object.keys(localStorage) })")}`;
+          state = `page text: ${(await evaluate('document.body.innerText')).slice(0, 800)}; browser state: ${await evaluate("JSON.stringify({ session: localStorage.getItem('lexloop.session'), fixture: window.microFixture, storage: Object.keys(localStorage), collectionForm: (() => { const form = document.querySelector('details form'); return form ? { open: form.closest('details').open, valid: form.checkValidity(), fields: [...form.querySelectorAll('input,textarea')].map(field => ({ value: field.value, valid: field.checkValidity() })) } : null; })() })")}`;
         } catch {
           // Keep the original wait failure if the page never acquired a context.
         }
@@ -123,7 +173,9 @@ test(
           return nativeSetItem.call(this, key, value);
         };
       }
-      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [] };
+      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0 };
+      document.addEventListener('click', event => { if (event.target instanceof Element && event.target.closest('details form button')) window.microFixture.notebookButtonClicks += 1; });
+      document.addEventListener('submit', event => { if (event.target instanceof HTMLFormElement && event.target.closest('details')) window.microFixture.notebookSubmits += 1; });
       const audioAuditKey = 'lexloop.test.local-audio-audit';
       const readAudioAudit = () => JSON.parse(sessionStorage.getItem(audioAuditKey) || '{"stoppedTracks":0,"revokedUrls":[]}');
       const writeAudioAudit = audit => sessionStorage.setItem(audioAuditKey, JSON.stringify(audit));
@@ -176,14 +228,18 @@ test(
         const first = { key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: 'Tom misses the bus.', interpretation: f.revealed ? f.interpretation : null };
         const continuation = { key: 'weekend-01', series: '周末约朋友', part: 1, level: 'A2', english: 'Maya wants to see a friend this weekend. She texts Leo to ask if he is free on Saturday.', interpretation: null };
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: fixtureUser });
-        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
+        if (path.includes('/api/v1/vocabulary/personal/items') && options.method === 'POST') {
+          f.notebookSaves.push({ body: JSON.parse(options.body), authorization: new Headers(options.headers).get('Authorization') });
+          return Response.json({ id: 'saved-phrase', addedToReview: true });
+        }
+        if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
         if (path.endsWith('/api/v1/micro-stories/completed')) return Response.json(f.index >= 9 ? [{ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english }] : []);
-        if (path.endsWith('/api/v1/micro-stories/completed/bus-01')) return Response.json({ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english, reference: '汤姆出门晚了，没赶上公交车。', explanation: 'miss the bus 是“没赶上公交车”，不是“想念公交车”。', frame: 'I missed the bus.', example: 'I missed the train.' });
+        if (path.endsWith('/api/v1/micro-stories/completed/bus-01')) return Response.json({ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english, reference: '汤姆出门晚了，没赶上公交车。', explanation: 'miss the bus 是“没赶上公交车”，不是“想念公交车”。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' });
         if (path.includes('/api/v1/micro-stories/errors')) return Response.json(f.errors);
         if (path.includes('/api/v1/micro-stories/bus-01/interpret')) {
           if (f.failReveal) { f.failReveal = false; sessionStorage.setItem(fixtureKey + '.reveal-failed', '1'); return Response.json({ message: 'Fixture failure' }, { status: 500 }); }
           f.interpretation = JSON.parse(options.body).interpretation; f.revealed = true; persistFixture();
-          return Response.json({ ...first, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' });
+          return Response.json({ ...first, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' });
         }
         if (path.includes('/api/v1/micro-stories/bus-01/complete')) {
           f.errors.push({ id: 'card1', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: JSON.parse(options.body).ownSentence, dueAt: new Date().toISOString() });
@@ -206,6 +262,8 @@ test(
       });
       await until('document.querySelector("textarea")');
       const requestsOnInitialLoad = await evaluate('window.microFixture.requests.length');
+      assert.equal(await evaluate('document.querySelector("details summary")'), null);
+      assert.equal(await evaluate('window.microFixture.notebookSaves.length'), 0);
       await until('document.querySelector(`button[aria-label="按正常速度播放微故事原文"]`)');
       assert.equal(await evaluate('window.localSpeechFixture.permissionRequests.length'), 0);
       await send('Emulation.setDeviceMetricsOverride', {
@@ -509,6 +567,109 @@ test(
         await evaluate('document.body.textContent.includes("I missed the train.")'),
         true,
       );
+      await until('document.querySelector("details summary")');
+      assert.equal(await evaluate('document.querySelector("details").open'), false);
+      assert.equal(await evaluate('window.microFixture.notebookSaves.length'), 0);
+      assert.equal(
+        await evaluate('document.querySelector("details input")?.value'),
+        'miss the bus',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("details textarea")?.value'),
+        'Tom misses the bus.',
+      );
+      const openingPoint = await evaluate(`(() => {
+        const summary = document.querySelector('details summary');
+        summary.scrollIntoView({ block: 'center' });
+        const rect = summary.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === summary || summary.contains(hit) };
+      })()`);
+      assert.equal(openingPoint.visible, true);
+      assert.equal(openingPoint.hit, true);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: openingPoint.x,
+        y: openingPoint.y,
+        button: 'none',
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: openingPoint.x,
+        y: openingPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: openingPoint.x,
+        y: openingPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      assert.equal(await evaluate('document.querySelector("details").open'), true);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const desktopNotebookBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const rect = document.querySelector("details").getBoundingClientRect(); return { left: rect.left, right: rect.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(
+        desktopNotebookBounds.left >= 0 &&
+          desktopNotebookBounds.right <= desktopNotebookBounds.viewport,
+      );
+      assert.ok(desktopNotebookBounds.scrollWidth <= desktopNotebookBounds.viewport);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileNotebookBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const rect = document.querySelector("details").getBoundingClientRect(); return { left: rect.left, right: rect.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(
+        mobileNotebookBounds.left >= 0 &&
+          mobileNotebookBounds.right <= mobileNotebookBounds.viewport,
+      );
+      assert.ok(mobileNotebookBounds.scrollWidth <= mobileNotebookBounds.viewport);
+      await send('Emulation.clearDeviceMetricsOverride');
+      assert.equal(await evaluate('document.querySelector("details form").checkValidity()'), true);
+      await clickVisible('details form button');
+      await until('window.microFixture.notebookSaves.length === 1');
+      assert.deepEqual(await evaluate('window.microFixture.notebookSaves[0]'), {
+        body: {
+          text: 'miss the bus',
+          type: 'PHRASE',
+          meaning: '没赶上公交车；不是“想念公交车”。',
+          example: 'Tom misses the bus.',
+          sourceScenario: '微故事 · 上班路上 · 第 1 段',
+          sourceType: 'READING',
+        },
+        authorization: 'Bearer fixture',
+      });
+      await until(
+        'document.querySelector("details [role=status]")?.textContent.includes("已加入复习")',
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=notebook-other', baseUrl).href,
+      });
+      await until('document.querySelector("#story-meaning")');
+      assert.equal(await evaluate('document.querySelector("details summary")'), null);
+      assert.equal(await evaluate('document.body.textContent.includes("miss the bus")'), false);
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?fail-reveal=1&fail-review=1', baseUrl).href,
+      });
+      await until('document.body.textContent.includes("你的理解：")');
       await evaluate(`document.querySelector('button[aria-label="慢速播放微故事原文"]').click()`);
       assert.equal(await evaluate('window.microFixture.speechLog[0].rate'), 0.8);
       await evaluate(`document.querySelector('button[aria-label="停止播放微故事原文"]').click()`);
@@ -719,6 +880,12 @@ test(
       );
       await until(`document.body.textContent.includes('这次回想（未保存）')`);
       assert.equal(await evaluate('document.body.textContent.includes("miss the bus 是")'), true);
+      assert.equal(await evaluate('document.querySelector("details").open'), false);
+      assert.equal(
+        await evaluate('document.querySelector("details input")?.value'),
+        'miss the bus',
+      );
+      assert.equal(await evaluate('window.microFixture.notebookSaves.length'), 0);
       assert.equal(
         await evaluate(
           'document.body.textContent.includes("Maya wants to see a friend this weekend.")',

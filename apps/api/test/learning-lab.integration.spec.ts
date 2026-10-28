@@ -37,6 +37,35 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
       ).rejects.toThrow();
       expect(new Set(saved.map((row) => row.id)).size).toBe(1);
       expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(1);
+      const storyPhrase = await service.savePersonalItem(user.id, {
+        text: 'miss the bus',
+        type: 'PHRASE',
+        meaning: '没赶上公交车',
+        example: 'Tom misses the bus.',
+        sourceType: 'READING',
+        sourceScenario: '微故事 · 上班路上 · 第 1 段',
+      });
+      expect(storyPhrase).toMatchObject({
+        text: 'miss the bus',
+        meaning: '没赶上公交车',
+        example: 'Tom misses the bus.',
+        sourceScenario: '微故事 · 上班路上 · 第 1 段',
+        addedToReview: true,
+      });
+      const savedStoryPhrase = await service.notebook(user.id, 1, 'miss the bus', 'READING');
+      expect(savedStoryPhrase.items[0]).toMatchObject({
+        text: 'miss the bus',
+        meaning: '没赶上公交车',
+        example: 'Tom misses the bus.',
+        sourceType: 'READING',
+        sourceScenario: '微故事 · 上班路上 · 第 1 段',
+        state: 'REVIEWING',
+      });
+      expect(
+        await prisma.userWordProgress.findUnique({
+          where: { userId_bookWordId: { userId: user.id, bookWordId: storyPhrase.id } },
+        }),
+      ).toMatchObject({ state: 'REVIEWING' });
       await service.markMastered(user.id, saved[0].id);
       await service.savePersonalItem(user.id, {
         ...item,
@@ -44,7 +73,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
         sourceType: 'READING',
         example: 'Replacement context.',
       });
-      const first = await service.notebook(user.id, 1, '', undefined);
+      const first = await service.notebook(user.id, 1, 'look forward to', undefined);
       expect(first.items[0]).toMatchObject({
         text: 'Look forward to',
         sourceType: 'TRAVEL',
