@@ -916,19 +916,13 @@ export class AdventureService {
     const target = await tx.floorLearningTarget.findUniqueOrThrow({
       where: { id: challenge.targetId },
     });
+    await tx.userWordProgress.createMany({
+      data: [{ userId, bookWordId: target.bookWordId }],
+      skipDuplicates: true,
+    });
     await lockUserWordProgress(tx, userId, [target.bookWordId]);
-    const progress = await tx.userWordProgress.upsert({
-      where: {
-        userId_bookWordId: {
-          userId,
-          bookWordId: target.bookWordId,
-        },
-      },
-      create: {
-        userId,
-        bookWordId: target.bookWordId,
-      },
-      update: {},
+    const progress = await tx.userWordProgress.findUniqueOrThrow({
+      where: { userId_bookWordId: { userId, bookWordId: target.bookWordId } },
     });
     const correct = score >= 70;
     await tx.userWordProgress.update({

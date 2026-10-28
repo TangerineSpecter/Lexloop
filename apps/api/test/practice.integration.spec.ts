@@ -275,6 +275,55 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       expect(history.items[0].date).toBe(previousDate.toISOString().slice(0, 10));
       expect(history.items[0]).not.toHaveProperty('workerTokenHash');
       expect((await output.history('another-user')).items).toHaveLength(0);
+
+      const firstPracticeWord = await prisma.vocabularyWord.create({
+        data: {
+          normalized: `practice-first-progress-${fixtureId}`,
+          text: 'first-progress',
+          meaning: '首次记录进度',
+        },
+      });
+      const firstPracticeBookWord = await prisma.vocabularyBookWord.create({
+        data: { bookId: book.id, wordId: firstPracticeWord.id, position: 3 },
+      });
+      expect(
+        await prisma.userWordProgress.findUnique({
+          where: {
+            userId_bookWordId: { userId: user.id, bookWordId: firstPracticeBookWord.id },
+          },
+        }),
+      ).toBeNull();
+      const firstPracticeEvidence = {
+        bookWordId: firstPracticeBookWord.id,
+        correct: true,
+        questionType: 'OUTPUT' as const,
+        answer: 'first-progress appears in a sentence.',
+        prompt: 'Use first-progress in a sentence.',
+        explanation: 'The expression fits this context.',
+        expected: 'first-progress',
+        responseTimeMs: 900,
+      };
+      await Promise.all([
+        prisma.$transaction((tx) => evidence.record(tx, user.id, [firstPracticeEvidence])),
+        prisma.$transaction((tx) => evidence.record(tx, user.id, [firstPracticeEvidence])),
+      ]);
+      const initializedProgress = await prisma.userWordProgress.findUniqueOrThrow({
+        where: {
+          userId_bookWordId: { userId: user.id, bookWordId: firstPracticeBookWord.id },
+        },
+      });
+      expect(initializedProgress).toMatchObject({
+        totalAttempts: 2,
+        correctAttempts: 2,
+        reviewCount: 2,
+        consecutiveCorrect: 2,
+        state: 'REVIEWING',
+      });
+      expect(
+        await prisma.wordReviewAttempt.count({
+          where: { userId: user.id, bookWordId: firstPracticeBookWord.id },
+        }),
+      ).toBe(2);
     } finally {
       await prisma.wordReviewAttempt.deleteMany({ where: { userId: user.id } });
       await prisma.aiCallAudit.deleteMany({ where: { userId: user.id } });

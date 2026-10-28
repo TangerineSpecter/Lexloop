@@ -32,20 +32,27 @@ export class PracticeEvidenceService {
       select: { id: true },
     });
     const eligibleWordIds = new Set(eligibleWords.map((word) => word.id));
+    const progressCreatedAt = new Date();
+    const eligibleEvidence = orderedEvidence.filter((item) => eligibleWordIds.has(item.bookWordId));
+    await tx.userWordProgress.createMany({
+      data: eligibleEvidence.map((item) => ({
+        userId,
+        bookWordId: item.bookWordId,
+        firstLearnedAt: progressCreatedAt,
+        state: 'LEARNING',
+      })),
+      skipDuplicates: true,
+    });
     await lockUserWordProgress(
       tx,
       userId,
-      orderedEvidence
-        .filter((item) => eligibleWordIds.has(item.bookWordId))
-        .map((item) => item.bookWordId),
+      eligibleEvidence.map((item) => item.bookWordId),
     );
     for (const item of orderedEvidence) {
       if (!eligibleWordIds.has(item.bookWordId)) continue;
       const now = new Date();
-      const progress = await tx.userWordProgress.upsert({
+      const progress = await tx.userWordProgress.findUniqueOrThrow({
         where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },
-        create: { userId, bookWordId: item.bookWordId, firstLearnedAt: now, state: 'LEARNING' },
-        update: {},
       });
       await tx.wordReviewAttempt.create({
         data: {

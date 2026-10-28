@@ -416,7 +416,8 @@ export class StudyService {
         }
         const newWordIds = plan.items
           .filter((item) => item.source === StudyPlanItemSource.NEW)
-          .map((item) => item.bookWordId);
+          .map((item) => item.bookWordId)
+          .sort();
         if (newWordIds.length) {
           await tx.userWordProgress.createMany({
             data: newWordIds.map((bookWordId) => ({

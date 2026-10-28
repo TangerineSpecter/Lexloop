@@ -405,6 +405,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         }
 
         const [first, second] = runs;
+        expect(
+          await prisma.userWordProgress.findMany({ where: { userId: first.user.id } }),
+        ).toHaveLength(0);
         const firstPrompt = first.run.challenge!.prompt;
         const firstAnswer = first.run.challenge!.options!.find((option) => option === 'steady')!;
         const firstActionId = `action-${fixtureId}-one`;
@@ -420,6 +423,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           feedback: { correct: true, answer: 'steady' },
         });
         expect(firstResult.run.challenge?.prompt).not.toBe(firstPrompt);
+        expect(await prisma.userWordProgress.count({ where: { userId: first.user.id } })).toBe(1);
 
         const secondPrompt = second.run.challenge!.prompt;
         const secondAnswer = second.run.challenge!.options!.find((option) => option !== 'steady')!;

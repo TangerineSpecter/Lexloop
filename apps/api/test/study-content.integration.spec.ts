@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
 import { StudyService } from '../src/modules/study/study.service';
+import { lockUserWordProgress } from '../src/modules/study/user-word-progress-lock';
 
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'study answer visibility in an isolated database',
@@ -208,6 +209,64 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             })),
           ),
         });
+
+        let readyLockCalls = 0;
+        let releaseLockCalls!: () => void;
+        const bothLockCallsReady = new Promise<void>((resolve) => {
+          releaseLockCalls = resolve;
+        });
+        const startLockRequest = (userId: string, ids: string[]) =>
+          prisma.$transaction(async (tx) => {
+            const gatedTx = new Proxy(tx, {
+              get(target, property) {
+                const value = Reflect.get(target, property, target);
+                if (property !== '$queryRaw')
+                  return typeof value === 'function' ? value.bind(target) : value;
+                return async (...args: any[]) => {
+                  readyLockCalls++;
+                  if (readyLockCalls === 2) releaseLockCalls();
+                  await bothLockCallsReady;
+                  return value.apply(target, args);
+                };
+              },
+            });
+            await lockUserWordProgress(gatedTx as never, userId, ids);
+          });
+        const oppositeOrderLocks = await Promise.all([
+          startLockRequest(users[0].id, [bookWords[0].id, bookWords[1].id]),
+          startLockRequest(users[0].id, [bookWords[1].id, bookWords[0].id]),
+        ]);
+        expect(oppositeOrderLocks).toHaveLength(2);
+
+        let firstUserRowsLocked!: () => void;
+        let releaseFirstUserLocks!: () => void;
+        const firstUserRowsLockedPromise = new Promise<void>((resolve) => {
+          firstUserRowsLocked = resolve;
+        });
+        const firstUserLocksReleased = new Promise<void>((resolve) => {
+          releaseFirstUserLocks = resolve;
+        });
+        const firstUserLockTransaction = prisma.$transaction(async (tx) => {
+          await lockUserWordProgress(tx, users[0].id, [bookWords[0].id, bookWords[1].id]);
+          firstUserRowsLocked();
+          await firstUserLocksReleased;
+        });
+        await firstUserRowsLockedPromise;
+        const otherUserLockTransaction = prisma.$transaction((tx) =>
+          lockUserWordProgress(tx, users[1].id, [bookWords[1].id, bookWords[0].id]),
+        );
+        let otherUserLockTimeout: ReturnType<typeof setTimeout> | undefined;
+        const otherUserLocksWhileHeld = await Promise.race([
+          otherUserLockTransaction.then(() => true),
+          new Promise<boolean>((resolve) => {
+            otherUserLockTimeout = setTimeout(() => resolve(false), 2_000);
+          }),
+        ]);
+        if (otherUserLockTimeout) clearTimeout(otherUserLockTimeout);
+        releaseFirstUserLocks();
+        await Promise.all([firstUserLockTransaction, otherUserLockTransaction]);
+        expect(otherUserLocksWhileHeld).toBe(true);
+
         await prisma.weaknessSignal.create({
           data: {
             userId: users[0].id,
