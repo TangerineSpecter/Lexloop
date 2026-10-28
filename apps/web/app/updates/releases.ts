@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.56',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '写作参考表达保留全部目标词',
+        entry: '学习专项与处方 → 每日输出挑战 → 查看反馈',
+        usage: '若参考改写漏掉本次目标词，批改不会记为完成；原文保留，可重试。',
+      },
+    ],
+  },
+  {
     version: '1.27.55',
     date: '2026-10-28',
     items: [

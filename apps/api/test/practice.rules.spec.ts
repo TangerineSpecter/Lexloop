@@ -61,6 +61,43 @@ describe('daily output evidence', () => {
       92,
     );
   });
+  it('requires the reference rewrite to retain every target as a complete spelling', () => {
+    expect(() =>
+      normalizeOutputFeedback(
+        {
+          ...valid(),
+          correctedText: 'The effect may affect my plans.',
+          words: [
+            ...valid().words,
+            { bookWordId: 'borrow', used: true, correct: true, feedback: '表达正确。' },
+          ],
+        },
+        [...targets, { bookWordId: 'borrow', word: 'borrow', meaning: '借入' }],
+        'The effect may affect my plans. I borrow a book.',
+      ),
+    ).toThrow('参考表达未完整保留全部目标词');
+
+    const phraseTarget = [{ bookWordId: 'phrase', word: 'miss the bus', meaning: '没赶上公交' }];
+    const phraseFeedback = {
+      grammarScore: 80,
+      coherenceScore: 80,
+      correctedText: 'We may MISS the bus today.',
+      comments: [],
+      words: [{ bookWordId: 'phrase', used: true, correct: true, feedback: '表达自然。' }],
+    };
+    expect(
+      normalizeOutputFeedback(phraseFeedback, phraseTarget, 'I missed the bus.'),
+    ).toMatchObject({
+      correctedText: 'We may MISS the bus today.',
+    });
+    expect(() =>
+      normalizeOutputFeedback(
+        { ...phraseFeedback, correctedText: 'I may miss the buses today.' },
+        phraseTarget,
+        'I missed the bus.',
+      ),
+    ).toThrow('参考表达未完整保留全部目标词');
+  });
   it('accepts short English expressions and rejects unbounded or punctuated candidates', () => {
     expect(normalizeOutputTarget('  miss   the bus  ')).toBe('miss the bus');
     expect(normalizeOutputTarget("can't-wait for it")).toBe("can't-wait for it");
@@ -94,7 +131,7 @@ describe('daily output evidence', () => {
       {
         grammarScore: 90,
         coherenceScore: 90,
-        correctedText: "I can't go today.",
+        correctedText: 'I can go today.',
         comments: [],
         words: [{ bookWordId: 'can', used: true, correct: true, feedback: '表达正确。' }],
       },

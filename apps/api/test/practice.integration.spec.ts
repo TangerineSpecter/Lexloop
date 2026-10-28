@@ -110,6 +110,24 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
           feedback: '搭配正确',
         })),
       };
+      await expect(
+        output.complete(id, token, recovered.leaseToken!, {
+          ...feedback,
+          correctedText: 'The effect may affect my plans.',
+        }),
+      ).rejects.toThrow('模型批改结果格式无效');
+      expect(await prisma.outputSubmission.findUniqueOrThrow({ where: { id } })).toMatchObject({
+        status: 'PROCESSING',
+        answer: 'The effect may affect my plans. I borrow a book.',
+      });
+      expect(
+        await prisma.wordReviewAttempt.count({
+          where: { userId: user.id, questionType: 'OUTPUT' },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.learningEvent.count({ where: { userId: user.id, type: 'OUTPUT_COMPLETED' } }),
+      ).toBe(0);
       const completions = await Promise.allSettled([
         output.complete(id, token, recovered.leaseToken!, feedback),
         output.complete(id, token, recovered.leaseToken!, feedback),

@@ -113,6 +113,9 @@ export function normalizeOutputFeedback(
   });
   const grammarScore = score(data.grammarScore);
   const coherenceScore = score(data.coherenceScore);
+  const correctedText = text(data.correctedText, 3000);
+  if (!targets.every((target) => englishWordPresent(correctedText, target.word)))
+    throw new Error('参考表达未完整保留全部目标词，请重试');
   return {
     grammarScore,
     coherenceScore,
@@ -121,7 +124,7 @@ export function normalizeOutputFeedback(
         grammarScore * 0.25 +
         coherenceScore * 0.15,
     ),
-    correctedText: text(data.correctedText, 3000),
+    correctedText,
     comments: data.comments.map((value) => text(value, 500)),
     words,
   };
