@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.58',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '跨标签页同步账号切换',
+        entry: '在一个标签页登录、切换账号或退出 → 其他已打开页面',
+        usage:
+          '其他页面会自动切换到当前账号；切换期间先隐藏旧账号内容。原账号草稿仍保留在原账号名下，不会转给新账号。',
+      },
+    ],
+  },
+  {
     version: '1.27.57',
     date: '2026-10-28',
     items: [
