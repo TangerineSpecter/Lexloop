@@ -182,5 +182,138 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         await prisma.$disconnect();
       }
     }, 30_000);
+
+    it('recovers a completed result after the final action response is lost without replaying rewards', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const userIds: string[] = [];
+      const sourceKey = `adventure-terminal-recovery-${fixtureId}`;
+      const normalized = [
+        `adventure-terminal-recovery-${fixtureId}-steady`,
+        `adventure-terminal-recovery-${fixtureId}-calm`,
+      ];
+      const ai = { generateForUser: vi.fn() };
+      const service = new AdventureService(
+        prisma as never,
+        new MistakesService(prisma as never),
+        ai as never,
+      );
+
+      try {
+        const users = await Promise.all(
+          ['owner', 'other'].map((suffix) =>
+            prisma.user.create({
+              data: {
+                email: `adventure-terminal-recovery-${fixtureId}-${suffix}@example.invalid`,
+                passwordHash: 'isolated-test-fixture',
+              },
+              select: { id: true },
+            }),
+          ),
+        );
+        userIds.push(...users.map((user) => user.id));
+        const [owner, other] = users;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure terminal recovery fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: [
+                {
+                  position: 0,
+                  word: {
+                    create: { normalized: normalized[0], text: 'steady', meaning: '稳定的' },
+                  },
+                },
+                {
+                  position: 1,
+                  word: {
+                    create: { normalized: normalized[1], text: 'calm', meaning: '平静的' },
+                  },
+                },
+              ],
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: owner.id, bookId: book.id, isDefault: true },
+        });
+
+        await service.chooseClass(owner.id, 'warrior');
+        const map = await service.dungeons(owner.id);
+        const run = await service.startRun(owner.id, map.floors[0].id, 5);
+        expect(run.challenge?.type).toBe('CHOICE');
+        const actionId = `action-${fixtureId}-terminal`;
+        const answer = run.challenge!.options!.find((option) => option === 'steady')!;
+
+        await prisma.dungeonRoom.deleteMany({ where: { runId: run.id, position: { gt: 0 } } });
+        await prisma.dungeonRun.update({ where: { id: run.id }, data: { roomCount: 1 } });
+
+        // The committed response is intentionally ignored to simulate a client disconnect.
+        await service.act(owner.id, run.id, { clientActionId: actionId, answer: [answer] });
+        expect(await service.activeRun(owner.id)).toBeNull();
+        const recovered = await service.recoverRun(owner.id, run.id);
+        expect(recovered).toMatchObject({
+          id: run.id,
+          status: 'COMPLETED',
+          roomCount: 1,
+          experienceEarned: 18,
+          goldEarned: 8,
+          lastAction: {
+            prompt: run.challenge!.prompt,
+            answer: [answer],
+            feedback: { correct: true, answer: 'steady' },
+          },
+        });
+        expect(recovered.challenge).toBeNull();
+
+        const persistedState = async () => ({
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: owner.id } }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { userId: owner.id } }),
+          events: await prisma.learningEvent.count({
+            where: { userId: owner.id, type: 'ADVENTURE_BATTLE_ACTION' },
+          }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: owner.id },
+            select: { experience: true, gold: true },
+          }),
+          progress: await prisma.userWordProgress.findMany({
+            where: { userId: owner.id },
+            select: { reviewCount: true, totalAttempts: true, correctAttempts: true },
+          }),
+        });
+        const afterCompletion = await persistedState();
+        expect(afterCompletion.actions).toBe(1);
+        expect(afterCompletion.attempts).toBe(1);
+        expect(afterCompletion.evidence).toBe(1);
+        expect(afterCompletion.events).toBe(1);
+        expect(afterCompletion.profile).toEqual({ experience: 18, gold: 8 });
+
+        await service.recoverRun(owner.id, run.id);
+        await service.recoverRun(owner.id, run.id);
+        await expect(service.recoverRun(other.id, run.id)).rejects.toThrow('探索不存在');
+        const duplicate = await service.act(owner.id, run.id, {
+          clientActionId: actionId,
+          answer: ['a retry cannot replace the final answer'],
+        });
+        expect(duplicate.repeated).toBe(true);
+        expect(duplicate.run.status).toBe('COMPLETED');
+        expect(duplicate.run.lastAction?.answer).toEqual([answer]);
+        expect(await persistedState()).toEqual(afterCompletion);
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+      } finally {
+        if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
   },
 );

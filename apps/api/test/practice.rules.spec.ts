@@ -5,6 +5,7 @@ import {
   normalizeOutputFeedback,
   practiceDate,
   practiceDayStart,
+  practiceLookbackStart,
   practiceWeek,
   weeklyActions,
 } from '../src/modules/practice/practice.rules';
@@ -70,6 +71,25 @@ describe('calendar and weekly prescription', () => {
     expect(
       practiceDayStart(new Date('2026-03-08T15:00:00Z'), 'America/New_York').toISOString(),
     ).toBe('2026-03-08T05:00:00.000Z');
+  });
+  it('counts the seven-day evidence window by local calendar dates across DST changes', () => {
+    const springForward = new Date('2026-03-09T04:30:00.000Z');
+    expect(practiceLookbackStart(springForward, 7, 'America/New_York').toISOString()).toBe(
+      '2026-03-03T05:00:00.000Z',
+    );
+    expect(
+      practiceDate(practiceLookbackStart(springForward, 7, 'America/New_York'), 'America/New_York')
+        .toISOString()
+        .slice(0, 10),
+    ).toBe('2026-03-03');
+
+    const fallBack = new Date('2026-11-02T05:30:00.000Z');
+    expect(practiceLookbackStart(fallBack, 7, 'America/New_York').toISOString()).toBe(
+      '2026-10-27T04:00:00.000Z',
+    );
+    expect(() => practiceLookbackStart(springForward, 0, 'America/New_York')).toThrow(
+      'calendarDays must be a positive integer',
+    );
   });
   it('does not invent strengths or weaknesses when evidence is empty', () => {
     const actions = weeklyActions({

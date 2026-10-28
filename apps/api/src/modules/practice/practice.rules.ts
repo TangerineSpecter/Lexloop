@@ -17,8 +17,7 @@ export function practiceWeek(date: Date) {
     end: new Date(monday.getTime() + 6 * DAY).toISOString().slice(0, 10),
   };
 }
-export function practiceDayStart(now = new Date(), timezone = 'Asia/Shanghai') {
-  const date = practiceDate(now, timezone);
+function practiceDateStart(date: Date, timezone: string) {
   let candidate = date.getTime();
   for (let index = 0; index < 3; index++) {
     const zone =
@@ -32,6 +31,19 @@ export function practiceDayStart(now = new Date(), timezone = 'Asia/Shanghai') {
     candidate = date.getTime() - offset * 60_000;
   }
   return new Date(candidate);
+}
+export function practiceDayStart(now = new Date(), timezone = 'Asia/Shanghai') {
+  return practiceDateStart(practiceDate(now, timezone), timezone);
+}
+export function practiceLookbackStart(
+  now = new Date(),
+  calendarDays = 7,
+  timezone = 'Asia/Shanghai',
+) {
+  if (!Number.isInteger(calendarDays) || calendarDays < 1)
+    throw new RangeError('calendarDays must be a positive integer');
+  const firstDate = new Date(practiceDate(now, timezone).getTime() - (calendarDays - 1) * DAY);
+  return practiceDateStart(firstDate, timezone);
 }
 export function englishWordPresent(answer: string, word: string) {
   const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
