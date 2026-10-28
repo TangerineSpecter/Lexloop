@@ -40,6 +40,13 @@ type ErrorCard = Pick<
   Review,
   'id' | 'english' | 'interpretation' | 'reference' | 'explanation' | 'ownSentence'
 > & { dueAt: string };
+type CompletedStoryPreview = Pick<Lesson, 'key' | 'series' | 'part' | 'level' | 'english'>;
+type CompletedStoryAnswer = CompletedStoryPreview & {
+  reference: string;
+  explanation: string;
+  frame: string;
+  example: string;
+};
 
 export function MicroStoriesPage({ session }: { session: Session }) {
   const [current, setCurrent] = useState<Current | null>(null);
@@ -53,6 +60,12 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const [error, setError] = useState('');
   const [errorCards, setErrorCards] = useState<ErrorCard[] | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [completedStories, setCompletedStories] = useState<CompletedStoryPreview[] | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [selectedCompletedStory, setSelectedCompletedStory] =
+    useState<CompletedStoryPreview | null>(null);
+  const [completedAttempt, setCompletedAttempt] = useState('');
+  const [completedAnswer, setCompletedAnswer] = useState<CompletedStoryAnswer | null>(null);
 
   function applyCurrent(next: Current) {
     setCurrent(next);
@@ -70,6 +83,19 @@ export function MicroStoriesPage({ session }: { session: Session }) {
     applyCurrent(next);
     if (showErrors)
       setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
+    if (showCompleted) {
+      try {
+        setCompletedStories(
+          await request<CompletedStoryPreview[]>(
+            '/micro-stories/completed',
+            {},
+            session.accessToken,
+          ),
+        );
+      } catch (cause) {
+        setError(`已完成故事列表暂时无法刷新：${userFacingError(cause)}`);
+      }
+    }
   }
   useEffect(() => {
     let active = true;
@@ -122,6 +148,7 @@ export function MicroStoriesPage({ session }: { session: Session }) {
         session.accessToken,
       );
       clearStoryDraft(session.user.id);
+      setCompletedStories(null);
       await load();
     } catch (cause) {
       setError(userFacingError(cause));
@@ -160,6 +187,48 @@ export function MicroStoriesPage({ session }: { session: Session }) {
     try {
       setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
       setShowErrors(true);
+    } catch (cause) {
+      setError(userFacingError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleCompleted() {
+    if (showCompleted) {
+      setShowCompleted(false);
+      return;
+    }
+    if (completedStories) {
+      setShowCompleted(true);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      setCompletedStories(
+        await request<CompletedStoryPreview[]>('/micro-stories/completed', {}, session.accessToken),
+      );
+      setShowCompleted(true);
+    } catch (cause) {
+      setError(userFacingError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revealCompletedStory() {
+    if (!selectedCompletedStory) return;
+    const key = selectedCompletedStory.key;
+    setBusy(true);
+    setError('');
+    try {
+      const answer = await request<CompletedStoryAnswer>(
+        `/micro-stories/completed/${key}`,
+        {},
+        session.accessToken,
+      );
+      setCompletedAnswer(answer);
     } catch (cause) {
       setError(userFacingError(cause));
     } finally {
@@ -514,6 +583,121 @@ export function MicroStoriesPage({ session }: { session: Session }) {
             </section>
           )
         )}
+        <section className={styles.history} aria-labelledby="completed-heading">
+          <div className={styles.cardHead}>
+            <h2 id="completed-heading">重读已完成故事</h2>
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled={busy}
+              onClick={() => void toggleCompleted()}
+              aria-expanded={showCompleted}
+            >
+              {showCompleted ? '收起' : '选择故事'}
+            </button>
+          </div>
+          <p>重读完整场景，先回想再看解析；这次练习不会改动进度或复习安排。</p>
+          {showCompleted && (
+            <div className={styles.historyList}>
+              {completedStories === null && <p>正在读取已完成的故事…</p>}
+              {completedStories?.length === 0 && <p>完成第一段故事后，可以在这里重读。</p>}
+              {completedStories?.map((story) => (
+                <article key={story.key}>
+                  <strong>
+                    {story.series} · 第 {story.part} 小段 · {story.level}
+                  </strong>
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.secondary}
+                      disabled={busy}
+                      aria-pressed={selectedCompletedStory?.key === story.key}
+                      onClick={() => {
+                        setSelectedCompletedStory(story);
+                        setCompletedAttempt('');
+                        setCompletedAnswer(null);
+                      }}
+                    >
+                      重读这段
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {showCompleted && selectedCompletedStory && (
+            <article className={styles.revisit}>
+              <h3>
+                {selectedCompletedStory.series} · 第 {selectedCompletedStory.part} 小段
+              </h3>
+              <p className={styles.english} lang="en">
+                {selectedCompletedStory.english}
+              </p>
+              <EnglishAudioControls
+                key={`completed-${selectedCompletedStory.key}`}
+                text={selectedCompletedStory.english}
+                context="已完成故事"
+              />
+              {!completedAnswer ? (
+                <>
+                  <label className={styles.label} htmlFor="completed-attempt">
+                    可以先用自己的话回想这段意思，也可以直接跳过
+                  </label>
+                  <textarea
+                    id="completed-attempt"
+                    maxLength={500}
+                    rows={2}
+                    value={completedAttempt}
+                    onChange={(event) => setCompletedAttempt(event.target.value)}
+                    placeholder="这次回想只在当前页面显示，不会保存或计入进度"
+                  />
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.primary}
+                      disabled={busy || !completedAttempt.trim()}
+                      onClick={() => void revealCompletedStory()}
+                    >
+                      查看解析
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.secondary}
+                      disabled={busy}
+                      onClick={() => void revealCompletedStory()}
+                    >
+                      跳过回想，查看解析
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {completedAttempt.trim() && (
+                    <p>
+                      <strong>这次回想（未保存）：</strong>
+                      {completedAttempt}
+                    </p>
+                  )}
+                  <div className={styles.answer}>
+                    <p>
+                      <strong>参考意思：</strong>
+                      {completedAnswer.reference}
+                    </p>
+                    <p>{completedAnswer.explanation}</p>
+                    <p>
+                      <strong>句型：</strong>
+                      <span lang="en">{completedAnswer.frame}</span>
+                    </p>
+                    <p>
+                      <strong>例如：</strong>
+                      <span lang="en">{completedAnswer.example}</span>
+                    </p>
+                  </div>
+                </>
+              )}
+            </article>
+          )}
+        </section>
         {current && (
           <section className={styles.history} aria-labelledby="errors-heading">
             <div className={styles.cardHead}>

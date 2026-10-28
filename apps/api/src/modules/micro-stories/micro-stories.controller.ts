@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsString, MaxLength, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MicroStoriesService } from './micro-stories.service';
@@ -24,6 +24,16 @@ export class MicroStoriesController {
   }
   @Get('errors') errors(@Req() req: Actor) {
     return this.stories.errors(req.user.sub);
+  }
+  @Get('completed')
+  @Header('Cache-Control', 'private, no-store')
+  completed(@Req() req: Actor) {
+    return this.stories.completed(req.user.sub);
+  }
+  @Get('completed/:key')
+  @Header('Cache-Control', 'private, no-store')
+  revisit(@Req() req: Actor, @Param('key') key: string) {
+    return this.stories.revisit(req.user.sub, key);
   }
   @Post(':key/interpret') interpret(
     @Req() req: Actor,

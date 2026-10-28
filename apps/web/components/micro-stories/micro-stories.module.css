@@ -233,6 +233,17 @@
 .historyList p {
   margin: 6px 0;
 }
+.revisit {
+  margin-top: 16px;
+  padding: 14px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+}
+.revisit h3 {
+  margin: 0;
+  font-size: 17px;
+}
 @media (max-width: 680px) {
   .heading {
     grid-template-columns: 1fr;

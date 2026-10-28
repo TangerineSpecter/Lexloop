@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.17',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '可重读已完成的微故事',
+        entry: '微故事 → 重读已完成故事',
+        usage: '可先回想再查看整段解析，也能跳过；回读不改变进度、复习安排或统计。',
+      },
+    ],
+  },
+  {
     version: '1.27.16',
     date: '2026-10-28',
     items: [

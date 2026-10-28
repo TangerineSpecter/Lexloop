@@ -134,6 +134,8 @@ test(
         const continuation = { key: 'weekend-01', series: '周末约朋友', part: 1, level: 'A2', english: 'Maya wants to see a friend this weekend. She texts Leo to ask if he is free on Saturday.', interpretation: null };
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: fixtureUser });
         if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: f.index, total: f.index >= 9 ? 15 : 2, lesson: f.index >= 9 ? continuation : f.index ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null } : f.revealed ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.' } : first, review: f.errors.length && !f.reviewDone ? { id: 'card1', key: 'bus-01', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: f.errors[0].ownSentence, reviewCount: 0 } : null });
+        if (path.endsWith('/api/v1/micro-stories/completed')) return Response.json(f.index >= 9 ? [{ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english }] : []);
+        if (path.endsWith('/api/v1/micro-stories/completed/bus-01')) return Response.json({ key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: first.english, reference: '汤姆出门晚了，没赶上公交车。', explanation: 'miss the bus 是“没赶上公交车”，不是“想念公交车”。', frame: 'I missed the bus.', example: 'I missed the train.' });
         if (path.includes('/api/v1/micro-stories/errors')) return Response.json(f.errors);
         if (path.includes('/api/v1/micro-stories/bus-01/interpret')) {
           if (f.failReveal) { f.failReveal = false; sessionStorage.setItem(fixtureKey + '.reveal-failed', '1'); return Response.json({ message: 'Fixture failure' }, { status: 500 }); }
@@ -527,6 +529,63 @@ test(
         await evaluate('document.body.textContent.includes("Maya 想这周末见一位朋友")'),
         false,
       );
+      const requestsBeforeRevisit = await evaluate('window.microFixture.requests.length');
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('选择故事')).click()`,
+      );
+      await until(`document.body.textContent.includes('上班路上 · 第 1 小段')`);
+      assert.equal(await evaluate('document.body.textContent.includes("没赶上公交车")'), false);
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('重读这段')).click()`,
+      );
+      assert.equal(await evaluate('document.body.textContent.includes("miss the bus 是")'), false);
+      await evaluate(
+        `(() => { const input = document.querySelector('#completed-attempt'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '汤姆没赶上公交车'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      );
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button => button.textContent.includes('查看解析')).click()`,
+      );
+      await until(`document.body.textContent.includes('这次回想（未保存）')`);
+      assert.equal(await evaluate('document.body.textContent.includes("miss the bus 是")'), true);
+      assert.equal(
+        await evaluate(
+          'document.body.textContent.includes("Maya wants to see a friend this weekend.")',
+        ),
+        true,
+      );
+      assert.deepEqual(
+        await evaluate('window.microFixture.requests.slice(-2).map(request => request.path)'),
+        ['/api/v1/micro-stories/completed', '/api/v1/micro-stories/completed/bus-01'],
+      );
+      assert.equal(
+        await evaluate('window.microFixture.requests.length'),
+        requestsBeforeRevisit + 2,
+      );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await delay(100);
+      assert.equal(
+        await evaluate('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      assert.equal(
+        await evaluate('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      assert.equal(await evaluate('document.querySelector("#completed-attempt")'), null);
+      assert.equal(await evaluate('document.body.textContent.includes("miss the bus 是")'), true);
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

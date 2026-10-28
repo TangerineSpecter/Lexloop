@@ -100,6 +100,32 @@ export class MicroStoriesService {
     });
   }
 
+  async completed(userId: string) {
+    const progress = await this.prisma.microProgress.findUnique({
+      where: { userId },
+      select: { completedKeys: true },
+    });
+    const completedKeys = new Set(progress?.completedKeys ?? []);
+    return MICRO_STORIES.filter((story) => completedKeys.has(story.key)).map((story) => ({
+      key: story.key,
+      series: story.series,
+      part: story.part,
+      level: story.level,
+      english: story.english,
+    }));
+  }
+
+  async revisit(userId: string, key: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, userId);
+      const progress = await tx.microProgress.findUnique({ where: { userId } });
+      if (!progress?.completedKeys.includes(key)) throw new NotFoundException('故事不存在');
+      const story = storyByKey(key);
+      if (!story) throw new NotFoundException('故事不存在');
+      return story;
+    });
+  }
+
   async interpret(userId: string, key: string, interpretation: string) {
     if (!interpretation.trim()) throw new BadRequestException('请先写下你的理解。');
     return this.prisma.$transaction(async (tx) => {

@@ -131,6 +131,27 @@ describe('one-minute stories', () => {
     expect(cards[0].reference).toContain('没赶上公交车');
   });
 
+  it('lists completed stories without answers and reveals one only to its learner', async () => {
+    const f = fixture();
+    f.progress.completedKeys = ['bus-02', 'bus-01'];
+
+    const completed = await f.service.completed('owner');
+    expect(completed.map(({ key }) => key)).toEqual(['bus-01', 'bus-02']);
+    expect(completed[0]).toHaveProperty('english');
+    expect(completed[0]).not.toHaveProperty('reference');
+    expect(completed[0]).not.toHaveProperty('explanation');
+
+    const answer = await f.service.revisit('owner', 'bus-01');
+    expect(answer.reference).toContain('没赶上公交车');
+    await expect(f.service.revisit('owner', 'bus-03')).rejects.toBeInstanceOf(NotFoundException);
+    f.progress.completedKeys = [];
+    await expect(f.service.revisit('other', 'bus-01')).rejects.toBeInstanceOf(NotFoundException);
+    expect(f.tx.microProgress.upsert).not.toHaveBeenCalled();
+    expect(f.tx.microProgress.update).not.toHaveBeenCalled();
+    expect(f.tx.microError.upsert).not.toHaveBeenCalled();
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
+  });
+
   it('keeps published story keys unique so old cards retain their context', () => {
     expect(new Set(MICRO_STORIES.map((story) => story.key)).size).toBe(MICRO_STORIES.length);
   });
