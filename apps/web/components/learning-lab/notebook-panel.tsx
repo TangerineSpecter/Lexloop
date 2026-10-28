@@ -47,10 +47,13 @@ export function NotebookPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  const [recallMode, setRecallMode] = useState(false);
+  const [revealedMeaningIds, setRevealedMeaningIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError('');
+    setRevealedMeaningIds(new Set());
     const params = new URLSearchParams({
       page: String(page),
       search: query,
@@ -69,7 +72,7 @@ export function NotebookPanel({
     return () => {
       active = false;
     };
-  }, [session.accessToken, page, query, source, revision]);
+  }, [session.user.id, session.accessToken, page, query, source, revision]);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   async function action(word: NotebookWord, kind: 'review' | 'master' | 'delete') {
     setBusy(word.id);
@@ -108,6 +111,18 @@ export function NotebookPanel({
           </button>
           <button
             className={styles.button}
+            type="button"
+            aria-pressed={recallMode}
+            data-notebook-recall-mode
+            onClick={() => {
+              setRecallMode((active) => !active);
+              setRevealedMeaningIds(new Set());
+            }}
+          >
+            {recallMode ? '结束回想' : '练习回想'}
+          </button>
+          <button
+            className={styles.button}
             disabled={!selected.length}
             onClick={() => onSelect([])}
           >
@@ -118,9 +133,15 @@ export function NotebookPanel({
       <p className={styles.meta}>
         旅行、阅读和每日一句中的词汇统一保存在这里。新收藏立即加入复习；重复收藏保留首次原句和学习进度。移出收藏会保留学习与复习记录。
       </p>
+      {recallMode && (
+        <p className={styles.meta} role="status">
+          先看英文和原句，在心里回想中文释义，再逐项揭晓；这里不会保存作答或改变复习状态。
+        </p>
+      )}
       <CollectWordForm session={session} sourceType="MANUAL" source="手动收藏" onSaved={refresh} />
       <form
         className={styles.filters}
+        data-notebook-filters
         onSubmit={(event) => {
           event.preventDefault();
           setPage(1);
@@ -166,66 +187,98 @@ export function NotebookPanel({
         <p role="status">正在翻开生词本…</p>
       ) : data?.items.length ? (
         <div className={styles.grid}>
-          {data.items.map((word) => (
-            <article className={styles.card} key={word.id}>
-              <div className={styles.wordHead}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(word.id)}
-                    disabled={!selected.includes(word.id) && selected.length >= 6}
-                    onChange={(event) =>
-                      onSelect(
-                        event.target.checked
-                          ? [...selected, word.id]
-                          : selected.filter((id) => id !== word.id),
-                      )
-                    }
-                  />
-                  <span lang="en">{word.text}</span>
-                </label>
-                <span className={styles.state}>{states[word.state] ?? word.state}</span>
-              </div>
-              <p>{word.meaning}</p>
-              <p className={styles.meta}>{sourceLabel(word)}</p>
-              {word.example && (
-                <blockquote className={styles.example} lang="en">
-                  {word.example}
-                </blockquote>
-              )}
-              {word.nextReviewAt && word.state !== 'MASTERED' && (
-                <p className={styles.meta}>
-                  复习日期：
-                  {new Date(word.nextReviewAt).toLocaleDateString('zh-CN', {
-                    timeZone: 'Asia/Shanghai',
-                  })}
-                </p>
-              )}
-              <div className={styles.actions}>
-                <button
-                  className={styles.button}
-                  disabled={busy !== null}
-                  onClick={() => void action(word, 'review')}
-                >
-                  加入今日复习
-                </button>
-                <button
-                  className={styles.button}
-                  disabled={busy !== null || word.state === 'MASTERED'}
-                  onClick={() => void action(word, 'master')}
-                >
-                  标记掌握
-                </button>
-                <button
-                  className={styles.button}
-                  disabled={busy !== null}
-                  onClick={() => void action(word, 'delete')}
-                >
-                  {busy === word.id ? '处理中…' : '移除收藏'}
-                </button>
-              </div>
-            </article>
-          ))}
+          {data.items.map((word) => {
+            const meaningRevealed = !recallMode || revealedMeaningIds.has(word.id);
+            return (
+              <article className={styles.card} key={word.id} data-notebook-word={word.id}>
+                <div className={styles.wordHead}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(word.id)}
+                      disabled={!selected.includes(word.id) && selected.length >= 6}
+                      onChange={(event) =>
+                        onSelect(
+                          event.target.checked
+                            ? [...selected, word.id]
+                            : selected.filter((id) => id !== word.id),
+                        )
+                      }
+                    />
+                    <span lang="en" data-notebook-target>
+                      {word.text}
+                    </span>
+                  </label>
+                  <span className={styles.state}>{states[word.state] ?? word.state}</span>
+                </div>
+                {word.meaning ? (
+                  <div className={styles.meaningRecall}>
+                    <p id={`notebook-meaning-${word.id}`} data-notebook-meaning>
+                      {meaningRevealed ? word.meaning : '释义已隐藏。先在心里回想，再揭晓。'}
+                    </p>
+                    {recallMode && (
+                      <button
+                        className={styles.button}
+                        type="button"
+                        data-meaning-recall
+                        aria-expanded={revealedMeaningIds.has(word.id)}
+                        aria-controls={`notebook-meaning-${word.id}`}
+                        onClick={() =>
+                          setRevealedMeaningIds((current) => {
+                            const next = new Set(current);
+                            if (next.has(word.id)) next.delete(word.id);
+                            else next.add(word.id);
+                            return next;
+                          })
+                        }
+                      >
+                        {revealedMeaningIds.has(word.id) ? '再回想一次' : '揭晓释义'}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p>这条收藏还没有保存释义。</p>
+                )}
+                <p className={styles.meta}>{sourceLabel(word)}</p>
+                {word.example && (
+                  <blockquote className={styles.example} lang="en">
+                    {word.example}
+                  </blockquote>
+                )}
+                {word.nextReviewAt && word.state !== 'MASTERED' && (
+                  <p className={styles.meta}>
+                    复习日期：
+                    {new Date(word.nextReviewAt).toLocaleDateString('zh-CN', {
+                      timeZone: 'Asia/Shanghai',
+                    })}
+                  </p>
+                )}
+                <div className={styles.actions}>
+                  <button
+                    className={styles.button}
+                    disabled={busy !== null}
+                    onClick={() => void action(word, 'review')}
+                  >
+                    加入今日复习
+                  </button>
+                  <button
+                    className={styles.button}
+                    disabled={busy !== null || word.state === 'MASTERED'}
+                    onClick={() => void action(word, 'master')}
+                  >
+                    标记掌握
+                  </button>
+                  <button
+                    className={styles.button}
+                    disabled={busy !== null}
+                    onClick={() => void action(word, 'delete')}
+                  >
+                    {busy === word.id ? '处理中…' : '移除收藏'}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div className={styles.empty}>

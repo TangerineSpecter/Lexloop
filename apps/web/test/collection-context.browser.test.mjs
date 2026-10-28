@@ -95,7 +95,10 @@ test(
           if (await evaluate(`Boolean(${expression})`)) return;
           await delay(100);
         }
-        assert.fail(`Timed out waiting for ${expression}`);
+        const pageState = await evaluate(
+          `JSON.stringify({ url: location.href, body: document.body?.innerText, apiRequests: window.apiRequests })`,
+        ).catch((error) => String(error));
+        assert.fail(`Timed out waiting for ${expression}; page=${pageState}`);
       };
       const lesson = (id) => ({
         id,
@@ -117,16 +120,80 @@ test(
         },
       });
       const history = { items: [lesson('A'), lesson('B')], hasMore: false };
+      const makeNotebookWord = (userId, index, text, meaning, example) => ({
+        id: `${userId}-word-${index}`,
+        wordId: `${userId}-vocabulary-${index}`,
+        text,
+        type: 'PHRASE',
+        meaning,
+        example,
+        sourceScenario: '精读收藏',
+        sourceType: 'READING',
+        state: 'REVIEWING',
+        nextReviewAt: null,
+      });
+      const notebookPages = {
+        fixture: Array.from({ length: 20 }, (_, index) =>
+          index === 0
+            ? makeNotebookWord(
+                'fixture',
+                index,
+                'take it for granted',
+                '认为……理所当然',
+                'We often take our good health for granted.',
+              )
+            : index === 1
+              ? makeNotebookWord(
+                  'fixture',
+                  index,
+                  'in the long run',
+                  '从长远来看',
+                  'Small habits matter in the long run.',
+                )
+              : makeNotebookWord(
+                  'fixture',
+                  index,
+                  `phrase number ${index + 1}`,
+                  `第 ${index + 1} 条收藏释义`,
+                  `This is example number ${index + 1}.`,
+                ),
+        ),
+        'fixture-b': [
+          makeNotebookWord(
+            'fixture-b',
+            0,
+            'on the other hand',
+            '另一方面',
+            'On the other hand, we can wait.',
+          ),
+        ],
+      };
       await send('Page.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-      localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+      if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
       window.collectionRequests = [];
+      window.apiRequests = [];
+      const notebookPages = ${JSON.stringify(notebookPages)};
       const nativeFetch = window.fetch;
       window.fetch = async (url, options) => {
         const path = String(url);
-        if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'fixture' });
+        if (path.includes('/api/v1/')) window.apiRequests.push(path);
+        const userId = JSON.parse(localStorage.getItem('lexloop.session') || '{}').user?.id || 'fixture';
+        if (path.includes('/api/v1/auth/me')) return Response.json({ id: userId });
         if (path.includes('/api/v1/learning-lab/lessons?')) return Response.json(${JSON.stringify(history)});
+        if (path.includes('/api/v1/vocabulary/notebook')) {
+          const search = new URL(path, location.origin).searchParams.get('search')?.toLowerCase() || '';
+          const items = notebookPages[userId] || [];
+          const filtered = search ? items.filter(item => item.text.toLowerCase().includes(search)) : items;
+          return Response.json({ items: filtered, page: 1, pageSize: 20, total: filtered.length, hasMore: false });
+        }
         if (path.includes('/api/v1/vocabulary/personal/items')) {
           window.collectionRequests.push(JSON.parse(options.body));
           return Response.json({ id: 'captured' });
@@ -174,6 +241,154 @@ test(
         sourceScenario: 'Lesson B',
         sourceType: 'READING',
       });
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/notebook?tab=words', baseUrl).href,
+      });
+      await until('document.querySelectorAll("article[data-notebook-word]").length === 20');
+      const desktopLayout = await evaluate(`(() => {
+        const cards = [...document.querySelectorAll('article[data-notebook-word]')];
+        const first = cards[0]?.getBoundingClientRect();
+        const last = cards.at(-1)?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cards: cards.length, firstLeft: first?.left, lastRight: last?.right };
+      })()`);
+      assert.equal(desktopLayout.viewport, 1440);
+      assert.equal(desktopLayout.cards, 20);
+      assert.ok(desktopLayout.page <= desktopLayout.viewport);
+      assert.ok(desktopLayout.firstLeft >= 0 && desktopLayout.lastRight <= desktopLayout.viewport);
+
+      const requestsBeforeRecall = await evaluate('window.apiRequests.length');
+      const firstCard = 'document.querySelector("article[data-notebook-word]")';
+      assert.equal(await evaluate(`${firstCard}.innerText.includes('认为……理所当然')`), true);
+      await evaluate(`(() => {
+        window.notebookRecallPaintMs = null;
+        document.querySelector('[data-notebook-recall-mode]').addEventListener('click', () => {
+          const startedAt = performance.now();
+          requestAnimationFrame(() => { window.notebookRecallPaintMs = performance.now() - startedAt; });
+        }, { once: true });
+      })()`);
+      await evaluate('document.querySelector("[data-notebook-recall-mode]").focus()');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('Number.isFinite(window.notebookRecallPaintMs)');
+      const recallPaintMs = await evaluate('window.notebookRecallPaintMs');
+      assert.ok(
+        recallPaintMs < 250,
+        `20-item recall toggle missed the 250 ms frame budget: ${recallPaintMs} ms`,
+      );
+      console.log(
+        `notebook recall mode: 20 cards, click-to-next-paint ${recallPaintMs.toFixed(1)} ms`,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-notebook-recall-mode]").getAttribute("aria-pressed")',
+        ),
+        'true',
+      );
+      assert.equal(await evaluate(`${firstCard}.innerText.includes('认为……理所当然')`), false);
+      assert.equal(
+        await evaluate('document.querySelectorAll("[data-notebook-meaning]").length'),
+        20,
+      );
+      assert.equal(
+        await evaluate(`${firstCard}.querySelector('[data-notebook-meaning]').textContent`),
+        '释义已隐藏。先在心里回想，再揭晓。',
+      );
+      await evaluate(`${firstCard}.querySelector('[data-meaning-recall]').click()`);
+      assert.equal(
+        await evaluate(
+          `${firstCard}.querySelector('[data-meaning-recall]').getAttribute('aria-expanded')`,
+        ),
+        'true',
+      );
+      assert.equal(
+        await evaluate(`${firstCard}.querySelector('[data-notebook-meaning]').textContent`),
+        '认为……理所当然',
+      );
+      assert.equal(await evaluate('window.apiRequests.length'), requestsBeforeRecall);
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const mobileLayout = await evaluate(`(() => {
+        const button = document.querySelector('article[data-notebook-word] [data-meaning-recall]');
+        const card = button?.closest('article');
+        const cardBox = card?.getBoundingClientRect();
+        const buttonBox = button?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardRight: cardBox?.right, buttonLeft: buttonBox?.left, buttonRight: buttonBox?.right, visible: Boolean(buttonBox && buttonBox.width > 0 && buttonBox.height > 0) };
+      })()`);
+      assert.equal(mobileLayout.viewport, 390);
+      assert.equal(mobileLayout.visible, true);
+      assert.ok(mobileLayout.page <= mobileLayout.viewport);
+      assert.ok(mobileLayout.cardRight <= mobileLayout.viewport);
+      assert.ok(mobileLayout.buttonLeft >= 0 && mobileLayout.buttonRight <= mobileLayout.viewport);
+
+      await evaluate(`(() => {
+        const form = document.querySelector('[data-notebook-filters]');
+        const input = form.querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'run');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        form.requestSubmit();
+      })()`);
+      await until(
+        'document.querySelector("[data-notebook-target]")?.textContent === "in the long run"',
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
+        1,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-notebook-meaning]").textContent'),
+        '释义已隐藏。先在心里回想，再揭晓。',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-meaning-recall]").getAttribute("aria-expanded")',
+        ),
+        'false',
+      );
+
+      await evaluate(`(() => {
+        const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.accessToken = 'fixture-b-token';
+        session.user = { id: 'fixture-b', email: 'b@example.invalid', displayName: 'Fixture B', role: 'USER' };
+        localStorage.setItem('lexloop.session', JSON.stringify(session));
+        location.reload();
+      })()`);
+      await until(
+        'document.querySelector("[data-notebook-target]")?.textContent === "on the other hand"',
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
+        1,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-notebook-meaning]").textContent'),
+        '另一方面',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-notebook-recall-mode]").getAttribute("aria-pressed")',
+        ),
+        'false',
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("认为……理所当然")'), false);
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

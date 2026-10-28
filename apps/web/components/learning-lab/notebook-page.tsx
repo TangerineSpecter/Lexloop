@@ -72,6 +72,7 @@ export function NotebookPage({ session }: { session: Session }) {
         {ready &&
           (tab === 'words' ? (
             <NotebookPanel
+              key={session.user.id}
               session={session}
               selected={selected}
               onSelect={choose}

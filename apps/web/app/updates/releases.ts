@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.37',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '生词本支持先回想再揭晓释义',
+        entry: '个人生词本 → 练习回想',
+        usage: '先看英文和原句，在心里回想中文释义，再逐项揭晓；不会保存作答、计分或调整复习状态。',
+      },
+    ],
+  },
+  {
     version: '1.27.36',
     date: '2026-10-28',
     items: [

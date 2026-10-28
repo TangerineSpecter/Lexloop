@@ -195,6 +195,19 @@
   font-weight: 700;
   font-size: 22px;
 }
+.meaningRecall {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed #08287755;
+}
+.meaningRecall p {
+  min-width: 0;
+  margin: 0;
+}
 .page input[type='checkbox'],
 .page input[type='radio'] {
   width: 19px;
@@ -370,6 +383,12 @@
   }
   .card {
     padding: 18px;
+  }
+  .meaningRecall {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .meaningRecall button {
+    justify-self: start;
   }
   .head {
     grid-template-columns: minmax(0, 1fr);
