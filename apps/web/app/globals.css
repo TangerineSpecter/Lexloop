@@ -7352,8 +7352,15 @@ button {
   border-top: 2px dashed rgba(8, 40, 119, 0.35);
 }
 .update-actions > span {
+  min-width: 0;
   font-size: 13px;
   font-weight: 800;
+}
+.update-action-buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
 }
 .update-actions .update-apply-button {
   background: var(--teal);
@@ -7607,7 +7614,8 @@ button {
     transform: rotate(90deg);
   }
   .update-meta-row,
-  .update-actions {
+  .update-actions,
+  .update-action-buttons {
     align-items: stretch;
     flex-direction: column;
   }

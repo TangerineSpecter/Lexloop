@@ -81,6 +81,8 @@ export function SystemUpdatePanel({ session }: { session: Session }) {
   }, [session.accessToken]);
 
   const running = Boolean(status?.job && RUNNING_STAGES.includes(status.job.stage));
+  const succeeded = status?.job?.stage === 'SUCCEEDED';
+  const showUpdate = !succeeded || Boolean(status?.updateAvailable);
   useEffect(() => {
     if (!running && !disconnected) return;
     const timer = window.setInterval(() => void load(), 2_500);
@@ -229,24 +231,27 @@ export function SystemUpdatePanel({ session }: { session: Session }) {
               ? '更新期间局域网访问可能短暂中断。'
               : '系统不会自动安装更新。'}
         </span>
-        {status?.job?.stage === 'SUCCEEDED' ? (
-          <button type="button" onClick={() => window.location.reload()}>
-            <RefreshCw size={17} />
-            重新载入
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="update-apply-button"
-            disabled={
-              !status?.updateAvailable || !status.updaterAvailable || running || Boolean(busy)
-            }
-            onClick={() => setConfirming(true)}
-          >
-            <Rocket size={18} />
-            立即更新
-          </button>
-        )}
+        <div className="update-action-buttons">
+          {succeeded && (
+            <button type="button" onClick={() => window.location.reload()}>
+              <RefreshCw size={17} />
+              重新载入
+            </button>
+          )}
+          {showUpdate && (
+            <button
+              type="button"
+              className="update-apply-button"
+              disabled={
+                !status?.updateAvailable || !status.updaterAvailable || running || Boolean(busy)
+              }
+              onClick={() => setConfirming(true)}
+            >
+              <Rocket size={18} />
+              立即更新
+            </button>
+          )}
+        </div>
       </footer>
 
       {confirming && status?.latest && (
