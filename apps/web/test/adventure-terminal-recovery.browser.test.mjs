@@ -153,7 +153,7 @@ test(
               window.recoveryFixture.reads[userId] = (window.recoveryFixture.reads[userId] ?? 0) + 1;
               sessionStorage.setItem('adventure-terminal-fixture', JSON.stringify(window.recoveryFixture));
               if (userId !== 'learner-a') return Response.json({ message: '探索不存在' }, { status: 404 });
-              if (window.recoveryFixture.reads[userId] === 1) return Response.json({ message: '临时读取失败' }, { status: 503 });
+              if (window.recoveryFixture.reads[userId] <= 2) return Response.json({ message: '临时读取失败' }, { status: 503 });
               return Response.json(terminalRun);
             }
             if (path.includes('/api/v1/adventure/inventory')) return Response.json({ items: [], equipped: {} });
@@ -178,20 +178,56 @@ test(
 
       await navigate();
       await expectMap();
+      await until('document.body.innerText.includes("重试找回上次探索")');
       assert.equal(
         await evaluate('localStorage.getItem("lexloop.adventureRun.learner-a")'),
         'run-ended-a',
         'a temporary recovery error must retain the account-scoped run ID',
       );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("墨迹入口") && button.textContent.includes("2 个学习目标")).disabled',
+        ),
+        true,
+        'starting another run must not overwrite a result whose recovery has not succeeded',
+      );
 
-      await reload();
+      assert.equal(
+        await evaluate(`(() => {
+          const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('重试找回上次探索'));
+          button.focus();
+          return button === document.activeElement && button.tabIndex === 0;
+        })()`),
+        true,
+        'the recovery retry must be a keyboard-focusable native button',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("重试找回上次探索")).click()',
+      );
+      await until('window.recoveryFixture.reads["learner-a"] === 2');
+      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 2);
+      assert.equal(
+        await evaluate('localStorage.getItem("lexloop.adventureRun.learner-a")'),
+        'run-ended-a',
+        'a failed retry must retain the saved run so the learner can try again',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("墨迹入口") && button.textContent.includes("2 个学习目标")).disabled',
+        ),
+        true,
+        'a failed retry must continue to prevent starting an unrelated run',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("重试找回上次探索")).click()',
+      );
       await until('document.body.innerText.includes("探索完成！")');
       assert.equal(await evaluate('document.body.innerText.includes("+18 EXP")'), true);
-      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 2);
+      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 3);
 
       await reload();
       await until('document.body.innerText.includes("探索完成！")');
-      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 3);
+      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 4);
 
       await evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
         accessToken: 'fixture-b', user: { id: 'learner-b', email: 'learner-b@example.invalid', displayName: 'Learner B', role: 'USER' },
@@ -209,11 +245,28 @@ test(
       }))`);
       await reload();
       await until('document.body.innerText.includes("探索完成！")');
+      assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 5);
       await evaluate(
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("返回地牢地图")).click()',
       );
       await expectMap();
       assert.equal(await evaluate('localStorage.getItem("lexloop.adventureRun.learner-a")'), null);
+
+      await evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-c', user: { id: 'learner-c', email: 'learner-c@example.invalid', displayName: 'Learner C', role: 'USER' },
+      }));
+      localStorage.setItem('lexloop.adventureRun.learner-c', 'run-missing-c')`);
+      await reload();
+      await until('document.body.innerText.includes("上次探索记录已不存在")');
+      assert.equal(await evaluate('window.recoveryFixture.reads["learner-c"]'), 1);
+      assert.equal(await evaluate('localStorage.getItem("lexloop.adventureRun.learner-c")'), null);
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("墨迹入口") && button.textContent.includes("2 个学习目标")).disabled',
+        ),
+        false,
+        'a confirmed missing result must clear the stale marker and allow a new run',
+      );
       assert.equal(await evaluate('window.recoveryFixture.writes.length'), 0);
       assert.deepEqual(browserErrors, []);
     } finally {

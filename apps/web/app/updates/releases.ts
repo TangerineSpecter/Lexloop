@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.10',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '找回失败时保留上次探索结算',
+        entry: '地下词环 → 探索恢复',
+        usage:
+          '结算暂时读不到时可重试找回；找回结果或确认记录已不存在前，暂不开放新的探索，避免覆盖还没取回的结算。',
+      },
+    ],
+  },
+  {
     version: '1.27.9',
     date: '2026-10-28',
     items: [

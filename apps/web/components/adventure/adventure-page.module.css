@@ -116,6 +116,29 @@
   background: #fff4b9;
   font-weight: 800;
 }
+.notice button {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--paper);
+  font-weight: 900;
+}
+.notice button:hover {
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: translate(-1px, -1px);
+}
+.notice button:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.notice button:active {
+  box-shadow: none;
+  transform: translate(1px, 1px);
+}
 .hero {
   width: min(1220px, calc(100% - 64px));
   margin: 34px auto 22px;
