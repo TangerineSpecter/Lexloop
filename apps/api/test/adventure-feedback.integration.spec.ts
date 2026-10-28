@@ -7,6 +7,322 @@ import { MistakesService } from '../src/modules/mistakes/mistakes.service';
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'adventure feedback recovery in an isolated database',
   () => {
+    it('hides previously cached mastery when its only evidence was provisional', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const sourceKey = `adventure-legacy-provisional-${fixtureId}`;
+      const normalized = Array.from(
+        { length: 24 },
+        (_, index) => `adventure-legacy-provisional-${fixtureId}-${index}`,
+      );
+      let userId: string | undefined;
+      const service = new AdventureService(prisma as never, new MistakesService(prisma as never), {
+        generateForUser: vi.fn(),
+      } as never);
+
+      try {
+        const user = await prisma.user.create({
+          data: {
+            email: `adventure-legacy-provisional-${fixtureId}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        userId = user.id;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure legacy evidence fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: normalized.map((value, position) => ({
+                position,
+                word: {
+                  create: {
+                    normalized: value,
+                    text: position === 0 ? 'patient' : `patient${position}`,
+                    meaning: '有耐心的',
+                  },
+                },
+              })),
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: user.id, bookId: book.id, isDefault: true },
+        });
+        await service.chooseClass(user.id, 'warrior');
+        const map = await service.dungeons(user.id);
+        const floor = map.floors[0];
+        const target = await prisma.floorLearningTarget.findFirstOrThrow({
+          where: { floorId: floor.id },
+          select: { id: true },
+        });
+        const firstRun = await service.startRun(user.id, floor.id, 5);
+        await prisma.dungeonRun.update({
+          where: { id: firstRun.id },
+          data: { status: 'RETREATED', completedAt: new Date() },
+        });
+        const secondRun = await service.startRun(user.id, floor.id, 5);
+        const runs = [firstRun, secondRun];
+        const evidenceRows = [];
+        for (const [index, run] of runs.entries()) {
+          const room = await prisma.dungeonRoom.findFirstOrThrow({
+            where: { runId: run.id, position: 0 },
+            select: { id: true },
+          });
+          const action = await prisma.battleAction.create({
+            data: {
+              runId: run.id,
+              roomId: room.id,
+              clientActionId: `legacy-provisional-${fixtureId}-${index}`,
+              phase: 'ATTACK',
+              challengeType: 'FREE_RESPONSE',
+              answer: ['We can use patient words in context.'],
+              score: 70,
+              grade: 'HIT',
+              feedback: {
+                correct: true,
+                provisional: true,
+                message: '旧版临时评分',
+              },
+            },
+            select: { id: true },
+          });
+          evidenceRows.push({
+            userId: user.id,
+            targetId: target.id,
+            runId: run.id,
+            actionId: action.id,
+            kind: 'PRODUCTION' as const,
+            score: 70,
+            validRecall: true,
+          });
+        }
+        await prisma.adventureLearningEvidence.createMany({ data: evidenceRows });
+        await prisma.userFloorProgress.upsert({
+          where: { userId_floorId: { userId: user.id, floorId: floor.id } },
+          create: {
+            userId: user.id,
+            floorId: floor.id,
+            exploration: 100,
+            mastery: 100,
+            bossUnlocked: true,
+          },
+          update: { exploration: 100, mastery: 100, bossUnlocked: true },
+        });
+
+        const startedAt = performance.now();
+        const refreshed = await service.dungeons(user.id);
+        const elapsedMs = performance.now() - startedAt;
+        expect(refreshed.floors[0]).toMatchObject({
+          exploration: 8,
+          mastery: 0,
+          bossUnlocked: false,
+        });
+        expect(
+          await prisma.userFloorProgress.findUniqueOrThrow({
+            where: { userId_floorId: { userId: user.id, floorId: floor.id } },
+            select: { exploration: true, mastery: true, bossUnlocked: true },
+          }),
+        ).toEqual({ exploration: 100, mastery: 100, bossUnlocked: true });
+        console.info(
+          `adventure map evidence aggregation: 2 floors/24 targets, ${elapsedMs.toFixed(1)} ms`,
+        );
+      } finally {
+        if (userId) await prisma.user.delete({ where: { id: userId } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
+    it('does not save an AI-unavailable sentence heuristic as correct or mastery evidence', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const sourceKey = `adventure-provisional-${fixtureId}`;
+      const normalized = [
+        `adventure-provisional-${fixtureId}-patient`,
+        `adventure-provisional-${fixtureId}-calm`,
+      ];
+      let userId: string | undefined;
+      const ai = {
+        generateForUser: vi.fn().mockRejectedValue(new Error('mock provider unavailable')),
+      };
+      const service = new AdventureService(
+        prisma as never,
+        new MistakesService(prisma as never),
+        ai as never,
+      );
+
+      try {
+        const user = await prisma.user.create({
+          data: {
+            email: `adventure-provisional-${fixtureId}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        userId = user.id;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure provisional grading fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: normalized.map((word, position) => ({
+                position,
+                word: {
+                  create: {
+                    normalized: word,
+                    text: position === 0 ? 'patient' : 'calm',
+                    meaning: position === 0 ? '有耐心的' : '平静的',
+                  },
+                },
+              })),
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: user.id, bookId: book.id, isDefault: true },
+        });
+        await service.chooseClass(user.id, 'warrior');
+        const map = await service.dungeons(user.id);
+        const floor = map.floors[0];
+        const run = await service.startRun(user.id, floor.id, 5);
+        const target = await prisma.floorLearningTarget.findFirstOrThrow({
+          where: { floorId: floor.id },
+          include: { bookWord: { include: { word: true } } },
+          orderBy: { position: 'asc' },
+        });
+        const room = await prisma.dungeonRoom.findFirstOrThrow({
+          where: { runId: run.id, position: 0 },
+          select: { id: true },
+        });
+        await prisma.dungeonRoom.update({
+          where: { id: room.id },
+          data: {
+            challenge: {
+              id: `provisional-${fixtureId}`,
+              type: 'FREE_RESPONSE',
+              phase: 'ATTACK',
+              prompt: '用 patient 写一个完整句子',
+              expected: ['I can be patient.'],
+              targetId: target.id,
+              word: 'patient',
+              meaning: '有耐心的',
+            },
+          },
+        });
+
+        await service.act(user.id, run.id, {
+          clientActionId: `provisional-action-${fixtureId}`,
+          answer: ['We can use patient words in context.'],
+        });
+
+        const action = await prisma.battleAction.findUniqueOrThrow({
+          where: {
+            runId_clientActionId: {
+              runId: run.id,
+              clientActionId: `provisional-action-${fixtureId}`,
+            },
+          },
+        });
+        expect(action.score).toBe(60);
+        expect(action.feedback).toMatchObject({ correct: false, provisional: true });
+        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+        expect(
+          await prisma.adventureLearningEvidence.count({ where: { actionId: action.id } }),
+        ).toBe(0);
+        expect(
+          await prisma.wordReviewAttempt.count({ where: { adventureActionId: action.id } }),
+        ).toBe(0);
+        expect(
+          await prisma.userWordProgress.findUnique({
+            where: {
+              userId_bookWordId: { userId: user.id, bookWordId: target.bookWordId },
+            },
+          }),
+        ).toBeNull();
+        expect(
+          await prisma.weaknessSignal.count({
+            where: { userId: user.id, bookWordId: target.bookWordId },
+          }),
+        ).toBe(0);
+        expect(
+          await prisma.learningEvent.count({
+            where: { userId: user.id, type: 'ADVENTURE_BATTLE_ACTION' },
+          }),
+        ).toBe(0);
+        expect(
+          await prisma.userFloorProgress.findUniqueOrThrow({
+            where: { userId_floorId: { userId: user.id, floorId: floor.id } },
+            select: { mastery: true, bossUnlocked: true },
+          }),
+        ).toEqual({ mastery: 0, bossUnlocked: false });
+
+        ai.generateForUser.mockResolvedValueOnce(
+          JSON.stringify({ score: 90, message: '目标词在句中使用正确。' }),
+        );
+        await prisma.dungeonRoom.update({
+          where: { id: room.id },
+          data: {
+            challenge: {
+              id: `verified-${fixtureId}`,
+              type: 'FREE_RESPONSE',
+              phase: 'BLOCK',
+              prompt: '用 patient 写一个完整句子',
+              expected: ['I can be patient.'],
+              targetId: target.id,
+              word: 'patient',
+              meaning: '有耐心的',
+            },
+          },
+        });
+        await service.act(user.id, run.id, {
+          clientActionId: `verified-action-${fixtureId}`,
+          answer: ['I can be patient with new learners.'],
+        });
+        const verifiedAction = await prisma.battleAction.findUniqueOrThrow({
+          where: {
+            runId_clientActionId: {
+              runId: run.id,
+              clientActionId: `verified-action-${fixtureId}`,
+            },
+          },
+        });
+        expect(verifiedAction.feedback).toMatchObject({ correct: true, provisional: false });
+        expect(
+          await prisma.adventureLearningEvidence.findUniqueOrThrow({
+            where: { actionId_targetId: { actionId: verifiedAction.id, targetId: target.id } },
+            select: { score: true, kind: true, validRecall: true },
+          }),
+        ).toMatchObject({ score: 90, kind: 'PRODUCTION', validRecall: true });
+        expect(
+          await prisma.wordReviewAttempt.findUniqueOrThrow({
+            where: { adventureActionId: verifiedAction.id },
+            select: { isCorrect: true },
+          }),
+        ).toEqual({ isCorrect: true });
+        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+      } finally {
+        if (userId) await prisma.user.delete({ where: { id: userId } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
     it('returns each learner’s latest saved answer without creating new learning evidence', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

@@ -839,14 +839,24 @@ function BattlePage({
             <strong>上一题 · {challengeTypeLabel(run.lastAction.challengeType)}</strong>
             <p>{run.lastAction.prompt ?? '这道题的原题目暂未保存。'}</p>
             <p>你的回答：{run.lastAction.answer.join(' ') || '（未记录文字回答）'}</p>
-            <p className={previousFeedback.correct ? styles.success : styles.error}>
+            <p
+              className={
+                previousFeedback.provisional
+                  ? styles.provisional
+                  : previousFeedback.correct
+                    ? styles.success
+                    : styles.error
+              }
+            >
               {previousFeedback.message}
               {previousFeedback.answer && !previousFeedback.correct
                 ? ` 参考：${previousFeedback.answer}`
                 : ''}
             </p>
             {previousFeedback.provisional && (
-              <small>本题使用了保守的临时判定，不能代表完整的英语能力评价。</small>
+              <small>
+                临时结果只检查目标词完整拼写和句长，无法确认语法、搭配或语义；本次不会计为正确复习或掌握证据。
+              </small>
             )}
           </aside>
         )}

@@ -1394,7 +1394,8 @@
   box-shadow: none;
 }
 .error,
-.success {
+.success,
+.provisional {
   margin: 12px 0 0;
   padding: 9px 11px;
   border-left: 5px solid #b33a1d;
@@ -1404,6 +1405,10 @@
 .success {
   border-color: #23834b;
   background: #eef9e8;
+}
+.provisional {
+  border-color: var(--blue);
+  background: #eaf2ff;
 }
 .retreat {
   display: flex;

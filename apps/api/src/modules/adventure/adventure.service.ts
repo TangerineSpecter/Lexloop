@@ -32,6 +32,7 @@ import {
   evidenceKind,
   experienceLevel,
   experienceToNextLevel,
+  gradeProvisionalFreeResponse,
   hitGrade,
   incomingDamage,
 } from './adventure.rules';
@@ -159,20 +160,34 @@ export class AdventureService {
     await this.ensureFloors(userId);
     const selected = await this.defaultBook(userId);
     if (!selected) return { book: null, floors: [] };
-    const floors = await this.prisma.dungeonFloor.findMany({
-      where: { bookId: selected.book.id, isActive: true },
-      orderBy: { floorNumber: 'asc' },
-      include: { _count: { select: { targets: true } }, progresses: { where: { userId } } },
-    });
+    const [floors, verifiedProgress] = await Promise.all([
+      this.prisma.dungeonFloor.findMany({
+        where: { bookId: selected.book.id, isActive: true },
+        orderBy: { floorNumber: 'asc' },
+        include: { _count: { select: { targets: true } }, progresses: { where: { userId } } },
+      }),
+      this.verifiedFloorProgress(userId, selected.book.id),
+    ]);
+    const progressByFloor = new Map(verifiedProgress.map((item) => [item.floorId, item]));
     return {
       book: { id: selected.book.id, title: selected.book.title },
-      floors: floors.map((floor, index) =>
-        this.floorSummary(
+      floors: floors.map((floor, index) => {
+        const savedProgress = floor.progresses[0];
+        const verified = progressByFloor.get(floor.id) ?? {
+          exploration: 0,
+          mastery: 0,
+          bossUnlocked: false,
+        };
+        return this.floorSummary(
           floor,
-          floor.progresses[0],
+          {
+            ...verified,
+            completedAt: savedProgress?.completedAt ?? null,
+            bestScore: savedProgress?.bestScore ?? 0,
+          },
           index > 0 && !floors[index - 1].progresses[0]?.completedAt,
-        ),
-      ),
+        );
+      }),
     };
   }
 
@@ -385,27 +400,29 @@ export class AdventureService {
           responseTimeMs: input.responseTimeMs,
         },
       });
-      const kind = evidenceKind(challenge.type);
-      await tx.adventureLearningEvidence.create({
-        data: {
+      if (!grading.provisional) {
+        const kind = evidenceKind(challenge.type);
+        await tx.adventureLearningEvidence.create({
+          data: {
+            userId,
+            targetId: challenge.targetId,
+            runId,
+            actionId: action.id,
+            kind,
+            score: grading.score,
+            validRecall: grading.score >= 70 && kind !== AdventureEvidenceKind.RECOGNITION,
+          },
+        });
+        await this.recordLearning(
+          tx,
           userId,
-          targetId: challenge.targetId,
-          runId,
-          actionId: action.id,
-          kind,
-          score: grading.score,
-          validRecall: grading.score >= 70 && kind !== AdventureEvidenceKind.RECOGNITION,
-        },
-      });
-      await this.recordLearning(
-        tx,
-        userId,
-        action.id,
-        challenge,
-        grading.score,
-        input.answer,
-        input.responseTimeMs,
-      );
+          action.id,
+          challenge,
+          grading.score,
+          input.answer,
+          input.responseTimeMs,
+        );
+      }
       const roomRewards = roomReward(currentRoom.type);
       const roomData: Prisma.DungeonRoomUpdateInput = { enemyHp: nextEnemyHp, state: json(state) };
       const runData: Prisma.DungeonRunUpdateInput = {
@@ -472,7 +489,8 @@ export class AdventureService {
       if (runStatus !== AdventureRunStatus.ACTIVE) runData.completedAt = new Date();
       await tx.dungeonRoom.update({ where: { id: room.id }, data: roomData });
       const updatedRun = await tx.dungeonRun.update({ where: { id: runId }, data: runData });
-      await this.updateDailyQuestProgress(tx, userId, current.floorId, grading.score);
+      if (!grading.provisional)
+        await this.updateDailyQuestProgress(tx, userId, current.floorId, grading.score);
       if (runStatus !== AdventureRunStatus.ACTIVE)
         await this.settleRun(tx, updatedRun, runStatus === AdventureRunStatus.COMPLETED, stats);
       return action;
@@ -869,17 +887,7 @@ export class AdventureService {
           provisional: false,
         };
       } catch {
-        const contains = normalize(text).includes(normalize(challenge.word));
-        const complete = text.split(/\s+/).length >= 4;
-        const score = contains && complete ? 70 : contains ? 50 : 20;
-        return {
-          score,
-          message: contains
-            ? 'AI 评分暂不可用；已按目标词使用和句子完整度保守判定。'
-            : `句子里还没有正确使用 ${challenge.word}。`,
-          answer: challenge.expected[0],
-          provisional: true,
-        };
+        return gradeProvisionalFreeResponse(text, challenge.word, challenge.expected[0]);
       }
     }
     const actual =
@@ -1028,10 +1036,24 @@ export class AdventureService {
   ) {
     const [targets, evidence, existing] = await Promise.all([
       this.prisma.floorLearningTarget.count({ where: { floorId } }),
-      this.prisma.adventureLearningEvidence.findMany({
-        where: { userId, target: { floorId } },
-        select: { targetId: true, runId: true, score: true, kind: true },
-      }),
+      this.prisma.$queryRaw<
+        Array<{
+          targetId: string;
+          runId: string;
+          score: number;
+          kind: AdventureEvidenceKind;
+          validRecall: boolean;
+          provisional: boolean;
+        }>
+      >(Prisma.sql`
+        SELECT evidence."targetId", evidence."runId", evidence."score", evidence."kind",
+          evidence."validRecall",
+          COALESCE((action."feedback" ->> 'provisional')::boolean, false) AS "provisional"
+        FROM "AdventureLearningEvidence" AS evidence
+        JOIN "FloorLearningTarget" AS target ON target."id" = evidence."targetId"
+        JOIN "BattleAction" AS action ON action."id" = evidence."actionId"
+        WHERE evidence."userId" = ${userId} AND target."floorId" = ${floorId}
+      `),
       this.prisma.userFloorProgress.findUnique({ where: { userId_floorId: { userId, floorId } } }),
     ]);
     const values = aggregateMastery(evidence, targets);
@@ -1052,6 +1074,44 @@ export class AdventureService {
         lastExploredAt: new Date(),
       },
     });
+  }
+
+  private async verifiedFloorProgress(userId: string, bookId: string) {
+    return this.prisma.$queryRaw<
+      Array<{ floorId: string; exploration: number; mastery: number; bossUnlocked: boolean }>
+    >(Prisma.sql`
+      WITH per_target AS (
+        SELECT target."floorId", target."id",
+          COUNT(DISTINCT evidence."runId") FILTER (
+            WHERE evidence."score" >= 70
+              AND NOT COALESCE((action."feedback" ->> 'provisional')::boolean, false)
+          ) AS "successfulRuns",
+          BOOL_OR(evidence."id" IS NOT NULL) AS "explored",
+          BOOL_OR(COALESCE(
+            evidence."score" >= 70
+              AND evidence."validRecall"
+              AND evidence."kind" <> 'RECOGNITION'
+              AND NOT COALESCE((action."feedback" ->> 'provisional')::boolean, false),
+            false
+          )) AS "hasRecall"
+        FROM "FloorLearningTarget" AS target
+        JOIN "DungeonFloor" AS floor ON floor."id" = target."floorId"
+        LEFT JOIN "AdventureLearningEvidence" AS evidence
+          ON evidence."targetId" = target."id" AND evidence."userId" = ${userId}
+        LEFT JOIN "BattleAction" AS action ON action."id" = evidence."actionId"
+        WHERE floor."bookId" = ${bookId} AND floor."isActive" = true
+        GROUP BY target."floorId", target."id"
+      ), floor_totals AS (
+        SELECT "floorId",
+          ROUND(COUNT(*) FILTER (WHERE "explored") * 100.0 / COUNT(*))::int AS "exploration",
+          ROUND(COUNT(*) FILTER (WHERE "successfulRuns" >= 2 AND "hasRecall") * 100.0 / COUNT(*))::int AS "mastery"
+        FROM per_target
+        GROUP BY "floorId"
+      )
+      SELECT "floorId", "exploration", "mastery",
+        ("exploration" >= 80 AND "mastery" >= 70) AS "bossUnlocked"
+      FROM floor_totals
+    `);
   }
 
   private async actionResponse(

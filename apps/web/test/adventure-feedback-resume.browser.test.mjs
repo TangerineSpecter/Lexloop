@@ -133,7 +133,7 @@ test(
             lastAction: {
               challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“稳定的”对应的英文', answer: ['steady'],
               score: 0, grade: 'MISS', damageDealt: 0, damageReceived: 0,
-              feedback: { correct: false, message: '这次没有命中，留意提示后再召回。', answer: 'steady', provisional: false },
+              feedback: { correct: false, message: 'AI 评分暂不可用；已找到目标词的完整拼写，但无法确认句子语法、搭配或语义，本次不计为正确。', answer: 'I can be steady.', provisional: true },
             },
             availableSkills: [], canRetreat: false,
           };
@@ -185,9 +185,27 @@ test(
         );
         assert.equal(
           await evaluate(
-            'document.querySelector("aside[aria-label]").innerText.includes("参考：steady")',
+            'document.querySelector("aside[aria-label]").innerText.includes("参考：I can be steady.")',
           ),
           true,
+        );
+        assert.equal(
+          await evaluate(
+            'document.querySelector("aside[aria-label] p[class*=provisional]").textContent.includes("不计为正确")',
+          ),
+          true,
+        );
+        assert.equal(
+          await evaluate(
+            'document.querySelector("aside[aria-label] small").textContent.includes("无法确认语法、搭配或语义")',
+          ),
+          true,
+        );
+        assert.notEqual(
+          await evaluate(
+            'getComputedStyle(document.querySelector("aside[aria-label] p[class*=provisional]")).backgroundColor',
+          ),
+          'rgb(255, 240, 232)',
         );
         assert.equal(
           await evaluate('document.querySelector("form h1").textContent'),
@@ -195,8 +213,34 @@ test(
         );
       };
       await assertRecovered();
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(150);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("aside[aria-label]").getBoundingClientRect().right <= innerWidth',
+        ),
+        true,
+      );
       await evaluate('location.reload()');
       await assertRecovered();
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await delay(150);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("aside[aria-label]").getBoundingClientRect().right <= innerWidth',
+        ),
+        true,
+      );
       await until('window.adventureFixture.activeReads >= 2');
       assert.equal(await evaluate('window.adventureFixture.writes.length'), 0);
       assert.deepEqual(browserErrors, []);

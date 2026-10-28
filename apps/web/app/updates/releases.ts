@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.21',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '临时造句不再冒充掌握',
+        entry: '地下词环 → 自由造句',
+        usage: 'AI 评分不可用时仅给部分战斗结果，不写入正确复习；旧临时评分也不会解锁首领。',
+      },
+    ],
+  },
+  {
     version: '1.27.20',
     date: '2026-10-28',
     items: [
