@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.33',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '提交批改前可直接配置阅读模型',
+        entry: '每日输出挑战 → 提交批改',
+        usage:
+          '缺少已选模型时可从当前练习打开设置；原文和请求编号保留，选好后可继续提交。设置不可用时不会创建批改或学习记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.32',
     date: '2026-10-28',
     items: [

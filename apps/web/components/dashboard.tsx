@@ -58,6 +58,7 @@ import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
 import { Tooltip } from './tooltip';
+import { ReadingModelDrawer } from './reading-model-drawer';
 import { MistakesPage } from './mistakes-page';
 import { TutorPanel } from './tutor-panel';
 import { TravelScenarioPage } from './travel-scenario-page';
@@ -2397,103 +2398,6 @@ function WordsPanel({
         />
       )}
     </section>
-  );
-}
-
-function StudySettingsDrawer({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-  return (
-    <div className="study-drawer-layer">
-      <button className="study-drawer-scrim" aria-label="关闭设置" onClick={onClose} />
-      <aside className="study-settings-drawer" role="dialog" aria-modal="true" aria-label={title}>
-        <header>
-          <h2>{title}</h2>
-          <button onClick={onClose} aria-label="关闭">
-            <X size={22} />
-          </button>
-        </header>
-        {children}
-      </aside>
-    </div>
-  );
-}
-
-type AvailableAiModel = {
-  id: string;
-  displayName: string;
-  provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
-  model: string;
-  isSelected: boolean;
-};
-function ReadingModelDrawer({ session, onClose }: { session: Session; onClose: () => void }) {
-  const [models, setModels] = useState<AvailableAiModel[]>([]);
-  const [busyId, setBusyId] = useState<string>();
-  const [message, setMessage] = useState('');
-  useEffect(() => {
-    request<AvailableAiModel[]>('/ai/models', {}, session.accessToken)
-      .then(setModels)
-      .catch((error) => setMessage(error instanceof Error ? error.message : '模型加载失败'));
-  }, [session.accessToken]);
-  const select = async (id: string) => {
-    setBusyId(id);
-    setMessage('');
-    try {
-      await request(`/ai/models/${id}/select`, { method: 'PATCH' }, session.accessToken);
-      setModels((items) => items.map((item) => ({ ...item, isSelected: item.id === id })));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '模型切换失败');
-    } finally {
-      setBusyId(undefined);
-    }
-  };
-  return (
-    <StudySettingsDrawer title="阅读材料模型" onClose={onClose}>
-      {message && <p className="book-message">{message}</p>}
-      {!message && !models.length && (
-        <div className="model-options-empty">
-          <Sparkles size={27} />
-          <strong>暂时没有可用模型</strong>
-          <p>请联系管理员在系统设置中添加并启用模型。</p>
-        </div>
-      )}
-      <div className="model-options">
-        {models.map((item) => (
-          <button
-            key={item.id}
-            className={`model-option ${item.isSelected ? 'is-active' : ''}`}
-            onClick={() => void select(item.id)}
-            disabled={busyId === item.id}
-          >
-            <span className="model-icon">
-              <Sparkles size={24} />
-            </span>
-            <span>
-              <strong>{item.displayName}</strong>
-              <small>
-                {item.isSelected
-                  ? '当前生效模型'
-                  : `${item.provider === 'DEEPSEEK' ? 'DeepSeek' : 'OpenAI 兼容'} · ${item.model}`}
-              </small>
-            </span>
-            {item.isSelected && <Check size={24} />}
-          </button>
-        ))}
-      </div>
-    </StudySettingsDrawer>
   );
 }
 

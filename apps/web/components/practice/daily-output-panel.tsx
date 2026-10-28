@@ -11,6 +11,7 @@ import {
 import styles from './practice.module.css';
 import { FeedbackCard } from './feedback-card';
 import { OutputHistoryPanel } from './output-history-panel';
+import { ReadingModelDrawer } from '../reading-model-drawer';
 
 export function DailyOutputPanel({ session }: { session: Session }) {
   const [daily, setDaily] = useState<DailyOutput | null>(null);
@@ -20,7 +21,9 @@ export function DailyOutputPanel({ session }: { session: Session }) {
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState(false);
   const [draftSaved, setDraftSaved] = useState(true);
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
   const [pollRevision, setPollRevision] = useState(0);
+  const modelSettingsTriggerRef = useRef<HTMLButtonElement>(null);
   const started = useRef(Date.now());
   const submitting = useRef(false);
   const loadedDraftIdentity = useRef<{ challengeId: string; date: string } | null>(null);
@@ -229,6 +232,7 @@ export function DailyOutputPanel({ session }: { session: Session }) {
     }
   }
   const latest = daily?.submissions.find((item) => item.status === 'COMPLETED');
+  const needsModelSelection = message.includes('阅读材料模型设置');
   if (!loaded)
     return (
       <p className={styles.empty} role="status">
@@ -309,6 +313,16 @@ export function DailyOutputPanel({ session }: { session: Session }) {
             <p className={styles.notice} role="alert">
               {message}
             </p>
+          )}
+          {needsModelSelection && (
+            <button
+              ref={modelSettingsTriggerRef}
+              className={styles.secondary}
+              type="button"
+              onClick={() => setModelSettingsOpen(true)}
+            >
+              打开阅读材料模型设置
+            </button>
           )}
           {pending ? (
             <div className={styles.notice} role="status">
@@ -396,6 +410,19 @@ export function DailyOutputPanel({ session }: { session: Session }) {
         </section>
       )}
       <OutputHistoryPanel session={session} />
+      {modelSettingsOpen && (
+        <ReadingModelDrawer
+          session={session}
+          onClose={() => {
+            setModelSettingsOpen(false);
+            window.requestAnimationFrame(() => {
+              if (modelSettingsTriggerRef.current) modelSettingsTriggerRef.current.focus();
+              else document.getElementById('output-answer')?.focus();
+            });
+          }}
+          onModelSelected={() => setMessage('')}
+        />
+      )}
     </section>
   );
 }
