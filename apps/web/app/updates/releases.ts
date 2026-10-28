@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.52',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '薄弱项专项保留本次所选词',
+        entry: '待巩固 → 生成专项',
+        usage:
+          '账号已有未完成专项时，只有词单相同的重复请求会复用原计划。若词单不同，会提示本次选择未应用；旧计划和作答记录保持不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.51',
     date: '2026-10-28',
     items: [

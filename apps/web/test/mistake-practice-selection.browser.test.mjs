@@ -180,8 +180,12 @@ test(
               return Response.json({ items: ${JSON.stringify(items)}, page: 1, total: 3, hasMore: false });
             }
             if (path.endsWith('/api/v1/mistakes/practice-plans') && method === 'POST') {
-              window.mistakePlanWrites.push(JSON.parse(options.body));
-              return Response.json({ message: 'Fixture stopped before model generation' }, { status: 409 });
+              const selection = JSON.parse(options.body);
+              window.mistakePlanWrites.push(selection);
+              const message = selection.bookWordIds.includes('current-standard')
+                ? '已有薄弱项专项包含其他选择，本次选择未应用。请先处理现有专项，再重新选择。'
+                : 'Fixture stopped before model generation';
+              return Response.json({ message }, { status: 409 });
             }
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
@@ -374,6 +378,39 @@ test(
       assert.deepEqual(await evaluate('window.mistakePlanWrites[0]'), {
         bookWordIds: ['current-standard'],
       });
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("本次选择未应用")',
+      );
+      assert.equal(
+        await evaluate(
+          'location.pathname === "/dashboard" && location.search.includes("view=mistakes")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].some((button) => button.getAttribute("aria-label") === "取消选择 current-standard")',
+        ),
+        true,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const conflictBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const message = document.querySelector(".book-message").getBoundingClientRect(); return { left: message.left, right: message.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(conflictBounds.left >= 0 && conflictBounds.right <= conflictBounds.viewport);
+      assert.ok(conflictBounds.scrollWidth <= conflictBounds.viewport);
+      await send('Emulation.clearDeviceMetricsOverride');
       assert.equal(
         await evaluate('window.mistakeListRequests.filter((item) => item.activeRace).length'),
         3,

@@ -233,8 +233,18 @@ export class MistakesService {
           },
         },
         orderBy: { createdAt: 'desc' },
+        include: { items: { select: { bookWordId: true } } },
       });
-      if (existing) return existing.id;
+      if (existing) {
+        const existingWordIds = new Set(existing.items.map((item) => item.bookWordId));
+        const sameSelection =
+          existingWordIds.size === bookWordIds.length &&
+          bookWordIds.every((bookWordId) => existingWordIds.has(bookWordId));
+        if (sameSelection) return existing.id;
+        throw new ConflictException(
+          '已有薄弱项专项包含其他选择，本次选择未应用。请先处理现有专项，再重新选择。',
+        );
+      }
       const signals = await tx.weaknessSignal.findMany({
         where: { userId, status: WeaknessStatus.ACTIVE, bookWordId: { in: bookWordIds } },
         orderBy: [{ consecutiveCorrect: 'asc' }, { wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
