@@ -178,6 +178,21 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
         { original: 'A_PRIVATE_LATEST_REPORT', natural: 'A_PRIVATE_LATEST_REPORT corrected' },
       ]);
 
+      const historyA = await service.scenarioReportHistory(users[0].id);
+      expect(historyA.items.map((item) => item.sessionId)).toEqual([sessions[1], sessions[0]]);
+      expect(historyA.nextCursor).toBeNull();
+      const olderReport = await service.scenarioReport(users[0].id, sessions[0]);
+      expect(olderReport.report.rewrites).toMatchObject([
+        { original: 'old', natural: 'old corrected' },
+      ]);
+      await expect(service.scenarioReport(users[1].id, sessions[0])).rejects.toThrow('复盘不存在');
+      await expect(service.scenarioReportHistory(users[1].id, sessions[0])).rejects.toThrow(
+        '复盘列表已更新，请重新加载',
+      );
+      await expect(
+        service.scenarioReport(users[0].id, completedWithoutTimestamp.id),
+      ).rejects.toThrow('复盘不存在');
+
       const learnerB = await service.latestScenarioReport(users[1].id);
       expect(learnerB?.session.id).toBe(sessions[2]);
       expect(JSON.stringify(learnerB)).toContain('B_PRIVATE_REPORT');
@@ -203,7 +218,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
     }
   });
 
-  it('uses the owner and completion index to read one report from a representative history', async () => {
+  it('pages a representative report history using the owner and completion index', async () => {
     const prisma = new PrismaClient({
       datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
     });
@@ -246,9 +261,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
 
       const rowCount = 2500;
       const baseTime = new Date('2026-10-01T00:00:00.000Z');
-      const ids = Array.from({ length: rowCount }, (_, index) => `${fixtureId}-session-${index}`);
+      const ids = Array.from(
+        { length: rowCount },
+        (_, index) => `${fixtureId}-session-${String(index).padStart(4, '0')}`,
+      );
       const sessions = ids.map((id, index) => {
-        const completedAt = new Date(baseTime.getTime() + index * 60_000);
+        const completedAt = new Date(baseTime.getTime() + Math.floor(index / 5) * 60_000);
         return {
           id,
           userId: user.id,
@@ -259,6 +277,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
           completedAt,
         };
       });
+      const expectedHistoryIds = [...sessions]
+        .sort((left, right) => {
+          const timeDifference = right.completedAt.getTime() - left.completedAt.getTime();
+          return timeDifference || (left.id < right.id ? 1 : left.id > right.id ? -1 : 0);
+        })
+        .map(({ id }) => id);
       await prisma.scenarioSession.createMany({ data: sessions });
       await prisma.scenarioReport.createMany({
         data: ids.map((sessionId) => ({
@@ -290,7 +314,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
             SELECT 1 FROM "ScenarioReport" AS r WHERE r."sessionId" = s."id"
           )
         ORDER BY s."completedAt" DESC, s."id" DESC
-        LIMIT 1
+        LIMIT 11
       `;
       expect(plan.map((row) => row['QUERY PLAN']).join('\n')).toContain(
         'ScenarioSession_userId_status_completedAt_id_idx',
@@ -299,11 +323,26 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('travel report recovery', ()
       const ai = { generateForUser: vi.fn() };
       const service = new TravelService(prisma as never, ai as never, { get: vi.fn() } as never);
       const startedAt = performance.now();
-      const latest = await service.latestScenarioReport(user.id);
+      const firstPage = await service.scenarioReportHistory(user.id);
+      const secondPage = await service.scenarioReportHistory(user.id, firstPage.nextCursor!);
       const elapsedMs = Math.round(performance.now() - startedAt);
-      expect(latest?.session.id).toBe(ids.at(-1));
+      expect(firstPage.items).toHaveLength(10);
+      expect(firstPage.items.map((item) => item.sessionId)).toEqual(
+        expectedHistoryIds.slice(0, 10),
+      );
+      expect(firstPage.nextCursor).toBe(expectedHistoryIds[9]);
+      expect(secondPage.items).toHaveLength(10);
+      expect(secondPage.items.map((item) => item.sessionId)).toEqual(
+        expectedHistoryIds.slice(10, 20),
+      );
+      expect(
+        new Set([...firstPage.items, ...secondPage.items].map((item) => item.sessionId)).size,
+      ).toBe(20);
+      expect(secondPage.nextCursor).toBe(expectedHistoryIds[19]);
       expect(ai.generateForUser).not.toHaveBeenCalled();
-      console.info(`travel latest-report lookup: ${rowCount} reports in ${elapsedMs} ms`);
+      console.info(
+        `travel report history pages: ${rowCount} saved reports, 20 returned in ${elapsedMs} ms`,
+      );
     } finally {
       if (userId) await prisma.user.deleteMany({ where: { id: userId } });
       await prisma.scenarioTemplate.deleteMany({ where: { id: templateId } });

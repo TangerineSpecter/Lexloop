@@ -64,6 +64,15 @@ test(
               message.params.exceptionDetails.exception?.description ??
                 message.params.exceptionDetails.text,
             );
+          } else if (
+            message.method === 'Runtime.consoleAPICalled' &&
+            message.params.type === 'error'
+          ) {
+            browserErrors.push(
+              message.params.args
+                .map((argument) => argument.value ?? argument.description)
+                .join(' '),
+            );
           }
           return;
         }
@@ -102,9 +111,11 @@ test(
           await delay(100);
         }
         const state = await evaluate(
-          `JSON.stringify({ path: location.pathname, text: document.body.innerText.slice(-700), fixture: window.travelResumeFixture })`,
+          `JSON.stringify({ path: location.pathname, text: document.body.innerText.slice(-700), fixture: window.travelResumeFixture, errors: browserErrors })`,
         ).catch(() => 'unavailable');
-        assert.fail(`Timed out waiting for ${expression}; state=${state}`);
+        assert.fail(
+          `Timed out waiting for ${expression}; state=${state}; browserErrors=${JSON.stringify(browserErrors)}`,
+        );
       };
 
       await send('Page.enable');
@@ -140,7 +151,7 @@ test(
             turns: initialTurns,
             pendingRetry: { clientMessageId: 'pending-message-123', content: 'Could you repeat the name?' },
           };
-          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [], reportReads: [], reportReadFailuresRemaining: 0, completionCalls: [], latestReport: null };
+          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [], completionCalls: [], latestReport: null, historyReads: [], historyCursors: [], historyReadFailuresRemaining: 0, historyDetailReads: [], reportHistory: { items: [], nextCursor: null }, reportHistoryOlder: { items: [], nextCursor: null }, olderReport: null };
           const persistFixture = () => sessionStorage.setItem('travel-resume-fixture', JSON.stringify(window.travelResumeFixture));
           const currentUser = () => JSON.parse(localStorage.getItem('lexloop.session'));
           window.fetch = async (input, options = {}) => {
@@ -163,15 +174,32 @@ test(
               persistFixture();
               return Response.json(userId === 'travel-user-a' ? window.travelResumeFixture.activeA : null);
             }
-            if (path.endsWith('/api/v1/scenario-sessions/latest-report')) {
-              window.travelResumeFixture.reportReads.push(userId);
-              if (userId === 'travel-user-a' && window.travelResumeFixture.reportReadFailuresRemaining > 0) {
-                window.travelResumeFixture.reportReadFailuresRemaining -= 1;
+            if (new URL(path, location.origin).pathname.endsWith('/api/v1/scenario-sessions/reports')) {
+              window.travelResumeFixture.historyReads.push(userId);
+              const cursor = new URL(path, location.origin).searchParams.get('cursor');
+              window.travelResumeFixture.historyCursors.push(cursor);
+              if (userId === 'travel-user-a' && window.travelResumeFixture.historyReadFailuresRemaining > 0) {
+                window.travelResumeFixture.historyReadFailuresRemaining -= 1;
                 persistFixture();
-                return Response.json({ message: 'temporary read failure' }, { status: 503 });
+                return Response.json({ message: 'temporary history failure' }, { status: 503 });
               }
               persistFixture();
-              return Response.json(userId === 'travel-user-a' ? window.travelResumeFixture.latestReport : null);
+              if (userId !== 'travel-user-a') return Response.json({ items: [], nextCursor: null });
+              return Response.json(cursor ? window.travelResumeFixture.reportHistoryOlder : window.travelResumeFixture.reportHistory);
+            }
+            if (path.endsWith('/api/v1/scenario-sessions/session-a/report')) {
+              window.travelResumeFixture.historyDetailReads.push(userId);
+              persistFixture();
+              return userId === 'travel-user-a'
+                ? Response.json(window.travelResumeFixture.latestReport)
+                : Response.json({ message: 'not found' }, { status: 404 });
+            }
+            if (path.endsWith('/api/v1/scenario-sessions/old-session-a/report')) {
+              window.travelResumeFixture.historyDetailReads.push(userId);
+              persistFixture();
+              return userId === 'travel-user-a'
+                ? Response.json(window.travelResumeFixture.olderReport)
+                : Response.json({ message: 'not found' }, { status: 404 });
             }
             if (path.endsWith('/api/v1/scenario-sessions/session-a/turns') && method === 'POST') {
               const body = JSON.parse(options.body);
@@ -194,7 +222,7 @@ test(
             if (path.endsWith('/api/v1/scenario-sessions/session-a/complete') && method === 'POST') {
               window.travelResumeFixture.completionCalls.push(userId);
               window.travelResumeFixture.activeA = null;
-              window.travelResumeFixture.reportReadFailuresRemaining = 1;
+              window.travelResumeFixture.historyReadFailuresRemaining = 1;
               window.travelResumeFixture.latestReport = {
                 session: { id: 'session-a', templateId: scenario.id, level: 'A1', status: 'COMPLETED', turnCount: 2 },
                 completedAt: '2026-10-28T09:00:00.000Z', template: scenario,
@@ -206,6 +234,32 @@ test(
                   evidence: [{ objective: 'Confirm a reservation', completed: true }],
                   vocabulary: [], recommendation: '换一个相近情境再说一遍。',
                 },
+              };
+              window.travelResumeFixture.olderReport = {
+                session: { id: 'old-session-a', templateId: scenario.id, level: 'A1', status: 'COMPLETED', turnCount: 2 },
+                completedAt: '2026-10-27T09:00:00.000Z',
+                template: { ...scenario, title: '旧酒店入住练习' },
+                report: {
+                  outcome: 'SUCCESS',
+                  dimensions: { vocabulary: 70, grammar: 71, sentenceBuilding: 72, taskCompletion: 73, naturalness: 74 },
+                  rewrites: [{ type: 'grammar', original: 'A_PRIVATE_OLDER_EXPRESSION', natural: 'Could I check in, please?', explanation: '用 Could I ...? 提出礼貌请求。' }],
+                  grammarFrames: scenario.grammarFrames,
+                  evidence: [{ objective: 'Confirm a reservation', completed: true }],
+                  vocabulary: [], recommendation: '下次试着补充预订姓名。',
+                },
+              };
+              window.travelResumeFixture.reportHistory = {
+                items: [
+                  { sessionId: 'session-a', completedAt: '2026-10-28T09:00:00.000Z', level: 'A1', template: { id: scenario.id, title: scenario.title, category: 'HOTEL', categoryLabel: '酒店' }, outcome: 'PARTIAL' },
+                  { sessionId: 'old-session-a', completedAt: '2026-10-27T09:00:00.000Z', level: 'A1', template: { id: scenario.id, title: '旧酒店入住练习', category: 'HOTEL', categoryLabel: '酒店' }, outcome: 'SUCCESS' },
+                ],
+                nextCursor: 'history-cursor-a',
+              };
+              window.travelResumeFixture.reportHistoryOlder = {
+                items: [
+                  { sessionId: 'oldest-session-a', completedAt: '2026-10-26T09:00:00.000Z', level: 'A1', template: { id: scenario.id, title: '更早的酒店练习', category: 'HOTEL', categoryLabel: '酒店' }, outcome: 'PARTIAL' },
+                ],
+                nextCursor: null,
               };
               persistFixture();
               return Response.json({ message: 'response lost after commit' }, { status: 503 });
@@ -389,6 +443,84 @@ test(
       assert.equal(await evaluate('window.travelResumeFixture.completionCalls.length'), 1);
 
       await evaluate(
+        '[...document.querySelectorAll(".travel-report-page footer button")].find(button => button.textContent.includes("回到场景地图")).click()',
+      );
+      await until('document.querySelector(".travel-report-history h2")');
+      assert.equal(
+        await evaluate('document.body.innerText.includes("A_PRIVATE_OLDER_EXPRESSION")'),
+        false,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const historyLayout = await evaluate(`(() => {
+        const section = document.querySelector('.travel-report-history');
+        section.scrollIntoView({ block: 'center' });
+        const item = section.querySelector('li').getBoundingClientRect();
+        const button = section.querySelector('li button').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, itemRight: item.right, buttonRight: button.right };
+      })()`);
+      assert.equal(
+        historyLayout.scrollWidth,
+        historyLayout.viewport,
+        JSON.stringify(historyLayout),
+      );
+      assert.ok(historyLayout.itemRight <= historyLayout.viewport, JSON.stringify(historyLayout));
+      assert.ok(historyLayout.buttonRight <= historyLayout.viewport, JSON.stringify(historyLayout));
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-history button")].find(button => button.textContent.includes("加载更早复盘")).click()',
+      );
+      await until('document.querySelectorAll(".travel-report-history li").length === 2');
+      assert.equal(
+        await evaluate('window.travelResumeFixture.historyCursors.at(-1)'),
+        'history-cursor-a',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileHistoryLayout = await evaluate(`(() => {
+        const section = document.querySelector('.travel-report-history');
+        section.scrollIntoView({ block: 'center' });
+        const item = section.querySelector('li').getBoundingClientRect();
+        const button = section.querySelector('li button').getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, itemRight: item.right, buttonRight: button.right };
+      })()`);
+      assert.equal(
+        mobileHistoryLayout.scrollWidth,
+        mobileHistoryLayout.viewport,
+        JSON.stringify(mobileHistoryLayout),
+      );
+      assert.ok(
+        mobileHistoryLayout.itemRight <= mobileHistoryLayout.viewport,
+        JSON.stringify(mobileHistoryLayout),
+      );
+      assert.ok(
+        mobileHistoryLayout.buttonRight <= mobileHistoryLayout.viewport,
+        JSON.stringify(mobileHistoryLayout),
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-history button")].find(button => button.getAttribute("aria-label") === "查看 旧酒店入住练习 的复盘").click()',
+      );
+      await until(
+        'document.querySelector(".travel-report-page")?.innerText.includes("A_PRIVATE_OLDER_EXPRESSION")',
+      );
+      assert.equal(
+        await evaluate('window.travelResumeFixture.historyDetailReads.at(-1)'),
+        'travel-user-a',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".travel-report-page footer button")].find(button => button.textContent.includes("回到场景地图")).click()',
+      );
+      await until('document.querySelector(".travel-report-history h2")');
+
+      await evaluate(
         `(() => {
         const saved = JSON.parse(localStorage.getItem('lexloop.session'));
         localStorage.setItem('lexloop.session', JSON.stringify({ ...saved, accessToken: 'fixture-b', user: { id: 'travel-user-b', email: 'b@example.invalid', displayName: 'Learner B', role: 'USER' } }));
@@ -412,12 +544,13 @@ test(
         await evaluate('document.body.innerText.includes("Could you repeat the name?")'),
         false,
       );
+      assert.equal(await evaluate('document.body.innerText.includes("旧酒店入住练习")'), false);
       assert.equal(
         await evaluate('window.travelResumeFixture.activeReads.at(-1)'),
         'travel-user-b',
       );
       assert.equal(
-        await evaluate('window.travelResumeFixture.reportReads.at(-1)'),
+        await evaluate('window.travelResumeFixture.historyReads.at(-1)'),
         'travel-user-b',
       );
       assert.deepEqual(browserErrors, []);

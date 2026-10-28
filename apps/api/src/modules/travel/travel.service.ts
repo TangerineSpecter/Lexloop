@@ -59,6 +59,8 @@ type AssessmentEvaluation = {
   provisional: boolean;
 };
 
+const SCENARIO_REPORT_HISTORY_PAGE_SIZE = 10;
+
 @Injectable()
 export class TravelService {
   constructor(
@@ -319,6 +321,92 @@ export class TravelService {
     });
     if (!session?.report || !session.completedAt) return null;
 
+    return {
+      session: this.publicSession(session),
+      completedAt: session.completedAt,
+      template: this.publicTemplate(session.template),
+      report: this.publicReport(session.report),
+    };
+  }
+
+  async scenarioReportHistory(userId: string, cursor?: string) {
+    let cursorSession: { id: string; completedAt: Date } | null = null;
+    if (cursor) {
+      const foundCursor = await this.prisma.scenarioSession.findFirst({
+        where: {
+          id: cursor,
+          userId,
+          status: ScenarioSessionStatus.COMPLETED,
+          completedAt: { not: null },
+          report: { isNot: null },
+        },
+        select: { id: true, completedAt: true },
+      });
+      if (!foundCursor?.completedAt) {
+        throw new BadRequestException('复盘列表已更新，请重新加载');
+      }
+      cursorSession = { id: foundCursor.id, completedAt: foundCursor.completedAt };
+    }
+
+    const rows = await this.prisma.scenarioSession.findMany({
+      where: {
+        userId,
+        status: ScenarioSessionStatus.COMPLETED,
+        completedAt: { not: null },
+        report: { isNot: null },
+        ...(cursorSession?.completedAt
+          ? {
+              OR: [
+                { completedAt: { lt: cursorSession.completedAt } },
+                {
+                  completedAt: cursorSession.completedAt,
+                  id: { lt: cursorSession.id },
+                },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+      take: SCENARIO_REPORT_HISTORY_PAGE_SIZE + 1,
+      select: {
+        id: true,
+        completedAt: true,
+        level: true,
+        template: { select: { id: true, title: true, category: true } },
+        report: { select: { outcome: true } },
+      },
+    });
+    const hasMore = rows.length > SCENARIO_REPORT_HISTORY_PAGE_SIZE;
+    const items = rows.slice(0, SCENARIO_REPORT_HISTORY_PAGE_SIZE).map((row) => ({
+      sessionId: row.id,
+      completedAt: row.completedAt,
+      level: row.level,
+      template: {
+        id: row.template.id,
+        title: row.template.title,
+        category: row.template.category,
+        categoryLabel: CATEGORY_LABELS[row.template.category],
+      },
+      outcome: row.report!.outcome,
+    }));
+    return {
+      items,
+      nextCursor: hasMore ? (items.at(-1)?.sessionId ?? null) : null,
+    };
+  }
+
+  async scenarioReport(userId: string, sessionId: string) {
+    const session = await this.prisma.scenarioSession.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+        status: ScenarioSessionStatus.COMPLETED,
+        completedAt: { not: null },
+        report: { isNot: null },
+      },
+      include: { template: true, report: true },
+    });
+    if (!session?.report || !session.completedAt) throw new NotFoundException('复盘不存在');
     return {
       session: this.publicSession(session),
       completedAt: session.completedAt,

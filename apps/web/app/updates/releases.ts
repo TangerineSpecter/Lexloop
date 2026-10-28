@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.28',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '旅行场景复盘可分页回看历史',
+        entry: '场景口语 → 旅行复盘历史',
+        usage: '完成新场景后，仍可按时间翻页打开旧反馈、句型和沟通目标。',
+      },
+    ],
+  },
+  {
     version: '1.27.27',
     date: '2026-10-28',
     items: [

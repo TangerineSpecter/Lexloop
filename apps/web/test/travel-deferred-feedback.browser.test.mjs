@@ -136,6 +136,7 @@ test(
             if (path.includes('/api/v1/scenarios')) return Response.json([scenario]);
             if (path.includes('/api/v1/vocabulary/notebook')) return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
             if (path.endsWith('/api/v1/scenario-sessions/active') && method === 'GET') return Response.json(null);
+            if (path.endsWith('/api/v1/scenario-sessions/reports')) return Response.json({ items: [], nextCursor: null });
             if (path.endsWith('/api/v1/scenario-sessions') && method === 'POST') return Response.json({ session: { id: 'session-a', templateId: scenario.id, level: 'A1', status: 'ACTIVE', turnCount: 0 }, template: scenario, turns: [] });
             if (path.endsWith('/api/v1/scenario-sessions/session-a/turns') && method === 'POST') {
               window.travelFeedbackFixture.turnPending = true;

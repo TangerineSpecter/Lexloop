@@ -21,6 +21,9 @@ class ScenarioTurnDto {
 class ScenarioQueryDto {
   @IsOptional() @IsEnum(ScenarioCategory) category?: ScenarioCategory;
 }
+class ScenarioReportHistoryQueryDto {
+  @IsOptional() @IsString() @MaxLength(80) cursor?: string;
+}
 
 @ApiTags('travel')
 @ApiBearerAuth()
@@ -62,6 +65,18 @@ export class TravelController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.travel.latestScenarioReport(request.user.sub);
+  }
+  @Get('scenario-sessions/reports') scenarioReportHistory(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: ScenarioReportHistoryQueryDto,
+  ) {
+    return this.travel.scenarioReportHistory(request.user.sub, query.cursor);
+  }
+  @Get('scenario-sessions/:id/report') scenarioReport(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.travel.scenarioReport(request.user.sub, id);
   }
   @Post('scenario-sessions') startScenario(
     @Req() request: AuthenticatedRequest,

@@ -143,11 +143,22 @@ type Report = {
   vocabulary: VocabularyCandidate[];
   recommendation: string;
 };
-type LatestScenarioReport = {
+type ScenarioReportDetail = {
   session: ScenarioSession;
   completedAt: string;
   template: Scenario;
   report: Report;
+};
+type ScenarioReportHistoryItem = {
+  sessionId: string;
+  completedAt: string;
+  level: CefrLevel;
+  template: { id: string; title: string; category: Category; categoryLabel: string };
+  outcome: Report['outcome'];
+};
+type ScenarioReportHistoryPage = {
+  items: ScenarioReportHistoryItem[];
+  nextCursor: string | null;
 };
 type PersonalItem = {
   id: string;
@@ -192,11 +203,15 @@ export function TravelScenarioPage({
   const [personal, setPersonal] = useState<PersonalItem[]>([]);
   const [resumable, setResumable] = useState<ScenarioStart | null>(null);
   const [resumableOwnerId, setResumableOwnerId] = useState(session.user.id);
-  const [latestReport, setLatestReport] = useState<LatestScenarioReport | null>(null);
-  const [latestReportStatus, setLatestReportStatus] = useState<'loading' | 'ready' | 'error'>(
+  const [reportHistory, setReportHistory] = useState<ScenarioReportHistoryItem[]>([]);
+  const [reportHistoryNextCursor, setReportHistoryNextCursor] = useState<string | null>(null);
+  const [reportHistoryStatus, setReportHistoryStatus] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
-  const [latestReportError, setLatestReportError] = useState('');
+  const [reportHistoryOwnerId, setReportHistoryOwnerId] = useState(session.user.id);
+  const [reportHistoryError, setReportHistoryError] = useState('');
+  const [reportHistoryMoreLoading, setReportHistoryMoreLoading] = useState(false);
+  const [openingReportId, setOpeningReportId] = useState<string | null>(null);
   const [category, setCategory] = useState<Category | 'ALL'>('ALL');
   const [assessment, setAssessment] = useState<AssessmentState | null>(null);
   const [active, setActive] = useState<ScenarioStart | null>(null);
@@ -207,33 +222,86 @@ export function TravelScenarioPage({
   const currentUserIdRef = useRef(session.user.id);
   currentUserIdRef.current = session.user.id;
 
-  const loadLatestReport = useCallback(async () => {
+  const loadReportHistory = useCallback(async () => {
     const ownerId = session.user.id;
-    setLatestReportStatus('loading');
-    setLatestReportError('');
-    setLatestReport(null);
+    setReportHistoryOwnerId(ownerId);
+    setReportHistory([]);
+    setReportHistoryNextCursor(null);
+    setReportHistoryStatus('loading');
+    setReportHistoryError('');
+    setReportHistoryMoreLoading(false);
     try {
-      const result = await request<LatestScenarioReport | null>(
-        '/scenario-sessions/latest-report',
+      const result = await request<ScenarioReportHistoryPage>(
+        '/scenario-sessions/reports',
         {},
         session.accessToken,
       );
       if (currentUserIdRef.current !== ownerId) return;
-      setLatestReport(result);
-      setLatestReportStatus('ready');
+      setReportHistory(result.items);
+      setReportHistoryNextCursor(result.nextCursor);
+      setReportHistoryStatus('ready');
     } catch (error) {
       if (currentUserIdRef.current !== ownerId) return;
-      setLatestReportError(userFacingError(error, '暂时无法读取最近一次复盘'));
-      setLatestReportStatus('error');
+      setReportHistoryError(userFacingError(error, '暂时无法读取复盘历史'));
+      setReportHistoryStatus('error');
     }
   }, [session.accessToken, session.user.id]);
+
+  const loadMoreReportHistory = async () => {
+    const ownerId = session.user.id;
+    const cursor = reportHistoryNextCursor;
+    if (!cursor || reportHistoryMoreLoading) return;
+    setReportHistoryMoreLoading(true);
+    setReportHistoryError('');
+    try {
+      const result = await request<ScenarioReportHistoryPage>(
+        `/scenario-sessions/reports?cursor=${encodeURIComponent(cursor)}`,
+        {},
+        session.accessToken,
+      );
+      if (currentUserIdRef.current !== ownerId) return;
+      setReportHistory((current) => {
+        const existing = new Set(current.map((item) => item.sessionId));
+        return [...current, ...result.items.filter((item) => !existing.has(item.sessionId))];
+      });
+      setReportHistoryNextCursor(result.nextCursor);
+    } catch (error) {
+      if (currentUserIdRef.current !== ownerId) return;
+      setReportHistoryError(userFacingError(error, '暂时无法读取更早的复盘'));
+    } finally {
+      if (currentUserIdRef.current === ownerId) setReportHistoryMoreLoading(false);
+    }
+  };
+
+  const openHistoricalReport = async (sessionId: string) => {
+    const ownerId = session.user.id;
+    if (openingReportId) return;
+    setOpeningReportId(sessionId);
+    setMessage('');
+    try {
+      const result = await request<ScenarioReportDetail>(
+        `/scenario-sessions/${encodeURIComponent(sessionId)}/report`,
+        {},
+        session.accessToken,
+      );
+      if (currentUserIdRef.current !== ownerId) return;
+      setActive({ session: result.session, template: result.template, turns: [] });
+      setReport(result.report);
+    } catch (error) {
+      if (currentUserIdRef.current !== ownerId) return;
+      setMessage(userFacingError(error, '暂时无法打开这次复盘，请重试'));
+    } finally {
+      if (currentUserIdRef.current === ownerId) setOpeningReportId(null);
+    }
+  };
 
   const load = useCallback(async () => {
     const ownerId = session.user.id;
     setLoading(true);
     setResumableOwnerId(ownerId);
     setResumable(null);
-    void loadLatestReport();
+    setOpeningReportId(null);
+    void loadReportHistory();
     try {
       const [nextProfile, nextPlan, nextScenarios, nextPersonal, nextResumable] = await Promise.all(
         [
@@ -256,7 +324,7 @@ export function TravelScenarioPage({
     } finally {
       if (currentUserIdRef.current === ownerId) setLoading(false);
     }
-  }, [loadLatestReport, session.accessToken, session.user.id]);
+  }, [loadReportHistory, session.accessToken, session.user.id]);
 
   const startAssessment = useCallback(async () => {
     setMessage('');
@@ -380,6 +448,14 @@ export function TravelScenarioPage({
   const filtered =
     category === 'ALL' ? scenarios : scenarios.filter((item) => item.category === category);
   const todayScenario = plan?.items.find((item) => item.type === 'SCENARIO')?.scenario;
+  const ownsReportHistory = reportHistoryOwnerId === session.user.id;
+  const latestHistoryReport = ownsReportHistory ? (reportHistory[0] ?? null) : null;
+  const olderReports = ownsReportHistory ? reportHistory.slice(1) : [];
+  const showReportHistory =
+    ownsReportHistory &&
+    (reportHistoryStatus === 'ready' ||
+      (reportHistoryStatus === 'error' && reportHistory.length > 0)) &&
+    (olderReports.length > 0 || reportHistoryNextCursor !== null || reportHistoryError !== '');
   return (
     <div className="travel-page">
       <header className="travel-page-head">
@@ -418,44 +494,96 @@ export function TravelScenarioPage({
         </section>
       )}
 
-      {latestReportStatus === 'loading' && (
+      {ownsReportHistory && reportHistoryStatus === 'loading' && (
         <p className={resumeStyles.status} role="status">
-          正在读取最近一次旅行复盘…
+          正在读取旅行复盘…
         </p>
       )}
-      {latestReportStatus === 'error' && (
+      {ownsReportHistory && reportHistoryStatus === 'error' && reportHistory.length === 0 && (
         <section className={`${resumeStyles.resume} travel-report-recovery`} aria-live="polite">
           <div className={resumeStyles.copy}>
-            <small>最近一次旅行复盘</small>
+            <small>旅行复盘</small>
             <h2>暂时无法读取</h2>
-            <p>{latestReportError}</p>
+            <p>{reportHistoryError}</p>
           </div>
-          <button onClick={() => void loadLatestReport()}>重试读取</button>
+          <button onClick={() => void loadReportHistory()}>重试读取</button>
         </section>
       )}
-      {latestReportStatus === 'ready' && latestReport && (
+      {ownsReportHistory && reportHistoryStatus === 'ready' && latestHistoryReport && (
         <section
           className={`${resumeStyles.resume} travel-report-recovery`}
           aria-labelledby="travel-report-recovery-title"
         >
           <div className={resumeStyles.copy}>
             <small>最近一次旅行复盘</small>
-            <h2 id="travel-report-recovery-title">{latestReport.template.title}</h2>
+            <h2 id="travel-report-recovery-title">{latestHistoryReport.template.title}</h2>
             <p>这次的反馈和句型已保存，可以随时回来查看。</p>
           </div>
           <button
-            onClick={() => {
-              setMessage('');
-              setActive({
-                session: latestReport.session,
-                template: latestReport.template,
-                turns: [],
-              });
-              setReport(latestReport.report);
-            }}
+            disabled={openingReportId !== null}
+            onClick={() => void openHistoricalReport(latestHistoryReport.sessionId)}
           >
-            查看复盘
+            {openingReportId === latestHistoryReport.sessionId ? '正在打开…' : '查看复盘'}
           </button>
+        </section>
+      )}
+      {showReportHistory && (
+        <section
+          className={`${resumeStyles.history} travel-report-history`}
+          aria-labelledby="travel-report-history-title"
+        >
+          <header className={resumeStyles.historyHeader}>
+            <div>
+              <small>TRIP NOTES · 复盘历史</small>
+              <h2 id="travel-report-history-title">更早的旅行复盘</h2>
+            </div>
+            <span>回看当时的表达反馈，再练习有帮助的句型。</span>
+          </header>
+          {reportHistoryStatus === 'error' && reportHistory.length === 0 && (
+            <div className={resumeStyles.historyError} role="alert">
+              <p>{reportHistoryError}</p>
+              <button onClick={() => void loadReportHistory()}>重试读取</button>
+            </div>
+          )}
+          {olderReports.length > 0 && (
+            <ol className={resumeStyles.historyList} aria-label="已完成的旅行复盘">
+              {olderReports.map((item) => (
+                <li className={resumeStyles.historyItem} key={item.sessionId}>
+                  <div className={resumeStyles.historySummary}>
+                    <small>
+                      {item.template.categoryLabel} · {historyDate(item.completedAt)} · {item.level}
+                    </small>
+                    <h3>{item.template.title}</h3>
+                    <span>{scenarioOutcomeLabel(item.outcome)}</span>
+                  </div>
+                  <button
+                    disabled={openingReportId !== null}
+                    aria-label={`查看 ${item.template.title} 的复盘`}
+                    onClick={() => void openHistoricalReport(item.sessionId)}
+                  >
+                    {openingReportId === item.sessionId ? '正在打开…' : '查看复盘'}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          {reportHistoryError && reportHistory.length > 0 && (
+            <div className={resumeStyles.historyError} role="alert">
+              <p>{reportHistoryError}</p>
+              {reportHistoryNextCursor && (
+                <button onClick={() => void loadReportHistory()}>刷新复盘列表</button>
+              )}
+            </div>
+          )}
+          {reportHistoryNextCursor && (
+            <button
+              className={resumeStyles.historyMore}
+              disabled={reportHistoryMoreLoading}
+              onClick={() => void loadMoreReportHistory()}
+            >
+              {reportHistoryMoreLoading ? '正在读取…' : '加载更早复盘'}
+            </button>
+          )}
         </section>
       )}
 
@@ -1143,6 +1271,23 @@ function PlusMark() {
 }
 function confidenceText(value?: Profile['confidence']) {
   return value === 'HIGH' ? '高置信度' : value === 'MEDIUM' ? '中等置信度' : '继续收集证据';
+}
+function historyDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '日期未知'
+    : date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+}
+function scenarioOutcomeLabel(outcome: Report['outcome']) {
+  if (outcome === 'SUCCESS') return '沟通目标已完成';
+  if (outcome === 'PARTIAL') return '完成了部分目标';
+  return '还可以继续练习';
 }
 function dimensionLabel(value: string) {
   return (
