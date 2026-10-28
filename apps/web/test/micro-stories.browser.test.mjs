@@ -82,7 +82,10 @@ test(
           returnByValue: true,
           awaitPromise: true,
         });
-        if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+        if (result.exceptionDetails)
+          throw new Error(
+            `${result.exceptionDetails.text}: ${result.exceptionDetails.exception?.description ?? ''}`,
+          );
         return result.result.value;
       };
       const until = async (expression) => {
@@ -121,6 +124,46 @@ test(
         };
       }
       window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : 0), revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || '', errors: savedFixture.errors || [], reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [] };
+      const audioAuditKey = 'lexloop.test.local-audio-audit';
+      const readAudioAudit = () => JSON.parse(sessionStorage.getItem(audioAuditKey) || '{"stoppedTracks":0,"revokedUrls":[]}');
+      const writeAudioAudit = audit => sessionStorage.setItem(audioAuditKey, JSON.stringify(audit));
+      window.addEventListener('pagehide', () => { const audit = readAudioAudit(); audit.pageHides = (audit.pageHides || 0) + 1; writeAudioAudit(audit); });
+      window.localSpeechFixture = { permissionRequests: [], streams: [], recorders: [], createdUrls: [], revokedUrls: [], playedUrls: [] };
+      const localSpeech = window.localSpeechFixture;
+      const noMic = params.has('no-mic');
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
+        getUserMedia: noMic ? undefined : async constraints => {
+          localSpeech.permissionRequests.push(constraints);
+          if (params.has('slow-mic')) await new Promise(resolve => setTimeout(resolve, 500));
+          if (params.has('mic-denied')) throw new DOMException('Permission denied', 'NotAllowedError');
+          const track = { readyState: 'live', stopped: false, stop() { if (!this.stopped) { this.stopped = true; this.readyState = 'ended'; const audit = readAudioAudit(); audit.stoppedTracks += 1; writeAudioAudit(audit); } } };
+          const stream = { track, getTracks: () => [track], getAudioTracks: () => [track] };
+          localSpeech.streams.push(stream);
+          return stream;
+        },
+      } });
+      class FixtureMediaRecorder extends EventTarget {
+        constructor(stream) { super(); this.stream = stream; this.state = 'inactive'; this.mimeType = 'audio/webm'; localSpeech.recorders.push(this); }
+        start() { this.state = 'recording'; if (params.has('mic-error')) setTimeout(() => { this.state = 'inactive'; this.dispatchEvent(new Event('error')); }, 25); }
+        stop() {
+          if (this.state === 'inactive') return;
+          this.state = 'inactive';
+          const data = new Event('dataavailable');
+          Object.defineProperty(data, 'data', { value: new Blob(['fixture audio'], { type: this.mimeType }) });
+          this.dispatchEvent(data);
+          this.dispatchEvent(new Event('stop'));
+        }
+      }
+      Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: noMic ? undefined : FixtureMediaRecorder });
+      const createObjectUrl = URL.createObjectURL.bind(URL);
+      const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
+      URL.createObjectURL = blob => { const url = createObjectUrl(blob); localSpeech.createdUrls.push(url); return url; };
+      URL.revokeObjectURL = url => { localSpeech.revokedUrls.push(url); const audit = readAudioAudit(); audit.revokedUrls.push(url); writeAudioAudit(audit); revokeObjectUrl(url); };
+      HTMLMediaElement.prototype.play = function () { localSpeech.playedUrls.push(this.currentSrc || this.src); return Promise.resolve(); };
+      if (params.has('fast-mic-limit')) {
+        const nativeSetTimeout = window.setTimeout.bind(window);
+        window.setTimeout = (callback, timeout, ...args) => nativeSetTimeout(callback, timeout === 30000 ? 2000 : timeout, ...args);
+      }
       const persistFixture = () => sessionStorage.setItem(fixtureKey, JSON.stringify({ index: window.microFixture.index, revealed: window.microFixture.revealed, interpretation: window.microFixture.interpretation, errors: window.microFixture.errors, reviewDone: window.microFixture.reviewDone }));
       const noSpeech = params.has('no-speech');
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: noSpeech ? undefined : class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
@@ -156,11 +199,117 @@ test(
     `,
       });
       await send('Page.navigate', {
-        url: new URL('/dashboard/micro-stories?fail-reveal=1&fail-review=1', baseUrl).href,
+        url: new URL(
+          '/dashboard/micro-stories?fail-reveal=1&fail-review=1&fast-mic-limit=1',
+          baseUrl,
+        ).href,
       });
       await until('document.querySelector("textarea")');
       const requestsOnInitialLoad = await evaluate('window.microFixture.requests.length');
       await until('document.querySelector(`button[aria-label="按正常速度播放微故事原文"]`)');
+      assert.equal(await evaluate('window.localSpeechFixture.permissionRequests.length'), 0);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await delay(100);
+      const desktopPracticeBounds = await evaluate(
+        'JSON.stringify((() => { const r = document.querySelector("[data-local-speaking-practice]").getBoundingClientRect(); const a = document.querySelector("[data-local-speaking-practice] audio"); const ar = a?.getBoundingClientRect(); return { left: r.left, right: r.right, audioRight: ar?.right ?? null, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+      );
+      const desktopBounds = JSON.parse(desktopPracticeBounds);
+      assert.ok(desktopBounds.left >= 0 && desktopBounds.right <= desktopBounds.viewport);
+      assert.ok(desktopBounds.scrollWidth <= desktopBounds.viewport);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const mobileBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const r = document.querySelector("[data-local-speaking-practice]").getBoundingClientRect(); const a = document.querySelector("[data-local-speaking-practice] audio"); const ar = a?.getBoundingClientRect(); return { left: r.left, right: r.right, audioRight: ar?.right ?? null, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(mobileBounds.left >= 0 && mobileBounds.right <= mobileBounds.viewport);
+      assert.ok(mobileBounds.scrollWidth <= mobileBounds.viewport);
+      await send('Emulation.clearDeviceMetricsOverride');
+      const storageBeforeLocalSpeech = await evaluate(
+        'JSON.stringify(Object.keys(localStorage).sort().map(key => [key, localStorage.getItem(key)]))',
+      );
+      const apiRequestsBeforeLocalSpeech = await evaluate('window.microFixture.requests.length');
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("正在录音")',
+      );
+      assert.deepEqual(await evaluate('window.localSpeechFixture.permissionRequests'), [
+        { audio: true },
+      ]);
+      await evaluate('document.querySelector("[data-local-speech-action=cancel]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("已取消录音")',
+      );
+      assert.equal(await evaluate('window.localSpeechFixture.streams[0].track.stopped'), true);
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("正在录音")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=stop]").click()');
+      await until('document.querySelector("[data-local-speaking-practice] audio[src]")');
+      assert.equal(await evaluate('window.localSpeechFixture.streams[1].track.stopped'), true);
+      const firstLocalRecordingUrl = await evaluate(
+        'document.querySelector("[data-local-speaking-practice] audio").src',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const mobilePlayerBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const r = document.querySelector("[data-local-speaking-practice] audio").getBoundingClientRect(); return { left: r.left, right: r.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(
+        mobilePlayerBounds.left >= 0 && mobilePlayerBounds.right <= mobilePlayerBounds.viewport,
+      );
+      assert.ok(mobilePlayerBounds.scrollWidth <= mobilePlayerBounds.viewport);
+      await send('Emulation.clearDeviceMetricsOverride');
+      await evaluate('document.querySelector("[data-local-speaking-practice] audio").play()');
+      assert.deepEqual(await evaluate('window.localSpeechFixture.playedUrls'), [
+        firstLocalRecordingUrl,
+      ]);
+      await evaluate('document.querySelector("[data-local-speech-action=delete]").click()');
+      await until('document.querySelector("[data-local-speaking-practice] audio") === null');
+      assert.equal(
+        await evaluate(
+          `window.localSpeechFixture.revokedUrls.includes(${JSON.stringify(firstLocalRecordingUrl)})`,
+        ),
+        true,
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("正在录音")',
+      );
+      await until(
+        'document.querySelector("[data-local-speaking-practice] audio[src]") && document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("30 秒上限")',
+      );
+      assert.equal(await evaluate('window.localSpeechFixture.streams[2].track.stopped'), true);
+      await evaluate('document.querySelector("[data-local-speech-action=delete]").click()');
+      assert.equal(
+        await evaluate('window.microFixture.requests.length'),
+        apiRequestsBeforeLocalSpeech,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.stringify(Object.keys(localStorage).sort().map(key => [key, localStorage.getItem(key)]))',
+        ),
+        storageBeforeLocalSpeech,
+      );
       const requestsBeforeEmptySubmit = await evaluate('window.microFixture.requests.length');
       assert.equal(
         await evaluate(
@@ -378,10 +527,33 @@ test(
         `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
       );
       const cancelCountBeforeNext = await evaluate('window.microFixture.speechCancelCount');
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("正在录音")',
+      );
+      const streamBeforeStoryChange = await evaluate(
+        'window.localSpeechFixture.streams.length - 1',
+      );
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('读下一段')).click()`,
       );
       await until('document.body.textContent.includes("第 2 小段")');
+      assert.equal(
+        await evaluate(
+          `window.localSpeechFixture.streams[${streamBeforeStoryChange}].track.stopped`,
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-local-speaking-practice] audio")'),
+        null,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("录音只暂存在当前页面")',
+        ),
+        true,
+      );
       assert.equal(
         await evaluate('window.microFixture.speechCancelCount > ' + cancelCountBeforeNext),
         true,
@@ -586,6 +758,84 @@ test(
       );
       assert.equal(await evaluate('document.querySelector("#completed-attempt")'), null);
       assert.equal(await evaluate('document.body.textContent.includes("miss the bus 是")'), true);
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?mic-denied=1&user=denied', baseUrl).href,
+      });
+      await until('document.querySelector("[data-local-speaking-practice] [role=status]")');
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=alert]")?.textContent.includes("没有获得麦克风权限")',
+      );
+      assert.equal(await evaluate('window.localSpeechFixture.permissionRequests.length'), 1);
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?no-mic=1&user=unsupported', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("不支持本地录音")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-local-speech-action=start]")'),
+        null,
+      );
+      assert.equal(await evaluate('window.localSpeechFixture.permissionRequests.length'), 0);
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?slow-mic=1&user=slow', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=start]")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=cancel]")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=cancel]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=status]")?.textContent.includes("已取消录音")',
+      );
+      await delay(650);
+      assert.equal(await evaluate('window.localSpeechFixture.streams[0].track.stopped'), true);
+      assert.equal(await evaluate('window.localSpeechFixture.recorders.length'), 0);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?mic-error=1&user=error', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=start]")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [role=alert]")?.textContent.includes("录音失败了")',
+      );
+      assert.equal(await evaluate('window.localSpeechFixture.streams[0].track.stopped'), true);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=recording-owner', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=start]")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=stop]")',
+      );
+      await evaluate('document.querySelector("[data-local-speech-action=stop]").click()');
+      await until('document.querySelector("[data-local-speaking-practice] audio[src]")');
+      const recordingRevokedOnAccountChange = await evaluate(
+        'document.querySelector("[data-local-speaking-practice] audio").src',
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=other-account', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("[data-local-speaking-practice] [data-local-speech-action=start]")',
+      );
+      assert.equal(
+        await evaluate(
+          `JSON.parse(sessionStorage.getItem('lexloop.test.local-audio-audit')).revokedUrls.includes(${JSON.stringify(recordingRevokedOnAccountChange)})`,
+        ),
+        true,
+        await evaluate("sessionStorage.getItem('lexloop.test.local-audio-audit')"),
+      );
     } finally {
       socket?.close();
       browser.kill('SIGTERM');

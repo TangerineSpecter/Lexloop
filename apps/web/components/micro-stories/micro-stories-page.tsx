@@ -12,6 +12,7 @@ import {
 } from '../../lib/micro-story-drafts';
 import styles from './micro-stories.module.css';
 import { EnglishAudioControls } from '../english-audio-controls';
+import { LocalSpeakingPractice } from './local-speaking-practice';
 
 type Lesson = {
   key: string;
@@ -404,6 +405,10 @@ export function MicroStoriesPage({ session }: { session: Session }) {
               </p>
             )}
             <EnglishAudioControls key={lesson.key} text={lesson.english} context="微故事原文" />
+            <LocalSpeakingPractice
+              key={`${session.user.id}:${lesson.key}`}
+              storyKey={`${session.user.id}-${lesson.key}`}
+            />
             {!lesson.reference ? (
               <>
                 <label className={styles.label} htmlFor="story-meaning">

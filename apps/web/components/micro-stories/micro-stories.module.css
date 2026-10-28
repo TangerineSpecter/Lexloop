@@ -92,6 +92,49 @@
   background: #eaf2ff;
   font-weight: 700;
 }
+.speakingPractice {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 20px;
+  padding: 13px;
+  border: 2px dashed var(--border-color);
+  border-radius: 9px;
+  background: #eef4ff;
+}
+.speakingHeading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.speakingHeading p,
+.speakingStatus {
+  margin: 4px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.speakingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.speakingActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+}
+.speakingAudio {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.speakingStatus {
+  min-height: 1.4em;
+  color: #53638d;
+}
+.speakingStatus[role='alert'] {
+  color: #8a281c;
+}
 .label {
   display: block;
   font-weight: 700;

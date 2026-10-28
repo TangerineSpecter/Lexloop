@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.25',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '微故事可录下自己的英语表达',
+        entry: '微故事 → 可选口语跟读',
+        usage: '主动允许麦克风后可录制最多 30 秒并回放；录音留在当前页面，不上传、不转写、不评分。',
+      },
+    ],
+  },
+  {
     version: '1.27.24',
     date: '2026-10-28',
     items: [
