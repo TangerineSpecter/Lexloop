@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.41',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '个人生词本支持批量导入',
+        entry: '个人生词本 → 批量导入自己的词表',
+        usage:
+          '从电子表格粘贴英文表达、中文释义和可选例句；先预览，再一次导入最多 40 行。重复词会跳过，原有释义与复习进度保留。',
+      },
+    ],
+  },
+  {
     version: '1.27.40',
     date: '2026-10-28',
     items: [

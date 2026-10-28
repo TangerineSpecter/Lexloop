@@ -179,6 +179,10 @@ test(
         source: `
       if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
       window.collectionRequests = [];
+      window.importRequests = [];
+      window.importResolvers = [];
+      window.failImportOnce = false;
+      window.deferImportOnce = false;
       window.apiRequests = [];
       const notebookPages = ${JSON.stringify(notebookPages)};
       const nativeFetch = window.fetch;
@@ -195,7 +199,20 @@ test(
           return Response.json({ items: filtered, page: 1, pageSize: 20, total: filtered.length, hasMore: false });
         }
         if (path.includes('/api/v1/vocabulary/personal/items')) {
-          window.collectionRequests.push(JSON.parse(options.body));
+          const body = JSON.parse(options.body);
+          if (path.endsWith('/import')) {
+            window.importRequests.push(body);
+            if (window.failImportOnce) {
+              window.failImportOnce = false;
+              return Response.json({ message: '服务暂时不可用' }, { status: 503 });
+            }
+            if (window.deferImportOnce) {
+              window.deferImportOnce = false;
+              return await new Promise(resolve => window.importResolvers.push(() => resolve(Response.json({ imported: 2, restored: 0, duplicates: 1 }))));
+            }
+            return Response.json({ imported: 2, restored: 0, duplicates: 1 });
+          }
+          window.collectionRequests.push(body);
           return Response.json({ id: 'captured' });
         }
         if (path.includes('/api/v1/')) throw new Error('Unexpected API request in browser fixture');
@@ -256,6 +273,138 @@ test(
       assert.equal(desktopLayout.cards, 20);
       assert.ok(desktopLayout.page <= desktopLayout.viewport);
       assert.ok(desktopLayout.firstLeft >= 0 && desktopLayout.lastRight <= desktopLayout.viewport);
+
+      const importDetails = 'document.querySelector("[data-personal-vocabulary-import]")';
+      await evaluate(`${importDetails}.querySelector('summary').click()`);
+      const importInput = `${importDetails}.querySelector('[data-import-vocabulary-input]')`;
+      const importSubmit = `${importDetails}.querySelector('[data-import-vocabulary-submit]')`;
+      await evaluate(`(() => {
+        const input = ${importInput};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t重复释义');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until(
+        `${importDetails}.querySelector('[data-import-vocabulary-preview]')?.innerText.includes('识别 2 个不同词条')`,
+      );
+      assert.equal(await evaluate(`${importSubmit}.disabled`), false);
+      assert.equal(await evaluate(`${importDetails}.innerText.includes('表内重复 1 项')`), true);
+      await evaluate(`(() => {
+        const input = ${importInput};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'malformed row');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until(`${importSubmit}.disabled`);
+      assert.equal(await evaluate(`${importDetails}.innerText.includes('每行格式应为')`), true);
+      await evaluate(`(() => {
+        const input = ${importInput};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t重复释义');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.failImportOnce = true;
+      })()`);
+      await until(`!${importSubmit}.disabled`);
+      const importButtonBounds = await evaluate(
+        `(() => { const box = ${importSubmit}.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`,
+      );
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: importButtonBounds.x,
+        y: importButtonBounds.y,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: importButtonBounds.x,
+        y: importButtonBounds.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: importButtonBounds.x,
+        y: importButtonBounds.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await until(
+        'window.importRequests.length === 1 && document.querySelector("[data-personal-vocabulary-import] [role=status]")?.textContent.includes("服务暂时不可用")',
+      );
+      assert.equal(await evaluate(`${importInput}.value.includes('The river is wide.')`), true);
+      assert.equal(await evaluate(`${importSubmit}.disabled`), false);
+      assert.deepEqual(await evaluate('window.importRequests[0]'), {
+        items: [
+          { text: 'river', meaning: '河流', example: 'The river is wide.' },
+          { text: 'notice', meaning: '注意到' },
+        ],
+      });
+      await evaluate(`${importSubmit}.focus()`);
+      await evaluate('window.deferImportOnce = true');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until(
+        'window.importRequests.length === 2 && document.querySelector("[data-import-vocabulary-submit]").disabled',
+      );
+      assert.equal(await evaluate(`${importInput}.disabled`), true);
+      await evaluate(`${importSubmit}.click()`);
+      assert.equal(await evaluate('window.importRequests.length'), 2);
+      await evaluate('window.importResolvers.shift()()');
+      await until(
+        'window.importRequests.length === 2 && document.querySelector("[data-personal-vocabulary-import] [role=status]")?.textContent.includes("已加入 2 个新词")',
+      );
+      assert.equal(
+        await evaluate(
+          `${importDetails}.querySelector('[role=status]').textContent.includes('表内重复 1 项、已有词条 1 项已跳过')`,
+        ),
+        true,
+      );
+      assert.equal(await evaluate(`${importInput}.value`), '');
+      assert.equal(
+        await evaluate(
+          'window.apiRequests.some(path => path.includes("/vocabulary/personal/items/import"))',
+        ),
+        true,
+      );
+
+      const largePaste = Array.from(
+        { length: 40 },
+        (_, index) => `bounded${index}\t释义${index}`,
+      ).join('\n');
+      const previewFrameMs = await evaluate(`(async () => {
+        const input = ${importInput};
+        const started = performance.now();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(largePaste)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - started))));
+      })()`);
+      assert.ok(
+        previewFrameMs < 500,
+        `40-row import preview exceeded the 500 ms frame budget: ${previewFrameMs.toFixed(1)} ms`,
+      );
+      await until(
+        `${importDetails}.querySelector('[data-import-vocabulary-preview]')?.innerText.includes('识别 40 个不同词条')`,
+      );
+      const desktopImportLayout = await evaluate(`(() => {
+        const detail = ${importDetails};
+        const input = ${importInput}.getBoundingClientRect();
+        const button = ${importSubmit}.getBoundingClientRect();
+        return { page: document.documentElement.scrollWidth, viewport: innerWidth, inputRight: input.right, buttonRight: button.right, inputVisible: input.width > 0 && input.height > 0 };
+      })()`);
+      assert.equal(desktopImportLayout.viewport, 1440);
+      assert.equal(desktopImportLayout.inputVisible, true);
+      assert.ok(desktopImportLayout.page <= desktopImportLayout.viewport);
+      assert.ok(desktopImportLayout.inputRight <= desktopImportLayout.viewport);
+      assert.ok(desktopImportLayout.buttonRight <= desktopImportLayout.viewport);
+      console.log(`notebook import preview: 40 rows rendered in ${previewFrameMs.toFixed(1)} ms`);
 
       const requestsBeforeRecall = await evaluate('window.apiRequests.length');
       const firstCard = 'document.querySelector("article[data-notebook-word]")';
@@ -331,13 +480,18 @@ test(
         const card = button?.closest('article');
         const cardBox = card?.getBoundingClientRect();
         const buttonBox = button?.getBoundingClientRect();
-        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardRight: cardBox?.right, buttonLeft: buttonBox?.left, buttonRight: buttonBox?.right, visible: Boolean(buttonBox && buttonBox.width > 0 && buttonBox.height > 0) };
+        const importInput = document.querySelector('[data-import-vocabulary-input]')?.getBoundingClientRect();
+        const importButton = document.querySelector('[data-import-vocabulary-submit]')?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardRight: cardBox?.right, buttonLeft: buttonBox?.left, buttonRight: buttonBox?.right, visible: Boolean(buttonBox && buttonBox.width > 0 && buttonBox.height > 0), importInputRight: importInput?.right, importButtonRight: importButton?.right, importVisible: Boolean(importInput && importInput.width > 0 && importInput.height > 0) };
       })()`);
       assert.equal(mobileLayout.viewport, 390);
       assert.equal(mobileLayout.visible, true);
       assert.ok(mobileLayout.page <= mobileLayout.viewport);
       assert.ok(mobileLayout.cardRight <= mobileLayout.viewport);
       assert.ok(mobileLayout.buttonLeft >= 0 && mobileLayout.buttonRight <= mobileLayout.viewport);
+      assert.equal(mobileLayout.importVisible, true);
+      assert.ok(mobileLayout.importInputRight <= mobileLayout.viewport);
+      assert.ok(mobileLayout.importButtonRight <= mobileLayout.viewport);
 
       await evaluate(`(() => {
         const form = document.querySelector('[data-notebook-filters]');
@@ -387,6 +541,10 @@ test(
           'document.querySelector("[data-notebook-recall-mode]").getAttribute("aria-pressed")',
         ),
         'false',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-import-vocabulary-input]").value'),
+        '',
       );
       assert.equal(await evaluate('document.body.innerText.includes("认为……理所当然")'), false);
     } finally {

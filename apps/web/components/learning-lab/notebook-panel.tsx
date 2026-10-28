@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { NotebookPage, NotebookSource, NotebookWord } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
 import { CollectWordForm } from './collect-word-form';
+import { PersonalVocabularyImport } from './personal-vocabulary-import';
 import styles from './lab.module.css';
 
 const sources: Array<[NotebookSource, string]> = [
@@ -139,6 +140,7 @@ export function NotebookPanel({
         </p>
       )}
       <CollectWordForm session={session} sourceType="MANUAL" source="手动收藏" onSaved={refresh} />
+      <PersonalVocabularyImport key={session.user.id} session={session} onImported={refresh} />
       <form
         className={styles.filters}
         data-notebook-filters

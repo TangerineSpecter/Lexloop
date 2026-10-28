@@ -234,6 +234,23 @@
   margin: 16px 0;
   overflow-wrap: anywhere;
 }
+.importPreview {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  overflow-wrap: anywhere;
+}
+.importPreview p,
+.importPreview ul {
+  margin: 0;
+}
+.importPreview ul {
+  padding-left: 20px;
+  color: #922f24;
+}
 .empty {
   border: 2px dashed var(--border-color);
   border-radius: 12px;

@@ -140,6 +140,162 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
     }
   }, 30_000);
 
+  it('imports personal vocabulary atomically, idempotently, and only within each account', async () => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+    });
+    const user = await prisma.user.create({
+      data: { email: `import-${randomUUID()}@example.invalid`, passwordHash: 'fixture' },
+    });
+    const otherUser = await prisma.user.create({
+      data: { email: `import-${randomUUID()}@example.invalid`, passwordHash: 'fixture' },
+    });
+    const service = new VocabularyService(prisma as never);
+    const suffix = randomUUID().replaceAll('-', '');
+    const triggerName = `lexloop_import_fail_${suffix}`;
+    const functionName = `lexloop_import_fail_fn_${suffix}`;
+    let functionCreated = false;
+    let triggerCreated = false;
+    try {
+      const first = await service.importPersonalItems(user.id, [
+        { text: 'Look forward to', meaning: '期待', example: 'I look forward to Sunday.' },
+        { text: 'notice', meaning: '注意到' },
+        { text: 'look   forward   to', meaning: '不得覆盖的重复释义', example: 'Wrong example.' },
+      ]);
+      expect(first).toEqual({ imported: 2, restored: 0, duplicates: 1 });
+      const firstPage = await service.notebook(user.id, 1, 'look forward to');
+      const phrase = firstPage.items[0];
+      expect(phrase).toMatchObject({
+        text: 'Look forward to',
+        meaning: '期待',
+        example: 'I look forward to Sunday.',
+        sourceType: 'MANUAL',
+        state: 'REVIEWING',
+      });
+
+      await service.markMastered(user.id, phrase.id);
+      expect(
+        await service.importPersonalItems(user.id, [
+          { text: 'LOOK FORWARD TO', meaning: '不能覆盖原词义', example: 'Replacement.' },
+        ]),
+      ).toEqual({ imported: 0, restored: 0, duplicates: 1 });
+      await service.removePersonalItem(user.id, phrase.id);
+      expect(
+        await service.importPersonalItems(user.id, [
+          { text: 'look forward to', meaning: '重导入释义' },
+        ]),
+      ).toEqual({ imported: 0, restored: 1, duplicates: 0 });
+      expect((await service.notebook(user.id, 1, 'look forward to')).items[0]).toMatchObject({
+        meaning: '期待',
+        example: 'I look forward to Sunday.',
+        state: 'MASTERED',
+      });
+
+      const otherImport = await service.importPersonalItems(otherUser.id, [
+        { text: 'look forward to', meaning: '另一个账号的释义' },
+      ]);
+      expect(otherImport.imported).toBe(1);
+      const otherPhrase = (await service.notebook(otherUser.id, 1, 'look forward to')).items[0];
+      expect(otherPhrase.id).not.toBe(phrase.id);
+      expect(otherPhrase.meaning).toBe('另一个账号的释义');
+      expect((await service.notebook(user.id, 1, 'look forward to')).items[0].meaning).toBe('期待');
+      await expect(service.removePersonalItem(otherUser.id, phrase.id)).rejects.toThrow();
+
+      await expect(
+        service.importPersonalItems(user.id, [
+          { text: 'valid before invalid', meaning: 'temporary' },
+          { text: 'bad row', meaning: ' '.repeat(501) },
+        ]),
+      ).rejects.toThrow();
+      expect((await service.notebook(user.id, 1, 'valid before invalid')).total).toBe(0);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE FUNCTION public."${functionName}"() RETURNS trigger AS $$
+        BEGIN
+          IF NEW."contextMeaning" = '__test_force_failure__' THEN
+            RAISE EXCEPTION 'intentional isolated import rollback test';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+      `);
+      functionCreated = true;
+      await prisma.$executeRawUnsafe(`
+        CREATE TRIGGER "${triggerName}" BEFORE INSERT ON "VocabularyBookWord"
+        FOR EACH ROW EXECUTE FUNCTION public."${functionName}"()
+      `);
+      triggerCreated = true;
+      await expect(
+        service.importPersonalItems(user.id, [
+          { text: 'rollback first row', meaning: 'must not remain' },
+          { text: 'rollback second row', meaning: '__test_force_failure__' },
+        ]),
+      ).rejects.toThrow(/intentional isolated import rollback test/);
+      expect((await service.notebook(user.id, 1, 'rollback first row')).total).toBe(0);
+      expect(
+        await prisma.vocabularyWord.count({
+          where: { normalized: `personal:${user.id}:rollback first row` },
+        }),
+      ).toBe(0);
+    } finally {
+      if (triggerCreated) {
+        await prisma.$executeRawUnsafe(
+          `DROP TRIGGER IF EXISTS "${triggerName}" ON "VocabularyBookWord"`,
+        );
+      }
+      if (functionCreated) {
+        await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public."${functionName}"()`);
+      }
+      const words = await prisma.vocabularyBookWord.findMany({
+        where: { book: { ownerId: { in: [user.id, otherUser.id] } } },
+        select: { wordId: true },
+      });
+      await prisma.user.deleteMany({ where: { id: { in: [user.id, otherUser.id] } } });
+      await prisma.vocabularyWord.deleteMany({
+        where: { id: { in: words.map((row) => row.wordId) }, bookWords: { none: {} } },
+      });
+      await prisma.$disconnect();
+    }
+  }, 30_000);
+
+  it('serializes concurrent same-user batch imports and bounds a forty-row request', async () => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+    });
+    const user = await prisma.user.create({
+      data: { email: `import-batch-${randomUUID()}@example.invalid`, passwordHash: 'fixture' },
+    });
+    const service = new VocabularyService(prisma as never);
+    try {
+      const batch = Array.from({ length: 40 }, (_, index) => ({
+        text: `bounded import word ${index + 1}`,
+        meaning: `释义 ${index + 1}`,
+      }));
+      const startedAt = performance.now();
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, () => service.importPersonalItems(user.id, batch)),
+      );
+      const elapsedMs = performance.now() - startedAt;
+      expect(responses.reduce((sum, result) => sum + result.imported, 0)).toBe(40);
+      expect(responses.reduce((sum, result) => sum + result.duplicates, 0)).toBe(120);
+      expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(40);
+      expect(elapsedMs).toBeLessThan(10_000);
+      console.log(
+        `isolated PostgreSQL: 4 concurrent imports of 40 rows settled in ${elapsedMs.toFixed(1)} ms`,
+      );
+    } finally {
+      const words = await prisma.vocabularyBookWord.findMany({
+        where: { book: { ownerId: user.id } },
+        select: { wordId: true },
+      });
+      await prisma.user.delete({ where: { id: user.id } });
+      await prisma.vocabularyWord.deleteMany({
+        where: { id: { in: words.map((row) => row.wordId) }, bookWords: { none: {} } },
+      });
+      await prisma.$disconnect();
+    }
+  }, 30_000);
+
   it('creates one lesson on request replay, grades once, persists weak evidence, and rejects cross-user or stale worker writes', async () => {
     const prisma = new PrismaClient({
       datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

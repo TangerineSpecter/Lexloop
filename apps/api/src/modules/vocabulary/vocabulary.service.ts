@@ -318,6 +318,139 @@ export class VocabularyService {
     });
   }
 
+  async importPersonalItems(
+    userId: string,
+    input: Array<{ text: string; meaning: string; example?: string }>,
+  ) {
+    if (!Array.isArray(input) || input.length < 1 || input.length > 40)
+      throw new BadRequestException('一次导入 1–40 行词条');
+
+    const prepared = input.map((row) => {
+      const text = row.text.trim().replace(/\s+/g, ' ');
+      const meaning = row.meaning.trim();
+      const example = row.example?.trim() ?? '';
+      if (!text || text.length > 120 || !meaning || meaning.length > 500 || example.length > 800)
+        throw new BadRequestException(
+          '每行需包含不超过 120 字符的英文表达和不超过 500 字符的中文释义',
+        );
+      return {
+        text,
+        meaning,
+        example,
+        normalized: `personal:${userId}:${text.toLowerCase().replace(/\s+/g, ' ')}`,
+        type: /\s/.test(text) ? LexicalItemType.PHRASE : LexicalItemType.WORD,
+      };
+    });
+
+    const unique: typeof prepared = [];
+    const seen = new Set<string>();
+    let duplicates = 0;
+    for (const row of prepared) {
+      if (seen.has(row.normalized)) {
+        duplicates++;
+        continue;
+      }
+      seen.add(row.normalized);
+      unique.push(row);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize imports with one another and with the existing single-word save path.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`notebook:${userId}`}))`,
+      );
+      const book = await tx.vocabularyBook.upsert({
+        where: { sourceKey: `personal:${userId}:travel` },
+        create: {
+          sourceKey: `personal:${userId}:travel`,
+          sourcePath: `personal://${userId}/travel`,
+          category: VocabularyCategory.GENERAL,
+          title: '个人生词本',
+          kind: VocabularyBookKind.PERSONAL,
+          ownerId: userId,
+        },
+        update: { isActive: true },
+      });
+      await tx.userVocabularyBook.upsert({
+        where: { userId_bookId: { userId, bookId: book.id } },
+        create: { userId, bookId: book.id },
+        update: {},
+      });
+
+      const existingWords = await tx.vocabularyWord.findMany({
+        where: { normalized: { in: unique.map((row) => row.normalized) } },
+        include: { bookWords: { where: { bookId: book.id } } },
+      });
+      const byNormalized = new Map(existingWords.map((word) => [word.normalized, word]));
+      const lastPosition = await tx.vocabularyBookWord.aggregate({
+        where: { bookId: book.id },
+        _max: { position: true },
+      });
+      let position = lastPosition._max.position ?? 0;
+      let imported = 0;
+      let restored = 0;
+      const now = new Date();
+
+      for (const row of unique) {
+        let word = byNormalized.get(row.normalized);
+        if (!word) {
+          word = await tx.vocabularyWord.create({
+            data: {
+              normalized: row.normalized,
+              text: row.text,
+              meaning: row.meaning,
+              itemType: row.type,
+              spokenPriority: 100,
+            },
+            include: { bookWords: { where: { bookId: book.id } } },
+          });
+          byNormalized.set(word.normalized, word);
+        }
+
+        const existingBookWord = word.bookWords[0];
+        if (existingBookWord?.isCollected) {
+          duplicates++;
+          continue;
+        }
+        if (existingBookWord) {
+          await tx.vocabularyBookWord.update({
+            where: { id: existingBookWord.id },
+            data: { isCollected: true },
+          });
+          restored++;
+          continue;
+        }
+
+        position++;
+        const bookWord = await tx.vocabularyBookWord.create({
+          data: {
+            bookId: book.id,
+            wordId: word.id,
+            position,
+            contextMeaning: row.meaning,
+            sourceScenario: '批量导入',
+            sourceExample: row.example || null,
+            sourceType: 'MANUAL',
+          },
+        });
+        await tx.userWordProgress.upsert({
+          where: { userId_bookWordId: { userId, bookWordId: bookWord.id } },
+          create: {
+            userId,
+            bookWordId: bookWord.id,
+            state: WordProgressState.REVIEWING,
+            firstLearnedAt: now,
+            nextReviewAt: now,
+          },
+          update: {},
+        });
+        imported++;
+      }
+
+      return { imported, restored, duplicates };
+    });
+  }
+
   async listPersonalItems(userId: string) {
     const book = await this.prisma.vocabularyBook.findUnique({
       where: { sourceKey: `personal:${userId}:travel` },

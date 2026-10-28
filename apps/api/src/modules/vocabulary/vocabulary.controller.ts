@@ -14,6 +14,9 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CefrLevel, LexicalItemType } from '@prisma/client';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsEnum,
   IsIn,
   IsInt,
@@ -23,6 +26,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VocabularyService } from './vocabulary.service';
@@ -49,6 +53,21 @@ class PersonalVocabularyItemDto {
   @IsString() @MinLength(1) @MaxLength(800) example!: string;
   @IsOptional() @IsString() @MaxLength(160) sourceScenario?: string;
   @IsOptional() @IsEnum(CefrLevel) cefrLevel?: CefrLevel;
+}
+
+class PersonalVocabularyImportRowDto {
+  @IsString() @MinLength(1) @MaxLength(120) text!: string;
+  @IsString() @MinLength(1) @MaxLength(500) meaning!: string;
+  @IsOptional() @IsString() @MaxLength(800) example?: string;
+}
+
+class PersonalVocabularyImportDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(40)
+  @ValidateNested({ each: true })
+  @Type(() => PersonalVocabularyImportRowDto)
+  items!: PersonalVocabularyImportRowDto[];
 }
 
 @ApiTags('vocabulary')
@@ -84,6 +103,12 @@ export class VocabularyController {
     @Body() dto: PersonalVocabularyItemDto,
   ) {
     return this.vocabulary.savePersonalItem(request.user.sub, dto);
+  }
+  @Post('personal/items/import') importPersonal(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: PersonalVocabularyImportDto,
+  ) {
+    return this.vocabulary.importPersonalItems(request.user.sub, dto.items);
   }
   @Delete('personal') clearPersonal(@Req() request: AuthenticatedRequest) {
     return this.vocabulary.clearPersonalItems(request.user.sub);
