@@ -414,6 +414,7 @@ test(
       await evaluate('window.originalNotebookRandom = Math.random; Math.random = () => 0');
       await evaluate('document.querySelector("[data-spelling-start]").click()');
       await until('document.activeElement?.matches("[data-spelling-answer-input]")');
+      assert.equal(await evaluate('document.querySelector("[data-spelling-difference]")'), null);
       const firstSpellingDesktop = await evaluate(`(() => {
         const practice = document.querySelector('[data-notebook-spelling-practice]');
         const box = practice.getBoundingClientRect();
@@ -434,6 +435,7 @@ test(
         'document.querySelector("[data-spelling-notice]")?.textContent.includes("先写下听到的拼写")',
       );
       assert.equal(await evaluate('document.querySelector("[data-spelling-result]")'), null);
+      assert.equal(await evaluate('document.querySelector("[data-spelling-difference]")'), null);
       assert.equal(
         await evaluate('document.body.innerText.includes("take it for granted")'),
         false,
@@ -459,6 +461,7 @@ test(
         await evaluate('document.querySelector("[data-spelling-revealed]").textContent'),
         'take it for granted',
       );
+      assert.equal(await evaluate('document.querySelector("[data-spelling-difference]")'), null);
       const requestsAfterCorrectSpelling = await evaluate('window.apiRequests.length');
       assert.equal(requestsAfterCorrectSpelling, apiRequestsBeforeSpelling);
 
@@ -486,6 +489,22 @@ test(
       assert.equal(
         await evaluate('document.querySelector("[data-spelling-revealed]").textContent'),
         'in the long run',
+      );
+      assert.deepEqual(
+        await evaluate(
+          'Array.from(document.querySelectorAll("[data-spelling-issue-kind=extra] code"), node => node.textContent)',
+        ),
+        ['n'],
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-diff-kind=extra]").textContent'),
+        'n',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-spelling-result]").textContent.includes("橙色删除线标记多写")',
+        ),
+        true,
       );
 
       await evaluate('document.querySelector("[data-spelling-start]").click()');
@@ -530,6 +549,41 @@ test(
         mobileSpellingLayout.buttonLeft >= 0 &&
           mobileSpellingLayout.buttonRight <= mobileSpellingLayout.viewport,
       );
+      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await until('document.activeElement?.matches("[data-spelling-answer-input]")');
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-spelling-answer-input]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'clearly incorrect answer');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await evaluate('document.querySelector("[data-spelling-answer-input]").form.requestSubmit()');
+      await until('document.querySelector("[data-spelling-difference]")');
+      const mobileDifferenceLayout = await evaluate(`(() => {
+        const practice = document.querySelector('[data-notebook-spelling-practice]');
+        const difference = document.querySelector('[data-spelling-difference]').getBoundingClientRect();
+        return { page: document.documentElement.scrollWidth, viewport: innerWidth, left: difference.left, right: difference.right, practiceRight: practice.getBoundingClientRect().right, limited: !!document.querySelector('[data-spelling-difference-limit]') };
+      })()`);
+      assert.equal(mobileDifferenceLayout.viewport, 390);
+      assert.ok(mobileDifferenceLayout.page <= mobileDifferenceLayout.viewport);
+      assert.ok(mobileDifferenceLayout.left >= 0);
+      assert.ok(mobileDifferenceLayout.right <= mobileDifferenceLayout.viewport);
+      assert.ok(mobileDifferenceLayout.right <= mobileDifferenceLayout.practiceRight);
+      assert.equal(mobileDifferenceLayout.limited, false);
+      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await until('document.activeElement?.matches("[data-spelling-answer-input]")');
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-spelling-answer-input]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'x'.repeat(241));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await evaluate('document.querySelector("[data-spelling-answer-input]").form.requestSubmit()');
+      await until('document.querySelector("[data-spelling-difference-limit]")');
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-difference] mark")'),
+        null,
+      );
+      assert.equal(await evaluate('window.apiRequests.length'), apiRequestsBeforeSpelling);
+      assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
       await evaluate('document.querySelector("[data-spelling-end]").focus()');
       await send('Input.dispatchKeyEvent', {
         type: 'keyDown',

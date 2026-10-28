@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.43',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '听音拼写可定位具体错误',
+        entry: '个人生词本 → 听音拼写',
+        usage: '答错后查看错字、漏字或多字位置及修正说明；超长输入仍可对照标准拼写，不会卡住练习。',
+      },
+    ],
+  },
+  {
     version: '1.27.42',
     date: '2026-10-28',
     items: [

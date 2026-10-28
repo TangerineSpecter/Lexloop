@@ -3,12 +3,76 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NotebookWord } from '@lexloop/types';
 import { speakEnglish } from '../english-audio-controls';
+import {
+  compareSpelling,
+  normalizeSpelling,
+  type SpellingDiffPart,
+  type SpellingIssue,
+} from './spelling-difference';
 import styles from './lab.module.css';
 
 type AnswerState = 'correct' | 'incorrect' | 'revealed';
 
-function normalizeSpelling(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
+function SpellingDiffText({
+  parts,
+  side,
+}: {
+  parts: SpellingDiffPart[];
+  side: 'answer' | 'target';
+}) {
+  return parts.map((part, index) => {
+    if (part.kind === 'match') return part.value;
+    const label =
+      part.kind === 'extra'
+        ? `多写的字符 ${part.value}`
+        : part.kind === 'missing'
+          ? `漏写的字符 ${part.value}`
+          : side === 'answer'
+            ? `错字 ${part.value}`
+            : `错字应为 ${part.value}`;
+    const className =
+      part.kind === 'extra'
+        ? styles.spellingDiffExtra
+        : part.kind === 'missing'
+          ? styles.spellingDiffMissing
+          : styles.spellingDiffSubstitution;
+    return (
+      <mark
+        key={`${side}-${index}`}
+        className={className}
+        data-spelling-diff-kind={part.kind}
+        aria-label={label}
+      >
+        {part.value}
+      </mark>
+    );
+  });
+}
+
+function SpellingIssueText({ issue }: { issue: SpellingIssue }) {
+  if (issue.kind === 'substitution') {
+    return (
+      <>
+        <strong>错字：</strong>
+        <code>{issue.entered}</code>，<strong>应为：</strong>
+        <code>{issue.expected}</code>
+      </>
+    );
+  }
+  if (issue.kind === 'extra') {
+    return (
+      <>
+        <strong>多写：</strong>
+        <code>{issue.entered}</code>
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>漏写：</strong>
+      <code>{issue.expected}</code>
+    </>
+  );
 }
 
 export function NotebookSpellingPractice({
@@ -30,6 +94,10 @@ export function NotebookSpellingPractice({
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const current = candidates.find((item) => item.id === currentId) ?? null;
   const active = current !== null;
+  const spellingDifference = useMemo(
+    () => (answerState === 'incorrect' && current ? compareSpelling(answer, current.text) : null),
+    [answer, answerState, current],
+  );
 
   function chooseNext() {
     if (!candidates.length) return;
@@ -179,13 +247,51 @@ export function NotebookSpellingPractice({
               {answerState === 'correct'
                 ? '拼写与目标词一致。'
                 : answerState === 'incorrect'
-                  ? '拼写不一致，先对照标准写法。'
+                  ? '拼写不一致。黄色标记错字或漏字，橙色删除线标记多写。'
                   : '已显示标准写法。'}{' '}
               <strong data-spelling-revealed lang="en">
                 {current.text}
               </strong>
               <span>本练习不计成绩，也不改变复习状态。</span>
             </p>
+          )}
+          {answerState === 'incorrect' && spellingDifference && (
+            <div
+              className={styles.spellingDifference}
+              data-spelling-difference
+              role="group"
+              aria-label="拼写差异"
+            >
+              {spellingDifference.alignable ? (
+                <>
+                  <p className={styles.spellingDifferenceRow}>
+                    <strong>你的拼写（忽略大小写和多余空格）</strong>
+                    <code>
+                      <SpellingDiffText parts={spellingDifference.answerParts} side="answer" />
+                    </code>
+                  </p>
+                  <p className={styles.spellingDifferenceRow}>
+                    <strong>标准拼写</strong>
+                    <code>
+                      <SpellingDiffText parts={spellingDifference.targetParts} side="target" />
+                    </code>
+                  </p>
+                  {spellingDifference.issues.length > 0 && (
+                    <ul className={styles.spellingIssueList}>
+                      {spellingDifference.issues.map((issue, index) => (
+                        <li key={`${issue.kind}-${index}`} data-spelling-issue-kind={issue.kind}>
+                          <SpellingIssueText issue={issue} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className={styles.meta} data-spelling-difference-limit role="status">
+                  输入较长，暂不逐字符标注；上方已显示标准写法，也可以重播发音。
+                </p>
+              )}
+            </div>
           )}
           {notice && (
             <p className={styles.meta} data-spelling-notice role="status">

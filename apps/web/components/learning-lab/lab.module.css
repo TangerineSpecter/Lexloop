@@ -356,6 +356,54 @@
   color: #465f96;
   font-size: 13px;
 }
+.spellingDifference {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #08287755;
+  border-radius: 8px;
+  background: #fffefa;
+  overflow-wrap: anywhere;
+}
+.spellingDifferenceRow {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.spellingDifferenceRow code,
+.spellingIssueList code {
+  color: #082877;
+  font: 700 17px/1.5 var(--font-mono, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.spellingDifference mark {
+  padding: 0 1px;
+  color: #082877;
+}
+.spellingDiffSubstitution,
+.spellingDiffMissing {
+  border-bottom: 2px solid #082877;
+  background: #ffdf4d;
+}
+.spellingDiffExtra {
+  background: #ff8351;
+  text-decoration: line-through 2px #082877;
+}
+.spellingIssueList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+.spellingIssueList li {
+  padding-left: 2px;
+}
 .form {
   display: grid;
   gap: 14px;
@@ -506,6 +554,10 @@
   .spellingHeading > button {
     max-width: 100%;
     white-space: normal;
+  }
+  .spellingDifferenceRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
   }
   .head {
     grid-template-columns: minmax(0, 1fr);
