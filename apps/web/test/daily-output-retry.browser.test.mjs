@@ -91,9 +91,8 @@ test(
         return result.result.value;
       };
       const clickAt = async (elementExpression) => {
-        let point;
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          point = await evaluate(`(() => {
+        const inspectPoint = () =>
+          evaluate(`(() => {
             const element = ${elementExpression};
             if (!element) throw new Error('Missing click target');
             element.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -109,21 +108,32 @@ test(
               hitElement: hit?.tagName + (hit?.className ? '.' + hit.className : ''),
             };
           })()`);
+        const assertClickable = (point) => {
+          assert.equal(point.visible, true, `Expected visible click target: ${elementExpression}`);
+          assert.equal(
+            point.hit,
+            true,
+            `Expected unobstructed click target: ${elementExpression}; ${JSON.stringify(point)}`,
+          );
+        };
+        let point;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          point = await inspectPoint();
           if (point.visible && point.hit) break;
           await delay(50);
         }
-        assert.equal(point.visible, true, `Expected visible click target: ${elementExpression}`);
-        assert.equal(
-          point.hit,
-          true,
-          `Expected unobstructed click target: ${elementExpression}; ${JSON.stringify(point)}`,
-        );
+        assertClickable(point);
         await send('Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: point.x,
           y: point.y,
           button: 'none',
         });
+        // Hover styles may transform the target. Re-read its hit area after the
+        // CSS transition so the physical click follows the visible control.
+        await delay(250);
+        point = await inspectPoint();
+        assertClickable(point);
         await send('Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: point.x,
