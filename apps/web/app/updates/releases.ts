@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.14',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '对话中可选查看逐轮语言反馈',
+        entry: '场景口语 → 场景对话',
+        usage: '每轮回复后可展开语法、搭配、自然度和礼貌表达提示；也可跳过，结算复盘仍会保留。',
+      },
+    ],
+  },
+  {
     version: '1.27.13',
     date: '2026-10-28',
     items: [

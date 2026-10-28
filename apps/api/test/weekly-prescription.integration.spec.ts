@@ -8,7 +8,7 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
   () => {
     afterEach(() => vi.useRealTimers());
 
-    it('excludes the eighth local date when the seven-day range crosses spring DST', async () => {
+    it('groups activity by local date and excludes the eighth local date across spring DST', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.PRACTICE_TEST_DATABASE_URL! } },
       });
@@ -35,6 +35,12 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
               isCorrect: true,
               createdAt: new Date('2026-03-03T05:00:00.000Z'),
             },
+            {
+              userId: user.id,
+              bookWordId: `inside-late-${fixtureId}`,
+              isCorrect: true,
+              createdAt: new Date('2026-03-04T04:30:00.000Z'),
+            },
           ],
         });
 
@@ -47,8 +53,9 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)(
 
         expect(prescription.evidenceStart).toBe('2026-03-03');
         expect(prescription.evidenceEnd).toBe('2026-03-09');
-        expect(prescription.summary.attempts).toBe(1);
+        expect(prescription.summary.attempts).toBe(2);
         expect(prescription.summary.accuracy).toBe(100);
+        expect(prescription.summary.activeDays).toBe(1);
       } finally {
         vi.useRealTimers();
         await prisma.user.delete({ where: { id: user.id } });
