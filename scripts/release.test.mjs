@@ -58,6 +58,7 @@ async function makeFixture(t) {
 test('release commit and annotated tag retain the summary and tested details', async (t) => {
   const { bodyFile, remote, repo } = await makeFixture(t);
   await writeFile(join(repo, 'feature.txt'), 'validated change\n');
+  run('git', ['add', '--', 'feature.txt'], repo);
   const result = spawnSync(
     process.execPath,
     [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录', '--body-file', bodyFile],
@@ -81,23 +82,101 @@ test('release commit and annotated tag retain the summary and tested details', a
   assert.equal(tagType, 'tag');
   assert.ok(tagContents.includes('Release v1.2.3 — 按本地日历统计每周学习记录'));
   assert.equal(peeled, head);
+  assert.deepEqual(
+    run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)'], repo)
+      .split('\n')
+      .filter(Boolean)
+      .sort(),
+    ['refs/heads/master', 'refs/tags/v1.2.3'],
+  );
   assert.equal(JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version, '1.2.3');
   assert.equal(run('git', ['status', '--porcelain'], repo), '');
 });
 
 test('release refuses a version-only commit before changing files or refs', async (t) => {
-  const { remote, repo } = await makeFixture(t);
+  const { bodyFile, remote, repo } = await makeFixture(t);
   const before = run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo);
   const result = spawnSync(
     process.execPath,
-    [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录'],
+    [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录', '--body-file', bodyFile],
     { cwd: repo, encoding: 'utf8' },
   );
 
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /必须通过 --body-file 提供发布说明文件/);
+  assert.match(result.stderr, /暂存区没有实际改动，拒绝只提交版本号/);
   assert.equal(JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version, '1.2.2');
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo), before);
   assert.equal(run('git', ['tag', '--list', 'v1.2.3'], repo), '');
   assert.equal(run('git', ['status', '--porcelain'], repo), '');
+});
+
+test('release refuses edits made after staging before changing files or refs', async (t) => {
+  const { bodyFile, remote, repo } = await makeFixture(t);
+  await writeFile(join(repo, 'feature.txt'), 'validated change\n');
+  run('git', ['add', '--', 'feature.txt'], repo);
+  await writeFile(join(repo, 'feature.txt'), 'validated change plus an unstaged edit\n');
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo);
+  const result = spawnSync(
+    process.execPath,
+    [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录', '--body-file', bodyFile],
+    { cwd: repo, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /未暂存或未跟踪文件/);
+  assert.equal(JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version, '1.2.2');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo), before);
+  assert.equal(run('git', ['tag', '--list', 'v1.2.3'], repo), '');
+  assert.equal(run('git', ['status', '--porcelain'], repo), 'AM feature.txt');
+});
+
+test('release refuses untracked files without adding them to the remote commit', async (t) => {
+  const { bodyFile, remote, repo } = await makeFixture(t);
+  await writeFile(join(repo, 'feature.txt'), 'validated change\n');
+  await writeFile(join(repo, 'private-notes.txt'), 'keep outside the release\n');
+  run('git', ['add', '--', 'feature.txt'], repo);
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo);
+  const result = spawnSync(
+    process.execPath,
+    [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录', '--body-file', bodyFile],
+    { cwd: repo, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /未暂存或未跟踪文件/);
+  assert.equal(JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version, '1.2.2');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo), before);
+  assert.equal(run('git', ['tag', '--list', 'v1.2.3'], repo), '');
+  assert.equal(
+    await readFile(join(repo, 'private-notes.txt'), 'utf8'),
+    'keep outside the release\n',
+  );
+  assert.equal(run('git', ['status', '--porcelain'], repo), 'A  feature.txt\n?? private-notes.txt');
+});
+
+test('release only runs on master', async (t) => {
+  const { bodyFile, remote, repo } = await makeFixture(t);
+  await writeFile(join(repo, 'feature.txt'), 'validated change\n');
+  run('git', ['add', '--', 'feature.txt'], repo);
+  run('git', ['switch', '-c', 'release-candidate'], repo);
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo);
+  const result = spawnSync(
+    process.execPath,
+    [releaseScript, '1.2.3', '--summary', '按本地日历统计每周学习记录', '--body-file', bodyFile],
+    { cwd: repo, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /只允许在 master 分支执行/);
+  assert.equal(JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version, '1.2.2');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/master'], repo), before);
+  assert.equal(
+    run(
+      'git',
+      ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/release-candidate'],
+      repo,
+    ),
+    '',
+  );
+  assert.equal(run('git', ['tag', '--list', 'v1.2.3'], repo), '');
 });

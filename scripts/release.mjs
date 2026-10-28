@@ -42,7 +42,9 @@ function showHelp() {
   node scripts/release.mjs v1.2.0-beta.1 --summary "新增语境复习" --body-file /tmp/lexloop-release.md
 
 说明文件必须包含“主要改动：”“兼容边界：”和“测试结果：”三段。
-脚本会把摘要和说明写入提交标题、提交正文和注释 tag，再推送当前分支。
+运行前请先暂存本次验收通过的实际改动。脚本要求在 master 上执行，并拒绝未暂存或未跟踪文件。
+脚本只会额外暂存五个 workspace 版本清单，不会自动加入其他工作区文件。
+脚本会把摘要和说明写入提交标题、提交正文和注释 tag，再推送 master。
 远端或本地已存在同名 tag 时会停止，避免覆盖版本历史。`);
 }
 
@@ -95,6 +97,7 @@ if (git(['rev-parse', '--is-inside-work-tree'], { capture: true, allowFailure: t
 
 const branch = git(['branch', '--show-current'], { capture: true });
 if (!branch) fail('当前处于 detached HEAD，请先切换到要发布的分支。');
+if (branch !== 'master') fail('版本发布只允许在 master 分支执行。');
 
 git(['remote', 'get-url', '--push', 'origin'], { capture: true });
 
@@ -110,6 +113,19 @@ for (const marker of ['rebase-merge', 'rebase-apply']) {
 
 git(['diff', '--check']);
 git(['diff', '--cached', '--check']);
+
+const statusRows = git(['status', '--porcelain=v1', '--untracked-files=all'], { capture: true })
+  .split(/\r?\n/)
+  .filter(Boolean);
+if (statusRows.some((row) => row.slice(0, 2) === '??' || row[1] !== ' ')) {
+  fail('发现未暂存或未跟踪文件；请先审查并明确暂存本次改动，脚本不会自动加入它们。');
+}
+const stagedPaths = git(['diff', '--cached', '--name-only'], { capture: true })
+  .split(/\r?\n/)
+  .filter(Boolean);
+if (!stagedPaths.some((path) => !PACKAGE_FILES.includes(path))) {
+  fail('暂存区没有实际改动，拒绝只提交版本号；请先暂存并验收本次代码或文档改动。');
+}
 
 const manifests = PACKAGE_FILES.map((path) => {
   const source = readFileSync(path, 'utf8');
@@ -170,7 +186,7 @@ for (const manifest of manifests) {
   writeFileSync(manifest.path, nextSource);
 }
 
-git(['add', '--all']);
+git(['add', '--', ...PACKAGE_FILES]);
 const hasStagedChanges = git(['diff', '--cached', '--quiet'], { allowFailure: true }) !== 0;
 if (hasStagedChanges) {
   console.log('正在提交当前工作区改动与版本号…');
