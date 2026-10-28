@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.15',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '旅行对话中断后可继续',
+        entry: '场景口语 → 未完成的旅行对话',
+        usage: '按账号恢复最近的未完成会话；如果上一句没有收到回复，可沿用原消息安全重试。',
+      },
+    ],
+  },
+  {
     version: '1.27.14',
     date: '2026-10-28',
     items: [

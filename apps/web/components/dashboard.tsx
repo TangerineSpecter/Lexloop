@@ -769,6 +769,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           </div>
         ) : page === 'travel' || page === 'assessment' ? (
           <TravelScenarioPage
+            key={session.user.id}
             session={session}
             startWithAssessment={page === 'assessment'}
             onBack={() => setPage('study')}

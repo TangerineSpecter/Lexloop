@@ -28,6 +28,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import type { NotebookPage } from '@lexloop/types';
 import { request, type Session, userFacingError } from '../lib/api';
 import { TravelDeferredFeedback } from './travel-deferred-feedback';
+import resumeStyles from './travel-session-resume.module.css';
 
 type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
 type Profile = {
@@ -127,7 +128,12 @@ type ScenarioSession = {
   status: string;
   turnCount: number;
 };
-type ScenarioStart = { session: ScenarioSession; template: Scenario; turns: Turn[] };
+type ScenarioStart = {
+  session: ScenarioSession;
+  template: Scenario;
+  turns: Turn[];
+  pendingRetry?: { content: string; clientMessageId: string } | null;
+};
 type Report = {
   outcome: 'SUCCESS' | 'PARTIAL' | 'INCOMPLETE';
   dimensions: Record<string, number>;
@@ -178,6 +184,8 @@ export function TravelScenarioPage({
   const [plan, setPlan] = useState<TodayPlan | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [personal, setPersonal] = useState<PersonalItem[]>([]);
+  const [resumable, setResumable] = useState<ScenarioStart | null>(null);
+  const [resumableOwnerId, setResumableOwnerId] = useState(session.user.id);
   const [category, setCategory] = useState<Category | 'ALL'>('ALL');
   const [assessment, setAssessment] = useState<AssessmentState | null>(null);
   const [active, setActive] = useState<ScenarioStart | null>(null);
@@ -185,26 +193,37 @@ export function TravelScenarioPage({
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const assessmentRequested = useRef(false);
+  const currentUserIdRef = useRef(session.user.id);
+  currentUserIdRef.current = session.user.id;
 
   const load = useCallback(async () => {
+    const ownerId = session.user.id;
     setLoading(true);
+    setResumableOwnerId(ownerId);
+    setResumable(null);
     try {
-      const [nextProfile, nextPlan, nextScenarios, nextPersonal] = await Promise.all([
-        request<Profile>('/proficiency/profile', {}, session.accessToken),
-        request<TodayPlan>('/practice/today', {}, session.accessToken),
-        request<Scenario[]>('/scenarios', {}, session.accessToken),
-        request<NotebookPage>('/vocabulary/notebook?source=TRAVEL', {}, session.accessToken),
-      ]);
+      const [nextProfile, nextPlan, nextScenarios, nextPersonal, nextResumable] = await Promise.all(
+        [
+          request<Profile>('/proficiency/profile', {}, session.accessToken),
+          request<TodayPlan>('/practice/today', {}, session.accessToken),
+          request<Scenario[]>('/scenarios', {}, session.accessToken),
+          request<NotebookPage>('/vocabulary/notebook?source=TRAVEL', {}, session.accessToken),
+          request<ScenarioStart | null>('/scenario-sessions/active', {}, session.accessToken),
+        ],
+      );
+      if (currentUserIdRef.current !== ownerId) return;
       setProfile(nextProfile);
       setPlan(nextPlan);
       setScenarios(nextScenarios);
       setPersonal(nextPersonal.items);
+      setResumable(nextResumable);
     } catch (error) {
+      if (currentUserIdRef.current !== ownerId) return;
       setMessage(userFacingError(error, '旅行场景加载失败'));
     } finally {
-      setLoading(false);
+      if (currentUserIdRef.current === ownerId) setLoading(false);
     }
-  }, [session.accessToken]);
+  }, [session.accessToken, session.user.id]);
 
   const startAssessment = useCallback(async () => {
     setMessage('');
@@ -314,7 +333,10 @@ export function TravelScenarioPage({
         session={session}
         value={active}
         onChange={setActive}
-        onBack={() => setActive(null)}
+        onBack={() => {
+          setActive(null);
+          void load();
+        }}
         onComplete={setReport}
         onSave={(candidate) => void saveVocabulary(candidate, active.template.title)}
         message={message}
@@ -345,6 +367,21 @@ export function TravelScenarioPage({
         <div className="travel-notice" role="status">
           {message}
         </div>
+      )}
+
+      {resumable && resumableOwnerId === session.user.id && (
+        <section
+          className={`${resumeStyles.resume} travel-session-resume`}
+          aria-labelledby="travel-resume-title"
+        >
+          <div className={resumeStyles.copy}>
+            <small>未完成的旅行对话</small>
+            <h2 id="travel-resume-title">{resumable.template.title}</h2>
+            <p>已保存 {resumable.session.turnCount} 轮对话，可以从上次停下的地方继续。</p>
+            {resumable.pendingRetry && <span>上一句尚未收到回复，继续后可以安全重试。</span>}
+          </div>
+          <button onClick={() => setActive(resumable)}>继续上次场景</button>
+        </section>
       )}
 
       <section className="travel-overview-grid">
@@ -673,11 +710,15 @@ function ConversationView({
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    value.pendingRetry
+      ? '上次有一句还没收到回复。可以用原消息安全重试；如果它仍在处理中，请稍后再试。'
+      : '',
+  );
   const [pendingRetry, setPendingRetry] = useState<{
     content: string;
     clientMessageId: string;
-  } | null>(null);
+  } | null>(value.pendingRetry ?? null);
   const latest =
     [...value.turns].reverse().find((turn) => turn.role === 'assistant' && turn.evaluation)
       ?.evaluation ?? null;
