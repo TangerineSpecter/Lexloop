@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.20',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '精读和语法小测可恢复未交卷选择',
+        entry: '生词本 → 生词短文精读或语法薄弱项专项',
+        usage: '刷新或重进可继续本机保存的选项；成功交卷后清理本次草稿，不跨设备同步。',
+      },
+    ],
+  },
+  {
     version: '1.27.19',
     date: '2026-10-28',
     items: [

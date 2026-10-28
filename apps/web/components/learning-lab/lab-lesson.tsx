@@ -134,7 +134,13 @@ export function LabLesson({
           </>
         )}
       </article>
-      <LessonQuiz key={lesson.id} lesson={lesson} busy={busy} onSubmit={onSubmit} />
+      <LessonQuiz
+        key={`${session.user.id}:${lesson.id}`}
+        lesson={lesson}
+        userId={session.user.id}
+        busy={busy}
+        onSubmit={onSubmit}
+      />
     </div>
   );
 }

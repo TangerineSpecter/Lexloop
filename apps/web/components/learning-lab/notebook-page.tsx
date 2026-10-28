@@ -81,7 +81,7 @@ export function NotebookPage({ session }: { session: Session }) {
             <SentenceFavoritesPanel session={session} />
           ) : (
             <LearningPanel
-              key={tab}
+              key={`${session.user.id}:${tab}`}
               session={session}
               kind={tab === 'reading' ? 'READING' : 'GRAMMAR'}
               selected={selected}
