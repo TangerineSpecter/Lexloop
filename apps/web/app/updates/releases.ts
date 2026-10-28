@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.22',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '修复侧栏账户菜单悬停与窄屏交互',
+        entry: '左侧账户卡片 / 窄屏账户入口',
+        usage: '桌面悬停可打开菜单并移入操作；移出或按 Escape 关闭，窄屏点击也能使用。',
+      },
+    ],
+  },
+  {
     version: '1.27.21',
     date: '2026-10-28',
     items: [

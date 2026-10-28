@@ -331,6 +331,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [progressSummaryAttempt, setProgressSummaryAttempt] = useState(0);
   const [progressRevision, setProgressRevision] = useState(0);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const sidebarAccountButtonRef = useRef<HTMLButtonElement>(null);
+  const topbarAccountButtonRef = useRef<HTMLButtonElement>(null);
+  const lastAccountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const currentUserIdRef = useRef(session.user.id);
   currentUserIdRef.current = session.user.id;
   const visiblePlans = plansOwnerId === session.user.id ? plans : [];
@@ -400,7 +403,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setAccountMenuOpen(false);
+      if (event.key === 'Escape') {
+        setAccountMenuOpen(false);
+        const trigger = lastAccountMenuTriggerRef.current;
+        if (trigger === topbarAccountButtonRef.current) setSidebarOpen(false);
+        trigger?.focus();
+      }
     };
     document.addEventListener('mousedown', closeOnOutsideClick);
     document.addEventListener('keydown', closeOnEscape);
@@ -441,11 +449,29 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   return (
     <main className="study-app">
       <aside className={`study-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="sidebar-account-wrap" ref={accountMenuRef}>
+        <div
+          className={`sidebar-account-wrap${accountMenuOpen ? ' is-menu-open' : ''}`}
+          ref={accountMenuRef}
+          onPointerEnter={(event) => {
+            if (event.pointerType !== 'mouse') return;
+            lastAccountMenuTriggerRef.current = sidebarAccountButtonRef.current;
+            setAccountMenuOpen(true);
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === 'mouse') setAccountMenuOpen(false);
+          }}
+        >
           <button
+            ref={sidebarAccountButtonRef}
             className="sidebar-book"
-            onClick={() => setAccountMenuOpen((open) => !open)}
+            onClick={(event) => {
+              lastAccountMenuTriggerRef.current = sidebarAccountButtonRef.current;
+              const mouseHover =
+                event.detail > 0 && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+              setAccountMenuOpen((open) => (mouseHover ? true : !open));
+            }}
             aria-expanded={accountMenuOpen}
+            aria-controls="account-menu"
           >
             <Avatar />
             <div>
@@ -622,9 +648,25 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <div className="topbar-actions">
             <UpdatesLink />
             <button
+              ref={topbarAccountButtonRef}
               className="topbar-account"
-              onClick={() => setAccountMenuOpen((open) => !open)}
+              onClick={() => {
+                lastAccountMenuTriggerRef.current = topbarAccountButtonRef.current;
+                if (window.matchMedia('(max-width: 920px)').matches) {
+                  if (accountMenuOpen) {
+                    setAccountMenuOpen(false);
+                    setSidebarOpen(false);
+                  } else {
+                    setSidebarOpen(true);
+                    setAccountMenuOpen(true);
+                  }
+                } else {
+                  setAccountMenuOpen((open) => !open);
+                }
+              }}
               aria-label="账户菜单"
+              aria-expanded={accountMenuOpen}
+              aria-controls="account-menu"
             >
               <Avatar />
               <span>{name}</span>
@@ -1127,7 +1169,7 @@ function AccountMenu({
   onLogout: () => void;
 }) {
   return (
-    <div className="account-menu">
+    <div className="account-menu" id="account-menu" aria-label="账户菜单">
       <div className="account-menu-user">
         <Avatar />
         <strong>{name}</strong>

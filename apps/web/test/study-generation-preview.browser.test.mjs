@@ -361,11 +361,160 @@ test(
       // next account's dashboard after logout and login.
       await openRetry(3);
       await startGeneration(4);
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+
+      // The account card opens on mouse hover, and the pointer can move from
+      // the trigger into its attached menu without crossing a closing gap.
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const desktopCard = await evaluate(`(() => {
+        const rect = document.querySelector('.sidebar-book').getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: desktopCard.x,
+        y: desktopCard.y,
+      });
+      await until('document.querySelector(".account-menu")');
+      const desktopMenuBounds = await evaluate(`(() => {
+        const menu = document.querySelector('.account-menu').getBoundingClientRect();
+        const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
+        const trigger = document.querySelector('.sidebar-book').getBoundingClientRect();
+        return { left: menu.left, right: menu.right, top: menu.top, triggerBottom: trigger.bottom, sidebarRight: sidebar.right };
+      })()`);
+      assert.ok(desktopMenuBounds.left >= 0);
+      assert.ok(desktopMenuBounds.right <= desktopMenuBounds.sidebarRight);
+      assert.ok(desktopMenuBounds.top >= desktopMenuBounds.triggerBottom - 1);
+      const menuHeaderPoint = await evaluate(`(() => {
+        const rect = document.querySelector('.account-menu-user').getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: menuHeaderPoint.x,
+        y: menuHeaderPoint.y,
+      });
+      assert.equal(await evaluate('Boolean(document.querySelector(".account-menu"))'), true);
+
+      // Moving away closes the menu; Escape also closes it and restores focus.
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 500 });
+      await until('document.querySelector(".account-menu") === null');
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: desktopCard.x,
+        y: desktopCard.y,
+      });
+      await until('document.querySelector(".account-menu")');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".sidebar-book")'),
+        true,
+      );
+
+      // At a narrow viewport the drawer still opens the same menu by click.
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 500 });
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await evaluate('document.querySelector(".topbar-account").click()');
+      await until(
+        'document.querySelector(".study-sidebar.is-open") && document.querySelector(".account-menu")',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(
+        'document.querySelector(".account-menu") === null && !document.querySelector(".study-sidebar").classList.contains("is-open")',
+      );
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".topbar-account")'),
+        true,
+      );
+      await evaluate('document.querySelector(".menu-trigger").click()');
+      await until('document.querySelector(".study-sidebar.is-open")');
       await evaluate('document.querySelector(".sidebar-book").click()');
       await until('document.querySelector(".account-menu")');
-      await evaluate(
-        '[...document.querySelectorAll(".account-menu button")].find((button) => button.textContent.includes("退出登录")).click()',
+      const mobileMenuBounds = await evaluate(`(() => {
+        const menu = document.querySelector('.account-menu').getBoundingClientRect();
+        const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
+        return { left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom, sidebarRight: sidebar.right };
+      })()`);
+      assert.ok(mobileMenuBounds.left >= 0);
+      assert.ok(mobileMenuBounds.right <= mobileMenuBounds.sidebarRight);
+      assert.ok(mobileMenuBounds.bottom <= 844);
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".sidebar-book")'),
+        true,
       );
+      await evaluate('document.querySelector(".sidebar-book").click()');
+      await until('document.querySelector(".account-menu")');
+      const logoutButton = await evaluate(`(() => {
+        const rect = [...document.querySelectorAll('.account-menu button')]
+          .find((button) => button.textContent.includes('退出登录')).getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: logoutButton.x,
+        y: logoutButton.y,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: logoutButton.x,
+        y: logoutButton.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: logoutButton.x,
+        y: logoutButton.y,
+        button: 'left',
+        clickCount: 1,
+      });
       await until('document.querySelector(".welcome-page")');
       await evaluate(`document.querySelector('a[href="/login"]').click()`);
       await until('document.querySelector("input[name=email]")');
