@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.55',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '学习序列显示真实分组进度',
+        entry: '词环 → 当前学习序列',
+        usage: '继续学习时，序列会标出下一个未完成组；只有服务端已保存完成的分组才会显示为完成。',
+      },
+    ],
+  },
+  {
     version: '1.27.54',
     date: '2026-10-28',
     items: [

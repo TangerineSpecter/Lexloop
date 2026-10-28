@@ -54,6 +54,7 @@ import {
   studyDraftIdentity,
   type StudyDraftAnswers,
 } from '../lib/study-drafts';
+import { studyGroupCompletion } from '../lib/study-sequence';
 import { LearningHistoryPage } from './learning-history-page';
 import { StatisticsPage } from './statistics-page';
 import { SystemSettings } from './system-settings';
@@ -2891,6 +2892,12 @@ function PlanPanel({
     );
   const groups = splitPlanWords(plan.words);
   const progress = Math.round((plan.completed / plan.wordCount) * 100);
+  const groupCompletion = studyGroupCompletion(groups);
+  const currentGroupIndex = groupCompletion.currentGroupIndex;
+  const groupProgressLabel =
+    currentGroupIndex >= 0
+      ? `第 ${currentGroupIndex + 1}/${groups.length} 组`
+      : `已完成 ${groups.length} 组`;
   return (
     <section className="sequence-panel">
       <header className="sequence-head">
@@ -2899,7 +2906,7 @@ function PlanPanel({
           <strong>学习序列</strong>
           <span>{modeLabel[plan.mode]}</span>
           <span>{plan.purpose === 'weakness' ? '薄弱词专项' : '正常模式'}</span>
-          <span>第 1/{groups.length} 组</span>
+          <span>{groupProgressLabel}</span>
         </div>
         <div className="sequence-summary">
           <small>
@@ -2928,7 +2935,7 @@ function PlanPanel({
         <div className="sequence-words">
           {groups.map((group, index) => (
             <article key={`${plan.id}-${index}`}>
-              <b className={index === 0 ? 'done' : ''}>{index + 1}</b>
+              <b className={groupCompletion.completedGroups[index] ? 'done' : ''}>{index + 1}</b>
               <strong>{group.map((word) => word.word).join(' · ')}</strong>
               <BookOpen size={20} />
             </article>

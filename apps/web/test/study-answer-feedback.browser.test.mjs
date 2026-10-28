@@ -364,6 +364,33 @@ test(
       assert.equal(await evaluate('window.studyPlansReadCount'), 2);
       assert.equal(await evaluate('document.querySelector(".sequence-panel") !== null'), true);
       assert.equal(await evaluate('document.querySelector(".plan-empty") === null'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sequence-head > div > span:last-child")?.textContent',
+        ),
+        '第 1/2 组',
+      );
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".sequence-words article > b")].map((badge) => badge.classList.contains("done"))',
+        ),
+        [false, false],
+        'an unsubmitted first group must not look completed',
+      );
+      const sequenceDesktopLayout = await evaluate(`(() => {
+        const panel = document.querySelector('.sequence-panel').getBoundingClientRect();
+        const header = document.querySelector('.sequence-head').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          panelLeft: panel.left, panelRight: panel.right, headerLeft: header.left, headerRight: header.right };
+      })()`);
+      assert.ok(
+        sequenceDesktopLayout.page <= sequenceDesktopLayout.viewport &&
+          sequenceDesktopLayout.panelLeft >= 0 &&
+          sequenceDesktopLayout.panelRight <= sequenceDesktopLayout.viewport &&
+          sequenceDesktopLayout.headerLeft >= sequenceDesktopLayout.panelLeft &&
+          sequenceDesktopLayout.headerRight <= sequenceDesktopLayout.panelRight,
+        JSON.stringify(sequenceDesktopLayout),
+      );
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
       );
@@ -768,6 +795,52 @@ test(
       await until('document.querySelectorAll(".match-phrases button").length === 4');
       assert.equal(await evaluate('window.studySpeech.active === null'), true);
       assert.ok(await evaluate(`window.studySpeech.cancelCount > ${speechCancelCount}`));
+      await evaluate('document.querySelector(".lesson-page-head button").click()');
+      await until('document.querySelector(".sequence-panel")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sequence-head > div > span:last-child")?.textContent',
+        ),
+        '第 2/2 组',
+        'the sequence should identify the next group after the first group is saved',
+      );
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".sequence-words article > b")].map((badge) => badge.classList.contains("done"))',
+        ),
+        [true, false],
+        'only the group with persisted completion should be marked done',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const sequenceMobileLayout = await evaluate(`(() => {
+        const panel = document.querySelector('.sequence-panel').getBoundingClientRect();
+        const header = document.querySelector('.sequence-head').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          panelLeft: panel.left, panelRight: panel.right, headerLeft: header.left, headerRight: header.right };
+      })()`);
+      assert.ok(
+        sequenceMobileLayout.page <= sequenceMobileLayout.viewport &&
+          sequenceMobileLayout.panelLeft >= 0 &&
+          sequenceMobileLayout.panelRight <= sequenceMobileLayout.viewport &&
+          sequenceMobileLayout.headerLeft >= sequenceMobileLayout.panelLeft &&
+          sequenceMobileLayout.headerRight <= sequenceMobileLayout.panelRight,
+        JSON.stringify(sequenceMobileLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        '[...document.querySelectorAll(".sequence-summary button")].find((button) => button.textContent.includes("继续学习")).click()',
+      );
+      await until('document.querySelectorAll(".match-phrases button").length === 4');
       assert.equal(
         await evaluate('document.querySelectorAll(".match-definitions button").length'),
         4,
