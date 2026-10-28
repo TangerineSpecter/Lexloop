@@ -22,7 +22,9 @@ export function lexicalFields(raw: string | null | undefined) {
   let meaning = '暂无释义';
   if (meanings.length === 1) meaning = meanings[0].text || '暂无释义';
   else if (meanings.length > 1) {
-    meaning = meanings.map((line) => (line.part ? `${line.part} ${line.text}` : line.text)).join('\n');
+    meaning = meanings
+      .map((line) => (line.part ? `${line.part} ${line.text}` : line.text))
+      .join('\n');
   }
   return { part, meaning, meanings };
 }

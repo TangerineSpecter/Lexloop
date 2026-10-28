@@ -102,11 +102,13 @@ describe('exam study plans', () => {
       },
       user: { findUniqueOrThrow: vi.fn().mockResolvedValue({ defaultNewWordCount: 10 }) },
       weaknessSignal: {
-        findMany: vi.fn().mockResolvedValue([
-          { bookWordId: 'mistake-1' },
-          { bookWordId: 'mistake-1' },
-          { bookWordId: 'mistake-2' },
-        ]),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { bookWordId: 'mistake-1' },
+            { bookWordId: 'mistake-1' },
+            { bookWordId: 'mistake-2' },
+          ]),
       },
       studyPlanItem: { createMany: vi.fn() },
       userWordProgress: { findMany: vi.fn() },
@@ -122,7 +124,9 @@ describe('exam study plans', () => {
       { selectedProvider: vi.fn().mockResolvedValue({ id: 'model' }) } as never,
       {} as never,
     );
-    vi.spyOn(service as never, 'serializePlan' as never).mockResolvedValue({ id: 'plan-individual' } as never);
+    vi.spyOn(service as never, 'serializePlan' as never).mockResolvedValue({
+      id: 'plan-individual',
+    } as never);
 
     await service.createPlan('user-1', 10, 'individual', 0, 'mistakes');
     expect(tx.userWordProgress.findMany).not.toHaveBeenCalled();

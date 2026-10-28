@@ -475,122 +475,122 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           )}
         </div>
         <div className="sidebar-scroll">
-        <Calendar />
-        <nav className="sidebar-nav" aria-label="主导航">
-          <span className="nav-label">APP</span>
-          <button
-            className={`nav-item nav-button ${page === 'study' ? 'active' : ''}`}
-            onClick={() => {
-              setPage('study');
-              setSidebarOpen(false);
-            }}
-          >
-            <BookOpen size={16} />
-            <span>词环</span>
-          </button>
-          <button
-            className={`nav-item nav-button ${page === 'travel' || page === 'assessment' ? 'active' : ''}`}
-            onClick={() => {
-              setPage('travel');
-              setSidebarOpen(false);
-            }}
-          >
-            <PlaneTakeoff size={16} />
-            <span>场景口语</span>
-          </button>
-          <a className="nav-item" href="/dashboard/adventure">
-            <Swords size={16} />
-            <span>地下词环</span>
-          </a>
-          <a className="nav-item" href="/dashboard/notebook">
-            <BookOpen size={16} />
-            <span>生词本与收藏</span>
-          </a>
-          <a className="nav-item" href="/dashboard/micro-stories">
-            <BookOpen size={16} />
-            <span>一分钟微故事</span>
-          </a>
-          <a className="nav-item" href="/dashboard/notebook?tab=reading">
-            <BookOpen size={16} />
-            <span>生词短文精读</span>
-          </a>
-          <a className="nav-item" href="/dashboard/notebook?tab=grammar">
-            <Sparkles size={16} />
-            <span>语法薄弱项专项</span>
-          </a>
-          <a className="nav-item" href="/dashboard/practice?tab=output">
-            <Sparkles size={16} />
-            <span>学习专项与处方</span>
-          </a>
-          <div className="nav-group">
-            <a className="nav-item" href="#words">
+          <Calendar />
+          <nav className="sidebar-nav" aria-label="主导航">
+            <span className="nav-label">APP</span>
+            <button
+              className={`nav-item nav-button ${page === 'study' ? 'active' : ''}`}
+              onClick={() => {
+                setPage('study');
+                setSidebarOpen(false);
+              }}
+            >
               <BookOpen size={16} />
-              <span>我的单词</span>
-              <ChevronDown size={14} />
+              <span>词环</span>
+            </button>
+            <button
+              className={`nav-item nav-button ${page === 'travel' || page === 'assessment' ? 'active' : ''}`}
+              onClick={() => {
+                setPage('travel');
+                setSidebarOpen(false);
+              }}
+            >
+              <PlaneTakeoff size={16} />
+              <span>场景口语</span>
+            </button>
+            <a className="nav-item" href="/dashboard/adventure">
+              <Swords size={16} />
+              <span>地下词环</span>
             </a>
-            <div className="nav-children">
-              <button
-                className={page === 'learning' ? 'active' : ''}
-                onClick={() => {
-                  setPage('learning');
-                  setSidebarOpen(false);
-                }}
-              >
-                学习中
-              </button>
-              <button
-                className={page === 'mistakes' ? 'active' : ''}
-                onClick={() => {
-                  setPage('mistakes');
-                  setSidebarOpen(false);
-                }}
-              >
-                待巩固
-              </button>
-              <button
-                className={page === 'mastered' ? 'active' : ''}
-                onClick={() => {
-                  setPage('mastered');
-                  setSidebarOpen(false);
-                }}
-              >
-                已掌握
-              </button>
+            <a className="nav-item" href="/dashboard/notebook">
+              <BookOpen size={16} />
+              <span>生词本与收藏</span>
+            </a>
+            <a className="nav-item" href="/dashboard/micro-stories">
+              <BookOpen size={16} />
+              <span>一分钟微故事</span>
+            </a>
+            <a className="nav-item" href="/dashboard/notebook?tab=reading">
+              <BookOpen size={16} />
+              <span>生词短文精读</span>
+            </a>
+            <a className="nav-item" href="/dashboard/notebook?tab=grammar">
+              <Sparkles size={16} />
+              <span>语法薄弱项专项</span>
+            </a>
+            <a className="nav-item" href="/dashboard/practice?tab=output">
+              <Sparkles size={16} />
+              <span>学习专项与处方</span>
+            </a>
+            <div className="nav-group">
+              <a className="nav-item" href="#words">
+                <BookOpen size={16} />
+                <span>我的单词</span>
+                <ChevronDown size={14} />
+              </a>
+              <div className="nav-children">
+                <button
+                  className={page === 'learning' ? 'active' : ''}
+                  onClick={() => {
+                    setPage('learning');
+                    setSidebarOpen(false);
+                  }}
+                >
+                  学习中
+                </button>
+                <button
+                  className={page === 'mistakes' ? 'active' : ''}
+                  onClick={() => {
+                    setPage('mistakes');
+                    setSidebarOpen(false);
+                  }}
+                >
+                  待巩固
+                </button>
+                <button
+                  className={page === 'mastered' ? 'active' : ''}
+                  onClick={() => {
+                    setPage('mastered');
+                    setSidebarOpen(false);
+                  }}
+                >
+                  已掌握
+                </button>
+              </div>
             </div>
-          </div>
-          <button
-            className={`nav-item nav-button ${page === 'history' ? 'active' : ''}`}
-            onClick={() => {
-              setHistoryBackPage('study');
-              setPage('history');
-              setSidebarOpen(false);
-            }}
-          >
-            <CalendarDays size={16} />
-            <span>学习历史</span>
-          </button>
-          <button
-            className={`nav-item nav-button ${page === 'statistics' ? 'active' : ''}`}
-            onClick={() => {
-              setPage('statistics');
-              setSidebarOpen(false);
-            }}
-          >
-            <BarChart3 size={16} />
-            <span>学习统计</span>
-          </button>
-          <button
-            className={`nav-item nav-button ${page === 'settings' ? 'active' : ''}`}
-            onClick={() => {
-              setSettingsSection('account');
-              setPage('settings');
-              setSidebarOpen(false);
-            }}
-          >
-            <Settings2 size={16} />
-            <span>账户设置</span>
-          </button>
-        </nav>
+            <button
+              className={`nav-item nav-button ${page === 'history' ? 'active' : ''}`}
+              onClick={() => {
+                setHistoryBackPage('study');
+                setPage('history');
+                setSidebarOpen(false);
+              }}
+            >
+              <CalendarDays size={16} />
+              <span>学习历史</span>
+            </button>
+            <button
+              className={`nav-item nav-button ${page === 'statistics' ? 'active' : ''}`}
+              onClick={() => {
+                setPage('statistics');
+                setSidebarOpen(false);
+              }}
+            >
+              <BarChart3 size={16} />
+              <span>学习统计</span>
+            </button>
+            <button
+              className={`nav-item nav-button ${page === 'settings' ? 'active' : ''}`}
+              onClick={() => {
+                setSettingsSection('account');
+                setPage('settings');
+                setSidebarOpen(false);
+              }}
+            >
+              <Settings2 size={16} />
+              <span>账户设置</span>
+            </button>
+          </nav>
         </div>
         <div className="sidebar-bottom">
           <button className="switch-book" onClick={() => setBookPickerOpen(true)}>

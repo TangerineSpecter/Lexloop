@@ -1,4 +1,6 @@
-.section { margin: 18px 0 8px; }
+.section {
+  margin: 18px 0 8px;
+}
 .toggle {
   display: flex;
   width: 100%;
@@ -14,9 +16,18 @@
   font-weight: 800;
   cursor: pointer;
 }
-.toggle:hover { transform: translate(-1px, -1px); box-shadow: 2px 2px 0 var(--border-color, #082877); }
-.toggle:focus-visible { outline: 3px solid #315eb6; outline-offset: 3px; }
-.toggle small { font-weight: 700; font-size: 12px; }
+.toggle:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--border-color, #082877);
+}
+.toggle:focus-visible {
+  outline: 3px solid #315eb6;
+  outline-offset: 3px;
+}
+.toggle small {
+  font-weight: 700;
+  font-size: 12px;
+}
 .entries {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
