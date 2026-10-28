@@ -194,7 +194,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(frequentPlan.words.map((item) => item.source)).toEqual(['REVIEW', 'REVIEW', 'NEW']);
         await removePlan(frequentPlan.id);
 
-        expect(selectedProvider).toHaveBeenCalledTimes(5);
+        expect(selectedProvider).not.toHaveBeenCalled();
         expect(ai.generateForUser).not.toHaveBeenCalled();
         expect(await prisma.studyPlanItem.count({ where: { planId: { in: planIds } } })).toBe(0);
       } finally {

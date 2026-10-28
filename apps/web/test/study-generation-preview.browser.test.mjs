@@ -137,6 +137,12 @@ test(
 
       await send('Page.enable');
       await send('Runtime.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           const makePlan = (id, word, status = 'FAILED') => ({
@@ -201,6 +207,7 @@ test(
             ], newWords: [] });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
+            if (path.endsWith('/api/v1/ai/models')) return Response.json([]);
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
             if (generation && method === 'POST') {
               const id = generation[1];
@@ -363,10 +370,76 @@ test(
       await evaluate('document.querySelector(".plan-preview-scrim").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 
+      // A cache miss without a selected model exposes a direct setup action.
+      // The same plan remains retryable after the learner configures a model.
+      await openRetry(1);
+      await startGeneration(4);
+      await resolvePlan(
+        'preview-b',
+        'FAILED',
+        'Response.json({ message: "部分学习材料未命中缓存，请先在阅读材料模型设置中选择可用的大模型" }, { status: 400 })',
+      );
+      await until(
+        'document.querySelector(".plan-preview .book-message")?.textContent.includes("未命中缓存")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("设置阅读材料模型")',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".plan-preview .start-challenge").click()');
+      await until('document.querySelector(".study-settings-drawer")');
+      await until('document.querySelector(".study-settings-drawer .model-options-empty")');
+      await until(`(() => {
+        const drawer = document.querySelector('.study-settings-drawer')?.getBoundingClientRect();
+        return drawer && drawer.left >= 0 && drawer.right <= innerWidth;
+      })()`);
+      const desktopModelDrawerBounds = await evaluate(`(() => {
+        const drawer = document.querySelector('.study-settings-drawer').getBoundingClientRect();
+        return { left: drawer.left, right: drawer.right, viewport: innerWidth, clientWidth: document.documentElement.clientWidth, pageWidth: document.documentElement.scrollWidth };
+      })()`);
+      assert.ok(
+        desktopModelDrawerBounds.left >= 0 && desktopModelDrawerBounds.right <= 1440,
+        JSON.stringify(desktopModelDrawerBounds),
+      );
+      assert.ok(
+        desktopModelDrawerBounds.pageWidth <= desktopModelDrawerBounds.clientWidth,
+        JSON.stringify(desktopModelDrawerBounds),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until(`(() => {
+        const drawer = document.querySelector('.study-settings-drawer')?.getBoundingClientRect();
+        return drawer && drawer.left >= 0 && drawer.right <= innerWidth;
+      })()`);
+      const modelDrawerBounds = await evaluate(`(() => {
+        const drawer = document.querySelector('.study-settings-drawer').getBoundingClientRect();
+        return { left: drawer.left, right: drawer.right, width: drawer.width, viewport: innerWidth, clientWidth: document.documentElement.clientWidth, pageWidth: document.documentElement.scrollWidth, text: document.querySelector('.study-settings-drawer').innerText };
+      })()`);
+      assert.ok(
+        modelDrawerBounds.left >= 0 && modelDrawerBounds.right <= 390,
+        JSON.stringify(modelDrawerBounds),
+      );
+      assert.ok(
+        modelDrawerBounds.pageWidth <= modelDrawerBounds.clientWidth,
+        JSON.stringify(modelDrawerBounds),
+      );
+      assert.ok(
+        modelDrawerBounds.text.includes('暂时没有可用模型'),
+        JSON.stringify(modelDrawerBounds),
+      );
+      await evaluate('document.querySelector(".study-settings-drawer header button").click()');
+      await until('document.querySelector(".study-settings-drawer") === null');
+
       // An outstanding response from the prior account cannot populate the
       // next account's dashboard after logout and login.
       await openRetry(3);
-      await startGeneration(4);
+      await startGeneration(5);
       await evaluate('document.querySelector(".plan-preview header button").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 

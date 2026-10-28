@@ -154,9 +154,6 @@ export class StudyService {
         throw new BadRequestException(`独立单词每次可选 1 到 ${MAX_INDIVIDUAL_WORDS} 个`);
       }
     }
-    if (!(await this.modelConfigs.selectedProvider(userId))) {
-      throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
-    }
     const planId = await this.prisma.$transaction(async (tx) => {
       // Serialize normal-plan creation per account across API processes. The
       // existing-plan check must run after acquiring the transaction lock.
@@ -235,9 +232,6 @@ export class StudyService {
     if (!plan) throw new NotFoundException('学习计划不存在');
     if (plan.status === StudyPlanStatus.ACTIVE || plan.status === StudyPlanStatus.COMPLETED)
       return this.serializePlan(planId, userId);
-    if (!(await this.modelConfigs.selectedProvider(userId))) {
-      throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
-    }
     const generationStartedAt = new Date();
     const staleBefore = new Date(generationStartedAt.getTime() - 10 * 60 * 1000);
     const claim = await this.prisma.studyPlan.updateMany({
@@ -312,6 +306,11 @@ export class StudyService {
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
       let generatedMissing: GeneratedGroup[] = [];
       if (missingSpecs.length) {
+        if (!(await this.modelConfigs.selectedProvider(userId))) {
+          throw new BadRequestException(
+            '部分学习材料未命中缓存，请先在阅读材料模型设置中选择可用的大模型',
+          );
+        }
         const response = await this.ai.generateForUser(
           {
             purpose: 'study-plan',

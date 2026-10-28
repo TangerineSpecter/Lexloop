@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.32',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '已有学习材料缓存时可直接开始',
+        entry: '学习计划 → 阅读材料',
+        usage:
+          '所有分组都能复用共享材料时，无需先配置模型即可预习和开始学习；缓存缺少材料时仍需选择可用模型，并只生成缺失部分。',
+      },
+    ],
+  },
+  {
     version: '1.27.31',
     date: '2026-10-28',
     items: [

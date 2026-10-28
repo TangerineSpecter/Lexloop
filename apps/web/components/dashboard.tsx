@@ -309,6 +309,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [plansLoadAttempt, setPlansLoadAttempt] = useState(0);
   const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
   const [previewOwnerId, setPreviewOwnerId] = useState(session.user.id);
+  const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
   const [lessonPlanId, setLessonPlanId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookPickerOpen, setBookPickerOpen] = useState(false);
@@ -942,6 +943,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onCreatePlan={openPlanPreview}
                 existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
                 onOpenExistingPlan={openPlanPreview}
+                onOpenReadingSettings={() => setReadingSettingsOpen(true)}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
               />
@@ -1102,6 +1104,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             });
           }}
           onClose={() => setPreviewPlan(null)}
+          onOpenModelSettings={() => {
+            setPreviewPlan(null);
+            setReadingSettingsOpen(true);
+          }}
           onStart={() => {
             if (currentUserIdRef.current !== previewOwnerId) return;
             setPlans((current) => {
@@ -1115,6 +1121,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             setPage('study');
             setLessonPlanId(visiblePreviewPlan.id);
           }}
+        />
+      )}
+      {readingSettingsOpen && (
+        <ReadingModelDrawer
+          key={session.user.id}
+          session={session}
+          onClose={() => setReadingSettingsOpen(false)}
         />
       )}
     </main>
@@ -1952,6 +1965,7 @@ function WordsPanel({
   onCreatePlan,
   existingPlan,
   onOpenExistingPlan,
+  onOpenReadingSettings,
   planListReady,
   onProgressChanged,
 }: {
@@ -1960,6 +1974,7 @@ function WordsPanel({
   onCreatePlan: (plan: LearningPlan) => void;
   existingPlan: LearningPlan | null;
   onOpenExistingPlan: (plan: LearningPlan) => void;
+  onOpenReadingSettings: () => void;
   planListReady: boolean;
   onProgressChanged: () => void;
 }) {
@@ -1967,7 +1982,6 @@ function WordsPanel({
   const [individualSource, setIndividualSource] = useState<IndividualWordSource>('book');
   const [individualCount, setIndividualCount] = useState(10);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
   const [dashboardWords, setDashboardWords] = useState<DashboardWords>({
     defaultNewWordCount: 10,
     reviewWords: [],
@@ -2089,7 +2103,7 @@ function WordsPanel({
     } catch (error) {
       const text = error instanceof Error ? error.message : '创建学习计划失败';
       setMessage(text);
-      if (text.includes('大模型')) setReadingSettingsOpen(true);
+      if (text.includes('大模型')) onOpenReadingSettings();
     } finally {
       creatingPlanRef.current = false;
       setCreatingPlan(false);
@@ -2179,7 +2193,7 @@ function WordsPanel({
             <button
               className="mode-settings-trigger"
               aria-label="阅读材料模型设置"
-              onClick={() => setReadingSettingsOpen(true)}
+              onClick={onOpenReadingSettings}
             >
               <FilterSettingsIcon />
             </button>
@@ -2381,9 +2395,6 @@ function WordsPanel({
             }
           }}
         />
-      )}
-      {readingSettingsOpen && (
-        <ReadingModelDrawer session={session} onClose={() => setReadingSettingsOpen(false)} />
       )}
     </section>
   );
@@ -2719,12 +2730,14 @@ function PlanPreview({
   plan,
   session,
   onClose,
+  onOpenModelSettings,
   onStart,
   onPlanUpdated,
 }: {
   plan: LearningPlan;
   session: Session;
   onClose: () => void;
+  onOpenModelSettings: () => void;
   onStart: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
@@ -2732,6 +2745,7 @@ function PlanPreview({
   const [generating, setGenerating] = useState(plan.status === 'GENERATING');
   const [generationMessage, setGenerationMessage] = useState('');
   const [audioNote, setAudioNote] = useState('');
+  const needsModelSelection = generationMessage.includes('阅读材料模型设置');
   const generationStartedRef = useRef(false);
   const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
@@ -2920,9 +2934,17 @@ function PlanPreview({
         </div>
         {generationMessage && <p className="book-message">{generationMessage}</p>}
         {plan.status === 'FAILED' || generationMessage ? (
-          <button className="start-challenge" onClick={() => void generate()} disabled={generating}>
+          <button
+            className="start-challenge"
+            onClick={needsModelSelection ? onOpenModelSettings : () => void generate()}
+            disabled={generating}
+          >
             <Sparkles size={19} />
-            {generating ? '正在重新生成…' : '重新生成学习计划'}
+            {generating
+              ? '正在重新生成…'
+              : needsModelSelection
+                ? '设置阅读材料模型'
+                : '重新生成学习计划'}
           </button>
         ) : (
           <button

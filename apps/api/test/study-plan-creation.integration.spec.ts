@@ -27,7 +27,6 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       const bookWordIds: string[] = [];
       const firstUser = { id: '' };
       let releaseDatabaseLock: (() => void) | undefined;
-      let releaseProviderGate: (() => void) | undefined;
       let lockTransaction: Promise<unknown> | undefined;
       let firstUserRequests: Promise<unknown>[] = [];
       try {
@@ -75,18 +74,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         Object.assign(firstUser, await createLearner('one'));
         const secondUser = await createLearner('two');
         const requestCount = 8;
-        let providerArrivals = 0;
-        const providerGate = new Promise<void>((resolve) => {
-          releaseProviderGate = resolve;
-        });
-        const selectedProvider = vi.fn(async (userId: string) => {
-          if (userId === firstUser.id) {
-            providerArrivals++;
-            if (providerArrivals === requestCount) releaseProviderGate?.();
-            await providerGate;
-          }
-          return { id: 'isolated-fixture-model' };
-        });
+        const selectedProvider = vi.fn(async () => ({ id: 'isolated-fixture-model' }));
         const ai = { generateForUser: vi.fn() };
         const services = serviceClients.map(
           (client) =>
@@ -117,8 +105,6 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         firstUserRequests = Array.from({ length: requestCount }, (_, index) =>
           services[index % services.length].createPlan(firstUser.id, 1),
         );
-        await vi.waitFor(() => expect(providerArrivals).toBe(requestCount));
-        releaseProviderGate?.();
         await vi.waitFor(
           async () => {
             const waiters = await admin.$queryRaw<Array<{ count: bigint }>>`
@@ -174,7 +160,6 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(await admin.wordReviewAttempt.count({ where: { userId: firstUser.id } })).toBe(0);
         expect(ai.generateForUser).not.toHaveBeenCalled();
       } finally {
-        releaseProviderGate?.();
         releaseDatabaseLock?.();
         await lockTransaction?.catch(() => undefined);
         await Promise.allSettled(firstUserRequests);
