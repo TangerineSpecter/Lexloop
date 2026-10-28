@@ -77,6 +77,33 @@ describe('daily output evidence', () => {
     expect(englishWordPresent('We might miss the buses today.', 'miss the bus')).toBe(false);
     expect(englishWordPresent('We might miss-the-bus today.', 'miss the bus')).toBe(false);
   });
+  it('does not count a target embedded in a contraction, compound, or adjacent Unicode word', () => {
+    expect(englishWordPresent("can't miss it", 'can')).toBe(false);
+    expect(englishWordPresent('can’t miss it', 'can')).toBe(false);
+    expect(englishWordPresent('well-being matters', 'well')).toBe(false);
+    expect(englishWordPresent('well-being matters', 'being')).toBe(false);
+    expect(englishWordPresent('well‐being matters', 'well')).toBe(false);
+    expect(englishWordPresent('caféffect', 'effect')).toBe(false);
+    expect(englishWordPresent('effect_2', 'effect')).toBe(false);
+    expect(englishWordPresent('well-being matters', 'well-being')).toBe(true);
+    expect(englishWordPresent('“effect,” it matters.', 'effect')).toBe(true);
+  });
+  it('does not let model feedback credit a word found only inside a contraction', () => {
+    const singleTarget = [{ bookWordId: 'can', word: 'can', meaning: '能够' }];
+    const feedback = normalizeOutputFeedback(
+      {
+        grammarScore: 90,
+        coherenceScore: 90,
+        correctedText: "I can't go today.",
+        comments: [],
+        words: [{ bookWordId: 'can', used: true, correct: true, feedback: '表达正确。' }],
+      },
+      singleTarget,
+      "I can't go today.",
+    );
+    expect(feedback.words[0]).toMatchObject({ used: false, correct: false });
+    expect(feedback.words[0].feedback).toContain('未找到 can');
+  });
 });
 
 describe('calendar and weekly prescription', () => {

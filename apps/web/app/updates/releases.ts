@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.44',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '每日输出按完整词项核对目标词',
+        entry: '学习专项与处方 → 每日输出挑战',
+        usage: '撇号或连字符连接的词不会再被拆开误算，例如不能把“can”记作已写在“can’t”中。',
+      },
+    ],
+  },
+  {
     version: '1.27.43',
     date: '2026-10-28',
     items: [

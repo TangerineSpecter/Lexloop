@@ -64,7 +64,8 @@ export function englishWordPresent(answer: string, word: string) {
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('\\s+');
   if (!escaped) return false;
-  return new RegExp(`(?<![a-z])${escaped}(?![a-z])`, 'i').test(answer);
+  const wordContinuation = String.raw`[\p{L}\p{M}\p{N}_'‘’\-\u2010-\u2015]`;
+  return new RegExp(`(?<!${wordContinuation})${escaped}(?!${wordContinuation})`, 'iu').test(answer);
 }
 function text(value: unknown, limit: number) {
   if (typeof value !== 'string' || !value.trim() || value.length > limit)
