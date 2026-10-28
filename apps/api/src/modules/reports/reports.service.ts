@@ -50,9 +50,19 @@ export class ReportsService {
 
   async statistics(userId: string, days: number, timeZone = 'UTC'): Promise<PeriodStatistics> {
     timeZone = validateTimeZone(timeZone);
-    const end = endOfToday();
-    const start = new Date(end.getTime() - days * DAY);
-    const previousStart = new Date(start.getTime() - days * DAY);
+    const now = new Date();
+    const dateFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayKey = dateKeyInTimeZone(dateFormatter, now);
+    const firstDayKey = shiftDateKey(todayKey, -(days - 1));
+    const dayKeys = Array.from({ length: days }, (_, index) => shiftDateKey(firstDayKey, index));
+    const start = localDayStart(firstDayKey, timeZone);
+    const end = localDayStart(shiftDateKey(todayKey, 1), timeZone);
+    const previousStart = localDayStart(shiftDateKey(firstDayKey, -days), timeZone);
     const [
       attempts,
       previousAttempts,
@@ -94,41 +104,57 @@ export class ReportsService {
         where: { userId, status: 'COMPLETED', completedAt: { gte: start, lt: end } },
         select: { completedAt: true },
       }),
-      this.practiceDays(userId, start, end),
+      this.practiceDays(userId, start, end, timeZone),
     ]);
-    const activity = Array.from({ length: days }, (_, index) => {
-      const date = new Date(start.getTime() + index * DAY);
-      const next = new Date(date.getTime() + DAY);
-      const daily = attempts.filter(
-        (attempt) => attempt.createdAt >= date && attempt.createdAt < next,
-      );
+    const practiceCounts = new Map(practiceDays.map((item) => [item.dateKey, item.count]));
+    const dailyRows = new Map(
+      dayKeys.map((dateKey) => [
+        dateKey,
+        { words: new Set<string>(), questions: 0, studySeconds: 0, scenarios: 0, assessments: 0 },
+      ]),
+    );
+    for (const attempt of attempts) {
+      const day = dailyRows.get(dateKeyInTimeZone(dateFormatter, attempt.createdAt));
+      if (!day) continue;
+      day.words.add(attempt.bookWordId);
+      day.questions++;
+      day.studySeconds += attempt.responseTimeMs ?? 0;
+    }
+    for (const scenario of scenarios) {
+      if (!scenario.completedAt) continue;
+      const day = dailyRows.get(dateKeyInTimeZone(dateFormatter, scenario.completedAt));
+      if (day) day.scenarios++;
+    }
+    for (const assessment of assessments) {
+      if (!assessment.completedAt) continue;
+      const day = dailyRows.get(dateKeyInTimeZone(dateFormatter, assessment.completedAt));
+      if (day) day.assessments++;
+    }
+    const activityDays = dayKeys.map((dateKey) => {
+      const [, month, dayOfMonth] = dateKey.split('-').map(Number);
+      const daily = dailyRows.get(dateKey)!;
       return {
-        label: `${date.getMonth() + 1} 月 ${date.getDate()} 日`,
-        words: new Set(daily.map((attempt) => attempt.bookWordId)).size,
-        questions: daily.length,
-        studySeconds: Math.round(
-          daily.reduce((sum, attempt) => sum + (attempt.responseTimeMs ?? 0), 0) / 1000,
-        ),
-        scenarios: scenarios.filter(
-          (item) => item.completedAt && item.completedAt >= date && item.completedAt < next,
-        ).length,
-        assessments: assessments.filter(
-          (item) => item.completedAt && item.completedAt >= date && item.completedAt < next,
-        ).length,
-        practiceSessions: practiceDays
-          .filter((item) => item.date >= date && item.date < next)
-          .reduce((sum, item) => sum + item.count, 0),
-        today: index === days - 1,
+        dateKey,
+        label: `${month} 月 ${dayOfMonth} 日`,
+        words: daily.words.size,
+        questions: daily.questions,
+        studySeconds: Math.round(daily.studySeconds / 1000),
+        scenarios: daily.scenarios,
+        assessments: daily.assessments,
+        practiceSessions: practiceCounts.get(dateKey) ?? 0,
+        today: dateKey === todayKey,
       };
     });
+    const activity = activityDays.map(({ dateKey: _dateKey, ...day }) => day);
     const chart =
       days === 7
-        ? activity.map((day, index) => ({
-            ...day,
-            label: index === 6 ? '今天' : weekDay(new Date(start.getTime() + index * DAY)),
+        ? activityDays.map((day, index) => ({
+            label: index === 6 ? '今天' : weekDayForDateKey(day.dateKey),
+            words: day.words,
             completed: isActiveDay(day),
+            today: day.today,
           }))
-        : periodChart(activity, start, days === 365 ? 12 : 10);
+        : periodChart(activityDays, days === 365 ? 12 : 10);
     const activeDays = activity.filter(isActiveDay).length;
     const signals = signalRows(progresses, attempts);
     const responseTimes = attempts
@@ -683,11 +709,11 @@ export class ReportsService {
         select: { completedAt: true },
       }),
       this.prisma.$queryRaw<Array<{ dateKey: string }>>`
-        SELECT TO_CHAR("createdAt" AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS "dateKey"
+        SELECT TO_CHAR("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS "dateKey"
         FROM "LearningEvent"
         WHERE "userId" = ${userId} AND "createdAt" >= ${since} AND "createdAt" < ${now}
           AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED', 'MICRO_STORY_COMPLETED')
-        GROUP BY TO_CHAR("createdAt" AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')
+        GROUP BY 1
       `,
     ]);
     const eventDates = [
@@ -710,12 +736,12 @@ export class ReportsService {
     }
     return { currentStreak: streak, todayActive };
   }
-  private practiceDays(userId: string, start: Date, end: Date) {
-    return this.prisma.$queryRaw<Array<{ date: Date; count: number }>>`
-      SELECT date_trunc('day', "createdAt") AS date, COUNT(*)::int AS count
+  private practiceDays(userId: string, start: Date, end: Date, timeZone: string) {
+    return this.prisma.$queryRaw<Array<{ dateKey: string; count: number }>>`
+      SELECT TO_CHAR("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS "dateKey", COUNT(*)::int AS count
       FROM "LearningEvent" WHERE "userId" = ${userId} AND "createdAt" >= ${start} AND "createdAt" < ${end}
         AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED', 'MICRO_STORY_COMPLETED')
-      GROUP BY date_trunc('day', "createdAt")
+      GROUP BY 1
     `;
   }
 }
@@ -1031,11 +1057,6 @@ function startOfToday() {
   date.setHours(0, 0, 0, 0);
   return date;
 }
-function endOfToday() {
-  const date = new Date();
-  date.setHours(24, 0, 0, 0);
-  return date;
-}
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
@@ -1057,22 +1078,58 @@ function dateKeyInTimeZone(formatter: Intl.DateTimeFormat, date: Date) {
 function utcDateKey(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
-function weekDay(date: Date) {
-  return `周${'日一二三四五六'[date.getDay()]}`;
+function shiftDateKey(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return utcDateKey(date);
 }
-function periodChart(activity: PeriodStatistics['activity'], start: Date, bucketCount: number) {
+function localDayStart(dateKey: string, timeZone: string) {
+  const wallClock = new Date(`${dateKey}T00:00:00.000Z`).getTime();
+  const offsetFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'longOffset',
+  });
+  let timestamp = wallClock;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const offsetName = offsetFormatter
+      .formatToParts(new Date(timestamp))
+      .find((part) => part.type === 'timeZoneName')?.value;
+    const match = /^GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(offsetName ?? '');
+    if (!match) throw new RangeError(`Unsupported time zone offset: ${offsetName ?? 'unknown'}`);
+    const minutes = match[1]
+      ? (Number(match[2]) * 60 + Number(match[3])) * (match[1] === '+' ? 1 : -1)
+      : 0;
+    const adjusted = wallClock - minutes * 60_000;
+    if (adjusted === timestamp) break;
+    timestamp = adjusted;
+  }
+  const start = new Date(timestamp);
+  const dateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  if (dateKeyInTimeZone(dateFormatter, start) !== dateKey)
+    throw new RangeError(`Could not resolve local day boundary for ${dateKey} in ${timeZone}`);
+  return start;
+}
+function weekDayForDateKey(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return `周${'日一二三四五六'[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]}`;
+}
+function periodChart(
+  activity: Array<PeriodStatistics['activity'][number] & { dateKey: string }>,
+  bucketCount: number,
+) {
   const bucketSize = Math.ceil(activity.length / bucketCount);
   return Array.from({ length: bucketCount }, (_, index) => {
     const offset = index * bucketSize;
     const slice = activity.slice(offset, offset + bucketSize);
-    const date = new Date(start.getTime() + offset * DAY);
+    const [, month, day] = activity[offset]?.dateKey.split('-').map(Number) ?? [0, 0, 0];
     return {
       label:
-        index === bucketCount - 1
-          ? '至今'
-          : bucketCount === 12
-            ? `${date.getMonth() + 1}月`
-            : `${date.getMonth() + 1}/${date.getDate()}`,
+        index === bucketCount - 1 ? '至今' : bucketCount === 12 ? `${month}月` : `${month}/${day}`,
       words: slice.reduce((sum, day) => sum + day.words, 0),
       completed: slice.some(isActiveDay),
       today: index === bucketCount - 1,

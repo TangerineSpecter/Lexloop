@@ -135,6 +135,45 @@ describe('period statistics word signals', () => {
     expect(prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.userId).toBe('learner-a');
     expect(prisma.userWordProgress.findMany.mock.calls[0][0].where.userId).toBe('learner-a');
   });
+
+  it('uses the learner calendar day for statistics across UTC midnight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-27T00:30:00.000Z'));
+    const { service, prisma } = periodStatisticsService();
+
+    const statistics = await service.statistics('learner-a', 7, 'Asia/Shanghai');
+
+    expect(prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.createdAt).toEqual({
+      gte: new Date('2026-10-20T16:00:00.000Z'),
+      lt: new Date('2026-10-27T16:00:00.000Z'),
+    });
+    expect(prisma.wordReviewAttempt.count.mock.calls[0][0].where.createdAt).toEqual({
+      gte: new Date('2026-10-13T16:00:00.000Z'),
+      lt: new Date('2026-10-20T16:00:00.000Z'),
+    });
+    expect(statistics.activity).toHaveLength(7);
+    expect(statistics.activity[0].label).toBe('10 月 21 日');
+    expect(statistics.activity[6]).toMatchObject({ label: '10 月 27 日', today: true });
+    expect(statistics.chart[0].label).toBe('周三');
+    expect(prisma.$queryRaw.mock.calls[0].slice(1)).toContain('Asia/Shanghai');
+    expect(prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.userId).toBe('learner-a');
+  });
+
+  it('keeps each learner day aligned across a daylight-saving transition', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-08T16:30:00.000Z'));
+    const { service, prisma } = periodStatisticsService();
+
+    const statistics = await service.statistics('learner-a', 7, 'America/New_York');
+
+    const window = prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.createdAt!;
+    expect(window.gte).toEqual(new Date('2026-03-02T05:00:00.000Z'));
+    expect(window.lt).toEqual(new Date('2026-03-09T04:00:00.000Z'));
+    expect(window.lt!.getTime() - window.gte.getTime()).toBe(167 * 60 * 60 * 1000);
+    expect(statistics.activity).toHaveLength(7);
+    expect(statistics.activity[6]).toMatchObject({ label: '3 月 8 日', today: true });
+    expect(prisma.$queryRaw.mock.calls[0].slice(1)).toContain('America/New_York');
+  });
 });
 
 function streakService({
@@ -182,8 +221,13 @@ function periodStatisticsService() {
   ];
   const prisma = {
     wordReviewAttempt: {
-      findMany: vi.fn(({ select }: { select?: unknown; where: { userId: string } }) =>
-        Promise.resolve(select ? [] : attempts),
+      findMany: vi.fn(
+        ({
+          select,
+        }: {
+          select?: unknown;
+          where: { userId: string; createdAt?: { gte: Date; lt?: Date } };
+        }) => Promise.resolve(select ? [] : attempts),
       ),
       count: vi.fn().mockResolvedValue(0),
     },

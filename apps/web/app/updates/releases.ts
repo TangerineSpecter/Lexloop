@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.39',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '学习统计按本地时区切分日期',
+        entry: '学习统计 → 阶段复盘',
+        usage:
+          '每日答题和专项活动按浏览器时区归入本地日期，跨 UTC 午夜或夏令时也保持日期一致；不改学习历史或复习安排。',
+      },
+    ],
+  },
+  {
     version: '1.27.38',
     date: '2026-10-28',
     items: [
