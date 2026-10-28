@@ -19,6 +19,7 @@ import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
+import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
 
@@ -528,6 +529,11 @@ export class StudyService {
           where: { id: planId, startedAt: null },
           data: { startedAt: completedAt },
         });
+        await lockUserWordProgress(
+          tx,
+          userId,
+          items.map((item) => item.bookWordId),
+        );
         for (const item of items) {
           const answer = answers.find((value) => value.bookWordId === item.bookWordId)!;
           const graded = gradeQuestion(item.question, answer.selectedAnswer);

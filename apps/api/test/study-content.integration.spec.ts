@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
 import { StudyService } from '../src/modules/study/study.service';
@@ -291,6 +292,184 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           new MistakesService({} as never),
         );
 
+        const concurrentContent = {
+          groups: [
+            {
+              index: 0,
+              title: 'A bright idea',
+              wordOccurrences: { bright: 1 },
+              sentences: [],
+              questions: [questions[0]],
+            },
+          ],
+        };
+        const createConcurrentPlan = () =>
+          prisma.studyPlan.create({
+            data: {
+              userId: users[0].id,
+              mode: 'GROUP',
+              purpose: 'NORMAL',
+              status: 'ACTIVE',
+              generatedContent: concurrentContent,
+              generatedAt: createdAt,
+              items: {
+                create: {
+                  bookWordId: bookWords[0].id,
+                  source: 'REVIEW',
+                  groupIndex: 0,
+                  question: questions[0],
+                },
+              },
+            },
+            select: { id: true },
+          });
+        const [concurrentWrongPlan, concurrentCorrectPlan] = await Promise.all([
+          createConcurrentPlan(),
+          createConcurrentPlan(),
+        ]);
+        const beforeSharedWordConcurrency = await prisma.userWordProgress.findUniqueOrThrow({
+          where: { userId_bookWordId: { userId: users[0].id, bookWordId: bookWords[0].id } },
+        });
+
+        let firstProgressRead!: () => void;
+        let firstProgressLock!: () => void;
+        let releaseProgressReads!: () => void;
+        let markWrongCommitted!: () => void;
+        const firstProgressReadReached = new Promise<void>((resolve) => {
+          firstProgressRead = resolve;
+        });
+        const firstProgressLockReached = new Promise<void>((resolve) => {
+          firstProgressLock = resolve;
+        });
+        const bothProgressReadsReached = new Promise<void>((resolve) => {
+          releaseProgressReads = resolve;
+        });
+        const wrongTransactionCommitted = new Promise<void>((resolve) => {
+          markWrongCommitted = resolve;
+        });
+        let transactionCount = 0;
+        let progressReadCount = 0;
+        const concurrencyProbePrisma = new Proxy(prisma, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target);
+            if (property !== '$transaction')
+              return typeof value === 'function' ? value.bind(target) : value;
+            return (callback: (...args: any[]) => unknown, ...options: any[]) => {
+              const transactionIndex = ++transactionCount;
+              const transaction = value.call(
+                target,
+                (tx: any) => {
+                  let progressRowLocked = false;
+                  const progressDelegate = new Proxy(tx.userWordProgress, {
+                    get(delegate, method) {
+                      const methodValue = Reflect.get(delegate, method, delegate);
+                      if (method === 'findUniqueOrThrow')
+                        return async (...args: any[]) => {
+                          const row = await methodValue.apply(delegate, args);
+                          if (!progressRowLocked) {
+                            progressReadCount++;
+                            if (transactionIndex === 1) firstProgressRead();
+                            if (progressReadCount === 2) releaseProgressReads();
+                            await bothProgressReadsReached;
+                          }
+                          return row;
+                        };
+                      if (method === 'update' && transactionIndex === 2)
+                        return async (...args: any[]) => {
+                          await wrongTransactionCommitted;
+                          return methodValue.apply(delegate, args);
+                        };
+                      return typeof methodValue === 'function'
+                        ? methodValue.bind(delegate)
+                        : methodValue;
+                    },
+                  });
+                  const transactionClient = new Proxy(tx, {
+                    get(transactionTarget, method) {
+                      if (method === 'userWordProgress') return progressDelegate;
+                      const methodValue = Reflect.get(transactionTarget, method, transactionTarget);
+                      if (method === '$queryRaw')
+                        return async (...args: any[]) => {
+                          const rows = await methodValue.apply(transactionTarget, args);
+                          progressRowLocked = true;
+                          if (transactionIndex === 1) firstProgressLock();
+                          return rows;
+                        };
+                      return typeof methodValue === 'function'
+                        ? methodValue.bind(transactionTarget)
+                        : methodValue;
+                    },
+                  });
+                  return callback(transactionClient);
+                },
+                ...options,
+              );
+              if (transactionIndex === 1)
+                return transaction.then((result: unknown) => {
+                  markWrongCommitted();
+                  return result;
+                });
+              return transaction;
+            };
+          },
+        });
+        const progressSerializationService = new StudyService(
+          concurrencyProbePrisma as never,
+          {} as never,
+          {} as never,
+          { recordAttempt: async () => undefined } as never,
+        );
+        const sharedProgressStartedAt = performance.now();
+        const wrongSubmission = progressSerializationService.completeGroup(
+          users[0].id,
+          concurrentWrongPlan.id,
+          0,
+          [{ bookWordId: bookWords[0].id, selectedAnswer: ['暗的'] }],
+        );
+        let firstProgressGateTimeout: ReturnType<typeof setTimeout> | undefined;
+        const firstProgressGate = await Promise.race([
+          firstProgressLockReached.then(() => 'locked' as const),
+          firstProgressReadReached.then(() => 'read' as const),
+          new Promise<'timeout'>((resolve) => {
+            firstProgressGateTimeout = setTimeout(() => resolve('timeout'), 5_000);
+          }),
+        ]);
+        if (firstProgressGateTimeout) clearTimeout(firstProgressGateTimeout);
+        const correctSubmission = progressSerializationService.completeGroup(
+          users[0].id,
+          concurrentCorrectPlan.id,
+          0,
+          [{ bookWordId: bookWords[0].id, selectedAnswer: ['明亮的'] }],
+        );
+        const [wrongResult, correctResult] = await Promise.all([
+          wrongSubmission,
+          correctSubmission,
+        ]);
+        const sharedProgressElapsedMs = performance.now() - sharedProgressStartedAt;
+        console.info(
+          `same learner-word concurrent submissions: 2 serialized in ${sharedProgressElapsedMs.toFixed(1)} ms`,
+        );
+        expect(firstProgressGate).not.toBe('timeout');
+        expect(sharedProgressElapsedMs).toBeLessThan(5_000);
+        expect([wrongResult.status, correctResult.status]).toEqual(['COMPLETED', 'COMPLETED']);
+        expect(await attemptsFor(concurrentWrongPlan.id)).toHaveLength(1);
+        expect(await attemptsFor(concurrentCorrectPlan.id)).toHaveLength(1);
+        const serializedProgress = await prisma.userWordProgress.findUniqueOrThrow({
+          where: { userId_bookWordId: { userId: users[0].id, bookWordId: bookWords[0].id } },
+        });
+        expect(serializedProgress.totalAttempts).toBe(
+          beforeSharedWordConcurrency.totalAttempts + 2,
+        );
+        expect(serializedProgress.correctAttempts).toBe(
+          beforeSharedWordConcurrency.correctAttempts + 1,
+        );
+        expect(serializedProgress.reviewCount).toBe(beforeSharedWordConcurrency.reviewCount + 2);
+        expect(serializedProgress.consecutiveCorrect).toBe(1);
+        expect(serializedProgress.lastIntervalDays).toBe(1);
+        expect(
+          serializedProgress.nextReviewAt!.getTime() - serializedProgress.lastReviewedAt!.getTime(),
+        ).toBe(86_400_000);
+
         const sameAnswerService = createReadBarrierService(new Set([`${ownerPlan.id}:0`]), 2);
         const correctAnswers = answersFor(true);
         const identicalSubmissions = await Promise.all([
@@ -324,13 +503,15 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const firstProgress = await progressFor(users[0].id);
         expect(firstProgress).toHaveLength(2);
         expect(
-          firstProgress.every(
-            (row) =>
-              row.totalAttempts === 1 &&
-              row.correctAttempts === 1 &&
-              row.consecutiveCorrect === 1 &&
-              row.reviewCount === 1,
-          ),
+          firstProgress.every((row) => {
+            const sharedWord = row.bookWordId === bookWords[0].id;
+            return (
+              row.totalAttempts === (sharedWord ? 3 : 1) &&
+              row.correctAttempts === (sharedWord ? 2 : 1) &&
+              row.consecutiveCorrect === (sharedWord ? 2 : 1) &&
+              row.reviewCount === (sharedWord ? 3 : 1)
+            );
+          }),
         ).toBe(true);
         const weakness = await prisma.weaknessSignal.findFirstOrThrow({
           where: { userId: users[0].id, bookWordId: bookWords[0].id },
@@ -413,13 +594,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         }
         const afterCompetingAnswers = await progressFor(users[0].id);
         expect(
-          afterCompetingAnswers.every(
-            (row) =>
-              row.totalAttempts === 2 &&
-              row.reviewCount === 2 &&
-              row.correctAttempts === (allCorrectWon ? 2 : 1) &&
-              row.consecutiveCorrect === (allCorrectWon ? 2 : 0),
-          ),
+          afterCompetingAnswers.every((row) => {
+            const sharedWord = row.bookWordId === bookWords[0].id;
+            const previousCorrect = sharedWord ? 2 : 1;
+            const previousStreak = sharedWord ? 2 : 1;
+            const previousAttempts = sharedWord ? 3 : 1;
+            const previousReviews = sharedWord ? 3 : 1;
+            return (
+              row.totalAttempts === previousAttempts + 1 &&
+              row.reviewCount === previousReviews + 1 &&
+              row.correctAttempts === previousCorrect + (allCorrectWon ? 1 : 0) &&
+              row.consecutiveCorrect === (allCorrectWon ? previousStreak + 1 : 0)
+            );
+          }),
         ).toBe(true);
 
         const savedResult = await serviceWithMistakes.completeGroup(

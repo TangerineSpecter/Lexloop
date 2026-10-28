@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule } from '../study/review-scheduling';
+import { lockUserWordProgress } from '../study/user-word-progress-lock';
 
 export type PracticeEvidence = {
   bookWordId: string;
@@ -17,17 +18,29 @@ export type PracticeEvidence = {
 export class PracticeEvidenceService {
   constructor(private readonly mistakes: MistakesService) {}
   async record(tx: Prisma.TransactionClient, userId: string, evidence: PracticeEvidence[]) {
-    for (const item of [...evidence].sort((a, b) => a.bookWordId.localeCompare(b.bookWordId))) {
-      const word = await tx.vocabularyBookWord.findFirst({
-        where: {
-          id: item.bookWordId,
-          book: {
-            isActive: true,
-            OR: [{ ownerId: userId }, { kind: 'SYSTEM', userBooks: { some: { userId } } }],
-          },
+    const orderedEvidence = [...evidence].sort((left, right) =>
+      left.bookWordId < right.bookWordId ? -1 : left.bookWordId > right.bookWordId ? 1 : 0,
+    );
+    const eligibleWords = await tx.vocabularyBookWord.findMany({
+      where: {
+        id: { in: orderedEvidence.map((item) => item.bookWordId) },
+        book: {
+          isActive: true,
+          OR: [{ ownerId: userId }, { kind: 'SYSTEM', userBooks: { some: { userId } } }],
         },
-      });
-      if (!word) continue;
+      },
+      select: { id: true },
+    });
+    const eligibleWordIds = new Set(eligibleWords.map((word) => word.id));
+    await lockUserWordProgress(
+      tx,
+      userId,
+      orderedEvidence
+        .filter((item) => eligibleWordIds.has(item.bookWordId))
+        .map((item) => item.bookWordId),
+    );
+    for (const item of orderedEvidence) {
+      if (!eligibleWordIds.has(item.bookWordId)) continue;
       const now = new Date();
       const progress = await tx.userWordProgress.upsert({
         where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },

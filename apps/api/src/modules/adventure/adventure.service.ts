@@ -25,6 +25,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule } from '../study/review-scheduling';
+import { lockUserWordProgress } from '../study/user-word-progress-lock';
 import { CLASS_NODES, ENEMIES, EQUIPMENT, FLOOR_TITLES, SKILLS } from './adventure.catalog';
 import {
   aggregateMastery,
@@ -912,20 +913,20 @@ export class AdventureService {
     answer: unknown[],
     responseTimeMs?: number,
   ) {
+    const target = await tx.floorLearningTarget.findUniqueOrThrow({
+      where: { id: challenge.targetId },
+    });
+    await lockUserWordProgress(tx, userId, [target.bookWordId]);
     const progress = await tx.userWordProgress.upsert({
       where: {
         userId_bookWordId: {
           userId,
-          bookWordId: (
-            await tx.floorLearningTarget.findUniqueOrThrow({ where: { id: challenge.targetId } })
-          ).bookWordId,
+          bookWordId: target.bookWordId,
         },
       },
       create: {
         userId,
-        bookWordId: (
-          await tx.floorLearningTarget.findUniqueOrThrow({ where: { id: challenge.targetId } })
-        ).bookWordId,
+        bookWordId: target.bookWordId,
       },
       update: {},
     });
@@ -933,9 +934,6 @@ export class AdventureService {
     await tx.userWordProgress.update({
       where: { id: progress.id },
       data: reviewSchedule(progress, correct),
-    });
-    const target = await tx.floorLearningTarget.findUniqueOrThrow({
-      where: { id: challenge.targetId },
     });
     await tx.wordReviewAttempt.create({
       data: {
