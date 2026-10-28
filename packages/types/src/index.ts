@@ -283,6 +283,23 @@ export interface DungeonRoomState {
   enemyMaxHp: number | null;
 }
 
+export interface DungeonLastAction {
+  challengeType: AdventureChallengeType;
+  phase: 'ATTACK' | 'BLOCK';
+  prompt: string | null;
+  answer: string[];
+  score: number;
+  grade: AdventureHitGrade;
+  damageDealt: number;
+  damageReceived: number;
+  feedback: {
+    correct: boolean;
+    message: string;
+    answer?: string;
+    provisional?: boolean;
+  };
+}
+
 export interface DungeonRunState {
   id: string;
   status: AdventureRunStatus;
@@ -299,6 +316,7 @@ export interface DungeonRunState {
   rooms: DungeonRoomState[];
   loot: InventoryItem[];
   challenge: BattleChallenge | null;
+  lastAction: DungeonLastAction | null;
   availableSkills: AdventureSkill[];
   canRetreat: boolean;
 }
@@ -309,7 +327,7 @@ export interface BattleResolution {
   grade: AdventureHitGrade;
   damageDealt: number;
   damageReceived: number;
-  feedback: { correct: boolean; message: string; answer?: string };
+  feedback: { correct: boolean; message: string; answer?: string; provisional?: boolean };
   run: DungeonRunState;
   rewards?: { experience: number; gold: number; materials: number; item?: InventoryItem };
 }

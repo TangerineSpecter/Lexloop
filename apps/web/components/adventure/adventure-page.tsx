@@ -606,6 +606,7 @@ function BattlePage({
   const pendingAction = useRef<{ challengeId: string; actionId: string } | null>(null);
   const challenge = run.challenge;
   const currentRoom = run.rooms.find((item) => item.position === run.currentRoom);
+  const previousFeedback = ui.feedback ?? run.lastAction?.feedback ?? null;
   const startedAt = useMemo(() => Date.now(), [challenge?.id]);
   useEffect(() => {
     if (!ui.fx) return;
@@ -772,11 +773,21 @@ function BattlePage({
           />
         )}{' '}
         {error && <p className={styles.error}>{error}</p>}
-        {ui.feedback && (
-          <p className={ui.feedback.correct ? styles.success : styles.error}>
-            上一回合：{ui.feedback.message}
-            {ui.feedback.answer && !ui.feedback.correct ? ` 参考：${ui.feedback.answer}` : ''}
-          </p>
+        {run.lastAction && previousFeedback && (
+          <aside className={styles.previousFeedback} role="status" aria-label="上一题的已保存反馈">
+            <strong>上一题 · {challengeTypeLabel(run.lastAction.challengeType)}</strong>
+            <p>{run.lastAction.prompt ?? '这道题的原题目暂未保存。'}</p>
+            <p>你的回答：{run.lastAction.answer.join(' ') || '（未记录文字回答）'}</p>
+            <p className={previousFeedback.correct ? styles.success : styles.error}>
+              {previousFeedback.message}
+              {previousFeedback.answer && !previousFeedback.correct
+                ? ` 参考：${previousFeedback.answer}`
+                : ''}
+            </p>
+            {previousFeedback.provisional && (
+              <small>本题使用了保守的临时判定，不能代表完整的英语能力评价。</small>
+            )}
+          </aside>
         )}
         <button className={styles.strike} disabled={ui.busy || !ui.answer.length}>
           {ui.busy ? (

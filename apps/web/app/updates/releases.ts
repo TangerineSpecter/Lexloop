@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.8',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '刷新后还能接着回看上一题',
+        entry: '地下词环 → 进行中的探索',
+        usage: '继续当前地牢时可看到上一题、自己的回答和反馈；更早的旧记录没有题干时会明确说明。',
+      },
+    ],
+  },
+  {
     version: '1.27.6',
     date: '2026-10-27',
     items: [

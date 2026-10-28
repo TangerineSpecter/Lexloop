@@ -362,6 +362,7 @@ export class AdventureService {
         message: grading.message,
         answer: grading.answer,
         provisional: grading.provisional,
+        prompt: challenge.prompt,
       };
       const action = await tx.battleAction.create({
         data: {
@@ -1077,6 +1078,7 @@ export class AdventureService {
       where: { id: runId, userId },
       include: {
         rooms: { orderBy: { position: 'asc' } },
+        actions: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 },
         acquiredItems: { include: { definition: true }, orderBy: { createdAt: 'asc' } },
         floor: {
           include: { _count: { select: { targets: true } }, progresses: { where: { userId } } },
@@ -1116,6 +1118,39 @@ export class AdventureService {
         current && run.status === AdventureRunStatus.ACTIVE
           ? publicChallenge(asChallenge(current.challenge))
           : null,
+      lastAction: run.actions[0]
+        ? (() => {
+            const action = run.actions[0];
+            const savedFeedback = record(action.feedback);
+            const savedAnswer = record(action.answer);
+            const feedbackAnswer = savedFeedback.answer;
+            return {
+              challengeType: action.challengeType,
+              phase: action.phase,
+              prompt: typeof savedFeedback.prompt === 'string' ? savedFeedback.prompt : null,
+              answer: Array.isArray(action.answer)
+                ? action.answer.filter((item): item is string => typeof item === 'string')
+                : typeof savedAnswer.answer === 'string'
+                  ? [savedAnswer.answer]
+                  : [],
+              score: action.score,
+              grade: action.grade,
+              damageDealt: action.damageDealt,
+              damageReceived: action.damageReceived,
+              feedback: {
+                correct: savedFeedback.correct === true,
+                message:
+                  typeof savedFeedback.message === 'string'
+                    ? savedFeedback.message
+                    : '本题已保存。',
+                ...(typeof feedbackAnswer === 'string' ? { answer: feedbackAnswer } : {}),
+                ...(typeof savedFeedback.provisional === 'boolean'
+                  ? { provisional: savedFeedback.provisional }
+                  : {}),
+              },
+            };
+          })()
+        : null,
       availableSkills: profile.skills
         .filter((item) => item.skill.sortOrder <= 4)
         .map((item) => ({
