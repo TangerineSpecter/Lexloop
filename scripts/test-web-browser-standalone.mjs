@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { cp, mkdir, readdir, stat } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -68,6 +69,28 @@ async function copyContents(source, destination) {
   for (const name of await readdir(source)) {
     await cp(join(source, name), join(destination, name), { recursive: true, force: true });
   }
+}
+
+async function prepareChromiumSubreaper() {
+  if (process.platform !== 'linux') return null;
+  const directory = await mkdtemp(join(tmpdir(), 'lexloop-chromium-reaper-'));
+  const executable = join(directory, 'chromium-subreaper');
+  const source = join(rootDir, 'apps/web/test/chromium-subreaper.c');
+  const compiler = process.env.CC ?? 'cc';
+  const result = spawnSync(
+    compiler,
+    ['-std=c11', '-O2', '-Wall', '-Wextra', source, '-o', executable],
+    {
+      cwd: rootDir,
+      encoding: 'utf8',
+    },
+  );
+  if (result.error || result.status !== 0) {
+    await rm(directory, { recursive: true, force: true });
+    console.warn('Linux Chromium 子进程回收器不可用；将退回进程组清理。');
+    return null;
+  }
+  return { directory, executable };
 }
 
 export async function prepareStandalone(webDir = defaultWebDir) {
@@ -261,6 +284,8 @@ async function main() {
   const standaloneDir = dirname(prepared.serverPath);
   const port = await reserveLoopbackPort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const subreaper = await prepareChromiumSubreaper();
+  if (subreaper) console.log('Linux Chromium 子进程回收器已就绪。');
   const server = spawn(process.execPath, [prepared.serverPath], {
     cwd: standaloneDir,
     env: { ...process.env, HOSTNAME: '127.0.0.1', PORT: String(port) },
@@ -283,6 +308,7 @@ async function main() {
       cwd: webDir,
       env: {
         ...process.env,
+        ...(subreaper ? { LAB_CHROMIUM_SUBREAPER: subreaper.executable } : {}),
         LAB_BROWSER_EXECUTABLE: browserExecutable,
         LAB_BROWSER_TEST_URL: baseUrl,
       },
@@ -291,6 +317,7 @@ async function main() {
   } finally {
     await stopServer(server);
     if (activeServer === server) activeServer = undefined;
+    if (subreaper) await rm(subreaper.directory, { recursive: true, force: true });
   }
 }
 

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.42',
+    date: '2026-10-28',
+    items: [
+      {
+        title: '生词本新增听音拼写',
+        entry: '个人生词本 → 听音拼写',
+        usage:
+          '先听当前页词条的浏览器英语语音并输入拼写，再对照答案；可随时揭晓或退出，不记录成绩或调整复习状态。',
+      },
+    ],
+  },
+  {
     version: '1.27.41',
     date: '2026-10-28',
     items: [

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { closeChromium, spawnChromium } from './browser-process.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,7 @@ test(
   { skip: !baseUrl, timeout: 90_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-learning-lab-draft-'));
-    const browser = spawn(
+    const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
       [
         '--headless',
@@ -25,7 +25,7 @@ test(
         `--user-data-dir=${profile}`,
         'about:blank',
       ],
-      { stdio: 'ignore', detached: true },
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     );
     let launchError;
     let socket;
@@ -327,14 +327,7 @@ test(
       assert.deepEqual(browserErrors, []);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
-      if (browser.pid) {
-        try {
-          process.kill(-browser.pid, 'SIGTERM');
-        } catch {
-          // The browser may already have exited.
-        }
-      }
-      await delay(250);
+      await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true });
     }
   },

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { closeChromium, spawnChromium } from './browser-process.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,7 @@ test(
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-statistics-sample-test-'));
-    const browser = spawn(
+    const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
       [
         '--headless',
@@ -25,7 +25,7 @@ test(
         `--user-data-dir=${profile}`,
         'about:blank',
       ],
-      { stdio: 'ignore' },
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     );
     let launchError;
     let socket;
@@ -194,9 +194,8 @@ test(
         `statistics layout: desktop ${desktopLayout.documentWidth}/${desktopLayout.viewport}px, mobile ${mobileLayout.documentWidth}/${mobileLayout.viewport}px; key regions visible\n`,
       );
     } finally {
-      socket?.close();
-      browser.kill('SIGTERM');
-      await new Promise((resolve) => browser.once('close', resolve)).catch(() => {});
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
+      await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
   },

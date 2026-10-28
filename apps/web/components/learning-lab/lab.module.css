@@ -269,6 +269,93 @@
   cursor: pointer;
   font-weight: 700;
 }
+.spellingPractice {
+  margin: 18px 0;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 2px dashed var(--border-color, #082877);
+  border-radius: 10px;
+  background: var(--soft, #fffefa);
+}
+.spellingHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.spellingHeading > div {
+  min-width: 0;
+}
+.spellingHeading h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.spellingHeading p {
+  margin: 4px 0 0;
+}
+.spellingQuestion {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed #08287755;
+}
+.spellingQuestion > p {
+  margin: 0;
+}
+.spellingMeaning {
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.spellingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.spellingForm {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+.spellingForm label {
+  font-weight: 700;
+}
+.spellingForm input {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 2px solid #082877;
+  border-radius: 8px;
+  background: #fffefa;
+  color: #082877;
+  font: inherit;
+}
+.spellingForm p {
+  margin: 0;
+}
+.spellingForm button {
+  justify-self: start;
+}
+.spellingResult {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 12px;
+  border-left: 4px solid #ff8351;
+  background: #fff4b9;
+  overflow-wrap: anywhere;
+}
+.spellingResult span {
+  width: 100%;
+  color: #465f96;
+  font-size: 13px;
+}
 .form {
   display: grid;
   gap: 14px;
@@ -406,6 +493,19 @@
   }
   .meaningRecall button {
     justify-self: start;
+  }
+  .spellingPractice {
+    padding: 14px;
+  }
+  .spellingHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .spellingActions > button,
+  .spellingForm > button,
+  .spellingHeading > button {
+    max-width: 100%;
+    white-space: normal;
   }
   .head {
     grid-template-columns: minmax(0, 1fr);

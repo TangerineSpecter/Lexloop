@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { closeChromium, spawnChromium } from './browser-process.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,7 @@ test(
   { skip: !baseUrl, timeout: 60_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-adventure-feedback-test-'));
-    const browser = spawn(
+    const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
       [
         '--headless',
@@ -25,19 +25,15 @@ test(
         `--user-data-dir=${profile}`,
         'about:blank',
       ],
-      { stdio: 'ignore', detached: true },
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     );
     let launchError;
-    let closed = false;
     let socket;
     const waiting = new Map();
     let sequence = 0;
     const browserErrors = [];
     browser.on('error', (error) => {
       launchError = error;
-    });
-    browser.on('close', () => {
-      closed = true;
     });
 
     try {
@@ -246,14 +242,7 @@ test(
       assert.deepEqual(browserErrors, []);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
-      if (!closed) {
-        try {
-          process.kill(-browser.pid, 'SIGTERM');
-        } catch {
-          // Chromium may already have exited.
-        }
-      }
-      await new Promise((resolve) => (closed ? resolve() : browser.once('close', resolve)));
+      await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true });
     }
   },

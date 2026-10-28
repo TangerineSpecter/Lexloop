@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { closeChromium, spawnChromium } from './browser-process.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +18,7 @@ test(
   },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-collection-test-'));
-    const browser = spawn(
+    const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
       [
         '--headless',
@@ -30,17 +30,13 @@ test(
         `--user-data-dir=${profile}`,
         'about:blank',
       ],
-      { stdio: 'ignore' },
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     );
     let launchError;
     browser.on('error', (error) => {
       launchError = error;
     });
     let socket;
-    let closed = false;
-    browser.on('close', () => {
-      closed = true;
-    });
     const waiting = new Map();
     let sequence = 0;
     try {
@@ -181,9 +177,29 @@ test(
       window.collectionRequests = [];
       window.importRequests = [];
       window.importResolvers = [];
+      window.importResult = { imported: 2, restored: 0, duplicates: 1 };
       window.failImportOnce = false;
       window.deferImportOnce = false;
       window.apiRequests = [];
+      window.notebookSpeechAudit = [];
+      window.notebookSpeechVoices = [{ lang: 'en-US' }];
+      Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+        configurable: true,
+        value: function(text) { this.text = text; },
+      });
+      if (!window.speechSynthesis) throw new Error('SpeechSynthesis fixture is unavailable');
+      Object.defineProperty(window.speechSynthesis, 'getVoices', {
+        configurable: true,
+        value: () => window.notebookSpeechVoices,
+      });
+      Object.defineProperty(window.speechSynthesis, 'cancel', {
+        configurable: true,
+        value() {},
+      });
+      Object.defineProperty(window.speechSynthesis, 'speak', {
+        configurable: true,
+        value(utterance) { window.notebookSpeechAudit.push(utterance.text); },
+      });
       const notebookPages = ${JSON.stringify(notebookPages)};
       const nativeFetch = window.fetch;
       window.fetch = async (url, options) => {
@@ -208,9 +224,9 @@ test(
             }
             if (window.deferImportOnce) {
               window.deferImportOnce = false;
-              return await new Promise(resolve => window.importResolvers.push(() => resolve(Response.json({ imported: 2, restored: 0, duplicates: 1 }))));
+              return await new Promise(resolve => window.importResolvers.push(() => resolve(Response.json(window.importResult))));
             }
-            return Response.json({ imported: 2, restored: 0, duplicates: 1 });
+            return Response.json(window.importResult);
           }
           window.collectionRequests.push(body);
           return Response.json({ id: 'captured' });
@@ -302,6 +318,7 @@ test(
         window.failImportOnce = true;
       })()`);
       await until(`!${importSubmit}.disabled`);
+      await evaluate(`${importSubmit}.scrollIntoView({ block: 'center' })`);
       const importButtonBounds = await evaluate(
         `(() => { const box = ${importSubmit}.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`,
       );
@@ -374,6 +391,174 @@ test(
         ),
         true,
       );
+
+      await evaluate(`(() => {
+        window.importResult = { imported: 0, restored: 1, duplicates: 0 };
+        const input = ${importInput};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\t新的释义');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until(`!${importSubmit}.disabled`);
+      await evaluate(`${importSubmit}.click()`);
+      await until(
+        'window.importRequests.length === 3 && document.querySelector("[data-personal-vocabulary-import] [role=status]")?.textContent.includes("恢复 1 个原词条")',
+      );
+      assert.equal(
+        await evaluate(
+          `${importDetails}.querySelector('[role=status]').textContent.includes('已有词条 0 项已跳过。新词加入复习；已有词条的释义和进度保留。')`,
+        ),
+        true,
+      );
+
+      const apiRequestsBeforeSpelling = await evaluate('window.apiRequests.length');
+      await evaluate('window.originalNotebookRandom = Math.random; Math.random = () => 0');
+      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await until('document.activeElement?.matches("[data-spelling-answer-input]")');
+      const firstSpellingDesktop = await evaluate(`(() => {
+        const practice = document.querySelector('[data-notebook-spelling-practice]');
+        const box = practice.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: box.left, right: box.right, collectionHidden: document.querySelector('[data-notebook-collection-content]').hidden, visibleTarget: document.body.innerText.includes('take it for granted'), content: practice.innerText };
+      })()`);
+      assert.equal(firstSpellingDesktop.viewport, 1440);
+      assert.ok(firstSpellingDesktop.page <= firstSpellingDesktop.viewport);
+      assert.ok(
+        firstSpellingDesktop.left >= 0 &&
+          firstSpellingDesktop.right <= firstSpellingDesktop.viewport,
+      );
+      assert.equal(firstSpellingDesktop.collectionHidden, true);
+      assert.equal(firstSpellingDesktop.visibleTarget, false);
+      assert.equal(firstSpellingDesktop.content.includes('take it for granted'), false);
+      assert.equal(firstSpellingDesktop.content.includes('认为……理所当然'), true);
+      await evaluate('document.querySelector("[data-spelling-answer-input]").form.requestSubmit()');
+      await until(
+        'document.querySelector("[data-spelling-notice]")?.textContent.includes("先写下听到的拼写")',
+      );
+      assert.equal(await evaluate('document.querySelector("[data-spelling-result]")'), null);
+      assert.equal(
+        await evaluate('document.body.innerText.includes("take it for granted")'),
+        false,
+      );
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      assert.equal(await evaluate('window.notebookSpeechAudit.at(-1)'), 'take it for granted');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-notebook-spelling-practice]").innerText.includes("take it for granted")',
+        ),
+        false,
+      );
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-spelling-answer-input]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ' TAKE   IT FOR GRANTED ');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await evaluate('document.querySelector("[data-spelling-answer-input]").form.requestSubmit()');
+      await until(
+        'document.querySelector("[data-spelling-result]")?.textContent.includes("拼写与目标词一致")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-revealed]").textContent'),
+        'take it for granted',
+      );
+      const requestsAfterCorrectSpelling = await evaluate('window.apiRequests.length');
+      assert.equal(requestsAfterCorrectSpelling, apiRequestsBeforeSpelling);
+
+      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await until(
+        'document.querySelector("[data-notebook-spelling-practice]").innerText.includes("从长远来看")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-notebook-spelling-practice]").innerText.includes("in the long run")',
+        ),
+        false,
+      );
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      assert.equal(await evaluate('window.notebookSpeechAudit.at(-1)'), 'in the long run');
+      await evaluate(`(() => {
+        const input = document.querySelector('[data-spelling-answer-input]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'in the long runn');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await evaluate('document.querySelector("[data-spelling-answer-input]").form.requestSubmit()');
+      await until(
+        'document.querySelector("[data-spelling-result]")?.textContent.includes("拼写不一致")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-revealed]").textContent'),
+        'in the long run',
+      );
+
+      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await until(
+        'document.querySelector("[data-notebook-spelling-practice]").innerText.includes("认为……理所当然")',
+      );
+      await evaluate('window.notebookSpeechVoices = []');
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      await until(
+        'document.querySelector("[data-spelling-notice]")?.textContent.includes("没有可用的英语语音")',
+      );
+      await evaluate('document.querySelector("[data-spelling-reveal]").click()');
+      assert.equal(
+        await evaluate('document.querySelector("[data-spelling-revealed]").textContent'),
+        'take it for granted',
+      );
+      assert.equal(await evaluate('window.apiRequests.length'), apiRequestsBeforeSpelling);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileSpellingLayout = await evaluate(`(() => {
+        const practice = document.querySelector('[data-notebook-spelling-practice]');
+        const input = document.querySelector('[data-spelling-answer-input]').getBoundingClientRect();
+        const button = document.querySelector('[data-spelling-end]').getBoundingClientRect();
+        const box = practice.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: box.left, right: box.right, inputLeft: input.left, inputRight: input.right, buttonLeft: button.left, buttonRight: button.right };
+      })()`);
+      assert.equal(mobileSpellingLayout.viewport, 390);
+      assert.ok(mobileSpellingLayout.page <= mobileSpellingLayout.viewport);
+      assert.ok(
+        mobileSpellingLayout.left >= 0 &&
+          mobileSpellingLayout.right <= mobileSpellingLayout.viewport,
+      );
+      assert.ok(
+        mobileSpellingLayout.inputLeft >= 0 &&
+          mobileSpellingLayout.inputRight <= mobileSpellingLayout.viewport,
+      );
+      assert.ok(
+        mobileSpellingLayout.buttonLeft >= 0 &&
+          mobileSpellingLayout.buttonRight <= mobileSpellingLayout.viewport,
+      );
+      await evaluate('document.querySelector("[data-spelling-end]").focus()');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('!document.querySelector("[data-notebook-collection-content]").hidden');
+      assert.equal(
+        await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
+        20,
+      );
+      assert.equal(
+        await evaluate('document.activeElement?.matches("[data-spelling-start]")'),
+        true,
+      );
+      await evaluate('Math.random = window.originalNotebookRandom');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
 
       const largePaste = Array.from(
         { length: 40 },
@@ -548,10 +733,8 @@ test(
       );
       assert.equal(await evaluate('document.body.innerText.includes("认为……理所当然")'), false);
     } finally {
-      socket?.close();
-      browser.kill('SIGTERM');
-      for (let attempt = 0; attempt < 50 && !closed; attempt++) await delay(100);
-      if (!closed) browser.kill('SIGKILL');
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
+      await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   },

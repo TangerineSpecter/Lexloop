@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { closeChromium, spawnChromium } from './browser-process.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ test(
   },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-micro-test-'));
-    const browser = spawn(
+    const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
       [
         '--headless',
@@ -28,15 +28,11 @@ test(
         `--user-data-dir=${profile}`,
         'about:blank',
       ],
-      { stdio: 'ignore' },
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     );
     let launchError;
-    let closed = false;
     browser.on('error', (error) => {
       launchError = error;
-    });
-    browser.on('close', () => {
-      closed = true;
     });
     let socket;
     const waiting = new Map();
@@ -1004,10 +1000,8 @@ test(
         await evaluate("sessionStorage.getItem('lexloop.test.local-audio-audit')"),
       );
     } finally {
-      socket?.close();
-      browser.kill('SIGTERM');
-      for (let attempt = 0; attempt < 50 && !closed; attempt++) await delay(100);
-      if (!closed) browser.kill('SIGKILL');
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
+      await closeChromium(browser, profile);
       await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   },
