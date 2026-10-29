@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No browser tests yet'",
+    "test": "node test/run-unit-tests.mjs",
     "test:browser": "node --test test/*.browser.test.mjs"
   },
   "dependencies": {
