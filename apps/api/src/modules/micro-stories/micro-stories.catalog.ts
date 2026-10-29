@@ -258,13 +258,13 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     english:
       'After they agree to postpone the optional animation, Nina confirms the new scope in an email. The team can now finish the core features by Friday.',
     reference:
-      '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在可以在周五前完成核心功能。',
+      '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在最迟在周五完成核心功能。',
     explanation:
-      'postpone 表示把事情推迟；confirm the new scope 可以把改过的工作范围写清楚；by Friday 表示最迟在周五前。',
+      'postpone 表示把事情推迟；confirm the new scope 可以把改过的工作范围写清楚；by Friday 表示最迟不晚于周五，周五当天也在期限内，不表示必须等到周五才完成。',
     frame: 'We can finish ___ by Friday if we ___.',
     example: 'We can finish the draft by Friday if we get the data today.',
     focusPhrase: 'by Friday',
-    focusMeaning: '最迟周五前；强调完成期限。',
+    focusMeaning: '周五或更早完成；周五是最晚期限。',
   },
 ];
 

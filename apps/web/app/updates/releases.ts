@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.90',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '“by Friday”明确为周五或更早',
+        entry: '生活缝隙里的英语故事 → 项目改期',
+        usage: '释义说明周五当天也在最后期限内，不表示必须等到周五才完成。',
+      },
+    ],
+  },
+  {
     version: '1.27.89',
     date: '2026-10-29',
     items: [

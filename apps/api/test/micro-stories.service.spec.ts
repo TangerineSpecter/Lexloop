@@ -296,7 +296,7 @@ describe('one-minute stories', () => {
       key: 'deadline-03',
       focusPhrase: 'by Friday',
       reference:
-        '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在可以在周五前完成核心功能。',
+        '他们同意把可选动画延期后，妮娜通过邮件确认了新的工作范围。团队现在最迟在周五完成核心功能。',
     });
 
     const f = fixture();

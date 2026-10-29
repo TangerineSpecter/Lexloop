@@ -1041,7 +1041,7 @@ test(
       await send('Page.navigate', {
         url: new URL('/dashboard/notebook?tab=sentences', baseUrl).href,
       });
-      await until('document.body.innerText.includes("Fixture sentence page 1.")');
+      await until('document.body?.innerText.includes("Fixture sentence page 1.") ?? false');
       const favoritePageReadsBeforeFailure = await evaluate(
         'window.apiRequests.filter((path) => path.includes("/api/v1/daily-sentences?")).length',
       );
