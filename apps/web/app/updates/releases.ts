@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.86',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '取消错误状态请求时仍按取消处理',
+        entry: '生词本、学习助手等正在加载或提交的请求',
+        usage:
+          '如果服务已返回错误状态、但取消发生在读取错误详情期间，页面仍按取消处理，不会把它误报成服务错误。',
+      },
+    ],
+  },
+  {
     version: '1.27.85',
     date: '2026-10-29',
     items: [

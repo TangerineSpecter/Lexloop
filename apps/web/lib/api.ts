@@ -53,6 +53,15 @@ function responseMessage(status: number, body: unknown, fallback: string) {
   return message || fallback;
 }
 
+async function errorResponseBody(response: Response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return {};
+  }
+}
+
 export function userFacingError(error: unknown, fallback = '操作未完成，请稍后再试。') {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -89,7 +98,7 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
     throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = await errorResponseBody(response);
     throw new ApiRequestError(
       responseMessage(response.status, body, '请求失败，请稍后重试'),
       response.status,
@@ -121,7 +130,7 @@ export async function streamSse(
     throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = await errorResponseBody(response);
     throw new ApiRequestError(
       responseMessage(response.status, body, '助手请求失败，请稍后重试。'),
       response.status,
