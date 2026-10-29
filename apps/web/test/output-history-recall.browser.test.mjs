@@ -132,6 +132,7 @@ test(
         feedback: feedback(`${id}-word`, correctedText, `${id}-carefully`),
         error: null,
         createdAt: '2026-10-26T09:30:00.000Z',
+        completedAt: '2026-10-27T00:30:00.000Z',
       });
       const userAItems = [
         makeHistoryItem(
@@ -466,6 +467,11 @@ test(
         ),
         2,
       );
+      const historicalSummary = await evaluate(
+        '[...document.querySelectorAll("details")].find((item) => item.querySelector("summary")?.innerText.includes("查看表达与反馈"))?.querySelector("summary")?.innerText',
+      );
+      assert.ok(historicalSummary.includes('挑战日期 2026-10-26'));
+      assert.ok(historicalSummary.includes('完成于本地时间'));
       await openFirstRecord();
       assert.equal(
         await evaluate(
@@ -746,6 +752,23 @@ test(
         (await evaluate('document.body.innerText')).includes('Account B has its own approach.'),
       );
       assert.equal(await evaluate('window.outputApiWrites.length'), 0);
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(120);
+      const mobileSummary = await evaluate(`(() => {
+        const details = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.innerText.includes('查看表达与反馈'));
+        const summary = details?.querySelector('summary');
+        const rect = summary?.getBoundingClientRect();
+        return summary && rect ? { left: rect.left, right: rect.right, clientWidth: summary.clientWidth, scrollWidth: summary.scrollWidth } : null;
+      })()`);
+      assert.ok(mobileSummary, 'history summary remains visible at 390px');
+      assert.ok(mobileSummary.left >= 0 && mobileSummary.right <= 391);
+      assert.ok(mobileSummary.scrollWidth <= mobileSummary.clientWidth + 1);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

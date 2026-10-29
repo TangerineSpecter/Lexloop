@@ -6,6 +6,17 @@ import { request, userFacingError, type Session } from '../../lib/api';
 import { FeedbackCard } from './feedback-card';
 import styles from './practice.module.css';
 
+const completionTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+function formatCompletionTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return completionTimeFormatter.format(date);
+}
+
 export function OutputHistoryPanel({ session }: { session: Session }) {
   return <OutputHistoryPanelForUser key={session.user.id} session={session} />;
 }
@@ -83,7 +94,12 @@ function OutputHistoryPanelForUser({ session }: { session: Session }) {
             result.items.map((item) => (
               <details key={item.id}>
                 <summary>
-                  <span>{item.date}</span>
+                  <span>挑战日期 {item.date}</span>
+                  {item.completedAt && (
+                    <span className={styles.historyCompletionTime}>
+                      完成于本地时间 {formatCompletionTime(item.completedAt) ?? '时间未知'}
+                    </span>
+                  )}
                   <strong>
                     {item.feedback
                       ? `${item.feedback.score} 分`

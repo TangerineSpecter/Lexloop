@@ -363,6 +363,10 @@
   margin-left: auto;
   font-size: 12px;
 }
+.historyCompletionTime {
+  color: #082877b3;
+  font-size: 12px;
+}
 .historyPrompt {
   padding: 12px;
   background: #eaf2ff;

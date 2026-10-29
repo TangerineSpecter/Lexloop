@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.67',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '历史输出区分挑战日期与反馈完成时间',
+        entry: '学习专项与处方 → 每日输出挑战 → 查看过去的输出记录',
+        usage:
+          '跨午夜完成的重试仍归在原挑战下，同时显示实际完成时间；统计继续按完成日记录练习活动。',
+      },
+    ],
+  },
+  {
     version: '1.27.66',
     date: '2026-10-29',
     items: [

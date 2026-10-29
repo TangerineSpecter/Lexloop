@@ -29,6 +29,7 @@ export type OutputSubmissionView = {
   feedback: OutputFeedback | null;
   error: string | null;
   createdAt: string;
+  completedAt: string | null;
 };
 export type OutputHistoryItem = OutputSubmissionView & {
   date: string;

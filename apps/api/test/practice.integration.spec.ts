@@ -5,6 +5,7 @@ import { OutputService } from '../src/modules/practice/output.service';
 import { ConfusionService } from '../src/modules/practice/confusion.service';
 import { PracticeEvidenceService } from '../src/modules/practice/practice-evidence.service';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
+import { ReportsService } from '../src/modules/reports/reports.service';
 
 // Opt in with a migrated, isolated database. Every fixture belongs to a fresh
 // user; the test never truncates shared tables or calls an external model.
@@ -283,20 +284,85 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
           targets: daily.targets,
         },
       });
+      const previousClientRequestId = randomUUID();
+      const previousAnswer = 'An older draft needs another careful revision.';
       await prisma.outputSubmission.create({
         data: {
           challengeId: previous.id,
-          clientRequestId: randomUUID(),
-          answer: 'An older draft.',
+          clientRequestId: previousClientRequestId,
+          answer: previousAnswer,
           status: 'FAILED',
           workerTokenHash: 'expired-fixture',
+          responseTimeMs: 4200,
+          createdAt: new Date(Date.now() - 60_000),
         },
       });
       const history = await output.history(user.id);
       expect(history.items).toHaveLength(1);
       expect(history.items[0].date).toBe(previousDate.toISOString().slice(0, 10));
+      expect(history.items[0].completedAt).toBeNull();
       expect(history.items[0]).not.toHaveProperty('workerTokenHash');
       expect((await output.history('another-user')).items).toHaveLength(0);
+
+      const reports = new ReportsService(prisma as never, {} as never);
+      const beforeLateRetry = await reports.statistics(user.id, 7, 'Asia/Shanghai');
+      const beforePracticeSessions = beforeLateRetry.activity.reduce(
+        (sum, day) => sum + (day.practiceSessions ?? 0),
+        0,
+      );
+      const lateRetryQueue = { add: vi.fn().mockResolvedValue({ id: 'late-retry' }) };
+      const lateRetryOutput = new OutputService(
+        prisma as never,
+        { get: () => 'Asia/Shanghai' } as never,
+        models as never,
+        evidence,
+        lateRetryQueue as never,
+      );
+      await lateRetryOutput.submit(
+        user.id,
+        previous.id,
+        previousAnswer,
+        previousClientRequestId,
+        4200,
+      );
+      const lateRetryToken = lateRetryQueue.add.mock.calls[0][1].workerToken;
+      const lateRetrySubmission = await prisma.outputSubmission.findUniqueOrThrow({
+        where: {
+          challengeId_clientRequestId: {
+            challengeId: previous.id,
+            clientRequestId: previousClientRequestId,
+          },
+        },
+      });
+      expect(lateRetrySubmission.responseTimeMs).toBe(4200);
+      const lateRetryClaim = await lateRetryOutput.claim(lateRetrySubmission.id, lateRetryToken);
+      expect(lateRetryClaim.done).toBe(false);
+      if (!lateRetryClaim.leaseToken) throw new Error('Expected a claimed retry.');
+      await lateRetryOutput.complete(
+        lateRetrySubmission.id,
+        lateRetryToken,
+        lateRetryClaim.leaseToken,
+        feedback,
+      );
+
+      const recoveredHistory = await lateRetryOutput.history(user.id);
+      const recoveredItem = recoveredHistory.items[0];
+      expect(recoveredItem.date).toBe(previousDate.toISOString().slice(0, 10));
+      expect(recoveredItem.completedAt).toBeTruthy();
+      const completedDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(recoveredItem.completedAt!));
+      expect(completedDate).not.toBe(recoveredItem.date);
+      const afterLateRetry = await reports.statistics(user.id, 7, 'Asia/Shanghai');
+      const afterPracticeSessions = afterLateRetry.activity.reduce(
+        (sum, day) => sum + (day.practiceSessions ?? 0),
+        0,
+      );
+      expect(afterLateRetry.attemptCount - beforeLateRetry.attemptCount).toBe(daily.targets.length);
+      expect(afterPracticeSessions - beforePracticeSessions).toBe(1);
 
       const firstPracticeWord = await prisma.vocabularyWord.create({
         data: {

@@ -517,6 +517,7 @@ export class OutputService {
     feedback: Prisma.JsonValue | null;
     error: string | null;
     createdAt: Date;
+    completedAt: Date | null;
   }): OutputSubmissionView => ({
     id: row.id,
     clientRequestId: row.clientRequestId,
@@ -525,5 +526,6 @@ export class OutputService {
     feedback: row.feedback as unknown as OutputSubmissionView['feedback'],
     error: row.error,
     createdAt: row.createdAt.toISOString(),
+    completedAt: row.completedAt?.toISOString() ?? null,
   });
 }
