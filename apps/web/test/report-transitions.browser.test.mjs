@@ -169,15 +169,27 @@ test(
           window.reportFixture = {
             historyRequests: [],
             statisticsRequests: [],
+            learningWordsRequests: [],
+            masteredRequests: [],
             holdHistory: true,
             holdSevenDayStatistics: true,
+            holdLearningWords: true,
+            holdMasteredWords: true,
             pendingHistory: [],
             pendingStatistics: [],
+            pendingLearningWords: [],
+            pendingMasteredWords: [],
             failRange: null,
+            failLearningWords: false,
+            failMasteredWords: false,
             historyResponse: ${JSON.stringify(emptyHistory)},
             statisticsResponse: ${JSON.stringify(emptyStatistics)},
+            learningWordsResponse: [],
+            masteredWordsResponse: [],
             resolveHistory() { this.pendingHistory.shift()?.(Response.json(this.historyResponse)); },
             resolveStatistics() { this.pendingStatistics.shift()?.(Response.json(this.statisticsResponse)); },
+            resolveLearningWords(status = 200) { this.pendingLearningWords.shift()?.(Response.json(status === 200 ? this.learningWordsResponse : { message: 'learning words unavailable' }, { status })); },
+            resolveMasteredWords(status = 200) { this.pendingMasteredWords.shift()?.(Response.json(status === 200 ? this.masteredWordsResponse : { message: 'mastered words unavailable' }, { status })); },
           };
           window.reportTimeline = [];
           window.reportNavigationClick = null;
@@ -236,6 +248,24 @@ test(
             }
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+            if (path.endsWith('/api/v1/vocabulary/learning-words')) {
+              window.reportFixture.learningWordsRequests.push(JSON.parse(localStorage.getItem('lexloop.session')).user.id);
+              if (window.reportFixture.holdLearningWords) return new Promise(resolve => window.reportFixture.pendingLearningWords.push(resolve));
+              if (window.reportFixture.failLearningWords) {
+                window.reportFixture.failLearningWords = false;
+                return Response.json({ message: 'learning words unavailable' }, { status: 503 });
+              }
+              return Response.json(window.reportFixture.learningWordsResponse);
+            }
+            if (path.endsWith('/api/v1/vocabulary/mastered')) {
+              window.reportFixture.masteredRequests.push(JSON.parse(localStorage.getItem('lexloop.session')).user.id);
+              if (window.reportFixture.holdMasteredWords) return new Promise(resolve => window.reportFixture.pendingMasteredWords.push(resolve));
+              if (window.reportFixture.failMasteredWords) {
+                window.reportFixture.failMasteredWords = false;
+                return Response.json({ message: 'mastered words unavailable' }, { status: 503 });
+              }
+              return Response.json(window.reportFixture.masteredWordsResponse);
+            }
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/study/plans')) return Response.json([]);
@@ -367,6 +397,179 @@ test(
       );
       const historyButton =
         '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("学习历史"))';
+
+      // Reduced motion is checked against each animated surface while it is visible,
+      // rather than inferred from the page-level rule alone.
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      assert.deepEqual(
+        await evaluate(`({
+          page: getComputedStyle(document.querySelector('.statistics-page')).animationName,
+          skeleton: getComputedStyle(document.querySelector('.statistics-loading-lines i')).animationName,
+          reduced: matchMedia('(prefers-reduced-motion: reduce)').matches
+        })`),
+        { page: 'none', skeleton: 'none', reduced: true },
+      );
+
+      await evaluate('document.querySelector(".sidebar-book").click()');
+      await until('document.querySelector(".account-menu[data-positioned=true]")');
+      assert.deepEqual(
+        await evaluate(`({
+          animation: getComputedStyle(document.querySelector('.account-menu')).animationName,
+          runningAnimations: document.querySelector('.account-menu').getAnimations().filter(animation => animation.playState !== 'finished').length
+        })`),
+        { animation: 'none', runningAnimations: 0 },
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".account-menu") === null');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await evaluate('document.querySelector(".menu-trigger").click()');
+      await until(
+        'document.querySelector(".study-sidebar.is-open") && document.querySelector(".sidebar-scrim")',
+      );
+      assert.deepEqual(
+        await evaluate(`({
+          sidebarTransition: getComputedStyle(document.querySelector('.study-sidebar')).transitionDuration,
+          scrimAnimation: getComputedStyle(document.querySelector('.sidebar-scrim')).animationName,
+          runningScrimAnimations: document.querySelector('.sidebar-scrim').getAnimations().filter(animation => animation.playState !== 'finished').length
+        })`),
+        { sidebarTransition: '0s', scrimAnimation: 'none', runningScrimAnimations: 0 },
+      );
+      await evaluate('document.querySelector(".sidebar-scrim").click()');
+      await until('!document.querySelector(".study-sidebar.is-open")');
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      await evaluate(`window.navigationAuditFrames = []; (() => {
+        let frame = 0;
+        const sample = () => {
+          const pages = ['.study-content', '.travel-page', '.assessment-page', '.learning-words-page', '.mistakes-page', '.mastered-page', '.learning-history-page', '.statistics-page', '.settings-page'];
+          const page = pages.map(selector => document.querySelector(selector)).find(Boolean);
+          const heading = page?.querySelector('h1');
+          window.navigationAuditFrames.push({
+            at: performance.now(),
+            page: page?.className.split(/\\s+/)[0] ?? null,
+            title: heading?.textContent?.trim() ?? null,
+            activeNav: document.querySelector('.sidebar-nav .nav-item.nav-button.active span, .nav-children button.active')?.textContent?.trim() ?? null,
+            viewport: innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            headingTop: heading?.getBoundingClientRect().top ?? null
+          });
+          if (frame++ < 180) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      })()`);
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("账户设置")).focus()',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'char',
+        key: 'Enter',
+        code: 'Enter',
+        text: '\r',
+        unmodifiedText: '\r',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('document.querySelector(".settings-page h1")?.textContent.trim() === "设置"');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sidebar-nav .nav-item.nav-button.active span")?.textContent.trim()',
+        ),
+        '账户设置',
+      );
+      assert.equal(
+        await evaluate('document.activeElement?.textContent.trim()'),
+        '账户设置',
+        'Keyboard navigation should keep focus on the selected destination',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("学习历史")).click()',
+      );
+      await until(
+        'document.querySelector(".learning-history-page h1")?.textContent.trim() === "学习历史"',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("账户设置")).click()',
+      );
+      await until('document.querySelector(".settings-page h1")?.textContent.trim() === "设置"');
+      await evaluate('window.navigationAuditFrames = []');
+      await delay(180);
+      const delayedStatisticsFrames = await evaluate('window.navigationAuditFrames');
+      assert.ok(
+        delayedStatisticsFrames.length >= 8,
+        `Expected frame samples during delayed-statistics navigation, got ${delayedStatisticsFrames.length}`,
+      );
+      assert.ok(
+        delayedStatisticsFrames.every(
+          (frame) =>
+            frame.page === 'settings-page' &&
+            frame.title === '设置' &&
+            frame.activeNav === '账户设置' &&
+            frame.viewport === 1440 &&
+            frame.scrollWidth <= 1440,
+        ),
+        `A stale statistics response or layout state replaced the third destination: ${JSON.stringify(delayedStatisticsFrames.slice(-4))}`,
+      );
+      const settingsFrameTop = delayedStatisticsFrames.at(-1).headingTop;
+      await evaluate('window.reportFixture.resolveStatistics()');
+      await delay(160);
+      assert.equal(
+        await evaluate('document.querySelector(".settings-page h1")?.textContent.trim()'),
+        '设置',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sidebar-nav .nav-item.nav-button.active span")?.textContent.trim()',
+        ),
+        '账户设置',
+      );
+      assert.ok(
+        Math.abs(
+          (await evaluate(
+            'document.querySelector(".settings-page h1").getBoundingClientRect().top',
+          )) - settingsFrameTop,
+        ) <= 1,
+        'A late statistics response shifted the visible settings page',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("学习统计")).click()',
+      );
+      await until('document.querySelector(".statistics-empty-card:not(.statistics-loading-card)")');
       await evaluate(`${historyButton}.focus()`);
       await evaluate(
         `window.reportKeyEvents = []; for (const type of ['keydown', 'keyup', 'click']) document.addEventListener(type, event => window.reportKeyEvents.push({ type, key: event.key ?? null, target: event.target?.textContent?.trim()?.slice(0, 30) ?? null }), true)`,
@@ -596,6 +799,271 @@ test(
       await until('document.querySelector(".statistics-empty-card:not(.statistics-loading-card)")');
       const mobileLayout = await assertReportLayout(390);
       await capture('statistics-empty-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      const clickWordPage = async (label) => {
+        await evaluate(
+          `[...document.querySelectorAll(".nav-children button")].find(button => button.textContent.trim() === ${JSON.stringify(label)}).click()`,
+        );
+      };
+      const wordArchiveLayout = async (selector, width) =>
+        evaluate(`(() => {
+          const page = document.querySelector('${selector}');
+          const state = page?.querySelector('.word-archive-state');
+          const heading = page?.querySelector('h1');
+          const rect = state?.getBoundingClientRect();
+          return {
+            viewport: innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            title: heading?.textContent?.trim() ?? null,
+            activeNav: page?.closest('.study-app')?.querySelector('.nav-children button.active')?.textContent?.trim() ?? null,
+            stateTop: rect?.top ?? null,
+            stateHeight: rect?.height ?? null,
+            stateLeft: rect?.left ?? null,
+            stateRight: rect?.right ?? null,
+            count: page?.querySelector('.mastered-count b')?.textContent?.trim() ?? null
+          };
+        })()`);
+      const assertWordArchiveLoading = async (selector, title, width) => {
+        const layout = await wordArchiveLayout(selector, width);
+        assert.equal(layout.viewport, width);
+        assert.equal(layout.title, title);
+        assert.equal(layout.activeNav, title);
+        assert.ok(
+          layout.scrollWidth <= width,
+          `${title} horizontal overflow: ${JSON.stringify(layout)}`,
+        );
+        assert.equal(
+          layout.count,
+          '—',
+          `${title} must not show a zero count before loading finishes`,
+        );
+        assert.ok(
+          layout.stateHeight >= 300,
+          `${title} loading state should reserve its result space: ${JSON.stringify(layout)}`,
+        );
+        assert.ok(
+          layout.stateLeft >= -1 && layout.stateRight <= width + 1,
+          `${title} state crosses the viewport: ${JSON.stringify(layout)}`,
+        );
+        assert.equal(
+          await evaluate(
+            `document.querySelector('${selector} .word-archive-state[aria-busy="true"]') !== null`,
+          ),
+          true,
+        );
+        assert.equal(
+          await evaluate(
+            `document.body.innerText.includes('${title === '学习中' ? '还没有学习中的单词' : '还没有已掌握的单词'}')`,
+          ),
+          false,
+        );
+        return layout;
+      };
+      const assertWordArchiveStable = async (selector, loading, width) => {
+        const ready = await wordArchiveLayout(selector, width);
+        assert.equal(ready.viewport, width);
+        assert.equal(ready.activeNav, loading.title);
+        assert.ok(ready.scrollWidth <= width, `Word archive overflow: ${JSON.stringify(ready)}`);
+        assert.equal(ready.count, '0');
+        assert.ok(
+          Math.abs(ready.stateTop - loading.stateTop) <= 1,
+          `Word archive card shifted vertically: loading=${JSON.stringify(loading)} ready=${JSON.stringify(ready)}`,
+        );
+        assert.ok(
+          Math.abs(ready.stateHeight - loading.stateHeight) <= 1,
+          `Word archive card changed height: loading=${JSON.stringify(loading)} ready=${JSON.stringify(ready)}`,
+        );
+        return ready;
+      };
+      const assertWordArchiveError = async (selector, title, width) => {
+        const layout = await wordArchiveLayout(selector, width);
+        assert.equal(layout.viewport, width);
+        assert.equal(layout.activeNav, title);
+        assert.ok(
+          layout.scrollWidth <= width,
+          `${title} error state overflows: ${JSON.stringify(layout)}`,
+        );
+        assert.equal(layout.count, '—');
+        assert.ok(layout.stateHeight >= 300);
+        assert.equal(
+          await evaluate(
+            `document.querySelector('${selector} .word-archive-state[role="alert"]') !== null`,
+          ),
+          true,
+        );
+        assert.equal(
+          await evaluate(
+            `document.querySelector('${selector} .word-archive-state button')?.textContent.trim()`,
+          ),
+          '重试',
+        );
+        assert.equal(
+          await evaluate(
+            `document.body.innerText.includes('${title === '学习中' ? '还没有学习中的单词' : '还没有已掌握的单词'}')`,
+          ),
+          false,
+        );
+        return layout;
+      };
+
+      await clickWordPage('学习中');
+      await until(
+        'window.reportFixture.pendingLearningWords.length === 1 && document.querySelector(".learning-words-page .word-archive-state[aria-busy=true]")',
+      );
+      const learningLoading1440 = await assertWordArchiveLoading(
+        '.learning-words-page',
+        '学习中',
+        1440,
+      );
+      await capture('learning-words-loading-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const learningLoading390 = await assertWordArchiveLoading(
+        '.learning-words-page',
+        '学习中',
+        390,
+      );
+      await capture('learning-words-loading-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        'window.reportFixture.holdLearningWords = false; window.reportFixture.resolveLearningWords()',
+      );
+      await until(
+        'document.querySelector(".learning-words-page .mastered-empty") && !document.querySelector(".learning-words-page .word-archive-state[aria-busy=true]")',
+      );
+      const learningEmpty1440 = await assertWordArchiveStable(
+        '.learning-words-page',
+        learningLoading1440,
+        1440,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await assertWordArchiveStable('.learning-words-page', learningLoading390, 390);
+      await capture('learning-words-empty-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      await clickWordPage('已掌握');
+      await until(
+        'window.reportFixture.pendingMasteredWords.length === 1 && document.querySelector(".mastered-page .word-archive-state[aria-busy=true]")',
+      );
+      const masteredLoading1440 = await assertWordArchiveLoading('.mastered-page', '已掌握', 1440);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const masteredLoading390 = await assertWordArchiveLoading('.mastered-page', '已掌握', 390);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        'window.reportFixture.holdMasteredWords = false; window.reportFixture.resolveMasteredWords()',
+      );
+      await until(
+        'document.querySelector(".mastered-page .mastered-empty") && !document.querySelector(".mastered-page .word-archive-state[aria-busy=true]")',
+      );
+      const masteredEmpty1440 = await assertWordArchiveStable(
+        '.mastered-page',
+        masteredLoading1440,
+        1440,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await assertWordArchiveStable('.mastered-page', masteredLoading390, 390);
+      await capture('mastered-words-empty-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      await evaluate('window.reportFixture.failLearningWords = true');
+      await clickWordPage('学习中');
+      await until('document.querySelector(".learning-words-page .word-archive-state[role=alert]")');
+      await assertWordArchiveError('.learning-words-page', '学习中', 1440);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await assertWordArchiveError('.learning-words-page', '学习中', 390);
+      await capture('learning-words-error-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        'document.querySelector(".learning-words-page .word-archive-state[role=alert] button").click()',
+      );
+      await until(
+        'document.querySelector(".learning-words-page .mastered-empty") && !document.querySelector(".learning-words-page .word-archive-state[aria-busy=true]")',
+      );
+      assert.equal(await evaluate('window.reportFixture.learningWordsRequests.length'), 3);
+
+      await evaluate('window.reportFixture.failMasteredWords = true');
+      await clickWordPage('已掌握');
+      await until('document.querySelector(".mastered-page .word-archive-state[role=alert]")');
+      await assertWordArchiveError('.mastered-page', '已掌握', 1440);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await assertWordArchiveError('.mastered-page', '已掌握', 390);
+      await capture('mastered-words-error-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        'document.querySelector(".mastered-page .word-archive-state[role=alert] button").click()',
+      );
+      await until(
+        'document.querySelector(".mastered-page .mastered-empty") && !document.querySelector(".mastered-page .word-archive-state[aria-busy=true]")',
+      );
+      assert.equal(await evaluate('window.reportFixture.masteredRequests.length'), 3);
+      process.stdout.write(
+        `word archive navigation: learning/mastered loading→empty cards stable at ≤1px for 1440/390; each failed request recovered with one retry (3 requests per archive); desktop scroll widths ${learningEmpty1440.scrollWidth}/${learningEmpty1440.viewport}px and ${masteredEmpty1440.scrollWidth}/${masteredEmpty1440.viewport}px\n`,
+      );
       process.stdout.write(
         `report transitions: history/stats initial requests ${firstRequestCounts.history}/${firstRequestCounts.statistics}, cached re-entry added 0 requests, range recovery requests ${rangeRequests.join(',')}; geometry stable to <=1px; statistics layout ${desktopLayout.scrollWidth}/${desktopLayout.viewport}px and ${mobileLayout.scrollWidth}/${mobileLayout.viewport}px; history layout ${desktopHistoryLayout.scrollWidth}/${desktopHistoryLayout.viewport}px and ${mobileHistoryLayout.scrollWidth}/${mobileHistoryLayout.viewport}px\n`,
       );

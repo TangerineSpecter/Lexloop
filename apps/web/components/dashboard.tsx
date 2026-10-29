@@ -1041,7 +1041,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             onBack={() => returnToPage('study')}
           />
         ) : page === 'learning' ? (
-          <LearningWordsPage session={session} onBack={() => returnToPage('study')} />
+          <LearningWordsPage
+            key={session.user.id}
+            session={session}
+            onBack={() => returnToPage('study')}
+          />
         ) : page === 'mistakes' ? (
           <MistakesPage
             key={session.user.id}
@@ -1062,6 +1066,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           />
         ) : page === 'mastered' ? (
           <MasteredWordsPage
+            key={session.user.id}
             session={session}
             onBack={() => returnToPage('study')}
             onProgressChanged={() => setProgressRevision((current) => current + 1)}
@@ -1220,11 +1225,31 @@ function MasteredWordsPage({
   const [words, setWords] = useState<MasteredWord[]>([]);
   const [message, setMessage] = useState('');
   const [removingId, setRemovingId] = useState<string>();
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
+    let active = true;
+    setLoadStatus('loading');
+    setMessage('');
     request<MasteredWord[]>('/vocabulary/mastered', {}, session.accessToken)
-      .then(setWords)
-      .catch((error) => setMessage(error instanceof Error ? error.message : '已掌握单词加载失败'));
-  }, [session.accessToken]);
+      .then((loadedWords) => {
+        if (!active) return;
+        setWords(loadedWords);
+        setLoadStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setMessage(error instanceof Error ? error.message : '已掌握单词加载失败');
+        setLoadStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [session.accessToken, loadAttempt]);
+  const retryLoad = () => {
+    setLoadStatus('loading');
+    setLoadAttempt((attempt) => attempt + 1);
+  };
   const removeMastered = async (word: MasteredWord) => {
     setRemovingId(word.id);
     setMessage('');
@@ -1252,20 +1277,31 @@ function MasteredWordsPage({
         </div>
         <div className="mastered-count">
           <CheckCircle2 size={24} />
-          <b>{words.length}</b>
+          <b>{loadStatus === 'ready' ? words.length : '—'}</b>
           <span>词</span>
         </div>
       </header>
-      {message && <p className="book-message">{message}</p>}
-      {!message && !words.length && (
-        <div className="mastered-empty">
+      {loadStatus === 'loading' && (
+        <WordArchiveLoadState kind="mastered" status="loading" onRetry={retryLoad} />
+      )}
+      {loadStatus === 'error' && (
+        <WordArchiveLoadState
+          kind="mastered"
+          status="error"
+          message={message}
+          onRetry={retryLoad}
+        />
+      )}
+      {loadStatus === 'ready' && message && <p className="book-message">{message}</p>}
+      {loadStatus === 'ready' && !message && !words.length && (
+        <div className="mastered-empty word-archive-state">
           <CheckCircle2 size={34} />
           <strong>还没有已掌握的单词</strong>
           <p>在新单词列表中点击“标记掌握”，它就会出现在这里。</p>
           <button onClick={onBack}>去学习单词</button>
         </div>
       )}
-      {words.length > 0 && (
+      {loadStatus === 'ready' && words.length > 0 && (
         <div className="mastered-list">
           {words.map((word) => (
             <article key={word.id}>
@@ -1292,11 +1328,31 @@ function MasteredWordsPage({
 function LearningWordsPage({ session, onBack }: { session: Session; onBack: () => void }) {
   const [words, setWords] = useState<LearningWord[]>([]);
   const [message, setMessage] = useState('');
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
+    let active = true;
+    setLoadStatus('loading');
+    setMessage('');
     request<LearningWord[]>('/vocabulary/learning-words', {}, session.accessToken)
-      .then(setWords)
-      .catch((error) => setMessage(error instanceof Error ? error.message : '学习中单词加载失败'));
-  }, [session.accessToken]);
+      .then((loadedWords) => {
+        if (!active) return;
+        setWords(loadedWords);
+        setLoadStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setMessage(error instanceof Error ? error.message : '学习中单词加载失败');
+        setLoadStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [session.accessToken, loadAttempt]);
+  const retryLoad = () => {
+    setLoadStatus('loading');
+    setLoadAttempt((attempt) => attempt + 1);
+  };
   const date = (value: string | null) =>
     value
       ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(
@@ -1317,20 +1373,31 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
         </div>
         <div className="mastered-count">
           <BookOpen size={24} />
-          <b>{words.length}</b>
+          <b>{loadStatus === 'ready' ? words.length : '—'}</b>
           <span>词</span>
         </div>
       </header>
-      {message && <p className="book-message">{message}</p>}
-      {!message && !words.length && (
-        <div className="mastered-empty">
+      {loadStatus === 'loading' && (
+        <WordArchiveLoadState kind="learning" status="loading" onRetry={retryLoad} />
+      )}
+      {loadStatus === 'error' && (
+        <WordArchiveLoadState
+          kind="learning"
+          status="error"
+          message={message}
+          onRetry={retryLoad}
+        />
+      )}
+      {loadStatus === 'ready' && message && <p className="book-message">{message}</p>}
+      {loadStatus === 'ready' && !message && !words.length && (
+        <div className="mastered-empty word-archive-state">
           <BookOpen size={34} />
           <strong>还没有学习中的单词</strong>
           <p>创建学习计划或将新单词加入复习后，会在这里追踪学习表现。</p>
           <button onClick={onBack}>去学习单词</button>
         </div>
       )}
-      {words.length > 0 && (
+      {loadStatus === 'ready' && words.length > 0 && (
         <div className="learning-word-table">
           <header>
             <span>单词</span>
@@ -1361,6 +1428,46 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
         </div>
       )}
     </section>
+  );
+}
+
+function WordArchiveLoadState({
+  kind,
+  status,
+  message,
+  onRetry,
+}: {
+  kind: 'learning' | 'mastered';
+  status: 'loading' | 'error';
+  message?: string;
+  onRetry: () => void;
+}) {
+  const isLearning = kind === 'learning';
+  const Icon = status === 'loading' ? (isLearning ? BookOpen : CheckCircle2) : AlertTriangle;
+  const noun = isLearning ? '学习中的单词' : '已掌握的单词';
+
+  return (
+    <div
+      className={`mastered-empty word-archive-state ${status === 'loading' ? 'is-loading' : 'is-error'}`}
+      role={status === 'loading' ? 'status' : 'alert'}
+      aria-busy={status === 'loading'}
+    >
+      <Icon size={34} />
+      <strong>{status === 'loading' ? `正在读取${noun}…` : `${noun}暂时无法加载`}</strong>
+      {status === 'loading' ? (
+        <span className="word-archive-skeleton" aria-hidden="true">
+          <i />
+          <i />
+        </span>
+      ) : (
+        <>
+          <p>{message || '请检查网络连接后重试。'}</p>
+          <button type="button" onClick={onRetry}>
+            重试
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 

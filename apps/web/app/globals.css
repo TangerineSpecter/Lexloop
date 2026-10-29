@@ -15272,6 +15272,36 @@ button {
   box-shadow: 3px 3px 0 var(--gold);
   font-weight: 800;
 }
+.word-archive-state {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 320px;
+  justify-content: center;
+}
+.word-archive-state.is-error > svg {
+  color: var(--coral);
+}
+.word-archive-state.is-error p {
+  color: #a6372c;
+  overflow-wrap: anywhere;
+}
+.word-archive-skeleton {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 10px;
+  margin-top: 18px;
+}
+.word-archive-skeleton i {
+  display: block;
+  height: 12px;
+  border-radius: 7px;
+  background: #eaf2ff;
+}
+.word-archive-skeleton i:last-child {
+  width: 72%;
+  justify-self: center;
+  background: #fff4b9;
+}
 @media (max-width: 680px) {
   .mastered-page {
     width: calc(100% - 32px);
@@ -15283,6 +15313,10 @@ button {
   }
   .mastered-heading h1 {
     font-size: 35px;
+  }
+  .word-archive-state {
+    min-height: 320px;
+    padding: 40px 20px;
   }
   .mastered-count {
     width: max-content;
