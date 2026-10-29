@@ -8,9 +8,12 @@ function isRecord(value: unknown): value is StudyQuestionRecord {
 export function publicStudyQuestion(question: unknown, submitted: boolean): unknown {
   if (submitted || !isRecord(question)) return question;
 
-  const { correctAnswers, explanation, optionNotes, pairs, ...publicQuestion } = question;
-  if (question.type !== 'WORD_MATCHING' || !Array.isArray(pairs) || pairs.length !== 4) {
-    return publicQuestion;
+  const { correctAnswers, explanation, optionNotes, pairs, options, ...publicQuestion } = question;
+  if (question.type !== 'WORD_MATCHING') {
+    return { ...publicQuestion, ...(options === undefined ? {} : { options }) };
+  }
+  if (!Array.isArray(pairs) || pairs.length !== 4) {
+    return { ...publicQuestion, options: [] };
   }
 
   // Keep the matching exercise usable while breaking the stored left-to-right answer pairs.
@@ -30,7 +33,9 @@ export function publicStudyQuestion(question: unknown, submitted: boolean): unkn
     };
   });
 
-  return publicPairs.every(Boolean) ? { ...publicQuestion, pairs: publicPairs } : publicQuestion;
+  return publicPairs.every(Boolean)
+    ? { ...publicQuestion, options: [], pairs: publicPairs }
+    : { ...publicQuestion, options: [] };
 }
 
 /** Apply the same answer boundary to both copies of generated questions in a study plan. */

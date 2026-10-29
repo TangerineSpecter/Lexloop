@@ -1011,6 +1011,14 @@ export function validateGeneratedContent(
       const isMnemonic = question.type === 'WORD_MNEMONIC';
       const expectsChineseOptions = question.type === 'MEANING_RECOGNITION';
       if (
+        isMatching &&
+        (!Array.isArray(question.options) ||
+          question.options.length > 0 ||
+          question.correctAnswers.length > 0)
+      ) {
+        throw new Error(`单词 ${word.word} 的匹配题只能使用配对内容，不能包含额外选项或答案列表`);
+      }
+      if (
         !isMatching &&
         (!Array.isArray(question.options) ||
           question.options.length !== 4 ||

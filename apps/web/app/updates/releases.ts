@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.78',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '匹配题多余选项不再下发',
+        entry: '学习计划 → 阅读材料 → 单词匹配',
+        usage:
+          '未提交配对练习只返回必要的释义和提示；服务端会拒绝附带额外选项或答案列表的生成材料，并在未提交响应中清空既有冗余选项。',
+      },
+    ],
+  },
+  {
     version: '1.27.77',
     date: '2026-10-29',
     items: [

@@ -37,6 +37,42 @@ function generatedQuestion(type: string, options: string[]) {
   };
 }
 
+function generatedMatchingQuestion(overrides: Record<string, unknown> = {}) {
+  return {
+    groups: [
+      {
+        index: 0,
+        title: 'A steady route',
+        sentences: [
+          {
+            english: 'The steady route reached the village.',
+            chinese: '这条平稳的路线通向村庄。',
+            simplified: '平稳的路线通向村庄。',
+            grammar: 'steady 在句中修饰 route。',
+          },
+        ],
+        questions: [
+          {
+            bookWordId: word.id,
+            type: 'WORD_MATCHING',
+            prompt: 'Match each phrase with its meaning.',
+            options: [],
+            correctAnswers: [],
+            explanation: '结合不同语境判断 steady 的搭配。',
+            pairs: [
+              { left: 'steady route', right: '路线保持稳定', tip: '侧重移动方向。' },
+              { left: 'steady pace', right: '行动速度平缓', tip: '侧重行动速度。' },
+              { left: 'steady income', right: '收入持续可靠', tip: '侧重收入情况。' },
+              { left: 'steady hand', right: '动作稳定可靠', tip: '侧重动作控制。' },
+            ],
+            ...overrides,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe('study generation option validation', () => {
   it.each([
     ['MEANING_RECOGNITION', ['稳定的', '平稳的', '安静的', '可靠的'], ' 稳定的　'],
@@ -73,6 +109,18 @@ describe('study generation option validation', () => {
 
     expect(() => validateGeneratedContent(content as never, [{ index: 0, words: [word] }])).toThrow(
       '题型不受支持',
+    );
+  });
+
+  it.each([
+    [{ options: ['未使用的选项'] }, '额外选项或答案列表'],
+    [{ options: undefined }, '额外选项或答案列表'],
+    [{ correctAnswers: ['steady pace'] }, '额外选项或答案列表'],
+  ])('rejects redundant answer channels on matching questions', (overrides, message) => {
+    const content = generatedMatchingQuestion(overrides as Record<string, unknown>);
+
+    expect(() => validateGeneratedContent(content as never, [{ index: 0, words: [word] }])).toThrow(
+      message as string,
     );
   });
 

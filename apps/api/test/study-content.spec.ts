@@ -63,6 +63,16 @@ describe('study answer visibility', () => {
     });
   });
 
+  it('does not expose stray options from an unsubmitted matching question', () => {
+    const publicMatching = publicStudyQuestion(
+      { ...matchingQuestion, options: ['隐藏配对提示', '额外候选'] },
+      false,
+    ) as Record<string, unknown>;
+
+    expect(publicMatching.options).toEqual([]);
+    expect(publicMatching).not.toHaveProperty('correctAnswers');
+  });
+
   it('reveals answers only for submitted groups in both content and per-word copies', () => {
     const content = {
       groups: [
