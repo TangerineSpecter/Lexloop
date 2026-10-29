@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'late study generation responses do not reopen or replace the selected preview',
+  'study mode choices and late generation responses preserve the selected plan',
   { skip: !baseUrl, timeout: 120_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-generation-preview-test-'));
@@ -295,6 +295,72 @@ test(
       await until(
         'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
       );
+
+      // The dashboard's exam and individual modes are separate create paths.
+      // Keep them in this shared scenario so future changes cannot silently
+      // drop a mode or its selected source/count from the API request.
+      await evaluate(
+        '[...document.querySelectorAll(".toolbar button")].find((button) => button.textContent.includes("应试语境")).click()',
+      );
+      await until('document.querySelector(".mode-note")?.textContent.includes("原创短文")');
+      await evaluate('document.querySelector(".toolbar button.create").click()');
+      await until('window.studyPlanCreateBodies.length === 2');
+      assert.deepEqual(await evaluate('window.studyPlanCreateBodies[1]'), {
+        newWordCount: 0,
+        reviewWordCount: 2,
+        mode: 'exam',
+      });
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
+      );
+
+      await evaluate(
+        '[...document.querySelectorAll(".toolbar button")].find((button) => button.textContent.includes("独立单词")).click()',
+      );
+      await until('document.querySelector("[aria-label=独立单词来源]")');
+      await evaluate(
+        '[...document.querySelectorAll("[aria-label=独立单词来源] button")].find((button) => button.textContent.includes("错词")).click()',
+      );
+      await evaluate('document.querySelector("#individual-word-count").focus()');
+      for (let step = 0; step < 7; step++) {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'ArrowLeft',
+          code: 'ArrowLeft',
+          windowsVirtualKeyCode: 37,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'ArrowLeft',
+          code: 'ArrowLeft',
+          windowsVirtualKeyCode: 37,
+        });
+      }
+      await until('document.querySelector("#individual-word-count").value === "3"');
+      await evaluate('document.querySelector(".toolbar button.create").click()');
+      await until('window.studyPlanCreateBodies.length === 3');
+      assert.deepEqual(await evaluate('window.studyPlanCreateBodies[2]'), {
+        mode: 'individual',
+        selection: 'mistakes',
+        newWordCount: 3,
+        reviewWordCount: 0,
+      });
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll("[aria-label=独立单词来源] button")].find((button) => button.textContent.includes("错词")).getAttribute("aria-pressed")',
+        ),
+        'true',
+        'a failed request leaves the learner’s source choice selected',
+      );
+      assert.equal(await evaluate('document.querySelector("#individual-word-count").value'), '3');
+      await evaluate(
+        '[...document.querySelectorAll(".toolbar button")].find((button) => button.textContent.includes("分组")).click()',
+      );
+      await until('document.querySelector("#review-session-count")');
+
       await evaluate('document.querySelector("#review-session-count").focus()');
       for (let step = 0; step < 2; step++) {
         await send('Input.dispatchKeyEvent', {
@@ -317,7 +383,7 @@ test(
         await evaluate('document.querySelector(".toolbar button.create").disabled'),
         true,
       );
-      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
+      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 3);
       await clickHistory();
       await until('document.querySelectorAll(".history-grid article").length === 5');
 
@@ -992,7 +1058,7 @@ test(
         await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
         'focused',
       );
-      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
+      assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 3);
       await evaluate('document.querySelector(".plan-preview-scrim").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
       await clickHistory();
