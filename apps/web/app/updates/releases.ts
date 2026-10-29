@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.80',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '学习生涯日期按本地时区统计',
+        entry: '词环 → 学习统计 → 学习生涯',
+        usage:
+          '累计学习日和逾期复习按当前浏览器时区的自然日计算；到期词仍按实际到期时间统计。旧版客户端未提供时区时，继续使用 API 默认时区。',
+      },
+    ],
+  },
+  {
     version: '1.27.79',
     date: '2026-10-29',
     items: [

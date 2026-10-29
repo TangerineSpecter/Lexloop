@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'word accuracy rankings show their sample size without calling it stable mastery',
+  'statistics preserve sample-size context and request career dates in the browser time zone',
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-statistics-sample-test-'));
@@ -95,10 +95,22 @@ test(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await send('Emulation.setTimezoneOverride', { timezoneId: 'America/Los_Angeles' });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'learner-a', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           window.statisticsFixture = {
+            careerRequests: [],
+            careerResponse: {
+              overview: { startedAt: '2026-10-01T00:00:00.000Z', activeDays: 1, totalQuestions: 1, studySeconds: 60, completedPlans: 1, learnedWords: 1, masteredWords: 0, completedScenarios: 0 },
+              memory: { learningWords: 1, reviewingWords: 1, dueWords: 1, overdueWords: 0, masteryRate: 0 },
+              quality: { accuracy: 100, averageResponseMs: 1000, activeWeaknesses: 0, resolvedWeaknesses: 0, strongestQuestionType: null, weakestQuestionType: null },
+              practice: { successRate: 0, categoriesExperienced: 0, totalCategories: 6, categories: [], skills: [] },
+              profile: { level: 'A1', confidence: 'LOW', provisional: true, assessedAt: null, dimensions: { vocabulary: 0, grammar: 0, sentenceBuilding: 0, taskCompletion: 0, naturalness: 0, pronunciation: null, listening: null, fluency: null } },
+              growth: [],
+              insights: { strengths: [], risks: [], recommendations: [] },
+              aiAnalysis: { status: 'none', generatedAt: null, content: null }
+            },
             activeDays: 1, activity: Array.from({ length: 7 }, (_, index) => ({ label: '10 月 ' + (21 + index) + ' 日', words: index === 6 ? 1 : 0, questions: index === 6 ? 3 : 0, studySeconds: 0, scenarios: 0, assessments: 0, today: index === 6 })),
             chart: Array.from({ length: 7 }, (_, index) => ({ label: index === 6 ? '今天' : '周' + (index + 1), words: index === 6 ? 1 : 0, completed: index === 6, today: index === 6 })),
             currentStreak: 1, learnedWords: 2, masteredWords: 0, newWords: 1, reviewWords: 3, attemptCount: 3, accuracy: 67, averageResponseMs: 900, studySeconds: 3, completedPlans: 0, completedScenarios: 0, completedAssessments: 0,
@@ -113,6 +125,11 @@ test(
           window.fetch = async (url, options = {}) => {
             const path = String(url);
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'learner-a' });
+            if (path.includes('/api/v1/reports/career')) {
+              const parsed = new URL(path, location.href);
+              window.statisticsFixture.careerRequests.push(parsed.searchParams.get('timeZone'));
+              return Response.json(window.statisticsFixture.careerResponse);
+            }
             if (path.includes('/api/v1/reports/statistics')) return Response.json(window.statisticsFixture);
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 1, todayActive: true });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
@@ -190,6 +207,12 @@ test(
         mobile: true,
       });
       const mobileLayout = await assertStatisticsLayout(390);
+      await evaluate(
+        '[...document.querySelectorAll(".statistics-view-tabs button")].find(button => button.textContent.includes("学习生涯")).click()',
+      );
+      await until('document.querySelector(".career-passport")');
+      const requestedTimeZone = await evaluate('window.statisticsFixture.careerRequests.at(-1)');
+      assert.equal(requestedTimeZone, 'America/Los_Angeles');
       process.stdout.write(
         `statistics layout: desktop ${desktopLayout.documentWidth}/${desktopLayout.viewport}px, mobile ${mobileLayout.documentWidth}/${mobileLayout.viewport}px; key regions visible\n`,
       );

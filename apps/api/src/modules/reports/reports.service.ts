@@ -394,9 +394,21 @@ export class ReportsService {
     };
   }
 
-  async career(userId: string): Promise<CareerStatistics> {
+  async career(
+    userId: string,
+    requestedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ): Promise<CareerStatistics> {
+    const timeZone = validateTimeZone(requestedTimeZone);
     await this.ensureBackfilledSnapshots(userId);
     const now = new Date();
+    const dateFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayStart = localDayStart(dateKeyInTimeZone(dateFormatter, now), timeZone);
+    const localDateKey = (date: Date) => dateKeyInTimeZone(dateFormatter, date);
     const [
       user,
       attempts,
@@ -461,10 +473,14 @@ export class ReportsService {
       this.prisma.learningAnalysisCache.findUnique({ where: { userId } }),
     ]);
     const activeDates = new Set<string>();
-    attempts.forEach((item) => activeDates.add(dateKey(item.createdAt)));
-    plans.forEach((item) => item.completedAt && activeDates.add(dateKey(item.completedAt)));
-    scenarios.forEach((item) => item.completedAt && activeDates.add(dateKey(item.completedAt)));
-    assessments.forEach((item) => item.completedAt && activeDates.add(dateKey(item.completedAt)));
+    attempts.forEach((item) => activeDates.add(localDateKey(item.createdAt)));
+    plans.forEach((item) => item.completedAt && activeDates.add(localDateKey(item.completedAt)));
+    scenarios.forEach(
+      (item) => item.completedAt && activeDates.add(localDateKey(item.completedAt)),
+    );
+    assessments.forEach(
+      (item) => item.completedAt && activeDates.add(localDateKey(item.completedAt)),
+    );
     const activityDates = [
       ...attempts.map((item) => item.createdAt),
       ...plans.map((item) => item.completedAt),
@@ -493,7 +509,7 @@ export class ReportsService {
       (item) =>
         item.state === WordProgressState.REVIEWING &&
         item.nextReviewAt &&
-        item.nextReviewAt < startOfToday(),
+        item.nextReviewAt < todayStart,
     ).length;
     const completedScenarios = scenarios.length;
     const successfulScenarios = scenarios.filter(
@@ -1127,14 +1143,6 @@ function lowerLevel(left: CefrLevel, right: CefrLevel) {
 }
 function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-}
-function startOfToday() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
 function validateTimeZone(timeZone: string) {
   const value = timeZone.trim() || 'UTC';

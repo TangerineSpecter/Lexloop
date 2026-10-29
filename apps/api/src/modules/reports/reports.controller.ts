@@ -23,8 +23,8 @@ export class ReportsController {
   }
 
   @Get('career')
-  career(@Req() request: { user: { sub: string } }) {
-    return this.reports.career(request.user.sub);
+  career(@Req() request: { user: { sub: string } }, @Query('timeZone') timeZone?: string) {
+    return this.reports.career(request.user.sub, timeZone);
   }
 
   @Get('history')
