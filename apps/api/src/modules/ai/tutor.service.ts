@@ -71,16 +71,17 @@ export class TutorService {
     if (!provider) throw new BadRequestException('请先在阅读材料模型设置中选择可用的大模型');
     const conversation = await this.ensureConversation(userId, context);
     const quota = await this.reserveQuota(userId);
-    const previous = await this.prisma.tutorMessage.findMany({
-      where: { conversationId: conversation.id, status: TutorMessageStatus.COMPLETED },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 24,
-    });
-    const createdAt = new Date();
+    let previous: Array<{ role: TutorMessageRole; content: string }>;
     let userMessage: Awaited<ReturnType<typeof this.prisma.tutorMessage.create>>;
     let assistantMessage: Awaited<ReturnType<typeof this.prisma.tutorMessage.create>>;
     let audit: Awaited<ReturnType<typeof this.prisma.aiCallAudit.create>>;
     try {
+      previous = await this.prisma.tutorMessage.findMany({
+        where: { conversationId: conversation.id, status: TutorMessageStatus.COMPLETED },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 24,
+      });
+      const createdAt = new Date();
       [userMessage, assistantMessage, audit] = await this.prisma.$transaction([
         this.prisma.tutorMessage.create({
           data: {

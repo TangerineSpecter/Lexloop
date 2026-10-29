@@ -106,6 +106,51 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       expect(usage.count).toBe(0);
     });
 
+    it('refunds the app quota if recent conversation context cannot be read before a model call', async () => {
+      const readFailure = new Error('conversation history read failed');
+      const ai = { selectedChatCompletions: vi.fn() };
+      const service = new TutorService(
+        prisma as never,
+        { get: vi.fn().mockReturnValue(undefined) } as never,
+        ai as never,
+        {
+          selectedProvider: vi
+            .fn()
+            .mockResolvedValue({ provider: 'OPENAI_COMPATIBLE', model: 'fixture-model' }),
+        } as never,
+      );
+      vi.spyOn(service as never, 'resolveContext' as never).mockResolvedValue({} as never);
+      vi.spyOn(service as never, 'ensureConversation' as never).mockResolvedValue({
+        id: 'conversation-not-used',
+      } as never);
+      vi.spyOn(service as never, 'usageDate' as never).mockReturnValue(usageDate as never);
+      const findMany = vi.spyOn(prisma.tutorMessage, 'findMany').mockRejectedValue(readFailure);
+
+      try {
+        await expect(
+          service.prepareMessage(
+            userId,
+            { type: 'STUDY_GROUP', planId: 'plan-1', groupIndex: 0 },
+            '给我一点提示',
+          ),
+        ).rejects.toBe(readFailure);
+      } finally {
+        findMany.mockRestore();
+      }
+
+      const [usage, messages, audits] = await Promise.all([
+        prisma.tutorDailyUsage.findUniqueOrThrow({
+          where: { userId_usageDate: { userId, usageDate } },
+        }),
+        prisma.tutorMessage.count({ where: { conversationId: 'conversation-not-used' } }),
+        prisma.aiCallAudit.count({ where: { userId } }),
+      ]);
+      expect(usage.count).toBe(1);
+      expect(messages).toBe(0);
+      expect(audits).toBe(1);
+      expect(ai.selectedChatCompletions).not.toHaveBeenCalled();
+    });
+
     it('keeps a generated answer completed and charged if disconnect arrives during finalization', async () => {
       let markCompletionStarted!: () => void;
       const completionStarted = new Promise<void>((resolve) => {

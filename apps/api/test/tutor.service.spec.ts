@@ -55,6 +55,61 @@ describe('TutorService learning context', () => {
   });
 });
 
+describe('TutorService message preparation quota', () => {
+  it('refunds its reserved quota when reading recent conversation context fails', async () => {
+    const usageDate = new Date('2026-10-29T00:00:00.000Z');
+    const readFailure = new Error('conversation history read failed');
+    const findMany = vi.fn().mockRejectedValue(readFailure);
+    const prisma = {
+      tutorMessage: { findMany, create: vi.fn() },
+      $transaction: vi.fn(),
+    };
+    const ai = { selectedChatCompletions: vi.fn() };
+    const service = new TutorService(
+      prisma as never,
+      {} as never,
+      ai as never,
+      {
+        selectedProvider: vi
+          .fn()
+          .mockResolvedValue({ provider: 'OPENAI_COMPATIBLE', model: 'stub' }),
+      } as never,
+    );
+    vi.spyOn(service as never, 'resolveContext' as never).mockResolvedValue({} as never);
+    vi.spyOn(service as never, 'ensureConversation' as never).mockResolvedValue({
+      id: 'conversation-1',
+    } as never);
+    const reserve = vi.spyOn(service as never, 'reserveQuota' as never);
+    reserve.mockResolvedValue({ remaining: 29, usageDate } as never);
+    const refund = vi
+      .spyOn(service as never, 'refundQuota' as never)
+      .mockResolvedValue({ count: 1 } as never);
+
+    await expect(
+      service.prepareMessage(
+        'user-1',
+        {
+          type: 'STUDY_GROUP',
+          planId: 'plan-1',
+          groupIndex: 0,
+        },
+        '给我一点提示',
+      ),
+    ).rejects.toBe(readFailure);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { conversationId: 'conversation-1', status: 'COMPLETED' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 24,
+    });
+    expect(reserve).toHaveBeenCalledOnce();
+    expect(refund).toHaveBeenCalledOnce();
+    expect(refund).toHaveBeenCalledWith('user-1', usageDate);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(ai.selectedChatCompletions).not.toHaveBeenCalled();
+  });
+});
+
 describe('TutorService streaming cleanup', () => {
   it('marks a pending call failed and refunds its original quota date when the consumer cancels', async () => {
     const cancel = vi.fn();
