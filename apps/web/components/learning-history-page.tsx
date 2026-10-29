@@ -106,6 +106,10 @@ export function LearningHistoryPage({
   const hasMore = historyQuery.hasNextPage ?? false;
   const loadMessage =
     historyQuery.error instanceof Error ? historyQuery.error.message : '学习历史加载失败';
+  const retryHistory = () => {
+    if (historyQuery.isFetchNextPageError) void historyQuery.fetchNextPage();
+    else void historyQuery.refetch();
+  };
 
   if (historyQuery.isPending)
     return <HistoryState title="正在读取学习记录…" icon={<BookOpen size={42} />} loading />;
@@ -117,7 +121,7 @@ export function LearningHistoryPage({
         icon={<TriangleAlert size={42} />}
         onBack={onBack}
         backLabel={backLabel}
-        onRetry={() => void historyQuery.refetch()}
+        onRetry={retryHistory}
       />
     );
   if (!items.length)
@@ -216,7 +220,7 @@ export function LearningHistoryPage({
       {historyQuery.isError && (
         <p className="history-load-message" role="alert">
           {loadMessage}{' '}
-          <button type="button" onClick={() => void historyQuery.refetch()}>
+          <button type="button" onClick={retryHistory}>
             重试
           </button>
         </p>

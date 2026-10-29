@@ -199,7 +199,7 @@ test(
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-token', user: { id: 'learner-a', email: 'learner@example.invalid', displayName: 'Learner', role: 'USER' } }));
-          window.studyHistoryFixture = { reviewCalls: [], historyRequests: [], failFirstReview: true };
+          window.studyHistoryFixture = { reviewCalls: [], historyRequests: [], failFirstReview: true, failFirstHistoryNext: true };
           const historyResponse = ${JSON.stringify(historyResponse)};
           const nextHistoryResponse = ${JSON.stringify(nextHistoryResponse)};
           const reviewResponse = ${JSON.stringify(reviewResponse)};
@@ -215,6 +215,10 @@ test(
             if (path.includes('/api/v1/reports/history')) {
               const query = new URL(path, location.href).searchParams;
               window.studyHistoryFixture.historyRequests.push({ page: query.get('page'), cursor: query.get('cursor') });
+              if (query.has('cursor') && window.studyHistoryFixture.failFirstHistoryNext) {
+                window.studyHistoryFixture.failFirstHistoryNext = false;
+                return Response.json({ message: '下一页加载失败' }, { status: 503 });
+              }
               return Response.json(query.has('cursor') ? nextHistoryResponse : historyResponse);
             }
             if (path.includes('/api/v1/study/plans/plan-review-fixture/review')) {
@@ -280,9 +284,21 @@ test(
       assert.equal(await evaluate('window.studyHistoryFixture.reviewCalls.length'), 2);
 
       await evaluate('document.querySelector(".history-load-more").click()');
+      await until('document.querySelector(".history-load-message[role=alert]")');
+      assert.match(
+        await evaluate('document.querySelector(".history-load-message").textContent'),
+        /下一页加载失败/,
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll(".learning-history-card.is-plan").length'),
+        1,
+        'a failed next-page request keeps already loaded history visible',
+      );
+      await evaluate('document.querySelector(".history-load-message button").click()');
       await until('document.querySelectorAll(".learning-history-card.is-plan").length === 2');
       assert.deepEqual(await evaluate('window.studyHistoryFixture.historyRequests'), [
         { page: '1', cursor: null },
+        { page: '1', cursor: 'fixture-history-page-2' },
         { page: '1', cursor: 'fixture-history-page-2' },
       ]);
       assert.equal(
@@ -334,6 +350,18 @@ test(
       assert.ok(
         mobileLayout.contextRight <= mobileLayout.reviewRight,
         JSON.stringify(mobileLayout),
+      );
+
+      await evaluate('window.history.back()');
+      await until(
+        '!document.querySelector(".learning-history-page") && document.querySelector(".progress-grid .metric-card")',
+      );
+      await evaluate('window.history.forward()');
+      await until('document.querySelectorAll(".learning-history-card.is-plan").length === 2');
+      assert.equal(
+        await evaluate('window.studyHistoryFixture.historyRequests.length'),
+        3,
+        'browser back and forward reuses the loaded history without a duplicate page request',
       );
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(

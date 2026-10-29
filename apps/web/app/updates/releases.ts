@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.71',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '学习历史失败后可从原位置重试',
+        entry: '学习统计 → 学习历史',
+        usage:
+          '加载后续历史记录失败时，已显示的记录会保留；点击重试会继续请求失败的那一页。浏览器后退再前进也会保留当前已加载的历史。',
+      },
+    ],
+  },
+  {
     version: '1.27.70',
     date: '2026-10-29',
     items: [
