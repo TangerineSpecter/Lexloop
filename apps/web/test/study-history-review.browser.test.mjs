@@ -123,16 +123,36 @@ test(
             weakWords: ['bright'],
           },
         ],
-        hasMore: false,
+        hasMore: true,
+        nextCursor: 'fixture-history-page-2',
         totals: {
-          records: 1,
-          plans: 1,
-          words: 2,
-          questions: 2,
-          correctQuestions: 1,
+          records: 2,
+          plans: 2,
+          words: 3,
+          questions: 3,
+          correctQuestions: 2,
           assessments: 0,
           scenarios: 0,
         },
+      };
+      const nextHistoryResponse = {
+        items: [
+          {
+            id: 'older-plan-fixture',
+            kind: 'PLAN',
+            occurredAt: '2026-10-27T08:00:00.000Z',
+            mode: 'individual',
+            wordCount: 1,
+            totalQuestions: 1,
+            correctQuestions: 1,
+            durationSeconds: 12,
+            typeStats: [{ type: 'MEANING_RECOGNITION', total: 1, correct: 1 }],
+            weakWords: [],
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+        totals: historyResponse.totals,
       };
       const reviewResponse = {
         id: 'plan-review-fixture',
@@ -179,8 +199,9 @@ test(
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-token', user: { id: 'learner-a', email: 'learner@example.invalid', displayName: 'Learner', role: 'USER' } }));
-          window.studyHistoryFixture = { reviewCalls: [], failFirstReview: true };
+          window.studyHistoryFixture = { reviewCalls: [], historyRequests: [], failFirstReview: true };
           const historyResponse = ${JSON.stringify(historyResponse)};
+          const nextHistoryResponse = ${JSON.stringify(nextHistoryResponse)};
           const reviewResponse = ${JSON.stringify(reviewResponse)};
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
@@ -191,7 +212,11 @@ test(
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 20, masteredWords: 4, progress: 20 });
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 5, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
-            if (path.includes('/api/v1/reports/history')) return Response.json(historyResponse);
+            if (path.includes('/api/v1/reports/history')) {
+              const query = new URL(path, location.href).searchParams;
+              window.studyHistoryFixture.historyRequests.push({ page: query.get('page'), cursor: query.get('cursor') });
+              return Response.json(query.has('cursor') ? nextHistoryResponse : historyResponse);
+            }
             if (path.includes('/api/v1/study/plans/plan-review-fixture/review')) {
               window.studyHistoryFixture.reviewCalls.push({ url: path, authorization: new Headers(options.headers).get('Authorization') });
               if (window.studyHistoryFixture.failFirstReview) {
@@ -253,6 +278,17 @@ test(
         'older items without saved source context keep their existing review layout',
       );
       assert.equal(await evaluate('window.studyHistoryFixture.reviewCalls.length'), 2);
+
+      await evaluate('document.querySelector(".history-load-more").click()');
+      await until('document.querySelectorAll(".learning-history-card.is-plan").length === 2');
+      assert.deepEqual(await evaluate('window.studyHistoryFixture.historyRequests'), [
+        { page: '1', cursor: null },
+        { page: '1', cursor: 'fixture-history-page-2' },
+      ]);
+      assert.equal(
+        await evaluate('document.querySelectorAll(".learning-history-card.is-plan").length'),
+        2,
+      );
 
       const desktopLayout = await evaluate(
         `(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, cards: document.querySelectorAll('.history-review-question').length }))()`,

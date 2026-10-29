@@ -399,6 +399,7 @@ export type LearningHistoryItem =
 export interface LearningHistoryResponse {
   items: LearningHistoryItem[];
   hasMore: boolean;
+  nextCursor: string | null;
   totals: {
     records: number;
     plans: number;

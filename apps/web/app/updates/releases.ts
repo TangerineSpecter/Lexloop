@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.70',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '学习历史按游标续读',
+        entry: '学习统计 → 学习历史',
+        usage:
+          '长历史逐页加载下一段记录，学习序列、正式测评和旅行场景仍按完成时间合并；翻到更后面时不再重复读取此前整段记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.69',
     date: '2026-10-29',
     items: [

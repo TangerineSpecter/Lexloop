@@ -8,7 +8,11 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Get('statistics')
-  statistics(@Req() request: { user: { sub: string } }, @Query('range') range?: string, @Query('timeZone') timeZone?: string) {
+  statistics(
+    @Req() request: { user: { sub: string } },
+    @Query('range') range?: string,
+    @Query('timeZone') timeZone?: string,
+  ) {
     const days = range === '365d' ? 365 : range === '30d' ? 30 : 7;
     return this.reports.statistics(request.user.sub, days, timeZone);
   }
@@ -19,13 +23,27 @@ export class ReportsController {
   }
 
   @Get('career')
-  career(@Req() request: { user: { sub: string } }) { return this.reports.career(request.user.sub); }
+  career(@Req() request: { user: { sub: string } }) {
+    return this.reports.career(request.user.sub);
+  }
 
   @Get('history')
-  history(@Req() request: { user: { sub: string } }, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.reports.history(request.user.sub, Number(page) || 1, Number(pageSize) || 20);
+  history(
+    @Req() request: { user: { sub: string } },
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.reports.history(
+      request.user.sub,
+      Number(page) || 1,
+      Number(pageSize) || 20,
+      cursor,
+    );
   }
 
   @Post('career/analysis')
-  analysis(@Req() request: { user: { sub: string } }) { return this.reports.generateCareerAnalysis(request.user.sub); }
+  analysis(@Req() request: { user: { sub: string } }) {
+    return this.reports.generateCareerAnalysis(request.user.sub);
+  }
 }

@@ -87,14 +87,16 @@ export function LearningHistoryPage({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const historyQuery = useInfiniteQuery({
     queryKey: ['reports', 'history', session.user.id, HISTORY_PAGE_SIZE],
-    initialPageParam: 1,
-    queryFn: ({ pageParam }) =>
-      request<LearningHistoryResponse>(
-        `/reports/history?page=${pageParam}&pageSize=${HISTORY_PAGE_SIZE}`,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const cursor = pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : '';
+      return request<LearningHistoryResponse>(
+        `/reports/history?page=1&pageSize=${HISTORY_PAGE_SIZE}${cursor}`,
         {},
         session.accessToken,
-      ),
-    getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length + 1 : undefined),
+      );
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
     retry: false,
   });

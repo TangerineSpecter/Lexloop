@@ -481,6 +481,7 @@ model StudyPlan {
   tutorConversations TutorConversation[]
 
   @@index([userId, purpose, status, createdAt])
+  @@index([userId, status, completedAt, id])
 }
 
 model StudyPlanItem {
@@ -832,6 +833,7 @@ model AssessmentAttempt {
   responses       AssessmentResponse[]
 
   @@index([userId, status, startedAt])
+  @@index([userId, status, completedAt, id])
 }
 
 model AssessmentResponse {

@@ -40,6 +40,16 @@ type FiveDimensions = {
   taskCompletion: number;
   naturalness: number;
 };
+type HistoryCursor = {
+  id: string;
+  occurredAt: Date;
+  kind: LearningHistoryItem['kind'];
+};
+const HISTORY_KIND_RANK: Record<LearningHistoryItem['kind'], number> = {
+  PLAN: 0,
+  ASSESSMENT: 1,
+  SCENARIO: 2,
+};
 
 @Injectable()
 export class ReportsService {
@@ -205,11 +215,16 @@ export class ReportsService {
     userId: string,
     requestedPage = 1,
     requestedPageSize = 20,
+    encodedCursor?: string,
   ): Promise<LearningHistoryResponse> {
     const page = Math.min(1_000, Math.max(1, Math.trunc(requestedPage)));
     const pageSize = Math.min(50, Math.max(1, Math.trunc(requestedPageSize)));
-    const end = page * pageSize;
-    const take = end + 1;
+    const cursor = encodedCursor ? decodeHistoryCursor(encodedCursor) : null;
+    // Keep numeric-page requests compatible. The app uses the bounded cursor path below.
+    const legacyOffsetPage = !cursor && page > 1;
+    const take = legacyOffsetPage ? page * pageSize + 1 : pageSize + 1;
+    const afterCursor = (kind: LearningHistoryItem['kind']) =>
+      cursor ? historyAfterCursor(cursor, kind) : undefined;
     const [
       plans,
       assessments,
@@ -222,7 +237,12 @@ export class ReportsService {
       scenarioCount,
     ] = await Promise.all([
       this.prisma.studyPlan.findMany({
-        where: { userId, status: StudyPlanStatus.COMPLETED, completedAt: { not: null } },
+        where: {
+          userId,
+          status: StudyPlanStatus.COMPLETED,
+          completedAt: { not: null },
+          ...afterCursor('PLAN'),
+        },
         orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
         take,
         include: {
@@ -235,7 +255,12 @@ export class ReportsService {
         },
       }),
       this.prisma.assessmentAttempt.findMany({
-        where: { userId, status: 'COMPLETED', completedAt: { not: null } },
+        where: {
+          userId,
+          status: 'COMPLETED',
+          completedAt: { not: null },
+          ...afterCursor('ASSESSMENT'),
+        },
         orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
         take,
         include: { responses: { select: { provisional: true } } },
@@ -246,6 +271,7 @@ export class ReportsService {
           status: ScenarioSessionStatus.COMPLETED,
           completedAt: { not: null },
           report: { isNot: null },
+          ...afterCursor('SCENARIO'),
         },
         orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
         take,
@@ -343,12 +369,19 @@ export class ReportsService {
     ].sort(
       (left, right) =>
         new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime() ||
-        right.id.localeCompare(left.id),
+        right.id.localeCompare(left.id) ||
+        HISTORY_KIND_RANK[left.kind] - HISTORY_KIND_RANK[right.kind],
     );
-    const start = (page - 1) * pageSize;
+    const start = legacyOffsetPage ? (page - 1) * pageSize : 0;
+    const end = start + pageSize;
+    const pageItems = items.slice(start, end);
     return {
-      items: items.slice(start, end),
+      items: pageItems,
       hasMore: items.length > end,
+      nextCursor:
+        items.length > end && pageItems.length
+          ? encodeHistoryCursor(pageItems[pageItems.length - 1])
+          : null,
       totals: {
         records: planCount + assessmentCount + scenarioCount,
         plans: planCount,
@@ -986,6 +1019,49 @@ function careerHash(value: Omit<CareerStatistics, 'aiAnalysis'> | CareerStatisti
       }),
     )
     .digest('hex');
+}
+function encodeHistoryCursor(item: LearningHistoryItem) {
+  return Buffer.from(
+    JSON.stringify({ id: item.id, occurredAt: item.occurredAt, kind: item.kind }),
+  ).toString('base64url');
+}
+function decodeHistoryCursor(value: string): HistoryCursor {
+  const invalid = () => new BadRequestException('学习历史游标无效，请重新加载');
+  if (value.length > 256 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  try {
+    const decoded = Buffer.from(value, 'base64url');
+    if (decoded.toString('base64url') !== value) throw invalid();
+    const parsed = JSON.parse(decoded.toString('utf8')) as Record<string, unknown>;
+    if (
+      typeof parsed.id !== 'string' ||
+      parsed.id.length < 1 ||
+      parsed.id.length > 100 ||
+      typeof parsed.occurredAt !== 'string' ||
+      !['PLAN', 'ASSESSMENT', 'SCENARIO'].includes(String(parsed.kind))
+    ) {
+      throw invalid();
+    }
+    const occurredAt = new Date(parsed.occurredAt);
+    if (!Number.isFinite(occurredAt.getTime()) || occurredAt.toISOString() !== parsed.occurredAt)
+      throw invalid();
+    return {
+      id: parsed.id,
+      occurredAt,
+      kind: parsed.kind as HistoryCursor['kind'],
+    };
+  } catch {
+    throw invalid();
+  }
+}
+function historyAfterCursor(cursor: HistoryCursor, kind: LearningHistoryItem['kind']) {
+  const samePosition: Array<{ completedAt: Date | { lt: Date }; id?: string | { lt: string } }> = [
+    { completedAt: { lt: cursor.occurredAt } },
+    { completedAt: cursor.occurredAt, id: { lt: cursor.id } },
+  ];
+  if (HISTORY_KIND_RANK[kind] > HISTORY_KIND_RANK[cursor.kind]) {
+    samePosition.push({ completedAt: cursor.occurredAt, id: cursor.id });
+  }
+  return { OR: samePosition };
 }
 function extractCompletion(value: unknown) {
   const content = (value as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]

@@ -176,6 +176,60 @@ describe('period statistics word signals', () => {
   });
 });
 
+describe('learning history cursor pagination', () => {
+  it('keeps all source reads bounded on deep cursor pages and scopes each query to the learner', async () => {
+    const { service, prisma } = historyService();
+    const cursor = Buffer.from(
+      JSON.stringify({
+        id: 'history-position',
+        occurredAt: '2026-10-29T12:00:00.000Z',
+        kind: 'ASSESSMENT',
+      }),
+    ).toString('base64url');
+
+    await service.history('learner-a', 1_000, 20, cursor);
+
+    for (const source of [prisma.studyPlan, prisma.assessmentAttempt, prisma.scenarioSession]) {
+      const query = source.findMany.mock.calls[0][0];
+      expect(query.take).toBe(21);
+      expect(query.skip).toBeUndefined();
+      expect(query.where.userId).toBe('learner-a');
+    }
+    expect(prisma.studyPlan.findMany.mock.calls[0][0].where.OR).toHaveLength(2);
+    expect(prisma.assessmentAttempt.findMany.mock.calls[0][0].where.OR).toHaveLength(2);
+    expect(prisma.studyPlan.findMany.mock.calls[0][0].where.OR[1]).toEqual({
+      completedAt: new Date('2026-10-29T12:00:00.000Z'),
+      id: { lt: 'history-position' },
+    });
+    expect(prisma.scenarioSession.findMany.mock.calls[0][0].where.OR).toHaveLength(3);
+  });
+
+  it('rejects malformed cursors before issuing history queries', async () => {
+    const { service, prisma } = historyService();
+
+    await expect(service.history('learner-a', 1, 20, 'not a cursor')).rejects.toThrow(
+      '学习历史游标无效',
+    );
+    expect(prisma.studyPlan.findMany).not.toHaveBeenCalled();
+  });
+
+  it('preserves numeric page requests for older clients', async () => {
+    const { service, prisma } = historyService();
+    prisma.studyPlan.findMany.mockResolvedValue([
+      historyPlan('newest', '2026-10-29T12:00:00.000Z'),
+      historyPlan('second', '2026-10-29T11:00:00.000Z'),
+      historyPlan('older', '2026-10-29T10:00:00.000Z'),
+    ] as never);
+
+    const page = await service.history('learner-a', 2, 1);
+
+    expect(prisma.studyPlan.findMany.mock.calls[0][0].take).toBe(3);
+    expect(page.items.map((item) => item.id)).toEqual(['second']);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBeTruthy();
+  });
+});
+
 function streakService({
   attemptDates = [],
   scenarioDates = [],
@@ -210,6 +264,28 @@ function streakService({
     $queryRaw: vi.fn().mockResolvedValue(practiceDates.map((dateKey) => ({ dateKey }))),
   };
   return { service: new ReportsService(prisma as never, {} as never), prisma };
+}
+
+function historyService() {
+  const emptyFindMany = () => vi.fn().mockResolvedValue([]);
+  const emptyCount = () => vi.fn().mockResolvedValue(0);
+  const prisma = {
+    studyPlan: { findMany: emptyFindMany(), count: emptyCount() },
+    studyPlanItem: { count: emptyCount() },
+    wordReviewAttempt: { count: emptyCount() },
+    assessmentAttempt: { findMany: emptyFindMany(), count: emptyCount() },
+    scenarioSession: { findMany: emptyFindMany(), count: emptyCount() },
+  };
+  return { service: new ReportsService(prisma as never, {} as never), prisma };
+}
+
+function historyPlan(id: string, completedAt: string) {
+  return {
+    id,
+    completedAt: new Date(completedAt),
+    mode: 'GROUP',
+    items: [],
+  };
 }
 
 function periodStatisticsService() {
