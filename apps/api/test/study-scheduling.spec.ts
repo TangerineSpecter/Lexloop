@@ -133,6 +133,27 @@ describe('shared dynamic review schedule', () => {
       now.getTime() + result.lastIntervalDays * 86_400_000,
     );
   });
+
+  it('applies the shipped overdue discount cap to a very late review', () => {
+    const now = new Date('2026-10-29T00:00:00.000Z');
+    const result = reviewSchedule(
+      {
+        reviewCount: 3,
+        totalAttempts: 9,
+        correctAttempts: 9,
+        consecutiveCorrect: 3,
+        lastIntervalDays: 100,
+        postponedCount: 0,
+        lastReviewedAt: new Date(now.getTime() - 1100 * 86_400_000),
+        nextReviewAt: new Date(now.getTime() - 1000 * 86_400_000),
+      },
+      true,
+      now,
+    );
+
+    expect(result.lastIntervalDays).toBe(99);
+    expect(result.nextReviewAt.getTime()).toBe(now.getTime() + 99 * 86_400_000);
+  });
 });
 
 describe('shared generated content signature', () => {
