@@ -66,6 +66,25 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('career report learner time 
           }),
         ),
       });
+      await prisma.learningEvent.createMany({
+        data: [
+          {
+            userId: learner.id,
+            type: 'OUTPUT_COMPLETED',
+            createdAt: new Date('2026-10-27T02:00:00.000Z'),
+          },
+          {
+            userId: learner.id,
+            type: 'MICRO_STORY_COMPLETED',
+            createdAt: new Date('2026-10-27T04:00:00.000Z'),
+          },
+          {
+            userId: otherLearner.id,
+            type: 'GRAMMAR_COMPLETED',
+            createdAt: new Date('2026-10-24T18:00:00.000Z'),
+          },
+        ],
+      });
 
       vi.setSystemTime(new Date('2026-10-29T02:00:00.000Z'));
       const reports = new ReportsService(prisma as never, {} as never);
@@ -76,13 +95,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('career report learner time 
       const explicitProcessTimeZone = await reports.career(learner.id, processTimeZone);
       const otherAccount = await reports.career(otherLearner.id, 'America/Los_Angeles');
 
-      expect(losAngeles.overview.activeDays).toBe(2);
+      expect(losAngeles.overview.activeDays).toBe(3);
       expect(losAngeles.memory).toMatchObject({ dueWords: 1, overdueWords: 0 });
-      expect(shanghai.overview.activeDays).toBe(1);
+      expect(shanghai.overview.activeDays).toBe(2);
       expect(shanghai.memory).toMatchObject({ dueWords: 1, overdueWords: 1 });
       expect(legacyClient.overview.activeDays).toBe(explicitProcessTimeZone.overview.activeDays);
       expect(legacyClient.memory).toMatchObject(explicitProcessTimeZone.memory);
-      expect(otherAccount.overview.activeDays).toBe(0);
+      expect(otherAccount.overview.activeDays).toBe(1);
       expect(otherAccount.memory).toMatchObject({ dueWords: 0, overdueWords: 0 });
       await expect(reports.career(learner.id, 'invalid-time-zone')).rejects.toThrow(
         'Invalid time zone',
@@ -96,7 +115,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('career report learner time 
     }
   });
 
-  it('keeps career date grouping bounded with 2,500 saved learning dates', async () => {
+  it('keeps career date grouping bounded with 5,000 saved activity records', async () => {
     const prisma = new PrismaClient({
       datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
     });
@@ -120,6 +139,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('career report learner time 
           completedAt: new Date(now.getTime() - (index % 365) * 86_400_000),
         })),
       });
+      await prisma.learningEvent.createMany({
+        data: Array.from({ length: 2_500 }, (_, index) => ({
+          userId: learner.id,
+          type: index % 2 ? 'OUTPUT_COMPLETED' : 'READING_COMPLETED',
+          createdAt: new Date(now.getTime() - (index % 365) * 86_400_000),
+        })),
+      });
       vi.setSystemTime(now);
       const reports = new ReportsService(prisma as never, {} as never);
       const startedAt = performance.now();
@@ -127,7 +153,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('career report learner time 
       const elapsedMs = Math.round(performance.now() - startedAt);
 
       expect(career.overview.activeDays).toBe(365);
-      console.log(`career date grouping: 2,500 plans / 365 active days in ${elapsedMs} ms`);
+      console.log(
+        `career date grouping: 2,500 plans + 2,500 events / 365 active days in ${elapsedMs} ms`,
+      );
     } finally {
       vi.useRealTimers();
       await prisma.user.delete({ where: { id: learner.id } });

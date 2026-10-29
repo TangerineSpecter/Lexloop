@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.81',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '学习生涯计入各类专项学习日',
+        entry: '词环 → 学习统计 → 学习生涯',
+        usage:
+          '每日输出、易混词、微故事、精读语法和冒险练习等已完成活动现在会计入累计学习日；同一自然日的多项活动只计一天，其他账号的活动不会混入。',
+      },
+    ],
+  },
+  {
     version: '1.27.80',
     date: '2026-10-29',
     items: [

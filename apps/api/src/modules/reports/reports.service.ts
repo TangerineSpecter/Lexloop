@@ -415,6 +415,7 @@ export class ReportsService {
       progresses,
       masteredWordRows,
       plans,
+      learningEvents,
       weaknesses,
       profile,
       snapshots,
@@ -447,6 +448,7 @@ export class ReportsService {
         where: { userId, status: StudyPlanStatus.COMPLETED },
         select: { completedAt: true },
       }),
+      this.prisma.learningEvent.findMany({ where: { userId }, select: { createdAt: true } }),
       this.prisma.weaknessSignal.findMany({ where: { userId }, select: { status: true } }),
       this.prisma.languageProfile.findUnique({ where: { userId } }),
       this.prisma.languageProfileSnapshot.findMany({
@@ -475,6 +477,7 @@ export class ReportsService {
     const activeDates = new Set<string>();
     attempts.forEach((item) => activeDates.add(localDateKey(item.createdAt)));
     plans.forEach((item) => item.completedAt && activeDates.add(localDateKey(item.completedAt)));
+    learningEvents.forEach((item) => activeDates.add(localDateKey(item.createdAt)));
     scenarios.forEach(
       (item) => item.completedAt && activeDates.add(localDateKey(item.completedAt)),
     );
@@ -484,6 +487,7 @@ export class ReportsService {
     const activityDates = [
       ...attempts.map((item) => item.createdAt),
       ...plans.map((item) => item.completedAt),
+      ...learningEvents.map((item) => item.createdAt),
       ...scenarios.map((item) => item.completedAt),
       ...assessments.map((item) => item.completedAt),
     ].filter((value): value is Date => Boolean(value));
