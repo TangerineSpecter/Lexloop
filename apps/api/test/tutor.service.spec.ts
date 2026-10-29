@@ -57,14 +57,15 @@ describe('TutorService learning context', () => {
   it('bounds prompt history and learning context while retaining the newest conversation turns', () => {
     const service = serviceWith(null) as any;
     const history = service.historyForPrompt([
-      { role: 'USER', content: 'older turn' },
-      { role: 'ASSISTANT', content: 'a'.repeat(15_000) },
-      { role: 'USER', content: 'newest question' },
+      { role: 'USER', status: 'COMPLETED', content: 'older turn' },
+      { role: 'ASSISTANT', status: 'FAILED', content: 'a'.repeat(15_000) },
+      { role: 'USER', status: 'COMPLETED', content: 'newest question' },
     ]);
     const learningContext = service.learningContextForPrompt({ group: 'b'.repeat(15_000) });
 
     expect(history).toHaveLength(2);
     expect(history[0].role).toBe('assistant');
+    expect(history[0].content).toContain('上一条助手记录未完成');
     expect(history[0].content).toContain('[后续内容已省略]');
     expect(history[1]).toEqual({ role: 'user', content: 'newest question' });
     expect(
@@ -118,7 +119,13 @@ describe('TutorService message preparation quota', () => {
     ).rejects.toBe(readFailure);
 
     expect(findMany).toHaveBeenCalledWith({
-      where: { conversationId: 'conversation-1', status: 'COMPLETED' },
+      where: {
+        conversationId: 'conversation-1',
+        OR: [
+          { status: 'COMPLETED' },
+          { role: 'ASSISTANT', status: 'FAILED', content: { not: '' } },
+        ],
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 24,
     });

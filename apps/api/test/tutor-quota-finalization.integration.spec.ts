@@ -13,6 +13,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   () => {
     let prisma: PrismaClient;
     let userId: string;
+    let planId: string;
+    let conversationId: string;
     let assistantMessageId: string;
     let auditId: string;
     const usageDate = new Date('2026-10-29T00:00:00.000Z');
@@ -34,6 +36,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         data: { userId },
         select: { id: true },
       });
+      planId = plan.id;
       const conversation = await prisma.tutorConversation.create({
         data: {
           userId,
@@ -43,6 +46,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         },
         select: { id: true },
       });
+      conversationId = conversation.id;
       const assistantMessage = await prisma.tutorMessage.create({
         data: {
           conversationId: conversation.id,
@@ -149,6 +153,86 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       expect(messages).toBe(0);
       expect(audits).toBe(1);
       expect(ai.selectedChatCompletions).not.toHaveBeenCalled();
+    });
+
+    it('reuses a saved partial assistant answer as marked context on the next same-conversation question', async () => {
+      const partialText = 'The clue is the verb tense, which shows the action happened earlier.';
+      const userMessage = await prisma.tutorMessage.create({
+        data: {
+          conversationId,
+          role: TutorMessageRole.USER,
+          status: TutorMessageStatus.COMPLETED,
+          content: '为什么这里用过去时？',
+        },
+      });
+      const partialAnswer = await prisma.tutorMessage.create({
+        data: {
+          conversationId,
+          role: TutorMessageRole.ASSISTANT,
+          status: TutorMessageStatus.FAILED,
+          content: partialText,
+        },
+      });
+      const responseBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              'data: {"choices":[{"delta":{"content":"接着看句子中的时间线索。"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      });
+      const ai = {
+        selectedChatCompletions: vi
+          .fn()
+          .mockResolvedValue(
+            new Response(responseBody, { headers: { 'content-type': 'text/event-stream' } }),
+          ),
+      };
+      const service = new TutorService(
+        prisma as never,
+        { get: vi.fn().mockReturnValue(undefined) } as never,
+        ai as never,
+        {
+          selectedProvider: vi
+            .fn()
+            .mockResolvedValue({ provider: 'OPENAI_COMPATIBLE', model: 'fixture-model' }),
+        } as never,
+      );
+      vi.spyOn(service as never, 'resolveContext' as never).mockResolvedValue({
+        submitted: true,
+      } as never);
+      vi.spyOn(service as never, 'usageDate' as never).mockReturnValue(usageDate as never);
+
+      const prepared = await service.prepareMessage(
+        userId,
+        { type: 'STUDY_GROUP', planId, groupIndex: 0 },
+        '请接着解释刚才的线索',
+      );
+      for await (const _event of prepared.stream) {
+        // Consume only the mocked response so the normal persistence path is exercised.
+      }
+
+      const messages = ai.selectedChatCompletions.mock.calls[0][0].messages as Array<{
+        role: string;
+        content: string;
+      }>;
+      const partialContext = messages.find((message) => message.content.includes(partialText));
+      expect(partialContext?.role).toBe('assistant');
+      expect(partialContext?.content).toContain('上一条助手记录未完成');
+      expect(messages.at(-1)).toMatchObject({ role: 'user', content: '请接着解释刚才的线索' });
+
+      const [storedUser, storedPartial] = await Promise.all([
+        prisma.tutorMessage.findUniqueOrThrow({ where: { id: userMessage.id } }),
+        prisma.tutorMessage.findUniqueOrThrow({ where: { id: partialAnswer.id } }),
+      ]);
+      expect(storedUser.content).toBe('为什么这里用过去时？');
+      expect(storedPartial).toMatchObject({
+        status: TutorMessageStatus.FAILED,
+        content: partialText,
+      });
     });
 
     it('keeps a generated answer completed and charged if disconnect arrives during finalization', async () => {
