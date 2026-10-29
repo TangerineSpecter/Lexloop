@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.84',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '断网提示与主动取消明确区分',
+        entry: '学习计划、微故事复习、词环学习助手',
+        usage:
+          '网络不可达时提示检查网络后重试；主动取消不会误报为断网，已有草稿与计划请求身份仍按原流程保留。',
+      },
+    ],
+  },
+  {
     version: '1.27.83',
     date: '2026-10-29',
     items: [

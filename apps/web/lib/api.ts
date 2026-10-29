@@ -14,6 +14,26 @@ export class ApiRequestError extends Error {
   }
 }
 
+const NETWORK_ERROR_MESSAGE = '暂时无法连接学习服务，请检查网络或稍后重试。';
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  );
+}
+
+function isTypeError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'TypeError'
+  );
+}
+
 function responseMessage(status: number, body: unknown, fallback: string) {
   const raw =
     typeof body === 'object' && body !== null && 'message' in body
@@ -64,8 +84,9 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
-  } catch {
-    throw new Error('请求未能完成，请检查 API 服务或跨域配置。');
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -74,7 +95,13 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
       response.status,
     );
   }
-  return response.json() as Promise<T>;
+  try {
+    return (await response.json()) as T;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (isTypeError(error)) throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
+    throw error;
+  }
 }
 
 export async function streamSse(
@@ -89,8 +116,9 @@ export async function streamSse(
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include', headers });
-  } catch {
-    throw new ApiRequestError('无法连接到学习服务，请检查 API 是否运行或稍后重试。', 0);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -120,7 +148,8 @@ export async function streamSse(
       }
       if (done) break;
     }
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     throw new ApiRequestError('助手连接中断了，请稍后重试。', 0);
   }
 }

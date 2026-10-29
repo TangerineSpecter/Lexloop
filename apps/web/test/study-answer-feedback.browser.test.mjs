@@ -554,7 +554,9 @@ test(
         'window.resolveStudyPlanCreate(Promise.reject(new TypeError("Failed to fetch after the server created the plan")))',
       );
       await until('!document.querySelector(".create").disabled');
-      await until('document.querySelector(".book-message")?.textContent.includes("请求未能完成")');
+      await until(
+        'document.querySelector(".book-message")?.textContent.includes("暂时无法连接学习服务，请检查网络或稍后重试")',
+      );
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
       assert.equal(await evaluate('window.studyPlanCreations.length'), 1);
       assert.equal(await evaluate('window.studyPlanCreations[0].id'), 'plan-book-b');

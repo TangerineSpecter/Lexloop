@@ -1067,7 +1067,9 @@ test(
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('想起来了')).click()`,
       );
-      await until('document.body.textContent.includes("请求未能完成，请检查 API 服务或跨域配置")');
+      await until(
+        'document.body.textContent.includes("暂时无法连接学习服务，请检查网络或稍后重试")',
+      );
       assert.equal(
         await evaluate(
           'JSON.parse(localStorage.getItem("lexloop.micro-story.review.lost-review-owner.card1")).attempt',
