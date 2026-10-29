@@ -5436,8 +5436,10 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
+  min-width: 0;
 }
 .answer-options button {
+  min-width: 0;
   min-height: 48px;
   padding: 9px 12px;
   border: 2px solid var(--border-color);
@@ -5448,6 +5450,7 @@ button {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .answer-options button:hover,
 .answer-options button.selected {
@@ -5481,6 +5484,7 @@ button {
   margin-top: 14px;
   color: var(--coral);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .answer-feedback.success {
   color: var(--teal);
@@ -13646,6 +13650,12 @@ button {
   color: var(--border-color);
   font-weight: 800;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.generated-question .question-answer:focus {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 .generated-question .question-explanation {
   margin: 10px 0 0;
@@ -13655,6 +13665,7 @@ button {
   color: rgba(8, 40, 119, 0.78);
   font-weight: 700;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .generated-matching .match-definitions button > b {
   max-width: min(360px, 100%);
@@ -17270,5 +17281,24 @@ button[data-tooltip]::after {
   .sentence-rewrite-feedback dl > div {
     grid-template-columns: 72px minmax(0, 1fr);
     gap: 8px;
+  }
+}
+
+@media (max-width: 320px) {
+  .study-topbar {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .menu-trigger {
+    margin-right: 0;
+  }
+  .topbar-actions {
+    flex: 1 0 100%;
+    min-width: 0;
+    justify-content: flex-end;
+    margin-left: 0;
   }
 }

@@ -4592,9 +4592,16 @@ function GeneratedQuestionCard({
 }) {
   const selected = answer?.selected ?? [];
   const isMultiple = question.type === 'WORD_MNEMONIC';
+  const keyboardSubmissionPending = useRef(false);
+  const answerStatusRef = useRef<HTMLParagraphElement>(null);
   const correct = Boolean(
     answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected),
   );
+  useEffect(() => {
+    if (!keyboardSubmissionPending.current || !answer?.confirmed || revealed) return;
+    keyboardSubmissionPending.current = false;
+    answerStatusRef.current?.focus({ preventScroll: true });
+  }, [answer?.confirmed, revealed]);
   const submit = (option?: string, confirmed = true) => {
     const next = option ? [option] : selected;
     onAnswer(next, confirmed);
@@ -4637,7 +4644,8 @@ function GeneratedQuestionCard({
                 key={option}
                 disabled={busy || Boolean(answer?.confirmed)}
                 className={`${checked ? 'selected' : ''} ${resultClass}`}
-                onClick={() => {
+                onClick={(event) => {
+                  keyboardSubmissionPending.current = event.detail === 0;
                   if (isMultiple) {
                     onAnswer(
                       checked ? selected.filter((item) => item !== option) : [...selected, option],
@@ -4661,13 +4669,16 @@ function GeneratedQuestionCard({
         <button
           className="check-matches"
           disabled={busy || !selected.length}
-          onClick={() => submit(undefined, true)}
+          onClick={(event) => {
+            keyboardSubmissionPending.current = event.detail === 0;
+            submit(undefined, true);
+          }}
         >
           确认多选答案
         </button>
       )}
       {answer && !revealed && (
-        <p role="status" className="question-answer">
+        <p ref={answerStatusRef} tabIndex={-1} role="status" className="question-answer">
           {answer.confirmed
             ? '答案已记录，提交本组后查看对错与解析。'
             : '选择已暂存，确认后计入本组。'}

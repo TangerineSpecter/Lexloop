@@ -92,6 +92,21 @@ test(
           );
         return result.result.value;
       };
+      const pressKey = async (key, code, windowsVirtualKeyCode, text) => {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key,
+          code,
+          windowsVirtualKeyCode,
+          ...(text ? { text, unmodifiedText: text } : {}),
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key,
+          code,
+          windowsVirtualKeyCode,
+        });
+      };
       const capture = async (name) => {
         if (!screenshotDir) return;
         await mkdir(screenshotDir, { recursive: true });
@@ -1147,7 +1162,90 @@ test(
         false,
         'the optional hint can be collapsed again by keyboard',
       );
-      await evaluate('document.querySelector(".answer-options button").click()');
+      const apiFetchesBeforeKeyboardAnswer = await evaluate('window.apiFetchLog.length');
+      // A 195 CSS px viewport at DPR 2 represents a 390 px narrow screen at 200% zoom.
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 195,
+        height: 422,
+        deviceScaleFactor: 2,
+        mobile: false,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      await evaluate('document.querySelector(".answer-options button").focus()');
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until(
+        'document.querySelector(".answer-options button.selected") && document.activeElement.matches(".question-answer[role=status]")',
+      );
+      assert.equal(
+        await evaluate('document.activeElement.matches(".question-answer[role=status]")'),
+        true,
+        'keyboard selection moves focus to the answer status after its option becomes disabled',
+      );
+      assert.equal(
+        await evaluate('window.apiFetchLog.length'),
+        apiFetchesBeforeKeyboardAnswer,
+        'moving answer focus and recording the local draft do not add an API request',
+      );
+      assert.deepEqual(
+        await evaluate(`(() => {
+          const style = getComputedStyle(document.activeElement);
+          return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor };
+        })()`),
+        { outlineStyle: 'solid', outlineWidth: '3px', outlineColor: 'rgb(255, 131, 81)' },
+        'the focused answer status has a visible brand-colored focus indicator',
+      );
+      await capture('study-answer-keyboard-200-percent.png');
+      const answerKeyboardLayout = await evaluate(`(() => {
+        const status = document.querySelector('.question-answer').getBoundingClientRect();
+        const topbar = document.querySelector('.study-topbar').getBoundingClientRect();
+        const updates = document.querySelector('.topbar-actions a[href="/updates"]');
+        const account = document.querySelector('.topbar-account');
+        const updatesRect = updates.getBoundingClientRect();
+        const accountRect = account.getBoundingClientRect();
+        const overflow = [...document.querySelectorAll('body *')].map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { tag: element.tagName, className: typeof element.className === 'string' ? element.className : '', left: Math.round(rect.left), right: Math.round(rect.right), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+        }).filter((element) => element.right > innerWidth + 1 || element.left < -1).sort((a, b) => b.right - a.right).slice(0, 8);
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, body: document.body.scrollWidth, left: status.left, right: status.right, width: status.width, topbar: { left: topbar.left, right: topbar.right, height: topbar.height, updatesLeft: updatesRect.left, updatesRight: updatesRect.right, updatesDisplay: getComputedStyle(updates).display, accountLeft: accountRect.left, accountRight: accountRect.right, accountDisplay: getComputedStyle(account).display }, overflow };
+      })()`);
+      assert.equal(answerKeyboardLayout.viewport, 195);
+      assert.ok(
+        answerKeyboardLayout.page <= answerKeyboardLayout.viewport,
+        JSON.stringify(answerKeyboardLayout),
+      );
+      assert.ok(
+        answerKeyboardLayout.left >= 0 && answerKeyboardLayout.right <= 195,
+        JSON.stringify(answerKeyboardLayout),
+      );
+      assert.ok(
+        answerKeyboardLayout.topbar.left >= 0 &&
+          answerKeyboardLayout.topbar.right <= 195 &&
+          answerKeyboardLayout.topbar.updatesDisplay !== 'none' &&
+          answerKeyboardLayout.topbar.accountDisplay !== 'none' &&
+          answerKeyboardLayout.topbar.updatesLeft >= answerKeyboardLayout.topbar.left &&
+          answerKeyboardLayout.topbar.updatesRight <= answerKeyboardLayout.topbar.right &&
+          answerKeyboardLayout.topbar.accountLeft >= answerKeyboardLayout.topbar.left &&
+          answerKeyboardLayout.topbar.accountRight <= answerKeyboardLayout.topbar.right,
+        JSON.stringify(answerKeyboardLayout),
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.matches(".lesson-draft-clear")'),
+        true,
+        'Tab moves from the answer status to the draft action',
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.matches(".lesson-draft-actions .check-matches")'),
+        true,
+        'Tab reaches the group submit control after the draft action',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await until('document.querySelector(".question-answer")');
       const persistedDrafts = await evaluate(`Object.entries(localStorage)
         .filter(([key]) => key.startsWith('lexloop.study.draft.'))
@@ -1291,6 +1389,55 @@ test(
         ),
         false,
       );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 195,
+        height: 422,
+        deviceScaleFactor: 2,
+        mobile: false,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      await evaluate(`(() => {
+        const longWord = 'antidisestablishmentarianism'.repeat(12);
+        document.querySelector('.answer-options button').textContent = longWord;
+        document.querySelector('.question-answer').textContent = '正确答案：' + longWord;
+        document.querySelector('.question-explanation').textContent = '解析：' + longWord + '。这里继续一段较长的中文解释，说明词义、搭配和句中线索。'.repeat(8);
+        document.querySelector('.answer-feedback').textContent = '回答错误。' + longWord;
+        document.querySelector('.exercise-card').scrollIntoView({ block: 'start' });
+      })()`);
+      await capture('study-feedback-200-percent-long-text.png');
+      await evaluate(
+        'document.querySelector(".question-explanation").scrollIntoView({ block: "center" })',
+      );
+      await capture('study-feedback-explanation-200-percent.png');
+      const longTextLayout = await evaluate(`(() => {
+        const selectors = ['.exercise-card', '.answer-options button', '.question-answer', '.question-explanation', '.answer-feedback'];
+        const boxes = Object.fromEntries(selectors.map((selector) => {
+          const element = document.querySelector(selector);
+          const rect = element.getBoundingClientRect();
+          return [selector, { left: rect.left, right: rect.right, width: rect.width, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }];
+        }));
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, body: document.body.scrollWidth, boxes };
+      })()`);
+      assert.equal(longTextLayout.viewport, 195);
+      assert.ok(longTextLayout.page <= longTextLayout.viewport, JSON.stringify(longTextLayout));
+      assert.ok(longTextLayout.body <= longTextLayout.viewport, JSON.stringify(longTextLayout));
+      for (const [selector, box] of Object.entries(longTextLayout.boxes)) {
+        assert.ok(
+          box.left >= 0 && box.right <= longTextLayout.viewport + 1,
+          `${selector}: ${JSON.stringify(box)}`,
+        );
+        assert.ok(
+          box.scrollWidth <= box.clientWidth + 1,
+          `${selector}: text overflows its box: ${JSON.stringify(box)}`,
+        );
+      }
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
 
       await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
       assert.notEqual(await evaluate('window.studySpeech.active'), null);
