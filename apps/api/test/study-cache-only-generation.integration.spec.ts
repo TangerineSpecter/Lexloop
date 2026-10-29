@@ -182,6 +182,74 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(selectedProvider).not.toHaveBeenCalled();
         expect(ai.generateForUser).not.toHaveBeenCalled();
 
+        const usedPlanItem = await prisma.studyPlanItem.findFirstOrThrow({
+          where: { planId: cachedPlan.id },
+          select: { id: true, bookWordId: true },
+        });
+        const answeredAt = new Date();
+        await prisma.wordReviewAttempt.create({
+          data: {
+            userId: users[0],
+            bookWordId: usedPlanItem.bookWordId,
+            planItemId: usedPlanItem.id,
+            isCorrect: true,
+            questionType: 'MEANING_RECOGNITION',
+            selectedAnswer: ['稳定的'],
+            responseTimeMs: 650,
+            createdAt: answeredAt,
+          },
+        });
+        await prisma.studyPlanItem.update({
+          where: { id: usedPlanItem.id },
+          data: { completedAt: answeredAt },
+        });
+        await prisma.studyPlan.update({
+          where: { id: cachedPlan.id },
+          data: { status: 'COMPLETED', completedAt: answeredAt },
+        });
+
+        const alternateCache = await prisma.studyContentCache.create({
+          data: {
+            signature: signatures[0],
+            mode: StudyPlanMode.INDIVIDUAL,
+            material: generatedGroup(
+              0,
+              book.bookWords[0].id,
+              book.bookWords[0].word.text,
+              'Alternate lesson for the same learner',
+            ),
+          },
+          select: { id: true },
+        });
+        const sameLearnerPlan = await prisma.studyPlan.create({
+          data: {
+            userId: users[0],
+            mode: StudyPlanMode.INDIVIDUAL,
+            purpose: StudyPlanPurpose.NORMAL,
+            status: 'GENERATING',
+            items: {
+              create: {
+                bookWordId: book.bookWords[0].id,
+                source: 'NEW',
+                groupIndex: 0,
+              },
+            },
+          },
+          select: { id: true },
+        });
+        const completedForSameLearner = await service.generatePlan(users[0], sameLearnerPlan.id);
+        expect(completedForSameLearner.status).toBe('ACTIVE');
+        expect(completedForSameLearner.content).toMatchObject({
+          groups: [{ title: 'Alternate lesson for the same learner' }],
+        });
+        const sameLearnerPlanItem = await prisma.studyPlanItem.findFirstOrThrow({
+          where: { planId: sameLearnerPlan.id },
+          select: { contentCacheId: true },
+        });
+        expect(sameLearnerPlanItem.contentCacheId).toBe(alternateCache.id);
+        expect(selectedProvider).not.toHaveBeenCalled();
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+
         const partialPlan = await service.createPlan(users[1], 2, 'individual', 0, 'book');
         await expect(service.generatePlan(users[1], partialPlan.id)).rejects.toBeInstanceOf(
           BadRequestException,
@@ -217,10 +285,14 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           select: { id: true, signature: true, hitCount: true, material: true },
         });
         const steadyVariants = cacheRows.filter((row) => row.signature === signatures[0]);
-        const repairedOrReused = steadyVariants.find((row) => row.id === validCache.id);
-        const untouchedInvalidVariants = steadyVariants.filter((row) => row.id !== validCache.id);
-        expect(steadyVariants).toHaveLength(20);
-        expect(repairedOrReused?.hitCount).toBe(2);
+        const originalCache = steadyVariants.find((row) => row.id === validCache.id);
+        const alternateCacheRow = steadyVariants.find((row) => row.id === alternateCache.id);
+        const untouchedInvalidVariants = steadyVariants.filter(
+          (row) => row.id !== validCache.id && row.id !== alternateCache.id,
+        );
+        expect(steadyVariants).toHaveLength(21);
+        expect(originalCache?.hitCount).toBe(2);
+        expect(alternateCacheRow?.hitCount).toBe(1);
         expect(untouchedInvalidVariants).toHaveLength(19);
         expect(untouchedInvalidVariants.map((row) => row.hitCount).sort((a, b) => b - a)).toEqual(
           Array.from({ length: 19 }, (_, index) => 20 - index),
