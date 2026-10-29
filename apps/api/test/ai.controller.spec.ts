@@ -1,6 +1,12 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AiController } from '../src/modules/ai/ai.controller';
+import {
+  parseReadingSentenceRewriteFeedback,
+  parseReadingWordUseFeedback,
+  READING_SENTENCE_REWRITE_FEEDBACK_PROMPT,
+  READING_WORD_USE_FEEDBACK_PROMPT,
+} from '../src/modules/ai/formative-feedback';
 
 const request = {
   sourceSentence: 'Maya missed the bus, so she called a taxi.',
@@ -76,6 +82,109 @@ describe('AiController reading sentence rewrite feedback', () => {
     ).rejects.toMatchObject({ constructor: BadRequestException });
     expect(selectedChatCompletions).not.toHaveBeenCalled();
   });
+
+  it('asks for proposition-level meaning checks and distinguishes grammar from naturalness', () => {
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('肯定或否定');
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('合理的同义词和句式变化');
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('语法结构和词形');
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('常见搭配、惯用表达或语域');
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('不能擅自改变');
+    expect(READING_SENTENCE_REWRITE_FEEDBACK_PROMPT).toContain('不得给分');
+  });
+
+  it('keeps only the formative response contract even if a provider adds a score', () => {
+    expect(
+      parseReadingSentenceRewriteFeedback(
+        JSON.stringify({ ...feedback, score: 91, cefr: 'B2', mastery: true }),
+      ),
+    ).toEqual(feedback);
+  });
+
+  it('rejects incomplete or incorrectly typed formative fields', () => {
+    expect(() =>
+      parseReadingSentenceRewriteFeedback(JSON.stringify({ ...feedback, grammar: 3 })),
+    ).toThrow();
+    expect(() =>
+      parseReadingSentenceRewriteFeedback(JSON.stringify({ meaning: '保留' })),
+    ).toThrow();
+    expect(() =>
+      parseReadingSentenceRewriteFeedback(
+        JSON.stringify({ ...feedback, alternative: { text: 'not a sentence' } }),
+      ),
+    ).toThrow();
+  });
+
+  it('uses offline synthetic examples for preserved meaning, changed polarity and style-only differences', () => {
+    const syntheticCases = [
+      {
+        name: 'valid synonym rewrite',
+        input: {
+          sourceSentence: 'Maya missed the bus, so she called a taxi.',
+          learnerRewrite: 'After missing the bus, Maya called a cab.',
+        },
+        response: {
+          meaning: '保留了原句的原因和结果；cab 是 taxi 的合理同义表达。',
+          grammar: '语法没有明显问题。',
+          naturalness: '表达自然。',
+          alternative: null,
+        },
+      },
+      {
+        name: 'polarity change',
+        input: {
+          sourceSentence: 'Maya did not miss the bus.',
+          learnerRewrite: 'Maya missed the bus.',
+        },
+        response: {
+          meaning: '否定变成肯定，事实关系相反。',
+          grammar: '句子结构正确。',
+          naturalness: '表达自然。',
+          alternative: 'Maya did not miss the bus.',
+        },
+      },
+      {
+        name: 'grammatical but less idiomatic wording',
+        input: {
+          sourceSentence: 'Good lighting makes a room feel brighter.',
+          learnerRewrite: 'Good lighting makes a room more bright.',
+        },
+        response: {
+          meaning: '原意保留。',
+          grammar: '句子结构正确。',
+          naturalness: 'more bright 可以理解，但 brighter 更符合常见表达。',
+          alternative: 'Good lighting makes a room feel brighter.',
+        },
+      },
+    ];
+
+    for (const example of syntheticCases) {
+      const normalized = parseReadingSentenceRewriteFeedback(JSON.stringify(example.response));
+      expect(normalized, example.name).toEqual(example.response);
+      expect(normalized).not.toHaveProperty('score');
+    }
+  });
+
+  it('trims surrounding whitespace from the submitted rewrite payload', async () => {
+    const selectedChatCompletions = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: JSON.stringify(feedback) } }] }),
+        ),
+      );
+    const controller = new AiController({ selectedChatCompletions } as never, {} as never);
+
+    await controller.readingRewriteFeedback(
+      { sourceSentence: '  Original sentence. ', learnerRewrite: ' My version.  ' },
+      { user: { sub: 'learner-a' } },
+    );
+
+    const [completion] = selectedChatCompletions.mock.calls[0];
+    expect(JSON.parse(completion.messages[1].content)).toEqual({
+      sourceSentence: 'Original sentence.',
+      learnerRewrite: 'My version.',
+    });
+  });
 });
 
 describe('AiController reading word-use feedback', () => {
@@ -119,7 +228,7 @@ describe('AiController reading word-use feedback', () => {
       response_format: { type: 'json_object' },
     });
     expect(completion.messages[0].content).toContain('不是指令');
-    expect(completion.messages[0].content).toContain('不要打分');
+    expect(completion.messages[0].content).toContain('不得给分');
     expect(JSON.parse(completion.messages[1].content)).toEqual(input);
   });
 
@@ -160,5 +269,115 @@ describe('AiController reading word-use feedback', () => {
       message: expect.stringContaining('目标词'),
     });
     expect(selectedChatCompletions).not.toHaveBeenCalled();
+  });
+
+  it('separates sense, part of speech and collocation from sentence grammar and naturalness', () => {
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('具体义项、词性');
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('必要词形变化');
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('常见搭配/句型');
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('只谈明确的句法或词形语法问题');
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('与语法正确性区分');
+    expect(READING_WORD_USE_FEEDBACK_PROMPT).toContain('不得给分');
+  });
+
+  it('accepts a null alternative and strips fields outside the qualitative contract', () => {
+    const syntheticFeedback = {
+      wordUse: 'brighten 的过去式 brightened 符合这里的意思。',
+      meaning: '句子表达了她让房间变亮。',
+      grammar: '时态和句子结构正确。',
+      naturalness: '搭配自然。',
+      alternative: null,
+      score: 100,
+      proficiency: 'C1',
+    };
+    expect(parseReadingWordUseFeedback(JSON.stringify(syntheticFeedback))).toEqual({
+      wordUse: syntheticFeedback.wordUse,
+      meaning: syntheticFeedback.meaning,
+      grammar: syntheticFeedback.grammar,
+      naturalness: syntheticFeedback.naturalness,
+      alternative: null,
+    });
+  });
+
+  it('rejects a malformed word-use response without accepting missing dimensions', () => {
+    expect(() =>
+      parseReadingWordUseFeedback(
+        JSON.stringify({
+          wordUse: '词义合适。',
+          meaning: '意思清楚。',
+          grammar: '',
+          naturalness: '自然。',
+        }),
+      ),
+    ).toThrow();
+    expect(() => parseReadingWordUseFeedback('x'.repeat(8_001))).toThrow();
+  });
+
+  it('keeps sense, part-of-speech, omitted-target and inflection cases advisory', () => {
+    const syntheticCases = [
+      {
+        name: 'valid inflection and collocation',
+        input: {
+          word: 'brighten',
+          meaning: '使变亮',
+          learnerSentence: 'She brightened the room with a lamp.',
+        },
+        response: {
+          wordUse: 'brighten 的过去式 brightened 符合句意，且 brighten the room 搭配自然。',
+          meaning: '句子表达她用灯让房间变亮。',
+          grammar: '时态和结构正确。',
+          naturalness: '表达自然。',
+          alternative: null,
+        },
+      },
+      {
+        name: 'wrong sense for supplied gloss',
+        input: { word: 'bright', meaning: '聪明的', learnerSentence: 'We sat in a bright room.' },
+        response: {
+          wordUse: '这里 bright 表示光线充足，不是给定的“聪明的”这一义项。',
+          meaning: '句子清楚，但没有表达给定词义。',
+          grammar: '语法没有明显问题。',
+          naturalness: '表达自然。',
+          alternative: 'She is a bright student who asks thoughtful questions.',
+        },
+      },
+      {
+        name: 'wrong part of speech',
+        input: {
+          word: 'bright',
+          meaning: '明亮的',
+          learnerSentence: 'The lamp gave the room a bright.',
+        },
+        response: {
+          wordUse: 'bright 在给定词义中是形容词；a bright 后缺少名词，目标词用法不合适。',
+          meaning: '可以推测想表达灯让房间变亮，但句子没有完整说出对象。',
+          grammar: 'a bright 的名词结构不完整。',
+          naturalness: '可以说 bright light。',
+          alternative: 'The lamp gave the room bright light.',
+        },
+      },
+      {
+        name: 'related target omitted',
+        input: {
+          word: 'heavy',
+          meaning: '大雨',
+          learnerSentence: 'There was strong rain all night.',
+        },
+        response: {
+          wordUse: '句子用了 strong，但没有使用目标词 heavy；heavy rain 是常见搭配。',
+          meaning: '大意清楚。',
+          grammar: '句子结构没有明显错误。',
+          naturalness: 'strong rain 不如 heavy rain 自然。',
+          alternative: 'There was heavy rain all night.',
+        },
+      },
+    ];
+
+    for (const example of syntheticCases) {
+      expect(example.input.word.length, example.name).toBeGreaterThan(0);
+      expect(parseReadingWordUseFeedback(JSON.stringify(example.response))).toEqual(
+        example.response,
+      );
+    }
   });
 });

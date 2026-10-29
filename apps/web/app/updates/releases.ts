@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.64',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '改写与造句反馈更清楚地区分意思和表达',
+        entry: '词环 → 当前学习序列 → 阅读材料 → 改写 / 目标词造句',
+        usage:
+          '改写检查肯否、时态、程度和逻辑是否保留；造句分别查看目标词用法、语法和自然度。仍是按需建议，不计分或改变复习进度。',
+      },
+    ],
+  },
+  {
     version: '1.27.63',
     date: '2026-10-29',
     items: [
