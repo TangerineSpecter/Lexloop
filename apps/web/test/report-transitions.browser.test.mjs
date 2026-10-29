@@ -45,6 +45,9 @@ test(
       'components/dashboard.tsx -> ./learning-history-page',
     );
     const statisticsChunkPaths = dynamicChunkPaths('components/dashboard.tsx -> ./statistics-page');
+    const travelChunkPaths = dynamicChunkPaths(
+      'components/dashboard.tsx -> ./travel-scenario-page',
+    );
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-report-transition-'));
     const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
@@ -63,6 +66,7 @@ test(
     let launchError;
     let socket;
     const waiting = new Map();
+    const protocolEvents = [];
     let sequence = 0;
     browser.on('error', (error) => (launchError = error));
 
@@ -88,7 +92,10 @@ test(
       });
       socket.addEventListener('message', (event) => {
         const message = JSON.parse(event.data);
-        if (!message.id) return;
+        if (!message.id) {
+          protocolEvents.push(message);
+          return;
+        }
         const pending = waiting.get(message.id);
         if (!pending) return;
         waiting.delete(message.id);
@@ -112,6 +119,17 @@ test(
             result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
           );
         return result.result.value;
+      };
+      const waitForProtocolEvent = async (method, predicate = () => true, timeoutMs = 12_000) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          const index = protocolEvents.findIndex(
+            (event) => event.method === method && predicate(event.params),
+          );
+          if (index >= 0) return protocolEvents.splice(index, 1)[0].params;
+          await delay(20);
+        }
+        assert.fail(`Timed out waiting for DevTools event ${method}`);
       };
       const capture = async (name) => {
         if (!screenshotDir) return;
@@ -358,8 +376,58 @@ test(
       );
       assert.ok(
         !historyChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
-          !statisticsChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
-        'History and statistics code should wait until the learner opens those pages',
+          !statisticsChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
+          !travelChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
+        'History, statistics and travel code should wait until the learner opens those pages',
+      );
+
+      await send('Network.enable');
+      await send('Network.setCacheDisabled', { cacheDisabled: true });
+      await send('Fetch.enable', {
+        patterns: historyChunkPaths.map((path) => ({
+          urlPattern: `${baseUrl}${path}`,
+          requestStage: 'Request',
+        })),
+      });
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("学习历史")).click()',
+      );
+      const delayedHistoryChunk = await waitForProtocolEvent('Fetch.requestPaused', ({ request }) =>
+        historyChunkPaths.some((path) => new URL(request.url).pathname === path),
+      );
+      await until(
+        'document.querySelector(".dashboard-chunk-loading h1")?.textContent.trim() === "学习历史"',
+      );
+      assert.equal(await evaluate('window.reportFixture.historyRequests.length'), 0);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sidebar-nav .nav-item.nav-button.active span")?.textContent.trim()',
+        ),
+        '学习历史',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("词环")).click()',
+      );
+      await until('document.querySelector(".progress-grid .metric-card")');
+      await send('Fetch.continueRequest', { requestId: delayedHistoryChunk.requestId });
+      await send('Fetch.disable');
+      await until(
+        `performance.getEntriesByType("resource").some(entry => new URL(entry.name).pathname === ${JSON.stringify(historyChunkPaths[0])})`,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sidebar-nav .nav-item.nav-button.active span")?.textContent.trim()',
+        ),
+        '词环',
+        'a late learning-history chunk must not replace the page selected while it loaded',
+      );
+      assert.equal(
+        await evaluate('window.reportFixture.historyRequests.length'),
+        0,
+        'a page left before its chunk finished must not start page data requests',
+      );
+      process.stdout.write(
+        'deferred chunks: held history code showed the selected loading page; leaving before release kept the study page selected and started no history request.\n',
       );
 
       await evaluate('window.startReportTimeline()');
@@ -1361,6 +1429,72 @@ test(
       );
       process.stdout.write(
         `report transitions: history/stats initial requests ${firstRequestCounts.history}/${firstRequestCounts.statistics}, cached re-entry added 0 requests, range recovery requests ${rangeRequests.join(',')}; geometry stable to <=1px; statistics layout ${desktopLayout.scrollWidth}/${desktopLayout.viewport}px and ${mobileLayout.scrollWidth}/${mobileLayout.viewport}px; history layout ${desktopHistoryLayout.scrollWidth}/${desktopHistoryLayout.viewport}px and ${mobileHistoryLayout.scrollWidth}/${mobileHistoryLayout.viewport}px\n`,
+      );
+
+      const savedDraftKey = 'lexloop.study.draft.report-user-a.retry-plan.0';
+      const savedDraftValue = JSON.stringify({
+        version: 1,
+        answers: { wordA: { selected: ['meaning-a'], confirmed: false } },
+      });
+      await evaluate(
+        `localStorage.setItem(${JSON.stringify(savedDraftKey)}, ${JSON.stringify(savedDraftValue)})`,
+      );
+      await send('Fetch.enable', {
+        patterns: travelChunkPaths.map((path) => ({
+          urlPattern: `${baseUrl}${path}`,
+          requestStage: 'Request',
+        })),
+      });
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("场景口语")).click()',
+      );
+      const failedTravelChunk = await waitForProtocolEvent('Fetch.requestPaused', ({ request }) =>
+        travelChunkPaths.some((path) => new URL(request.url).pathname === path),
+      );
+      await send('Fetch.failRequest', {
+        requestId: failedTravelChunk.requestId,
+        errorReason: 'Failed',
+      });
+      await until('document.querySelector(".dashboard-chunk-error")');
+      const chunkErrorState = await evaluate(`(() => {
+        const error = document.querySelector('.dashboard-chunk-error');
+        const retry = error?.querySelector('button');
+        const rect = retry?.getBoundingClientRect();
+        return {
+          title: error?.querySelector('h1')?.textContent.trim() ?? null,
+          selected: document.querySelector('.sidebar-nav .nav-item.nav-button.active span')?.textContent.trim() ?? null,
+          message: error?.innerText ?? '',
+          retryVisible: Boolean(retry && rect.width > 0 && rect.height > 0),
+          retryLabel: retry?.textContent.trim() ?? null,
+          viewport: innerWidth,
+          scrollWidth: document.documentElement.scrollWidth
+        };
+      })()`);
+      assert.equal(chunkErrorState.title, '场景口语');
+      assert.equal(chunkErrorState.selected, '场景口语');
+      assert.match(chunkErrorState.message, /本机草稿不会被清除/);
+      assert.equal(chunkErrorState.retryVisible, true);
+      assert.equal(chunkErrorState.retryLabel, '重新加载栏目');
+      assert.ok(chunkErrorState.scrollWidth <= chunkErrorState.viewport);
+      await send('Fetch.disable');
+      await evaluate('document.querySelector(".dashboard-chunk-error button").click()');
+      await until(
+        'document.querySelector(".travel-page h1")?.textContent.trim() === "把英语，带到真正要说的地方。"',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sidebar-nav .nav-item.nav-button.active span")?.textContent.trim()',
+        ),
+        '场景口语',
+        'retry should reopen the selected page instead of resetting the dashboard to study',
+      );
+      assert.equal(
+        await evaluate(`localStorage.getItem(${JSON.stringify(savedDraftKey)})`),
+        savedDraftValue,
+        'chunk retry must not clear local study drafts',
+      );
+      process.stdout.write(
+        'deferred chunks: failed travel chunk showed a selected-page retry; reload restored the same page and preserved the local draft.\n',
       );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();

@@ -16810,6 +16810,48 @@ button[data-tooltip]::after {
   background: var(--gold);
   box-shadow: 2px 2px 0 var(--border-color);
 }
+.dashboard-chunk-error {
+  box-sizing: border-box;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--border-color);
+}
+.dashboard-chunk-error h1,
+.dashboard-chunk-error p {
+  margin: 0;
+}
+.dashboard-chunk-error p {
+  max-width: 48ch;
+  line-height: 1.6;
+}
+.dashboard-chunk-error button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--gold);
+  color: var(--border-color);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.dashboard-chunk-error button:focus-visible {
+  outline: 3px solid var(--border-color);
+  outline-offset: 3px;
+}
+@media (max-width: 680px) {
+  .dashboard-chunk-error {
+    padding: 20px;
+  }
+}
 .study-content,
 .statistics-page,
 .learning-history-page,

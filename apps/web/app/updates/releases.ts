@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.76',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '栏目加载失败可原页重试',
+        entry: '左侧主导航 → 延迟加载的学习栏目',
+        usage:
+          '网络暂时中断时会显示当前栏目和重试按钮；重试后回到原栏目，普通刷新和本机学习草稿保持原有行为。',
+      },
+    ],
+  },
+  {
     version: '1.27.75',
     date: '2026-10-29',
     items: [

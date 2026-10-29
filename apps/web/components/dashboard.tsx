@@ -1,5 +1,6 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
+import { DashboardBootstrapLoading } from './dashboard-loading';
 import type {
   ReadingSentenceRewriteFeedback,
   ReadingWordUseFeedback,
@@ -47,7 +48,15 @@ import {
   X,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
@@ -384,6 +393,43 @@ function DashboardPageLoading({
   );
 }
 
+function isDashboardChunkLoadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'ChunkLoadError' ||
+    /loading (?:css )?chunk .* failed|failed to fetch dynamically imported module|importing a module script failed/i.test(
+      error.message,
+    )
+  );
+}
+
+class DashboardChunkErrorBoundary extends Component<
+  { children: ReactNode; title: string; onRetry: () => void },
+  { error: unknown | null }
+> {
+  state = { error: null as unknown | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error !== null) {
+      if (!isDashboardChunkLoadError(this.state.error)) throw this.state.error;
+      return (
+        <section className="study-content dashboard-chunk-error" role="alert" aria-live="assertive">
+          <h1>{this.props.title}</h1>
+          <p>这个栏目暂时无法打开。网络恢复后可以重试；本机草稿不会被清除。</p>
+          <button type="button" onClick={this.props.onRetry}>
+            重新加载栏目
+          </button>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<'words' | 'plan' | 'history'>('words');
   const [plans, setPlans] = useState<LearningPlan[]>([]);
@@ -404,6 +450,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     left: number;
     top: number;
   } | null>(null);
+  const [dashboardRouteReady, setDashboardRouteReady] = useState(false);
   const [page, setCurrentPage] = useState<DashboardPage>('study');
   const currentPageRef = useRef<DashboardPage>('study');
   currentPageRef.current = page;
@@ -415,7 +462,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     const state =
       window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
     window.history.pushState(
-      { ...state, lexloopDashboardPage: nextPage, lexloopPreviousDashboardPage: previousPage },
+      {
+        ...state,
+        lexloopDashboardPage: nextPage,
+        lexloopDashboardUserId: session.user.id,
+        lexloopPreviousDashboardPage: previousPage,
+      },
       '',
       window.location.href,
     );
@@ -429,6 +481,21 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   };
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
+  const retryDeferredPage = () => {
+    const state =
+      window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
+    window.history.replaceState(
+      {
+        ...state,
+        lexloopDashboardRetryPage: currentPageRef.current,
+        lexloopDashboardUserId: session.user.id,
+        lexloopDashboardSettingsSection: settingsSection,
+      },
+      '',
+      window.location.href,
+    );
+    window.location.reload();
+  };
   const [currentBookState, setCurrentBookState] = useState<DefaultBookState>({
     ownerId: session.user.id,
     status: 'loading',
@@ -550,29 +617,47 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     const existingState =
       window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
     const requestedView = new URLSearchParams(window.location.search).get('view');
-    const initialPage: DashboardPage = requestedView === 'mistakes' ? 'mistakes' : 'study';
+    const retryPage =
+      existingState.lexloopDashboardUserId === session.user.id &&
+      isDashboardPage(existingState.lexloopDashboardRetryPage)
+        ? existingState.lexloopDashboardRetryPage
+        : null;
+    const initialPage: DashboardPage =
+      retryPage ?? (requestedView === 'mistakes' ? 'mistakes' : 'study');
+    setSettingsSection(
+      retryPage === 'settings' &&
+        existingState.lexloopDashboardUserId === session.user.id &&
+        existingState.lexloopDashboardSettingsSection === 'system'
+        ? 'system'
+        : 'account',
+    );
     currentPageRef.current = initialPage;
     setCurrentPage(initialPage);
     window.history.replaceState(
       {
         ...existingState,
         lexloopDashboardPage: initialPage,
+        lexloopDashboardUserId: session.user.id,
+        lexloopDashboardRetryPage: null,
         lexloopPreviousDashboardPage: null,
       },
       '',
       window.location.href,
     );
+    setDashboardRouteReady(true);
 
     const handlePopState = (event: PopStateEvent) => {
-      const nextPage = isDashboardPage(event.state?.lexloopDashboardPage)
-        ? event.state.lexloopDashboardPage
-        : 'study';
+      const nextPage =
+        event.state?.lexloopDashboardUserId === session.user.id &&
+        isDashboardPage(event.state?.lexloopDashboardPage)
+          ? event.state.lexloopDashboardPage
+          : 'study';
       currentPageRef.current = nextPage;
       setCurrentPage(nextPage);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [session.user.id]);
 
   useEffect(() => {
     let active = true;
@@ -702,6 +787,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setPreviewPlan(null);
     setPreviewOwnerId(session.user.id);
   }, [session.user.id]);
+
+  if (!dashboardRouteReady) return <DashboardBootstrapLoading />;
 
   return (
     <main className="study-app">
@@ -1088,12 +1175,17 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <PracticeEntries />
           </div>
         ) : page === 'travel' || page === 'assessment' ? (
-          <TravelScenarioPage
-            key={session.user.id}
-            session={session}
-            startWithAssessment={page === 'assessment'}
-            onBack={() => returnToPage('study')}
-          />
+          <DashboardChunkErrorBoundary
+            title={page === 'assessment' ? '英语能力测评' : '场景口语'}
+            onRetry={retryDeferredPage}
+          >
+            <TravelScenarioPage
+              key={session.user.id}
+              session={session}
+              startWithAssessment={page === 'assessment'}
+              onBack={() => returnToPage('study')}
+            />
+          </DashboardChunkErrorBoundary>
         ) : page === 'learning' ? (
           <LearningWordsPage
             key={session.user.id}
@@ -1101,23 +1193,25 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             onBack={() => returnToPage('study')}
           />
         ) : page === 'mistakes' ? (
-          <MistakesPage
-            key={session.user.id}
-            session={session}
-            onBack={() => returnToPage('study')}
-            onOpenTutorSettings={
-              session.user.role === 'ADMIN'
-                ? () => {
-                    setSettingsSection('system');
-                    setPage('settings');
-                  }
-                : undefined
-            }
-            onPlanCreated={(plan) => {
-              setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
-              openPlanPreview(plan);
-            }}
-          />
+          <DashboardChunkErrorBoundary title="待巩固" onRetry={retryDeferredPage}>
+            <MistakesPage
+              key={session.user.id}
+              session={session}
+              onBack={() => returnToPage('study')}
+              onOpenTutorSettings={
+                session.user.role === 'ADMIN'
+                  ? () => {
+                      setSettingsSection('system');
+                      setPage('settings');
+                    }
+                  : undefined
+              }
+              onPlanCreated={(plan) => {
+                setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
+                openPlanPreview(plan);
+              }}
+            />
+          </DashboardChunkErrorBoundary>
         ) : page === 'mastered' ? (
           <MasteredWordsPage
             key={session.user.id}
@@ -1126,34 +1220,39 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             onProgressChanged={() => setProgressRevision((current) => current + 1)}
           />
         ) : page === 'history' ? (
-          <LearningHistoryPage
-            session={session}
-            backLabel={historyBackPage === 'statistics' ? '返回学习统计' : '返回学习进度'}
-            onBack={() => returnToPage(historyBackPage)}
-          />
+          <DashboardChunkErrorBoundary title="学习历史" onRetry={retryDeferredPage}>
+            <LearningHistoryPage
+              session={session}
+              backLabel={historyBackPage === 'statistics' ? '返回学习统计' : '返回学习进度'}
+              onBack={() => returnToPage(historyBackPage)}
+            />
+          </DashboardChunkErrorBoundary>
         ) : page === 'statistics' ? (
-          <StatisticsPage
-            session={session}
-            onBack={() => returnToPage('study')}
-            onOpenHistory={() => {
-              setHistoryBackPage('statistics');
-              setPage('history');
-            }}
-            onNavigate={(target) => {
-              if (target === 'mistakes') setPage('mistakes');
-              else if (target === 'assessment') setPage('assessment');
-              else if (target === 'travel') setPage('travel');
-              else {
-                setActiveTab('words');
-                setPage('study');
-              }
-            }}
-          />
+          <DashboardChunkErrorBoundary title="学习统计" onRetry={retryDeferredPage}>
+            <StatisticsPage
+              session={session}
+              onBack={() => returnToPage('study')}
+              onOpenHistory={() => {
+                setHistoryBackPage('statistics');
+                setPage('history');
+              }}
+              onNavigate={(target) => {
+                if (target === 'mistakes') setPage('mistakes');
+                else if (target === 'assessment') setPage('assessment');
+                else if (target === 'travel') setPage('travel');
+                else {
+                  setActiveTab('words');
+                  setPage('study');
+                }
+              }}
+            />
+          </DashboardChunkErrorBoundary>
         ) : (
           <AccountSettings
             session={session}
             initialSection={settingsSection}
             onBack={() => returnToPage('study')}
+            onRetryDeferredPage={retryDeferredPage}
             onLearningReset={() => {
               setPlans([]);
               setPreviewPlan(null);
@@ -1978,11 +2077,13 @@ function AccountSettings({
   session,
   initialSection,
   onBack,
+  onRetryDeferredPage,
   onLearningReset,
 }: {
   session: Session;
   initialSection: 'account' | 'system';
   onBack: () => void;
+  onRetryDeferredPage: () => void;
   onLearningReset: () => void;
 }) {
   const [password, setPassword] = useState('');
@@ -2079,7 +2180,9 @@ function AccountSettings({
           )}
         </nav>
         {section === 'system' && session.user.role === 'ADMIN' ? (
-          <SystemSettings session={session} />
+          <DashboardChunkErrorBoundary title="系统设置" onRetry={onRetryDeferredPage}>
+            <SystemSettings session={session} />
+          </DashboardChunkErrorBoundary>
         ) : (
           <section className="account-settings-content">
             <h2>账号设置</h2>

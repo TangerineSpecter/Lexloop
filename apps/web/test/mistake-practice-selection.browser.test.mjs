@@ -141,6 +141,20 @@ test(
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'mistake-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          window.dashboardRouteFrames = [];
+          (() => {
+            let frame = 0;
+            const sample = () => {
+              const page = document.querySelector('.mistakes-page, .dashboard-chunk-loading, .study-content');
+              const heading = page?.querySelector('h1');
+              window.dashboardRouteFrames.push({
+                page: page?.classList.contains('mistakes-page') ? 'mistakes' : page?.classList.contains('dashboard-chunk-loading') ? page.dataset.dashboardPage ?? 'loading' : page ? 'study' : document.querySelector('[data-dashboard-bootstrap-loading]') ? 'bootstrap' : null,
+                title: heading?.textContent?.trim() ?? null,
+              });
+              if (frame++ < 300) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          })();
           window.mistakePlanWrites = [];
           window.mistakeListRequests = [];
           window.failOutputFilterOnce = true;
@@ -201,6 +215,12 @@ test(
       });
       await until('document.querySelector("#mistakes-title")');
       await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      const directLinkFrames = await evaluate('window.dashboardRouteFrames');
+      assert.ok(directLinkFrames.some((frame) => frame.page === 'mistakes'));
+      assert.ok(
+        !directLinkFrames.some((frame) => frame.page === 'study'),
+        `direct /dashboard?view=mistakes showed the default study page before the requested page: ${JSON.stringify(directLinkFrames.filter((frame) => frame.page === 'study').slice(0, 3))}`,
+      );
       await evaluate(
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("生成专项")).click()',
       );
