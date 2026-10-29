@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { LabService } from '../src/modules/learning-lab/lab.service';
+import { StudyService } from '../src/modules/study/study.service';
 import { VocabularyService } from '../src/modules/vocabulary/vocabulary.service';
 import { foundationGrammar } from '../src/modules/learning-lab/lab.rules';
 
@@ -172,6 +173,14 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
         sourceType: 'MANUAL',
         state: 'REVIEWING',
       });
+      const importedNotice = (await service.notebook(user.id, 1, 'notice')).items[0];
+      const dashboardAfterImport = await service.getDashboardWords(user.id);
+      expect(dashboardAfterImport.reviewWords).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: phrase.id, word: 'Look forward to', meaning: '期待' }),
+          expect.objectContaining({ id: importedNotice.id, word: 'notice', meaning: '注意到' }),
+        ]),
+      );
 
       await expect(
         service.importPersonalItems(user.id, [
@@ -213,6 +222,24 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
         example: 'I look forward to Sunday.',
         state: 'MASTERED',
       });
+      const dashboardAfterRestore = await service.getDashboardWords(user.id);
+      expect(dashboardAfterRestore.reviewWords).toEqual([
+        expect.objectContaining({ id: importedNotice.id, word: 'notice', meaning: '注意到' }),
+      ]);
+      const reviewPlan = await new StudyService(
+        prisma as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      ).createPlan(user.id, 0, 'group', 1);
+      expect(reviewPlan.words).toEqual([
+        expect.objectContaining({
+          id: importedNotice.id,
+          word: 'notice',
+          meaning: '注意到',
+          source: 'REVIEW',
+        }),
+      ]);
 
       const otherImport = await service.importPersonalItems(otherUser.id, [
         { text: 'look forward to', meaning: '另一个账号的释义' },
