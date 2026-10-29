@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.72',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '个人词汇档案按页加载',
+        entry: '词环 → 学习进度 → 学习中 / 已掌握',
+        usage:
+          '每次先读取 50 个词，可继续加载并查看完整数量；下一页失败时可从原位置重试，移除已掌握词后数量会同步更新。',
+      },
+    ],
+  },
+  {
     version: '1.27.71',
     date: '2026-10-29',
     items: [

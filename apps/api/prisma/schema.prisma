@@ -460,6 +460,7 @@ model UserWordProgress {
 
   @@unique([userId, bookWordId])
   @@index([userId, state, nextReviewAt])
+  @@index([userId, nextReviewAt, bookWordId])
 }
 
 model StudyPlan {
@@ -673,6 +674,7 @@ model UserMasteredWord {
 
   @@unique([userId, wordId])
   @@index([wordId])
+  @@index([userId, masteredAt, wordId])
 }
 
 model RefreshToken {

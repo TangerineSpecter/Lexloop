@@ -1,6 +1,10 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
-import type { ReadingSentenceRewriteFeedback, ReadingWordUseFeedback } from '@lexloop/types';
+import type {
+  ReadingSentenceRewriteFeedback,
+  ReadingWordUseFeedback,
+  VocabularyArchivePage,
+} from '@lexloop/types';
 
 import {
   ArrowLeft,
@@ -43,6 +47,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
 import { speakEnglish } from './english-audio-controls';
@@ -191,6 +196,7 @@ type DefaultBookState = {
   book: DefaultBook | null;
 };
 type LearningWord = Omit<Word, 'state'> & {
+  id: string;
   state: 'LEARNING' | 'REVIEWING';
   accuracy: number;
   reinforcement: string;
@@ -199,6 +205,7 @@ type LearningWord = Omit<Word, 'state'> & {
   nextReviewAt: string | null;
   bookTitle: string;
 };
+const VOCABULARY_ARCHIVE_PAGE_SIZE = 50;
 type VocabularyBookCard = {
   id: string;
   category: string;
@@ -1222,43 +1229,69 @@ function MasteredWordsPage({
   onBack: () => void;
   onProgressChanged: () => void;
 }) {
-  const [words, setWords] = useState<MasteredWord[]>([]);
-  const [message, setMessage] = useState('');
+  const queryClient = useQueryClient();
+  const queryKey = [
+    'vocabulary',
+    'mastered',
+    session.user.id,
+    VOCABULARY_ARCHIVE_PAGE_SIZE,
+  ] as const;
+  const learningQueryKey = [
+    'vocabulary',
+    'learning-words',
+    session.user.id,
+    VOCABULARY_ARCHIVE_PAGE_SIZE,
+  ] as const;
+  const archiveQuery = useInfiniteQuery({
+    queryKey,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const cursor = pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : '';
+      return request<VocabularyArchivePage<MasteredWord>>(
+        `/vocabulary/mastered?pageSize=${VOCABULARY_ARCHIVE_PAGE_SIZE}${cursor}`,
+        {},
+        session.accessToken,
+      );
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+    retry: false,
+  });
+  const words = archiveQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const total = archiveQuery.data?.pages.at(-1)?.total ?? 0;
+  const message =
+    archiveQuery.error instanceof Error ? archiveQuery.error.message : '已掌握单词加载失败';
   const [removingId, setRemovingId] = useState<string>();
-  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setLoadStatus('loading');
-    setMessage('');
-    request<MasteredWord[]>('/vocabulary/mastered', {}, session.accessToken)
-      .then((loadedWords) => {
-        if (!active) return;
-        setWords(loadedWords);
-        setLoadStatus('ready');
-      })
-      .catch((error) => {
-        if (!active) return;
-        setMessage(error instanceof Error ? error.message : '已掌握单词加载失败');
-        setLoadStatus('error');
-      });
-    return () => {
-      active = false;
-    };
-  }, [session.accessToken, loadAttempt]);
-  const retryLoad = () => {
-    setLoadStatus('loading');
-    setLoadAttempt((attempt) => attempt + 1);
-  };
+  const [actionMessage, setActionMessage] = useState('');
+  const retryLoad = () => void archiveQuery.refetch();
   const removeMastered = async (word: MasteredWord) => {
     setRemovingId(word.id);
-    setMessage('');
+    setActionMessage('');
     try {
+      await queryClient.cancelQueries({ queryKey });
       await request(`/vocabulary/mastered/${word.id}`, { method: 'DELETE' }, session.accessToken);
-      setWords((current) => current.filter((item) => item.id !== word.id));
+      queryClient.setQueryData<InfiniteData<VocabularyArchivePage<MasteredWord>, string | null>>(
+        queryKey,
+        (current) => {
+          if (!current?.pages.some((page) => page.items.some((item) => item.id === word.id))) {
+            return current;
+          }
+          return {
+            ...current,
+            pages: current.pages.map((page) => ({
+              ...page,
+              items: page.items.filter((item) => item.id !== word.id),
+              total: Math.max(0, page.total - 1),
+            })),
+          };
+        },
+      );
+      void queryClient.invalidateQueries({ queryKey: learningQueryKey });
       onProgressChanged();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '移除已掌握失败');
+      setActionMessage(error instanceof Error ? error.message : '移除已掌握失败');
+      void queryClient.invalidateQueries({ queryKey });
     } finally {
       setRemovingId(undefined);
     }
@@ -1277,14 +1310,14 @@ function MasteredWordsPage({
         </div>
         <div className="mastered-count">
           <CheckCircle2 size={24} />
-          <b>{loadStatus === 'ready' ? words.length : '—'}</b>
+          <b>{archiveQuery.data ? total : '—'}</b>
           <span>词</span>
         </div>
       </header>
-      {loadStatus === 'loading' && (
+      {archiveQuery.isPending && (
         <WordArchiveLoadState kind="mastered" status="loading" onRetry={retryLoad} />
       )}
-      {loadStatus === 'error' && (
+      {archiveQuery.isError && !archiveQuery.data && (
         <WordArchiveLoadState
           kind="mastered"
           status="error"
@@ -1292,8 +1325,25 @@ function MasteredWordsPage({
           onRetry={retryLoad}
         />
       )}
-      {loadStatus === 'ready' && message && <p className="book-message">{message}</p>}
-      {loadStatus === 'ready' && !message && !words.length && (
+      {archiveQuery.data && actionMessage && (
+        <p className="book-message" role="alert">
+          {actionMessage}
+        </p>
+      )}
+      {archiveQuery.data && archiveQuery.isRefetchError && !archiveQuery.isFetchNextPageError && (
+        <div className="word-archive-pagination">
+          <p role="alert">{message}，仍显示已加载的记录。</p>
+          <button type="button" onClick={retryLoad} disabled={archiveQuery.isFetching}>
+            重试更新
+          </button>
+        </div>
+      )}
+      {archiveQuery.data && archiveQuery.isFetching && !archiveQuery.isFetchingNextPage && (
+        <p className="word-archive-refresh" role="status">
+          正在更新已掌握的单词…
+        </p>
+      )}
+      {archiveQuery.data && !words.length && (
         <div className="mastered-empty word-archive-state">
           <CheckCircle2 size={34} />
           <strong>还没有已掌握的单词</strong>
@@ -1301,7 +1351,7 @@ function MasteredWordsPage({
           <button onClick={onBack}>去学习单词</button>
         </div>
       )}
-      {loadStatus === 'ready' && words.length > 0 && (
+      {archiveQuery.data && words.length > 0 && (
         <div className="mastered-list">
           {words.map((word) => (
             <article key={word.id}>
@@ -1321,38 +1371,54 @@ function MasteredWordsPage({
           ))}
         </div>
       )}
+      {archiveQuery.data && (archiveQuery.hasNextPage || archiveQuery.isFetchNextPageError) && (
+        <div className="word-archive-pagination" aria-live="polite">
+          {archiveQuery.isFetchNextPageError && <p role="alert">{message}，已加载的单词仍保留。</p>}
+          <button
+            type="button"
+            onClick={() => void archiveQuery.fetchNextPage({ cancelRefetch: false })}
+            disabled={archiveQuery.isFetchingNextPage}
+          >
+            {archiveQuery.isFetchingNextPage
+              ? '正在加载…'
+              : archiveQuery.isFetchNextPageError
+                ? '重试加载更多'
+                : `加载更多（已显示 ${words.length} / ${total}）`}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
 
 function LearningWordsPage({ session, onBack }: { session: Session; onBack: () => void }) {
-  const [words, setWords] = useState<LearningWord[]>([]);
-  const [message, setMessage] = useState('');
-  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setLoadStatus('loading');
-    setMessage('');
-    request<LearningWord[]>('/vocabulary/learning-words', {}, session.accessToken)
-      .then((loadedWords) => {
-        if (!active) return;
-        setWords(loadedWords);
-        setLoadStatus('ready');
-      })
-      .catch((error) => {
-        if (!active) return;
-        setMessage(error instanceof Error ? error.message : '学习中单词加载失败');
-        setLoadStatus('error');
-      });
-    return () => {
-      active = false;
-    };
-  }, [session.accessToken, loadAttempt]);
-  const retryLoad = () => {
-    setLoadStatus('loading');
-    setLoadAttempt((attempt) => attempt + 1);
-  };
+  const queryKey = [
+    'vocabulary',
+    'learning-words',
+    session.user.id,
+    VOCABULARY_ARCHIVE_PAGE_SIZE,
+  ] as const;
+  const archiveQuery = useInfiniteQuery({
+    queryKey,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const cursor = pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : '';
+      return request<VocabularyArchivePage<LearningWord>>(
+        `/vocabulary/learning-words?pageSize=${VOCABULARY_ARCHIVE_PAGE_SIZE}${cursor}`,
+        {},
+        session.accessToken,
+      );
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+    retry: false,
+  });
+  const words = archiveQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const total = archiveQuery.data?.pages.at(-1)?.total ?? 0;
+  const message =
+    archiveQuery.error instanceof Error ? archiveQuery.error.message : '学习中单词加载失败';
+  const retryLoad = () => void archiveQuery.refetch();
   const date = (value: string | null) =>
     value
       ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(
@@ -1373,14 +1439,14 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
         </div>
         <div className="mastered-count">
           <BookOpen size={24} />
-          <b>{loadStatus === 'ready' ? words.length : '—'}</b>
+          <b>{archiveQuery.data ? total : '—'}</b>
           <span>词</span>
         </div>
       </header>
-      {loadStatus === 'loading' && (
+      {archiveQuery.isPending && (
         <WordArchiveLoadState kind="learning" status="loading" onRetry={retryLoad} />
       )}
-      {loadStatus === 'error' && (
+      {archiveQuery.isError && !archiveQuery.data && (
         <WordArchiveLoadState
           kind="learning"
           status="error"
@@ -1388,8 +1454,20 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
           onRetry={retryLoad}
         />
       )}
-      {loadStatus === 'ready' && message && <p className="book-message">{message}</p>}
-      {loadStatus === 'ready' && !message && !words.length && (
+      {archiveQuery.data && archiveQuery.isRefetchError && !archiveQuery.isFetchNextPageError && (
+        <div className="word-archive-pagination">
+          <p role="alert">{message}，仍显示已加载的记录。</p>
+          <button type="button" onClick={retryLoad} disabled={archiveQuery.isFetching}>
+            重试更新
+          </button>
+        </div>
+      )}
+      {archiveQuery.data && archiveQuery.isFetching && !archiveQuery.isFetchingNextPage && (
+        <p className="word-archive-refresh" role="status">
+          正在更新学习中的单词…
+        </p>
+      )}
+      {archiveQuery.data && !words.length && (
         <div className="mastered-empty word-archive-state">
           <BookOpen size={34} />
           <strong>还没有学习中的单词</strong>
@@ -1397,7 +1475,7 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
           <button onClick={onBack}>去学习单词</button>
         </div>
       )}
-      {loadStatus === 'ready' && words.length > 0 && (
+      {archiveQuery.data && words.length > 0 && (
         <div className="learning-word-table">
           <header>
             <span>单词</span>
@@ -1425,6 +1503,22 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
               <time>{date(word.nextReviewAt)}</time>
             </article>
           ))}
+        </div>
+      )}
+      {archiveQuery.data && (archiveQuery.hasNextPage || archiveQuery.isFetchNextPageError) && (
+        <div className="word-archive-pagination" aria-live="polite">
+          {archiveQuery.isFetchNextPageError && <p role="alert">{message}，已加载的单词仍保留。</p>}
+          <button
+            type="button"
+            onClick={() => void archiveQuery.fetchNextPage({ cancelRefetch: false })}
+            disabled={archiveQuery.isFetchingNextPage}
+          >
+            {archiveQuery.isFetchingNextPage
+              ? '正在加载…'
+              : archiveQuery.isFetchNextPageError
+                ? '重试加载更多'
+                : `加载更多（已显示 ${words.length} / ${total}）`}
+          </button>
         </div>
       )}
     </section>

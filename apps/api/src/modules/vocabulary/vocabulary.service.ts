@@ -22,6 +22,62 @@ const categoryLabels: Record<VocabularyCategory, string> = {
   GENERAL: '其他',
 };
 
+type VocabularyArchiveKind = 'MASTERED' | 'LEARNING';
+type VocabularyArchiveCursor = {
+  kind: VocabularyArchiveKind;
+  userId: string;
+  id: string;
+  occurredAt: Date | null;
+};
+
+function encodeArchiveCursor(
+  kind: VocabularyArchiveKind,
+  userId: string,
+  id: string,
+  occurredAt: Date | null,
+) {
+  return Buffer.from(
+    JSON.stringify({ kind, userId, id, occurredAt: occurredAt?.toISOString() ?? null }),
+  ).toString('base64url');
+}
+
+function decodeArchiveCursor(
+  value: string,
+  expectedKind: VocabularyArchiveKind,
+  expectedUserId: string,
+): VocabularyArchiveCursor {
+  const invalid = () => new BadRequestException('词汇档案游标无效，请重新加载');
+  if (!value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  let decoded: unknown;
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    if (Buffer.from(raw).toString('base64url') !== value) throw invalid();
+    decoded = JSON.parse(raw);
+  } catch {
+    throw invalid();
+  }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw invalid();
+  const cursor = decoded as Record<string, unknown>;
+  if (
+    cursor.kind !== expectedKind ||
+    cursor.userId !== expectedUserId ||
+    typeof cursor.id !== 'string' ||
+    cursor.id.length < 1 ||
+    cursor.id.length > 100
+  ) {
+    throw invalid();
+  }
+  if (cursor.occurredAt === null && expectedKind === 'LEARNING') {
+    return { kind: expectedKind, userId: expectedUserId, id: cursor.id, occurredAt: null };
+  }
+  if (typeof cursor.occurredAt !== 'string') throw invalid();
+  const occurredAt = new Date(cursor.occurredAt);
+  if (Number.isNaN(occurredAt.getTime()) || occurredAt.toISOString() !== cursor.occurredAt) {
+    throw invalid();
+  }
+  return { kind: expectedKind, userId: expectedUserId, id: cursor.id, occurredAt };
+}
+
 @Injectable()
 export class VocabularyService {
   constructor(private readonly prisma: PrismaService) {}
@@ -557,7 +613,7 @@ export class VocabularyService {
   async listMasteredWords(userId: string) {
     const masteredWords = await this.prisma.userMasteredWord.findMany({
       where: { userId },
-      orderBy: { masteredAt: 'desc' },
+      orderBy: [{ masteredAt: 'desc' }, { wordId: 'desc' }],
       include: { word: true },
     });
     return masteredWords.map((item) => ({
@@ -567,20 +623,99 @@ export class VocabularyService {
     }));
   }
 
-  async listLearningWords(userId: string) {
-    const progresses = await this.prisma.userWordProgress.findMany({
-      where: {
-        userId,
-        state: { in: [WordProgressState.LEARNING, WordProgressState.REVIEWING] },
-        bookWord: {
-          book: { userBooks: { some: { userId } } },
-          word: { masteredBy: { none: { userId } } },
-        },
+  async listMasteredWordsPage(userId: string, options: { pageSize: number; cursor?: string }) {
+    const cursor =
+      options.cursor === undefined ? null : decodeArchiveCursor(options.cursor, 'MASTERED', userId);
+    const where: Prisma.UserMasteredWordWhereInput = {
+      userId,
+      ...(cursor
+        ? {
+            OR: [
+              { masteredAt: { lt: cursor.occurredAt! } },
+              { masteredAt: cursor.occurredAt!, wordId: { lt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await this.prisma.$transaction(
+      [
+        this.prisma.userMasteredWord.findMany({
+          where,
+          orderBy: [{ masteredAt: 'desc' }, { wordId: 'desc' }],
+          take: options.pageSize + 1,
+          include: { word: true },
+        }),
+        this.prisma.userMasteredWord.count({ where: { userId } }),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const hasMore = rows.length > options.pageSize;
+    const selected = rows.slice(0, options.pageSize);
+    const items = selected.map((item) => ({
+      id: item.wordId,
+      ...presentLexicalWord(item.word),
+      masteredAt: item.masteredAt,
+    }));
+    const last = selected.at(-1);
+    return {
+      items,
+      total,
+      nextCursor:
+        hasMore && last
+          ? encodeArchiveCursor('MASTERED', userId, last.wordId, last.masteredAt)
+          : null,
+    };
+  }
+
+  async listLearningWords(userId: string, options?: { pageSize: number; cursor?: string }) {
+    const cursor =
+      options?.cursor === undefined
+        ? null
+        : decodeArchiveCursor(options.cursor, 'LEARNING', userId);
+    const baseWhere: Prisma.UserWordProgressWhereInput = {
+      userId,
+      state: { in: [WordProgressState.LEARNING, WordProgressState.REVIEWING] },
+      bookWord: {
+        book: { userBooks: { some: { userId } } },
+        word: { masteredBy: { none: { userId } } },
       },
-      orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'desc' }],
+    };
+    const cursorWhere: Prisma.UserWordProgressWhereInput = cursor
+      ? {
+          OR:
+            cursor.occurredAt === null
+              ? [{ nextReviewAt: null, bookWordId: { gt: cursor.id } }]
+              : [
+                  { nextReviewAt: { gt: cursor.occurredAt } },
+                  { nextReviewAt: null },
+                  {
+                    nextReviewAt: cursor.occurredAt,
+                    bookWordId: { gt: cursor.id },
+                  },
+                ],
+        }
+      : {};
+    const where = { ...baseWhere, ...cursorWhere };
+    const orderBy: Prisma.UserWordProgressOrderByWithRelationInput[] = options
+      ? [{ nextReviewAt: { sort: 'asc', nulls: 'last' } }, { bookWordId: 'asc' }]
+      : [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'desc' }];
+    const query = {
+      where,
+      orderBy,
       include: { bookWord: { include: { word: true, book: { select: { title: true } } } } },
-    });
-    return progresses.map((progress) => {
+    };
+    const [progresses, total] = options
+      ? await this.prisma.$transaction(
+          [
+            this.prisma.userWordProgress.findMany({ ...query, take: options.pageSize + 1 }),
+            this.prisma.userWordProgress.count({ where: baseWhere }),
+          ],
+          { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+        )
+      : [await this.prisma.userWordProgress.findMany(query), 0];
+    const hasMore = Boolean(options && progresses.length > options.pageSize);
+    const selected = options ? progresses.slice(0, options.pageSize) : progresses;
+    const items = selected.map((progress) => {
       const accuracy = progress.totalAttempts
         ? Math.round((progress.correctAttempts / progress.totalAttempts) * 100)
         : 0;
@@ -601,6 +736,17 @@ export class VocabularyService {
         bookTitle: progress.bookWord.book.title,
       };
     });
+    const last = selected.at(-1);
+    return options
+      ? {
+          items,
+          total,
+          nextCursor:
+            hasMore && last
+              ? encodeArchiveCursor('LEARNING', userId, last.bookWordId, last.nextReviewAt)
+              : null,
+        }
+      : items;
   }
 
   async removeMasteredWord(userId: string, wordId: string) {

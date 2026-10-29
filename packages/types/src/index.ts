@@ -396,6 +396,13 @@ export interface LearningHistoryScenarioItem extends LearningHistoryBase {
 
 export type LearningHistoryItem =
   LearningHistoryPlanItem | LearningHistoryAssessmentItem | LearningHistoryScenarioItem;
+
+export interface VocabularyArchivePage<T> {
+  items: T[];
+  total: number;
+  nextCursor: string | null;
+}
+
 export interface LearningHistoryResponse {
   items: LearningHistoryItem[];
   hasMore: boolean;

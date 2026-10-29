@@ -129,6 +129,7 @@ test(
           scenarios: 0,
         },
       };
+      const emptyArchivePage = { items: [], total: 0, nextCursor: null };
       const emptyStatistics = {
         activeDays: 0,
         chart: Array.from({ length: 7 }, (_, index) => ({
@@ -165,12 +166,13 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-token', user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'USER' } }));
+          if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-token', user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'USER' } }));
           window.reportFixture = {
             historyRequests: [],
             statisticsRequests: [],
             learningWordsRequests: [],
             masteredRequests: [],
+            masteredRemoveRequests: [],
             holdHistory: true,
             holdSevenDayStatistics: true,
             holdLearningWords: true,
@@ -182,10 +184,14 @@ test(
             failRange: null,
             failLearningWords: false,
             failMasteredWords: false,
+            failLearningNextPage: false,
+            failMasteredNextPage: false,
             historyResponse: ${JSON.stringify(emptyHistory)},
             statisticsResponse: ${JSON.stringify(emptyStatistics)},
-            learningWordsResponse: [],
-            masteredWordsResponse: [],
+            learningWordsResponse: ${JSON.stringify(emptyArchivePage)},
+            learningWordsNextResponse: ${JSON.stringify(emptyArchivePage)},
+            masteredWordsResponse: ${JSON.stringify(emptyArchivePage)},
+            masteredWordsNextResponse: ${JSON.stringify(emptyArchivePage)},
             resolveHistory() { this.pendingHistory.shift()?.(Response.json(this.historyResponse)); },
             resolveStatistics() { this.pendingStatistics.shift()?.(Response.json(this.statisticsResponse)); },
             resolveLearningWords(status = 200) { this.pendingLearningWords.shift()?.(Response.json(status === 200 ? this.learningWordsResponse : { message: 'learning words unavailable' }, { status })); },
@@ -228,7 +234,7 @@ test(
           window.fetch = async (url, options = {}) => {
             const parsed = new URL(String(url), location.href);
             const path = parsed.pathname;
-            if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'report-user-a' });
+            if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
             if (path.includes('/api/v1/reports/history')) {
               const index = window.reportFixture.historyRequests.length;
               window.reportFixture.historyRequests.push({ userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id, page: parsed.searchParams.get('page') });
@@ -249,7 +255,13 @@ test(
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.endsWith('/api/v1/vocabulary/learning-words')) {
-              window.reportFixture.learningWordsRequests.push(JSON.parse(localStorage.getItem('lexloop.session')).user.id);
+              const cursor = parsed.searchParams.get('cursor');
+              window.reportFixture.learningWordsRequests.push({ userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id, cursor, pageSize: parsed.searchParams.get('pageSize') });
+              if (cursor && window.reportFixture.failLearningNextPage) {
+                window.reportFixture.failLearningNextPage = false;
+                return Response.json({ message: 'learning words page unavailable' }, { status: 503 });
+              }
+              if (cursor) return Response.json(window.reportFixture.learningWordsNextResponse);
               if (window.reportFixture.holdLearningWords) return new Promise(resolve => window.reportFixture.pendingLearningWords.push(resolve));
               if (window.reportFixture.failLearningWords) {
                 window.reportFixture.failLearningWords = false;
@@ -258,13 +270,23 @@ test(
               return Response.json(window.reportFixture.learningWordsResponse);
             }
             if (path.endsWith('/api/v1/vocabulary/mastered')) {
-              window.reportFixture.masteredRequests.push(JSON.parse(localStorage.getItem('lexloop.session')).user.id);
+              const cursor = parsed.searchParams.get('cursor');
+              window.reportFixture.masteredRequests.push({ userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id, cursor, pageSize: parsed.searchParams.get('pageSize') });
+              if (cursor && window.reportFixture.failMasteredNextPage) {
+                window.reportFixture.failMasteredNextPage = false;
+                return Response.json({ message: 'mastered words page unavailable' }, { status: 503 });
+              }
+              if (cursor) return Response.json(window.reportFixture.masteredWordsNextResponse);
               if (window.reportFixture.holdMasteredWords) return new Promise(resolve => window.reportFixture.pendingMasteredWords.push(resolve));
               if (window.reportFixture.failMasteredWords) {
                 window.reportFixture.failMasteredWords = false;
                 return Response.json({ message: 'mastered words unavailable' }, { status: 503 });
               }
               return Response.json(window.reportFixture.masteredWordsResponse);
+            }
+            if (path.startsWith('/api/v1/vocabulary/mastered/') && options.method === 'DELETE') {
+              window.reportFixture.masteredRemoveRequests.push(path.split('/').at(-1));
+              return Response.json({ success: true });
             }
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
@@ -889,25 +911,26 @@ test(
           layout.scrollWidth <= width,
           `${title} error state overflows: ${JSON.stringify(layout)}`,
         );
-        assert.equal(layout.count, '—');
-        assert.ok(layout.stateHeight >= 300);
+        assert.equal(layout.count, '0', 'a refresh failure keeps the last authoritative count');
+        const error = await evaluate(`(() => {
+          const page = document.querySelector('${selector}');
+          const alert = page?.querySelector('[role="alert"]');
+          const button = page?.querySelector('.word-archive-pagination button');
+          return { text: alert?.textContent?.trim() ?? '', button: button?.textContent?.trim() ?? '' };
+        })()`);
+        assert.match(error.text, /暂时|稍后|unavailable/);
+        assert.match(error.button, /重试/);
         assert.equal(
-          await evaluate(
-            `document.querySelector('${selector} .word-archive-state[role="alert"]') !== null`,
-          ),
+          await evaluate(`document.querySelector('${selector} .mastered-empty') !== null`),
           true,
-        );
-        assert.equal(
-          await evaluate(
-            `document.querySelector('${selector} .word-archive-state button')?.textContent.trim()`,
-          ),
-          '重试',
+          'the cached empty state remains visible while showing the refresh error',
         );
         assert.equal(
           await evaluate(
             `document.body.innerText.includes('${title === '学习中' ? '还没有学习中的单词' : '还没有已掌握的单词'}')`,
           ),
-          false,
+          true,
+          'the last empty result is preserved rather than cleared after refresh failure',
         );
         return layout;
       };
@@ -1012,7 +1035,9 @@ test(
 
       await evaluate('window.reportFixture.failLearningWords = true');
       await clickWordPage('学习中');
-      await until('document.querySelector(".learning-words-page .word-archive-state[role=alert]")');
+      await until(
+        'document.querySelector(".learning-words-page .word-archive-pagination [role=alert]")',
+      );
       await assertWordArchiveError('.learning-words-page', '学习中', 1440);
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
@@ -1029,16 +1054,16 @@ test(
         mobile: false,
       });
       await evaluate(
-        'document.querySelector(".learning-words-page .word-archive-state[role=alert] button").click()',
+        'document.querySelector(".learning-words-page .word-archive-pagination button").click()',
       );
       await until(
-        'document.querySelector(".learning-words-page .mastered-empty") && !document.querySelector(".learning-words-page .word-archive-state[aria-busy=true]")',
+        'window.reportFixture.learningWordsRequests.length === 3 && !document.querySelector(".learning-words-page .word-archive-refresh") && !document.querySelector(".learning-words-page .word-archive-pagination [role=alert]")',
       );
       assert.equal(await evaluate('window.reportFixture.learningWordsRequests.length'), 3);
 
       await evaluate('window.reportFixture.failMasteredWords = true');
       await clickWordPage('已掌握');
-      await until('document.querySelector(".mastered-page .word-archive-state[role=alert]")');
+      await until('document.querySelector(".mastered-page .word-archive-pagination [role=alert]")');
       await assertWordArchiveError('.mastered-page', '已掌握', 1440);
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
@@ -1055,12 +1080,208 @@ test(
         mobile: false,
       });
       await evaluate(
-        'document.querySelector(".mastered-page .word-archive-state[role=alert] button").click()',
+        'document.querySelector(".mastered-page .word-archive-pagination button").click()',
       );
       await until(
-        'document.querySelector(".mastered-page .mastered-empty") && !document.querySelector(".mastered-page .word-archive-state[aria-busy=true]")',
+        'window.reportFixture.masteredRequests.length === 3 && !document.querySelector(".mastered-page .word-archive-refresh") && !document.querySelector(".mastered-page .word-archive-pagination [role=alert]")',
       );
       assert.equal(await evaluate('window.reportFixture.masteredRequests.length'), 3);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?archive-initial-error=1', baseUrl).href,
+      });
+      await until('document.querySelector(".progress-grid .metric-card")');
+      await evaluate(
+        'window.reportFixture.holdLearningWords = false; window.reportFixture.failLearningWords = true',
+      );
+      await clickWordPage('学习中');
+      await until('document.querySelector(".learning-words-page .word-archive-state.is-error")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".learning-words-page .mastered-count b").textContent.trim()',
+        ),
+        '—',
+        'a failed first load must not become an authoritative zero',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".learning-words-page .mastered-empty:not(.is-error)") !== null',
+        ),
+        false,
+      );
+      await evaluate(
+        'document.querySelector(".learning-words-page .word-archive-state.is-error button").click()',
+      );
+      await until(
+        'window.reportFixture.learningWordsRequests.length === 2 && document.querySelector(".learning-words-page .mastered-empty:not(.is-error)")',
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?archive-pagination=1', baseUrl).href,
+      });
+      await until('document.querySelector(".progress-grid .metric-card")');
+      await evaluate(`(() => {
+        const fixture = window.reportFixture;
+        const learning = (index) => ({ id: 'learning-archive-' + index, word: 'learning' + index, part: 'n.', meaning: '学习词条 ' + index, meanings: [], state: 'LEARNING', accuracy: 80, reinforcement: '稳定学习', reviewCount: 1, lastReviewedAt: null, nextReviewAt: null, bookTitle: '测试词表' });
+        const mastered = (index) => ({ id: 'mastered-archive-' + index, word: 'mastered' + index, part: 'n.', meaning: '掌握词条 ' + index, meanings: [], masteredAt: '2026-10-29T12:00:00.000Z' });
+        fixture.holdLearningWords = false;
+        fixture.holdMasteredWords = false;
+        fixture.learningWordsResponse = { items: Array.from({ length: 50 }, (_, index) => learning(index)), total: 51, nextCursor: 'learning-archive-cursor-2' };
+        fixture.learningWordsNextResponse = { items: [learning(50)], total: 51, nextCursor: null };
+        fixture.masteredWordsResponse = { items: Array.from({ length: 50 }, (_, index) => mastered(index)), total: 51, nextCursor: 'mastered-archive-cursor-2' };
+        fixture.masteredWordsNextResponse = { items: [mastered(50)], total: 51, nextCursor: null };
+        fixture.failLearningNextPage = true;
+        fixture.failMasteredNextPage = true;
+      })()`);
+      const firstArchiveRenderStartedAt = await evaluate('performance.now()');
+      await clickWordPage('学习中');
+      await until('document.querySelectorAll(".learning-word-table article").length === 50');
+      const firstArchiveRenderMs = Math.round(
+        (await evaluate('performance.now()')) - firstArchiveRenderStartedAt,
+      );
+      assert.ok(firstArchiveRenderMs < 1_000, `50-word page rendered in ${firstArchiveRenderMs}ms`);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".learning-words-page .mastered-count b").textContent.trim()',
+        ),
+        '51',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const learningArchiveMobile = await evaluate(`(() => {
+        const button = document.querySelector('.learning-words-page .word-archive-pagination button');
+        const rect = button.getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, buttonLeft: rect.left, buttonRight: rect.right, rows: document.querySelectorAll('.learning-word-table article').length };
+      })()`);
+      assert.ok(learningArchiveMobile.scrollWidth <= 390, JSON.stringify(learningArchiveMobile));
+      assert.ok(learningArchiveMobile.buttonLeft >= 0 && learningArchiveMobile.buttonRight <= 390);
+      await capture('learning-words-page-one-390.png');
+      await evaluate(
+        'window.reportFixture.learningWordsRequests.length && (window.reportFixture.failLearningNextPage = true)',
+      );
+      await evaluate(
+        'document.querySelector(".learning-words-page .word-archive-pagination button").click()',
+      );
+      await until(
+        'document.querySelector(".learning-words-page .word-archive-pagination [role=alert]")',
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll(".learning-word-table article").length'),
+        50,
+        'a failed next page must preserve the first page',
+      );
+      await evaluate(
+        'document.querySelector(".learning-words-page .word-archive-pagination button").focus()',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('document.querySelectorAll(".learning-word-table article").length === 51');
+      const learningPageRequests = await evaluate('window.reportFixture.learningWordsRequests');
+      assert.deepEqual(
+        learningPageRequests.map((item) => item.cursor),
+        [null, 'learning-archive-cursor-2', 'learning-archive-cursor-2'],
+      );
+      assert.ok(
+        learningPageRequests.every(
+          (item) => item.userId === 'report-user-a' && item.pageSize === '50',
+        ),
+      );
+      const learningRendered = await evaluate(
+        `[...document.querySelectorAll('.learning-word-table article strong')].map(item => item.textContent.trim())`,
+      );
+      assert.equal(new Set(learningRendered).size, 51);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".learning-words-page .mastered-count b").textContent.trim()',
+        ),
+        '51',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await capture('learning-words-page-two-1440.png');
+
+      await clickWordPage('已掌握');
+      await until(
+        'document.querySelectorAll(".mastered-page .mastered-list article").length === 50',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const masteredArchiveMobile = await evaluate(
+        `(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, cards: document.querySelectorAll('.mastered-page .mastered-list article').length, buttonRight: document.querySelector('.mastered-page .word-archive-pagination button').getBoundingClientRect().right }))()`,
+      );
+      assert.ok(masteredArchiveMobile.scrollWidth <= 390, JSON.stringify(masteredArchiveMobile));
+      assert.equal(masteredArchiveMobile.cards, 50);
+      assert.ok(masteredArchiveMobile.buttonRight <= 390);
+      await capture('mastered-words-page-one-390.png');
+      await evaluate(
+        'document.querySelector(".mastered-page .word-archive-pagination button").click()',
+      );
+      await until('document.querySelector(".mastered-page .word-archive-pagination [role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelectorAll(".mastered-page .mastered-list article").length'),
+        50,
+        'a failed next page must preserve the first page',
+      );
+      await evaluate(
+        'document.querySelector(".mastered-page .word-archive-pagination button").click()',
+      );
+      await until(
+        'document.querySelectorAll(".mastered-page .mastered-list article").length === 51',
+      );
+      const masteredPageRequests = await evaluate('window.reportFixture.masteredRequests');
+      assert.deepEqual(
+        masteredPageRequests.slice(-3).map((item) => item.cursor),
+        [null, 'mastered-archive-cursor-2', 'mastered-archive-cursor-2'],
+      );
+      assert.ok(
+        masteredPageRequests
+          .slice(-3)
+          .every((item) => item.userId === 'report-user-a' && item.pageSize === '50'),
+      );
+      await evaluate(
+        'document.querySelector(".mastered-page .mastered-word-actions button").click()',
+      );
+      await until(
+        'document.querySelectorAll(".mastered-page .mastered-list article").length === 50 && document.querySelector(".mastered-page .mastered-count b").textContent.trim() === "50"',
+      );
+      assert.equal(
+        await evaluate('window.reportFixture.masteredRemoveRequests[0]'),
+        'mastered-archive-0',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await capture('mastered-words-after-remove-1440.png');
+      process.stdout.write(
+        `Vocabulary archive browser: initial 50-word table render ${firstArchiveRenderMs}ms with intercepted fixture API; both 50-item lists retained first-page entries after an injected next-page failure, retried the identical account-scoped cursor, rendered 51 unique rows, and showed accurate totals; mastered removal updated the loaded total. 390px page-one overflow and load-more bounds stayed within viewport.\n`,
+      );
       process.stdout.write(
         `word archive navigation: learning/mastered loading→empty cards stable at ≤1px for 1440/390; each failed request recovered with one retry (3 requests per archive); desktop scroll widths ${learningEmpty1440.scrollWidth}/${learningEmpty1440.viewport}px and ${masteredEmpty1440.scrollWidth}/${masteredEmpty1440.viewport}px\n`,
       );

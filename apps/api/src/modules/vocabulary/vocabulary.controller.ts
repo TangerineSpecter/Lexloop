@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -32,6 +33,19 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VocabularyService } from './vocabulary.service';
 
 type AuthenticatedRequest = { user: { sub: string } };
+
+function archivePageOptions(pageSize?: string, cursor?: string) {
+  if (pageSize === undefined && cursor === undefined) return undefined;
+  const parsedSize =
+    pageSize === undefined ? 50 : /^(?:[1-9]\d*)$/.test(pageSize) ? Number(pageSize) : NaN;
+  if (!Number.isInteger(parsedSize) || parsedSize < 1 || parsedSize > 100) {
+    throw new BadRequestException('每页数量必须是 1 到 100 的整数');
+  }
+  if (cursor !== undefined && (cursor.length === 0 || cursor.length > 512)) {
+    throw new BadRequestException('词汇档案游标无效，请重新加载');
+  }
+  return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
+}
 
 class UpdateNewWordCountDto {
   @IsInt() @Min(5) @Max(40) defaultNewWordCount!: number;
@@ -122,8 +136,15 @@ export class VocabularyController {
   @Delete('learning-records') clearLearningRecords(@Req() request: AuthenticatedRequest) {
     return this.vocabulary.clearLearningRecords(request.user.sub);
   }
-  @Get('mastered') mastered(@Req() request: AuthenticatedRequest) {
-    return this.vocabulary.listMasteredWords(request.user.sub);
+  @Get('mastered') mastered(
+    @Req() request: AuthenticatedRequest,
+    @Query('pageSize') pageSize?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const options = archivePageOptions(pageSize, cursor);
+    return options
+      ? this.vocabulary.listMasteredWordsPage(request.user.sub, options)
+      : this.vocabulary.listMasteredWords(request.user.sub);
   }
   @Delete('mastered/:wordId') removeMastered(
     @Req() request: AuthenticatedRequest,
@@ -131,8 +152,15 @@ export class VocabularyController {
   ) {
     return this.vocabulary.removeMasteredWord(request.user.sub, wordId);
   }
-  @Get('learning-words') learningWords(@Req() request: AuthenticatedRequest) {
-    return this.vocabulary.listLearningWords(request.user.sub);
+  @Get('learning-words') learningWords(
+    @Req() request: AuthenticatedRequest,
+    @Query('pageSize') pageSize?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.vocabulary.listLearningWords(
+      request.user.sub,
+      archivePageOptions(pageSize, cursor),
+    );
   }
   @Get('dashboard-words') dashboardWords(
     @Req() request: AuthenticatedRequest,
