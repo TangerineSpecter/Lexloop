@@ -832,7 +832,7 @@ export function hasValidGeneratedMatchingPairs(pairs: unknown) {
     return false;
   if (
     values.some((pair) =>
-      (pair.tip as string).toLowerCase().includes((pair.left as string).toLowerCase()),
+      normalizeGeneratedLabel(pair.tip).includes(normalizeGeneratedLabel(pair.left)),
     )
   )
     return false;
@@ -930,9 +930,9 @@ ${
 2. 每组每个目标单词必须至少自然出现一次，并准确填写 wordOccurrences；不要为了次数生硬重复。
 3. 每个英文句子必须有逐句 chinese、simplified 和 grammar。simplified 中目标单词保持英文原样，其余译成自然中文；grammar 用中文简要说明句子主干或目标词作用。
 4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；${exam ? '题型以 targetQuestionTypes 为准。' : '五种题型轮换使用。'}所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
-5. WORD_MNEMONIC 是多选题：英文题干和 4 个英文候选项，围绕可靠的词根、词缀、派生词或形音义联想；correctAnswers 可多项。解析用中文逐项说明关系，不得编造词源。
+5. WORD_MNEMONIC 是多选题：英文题干和 4 个英文候选项，围绕可靠的词根、词缀、派生词或形音义联想；correctAnswers 可多项，但每个正确选项只能列一次。解析用中文逐项说明关系，不得编造词源。
 6. MEANING_RECOGNITION 是单选题：英文语境题干中必须自然出现目标词；4 个 options 必须是相近、同粒度的中文释义，正确项只对应当前语境，其他项是该词其他义项或合理近义干扰项。
-7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。
+7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left（即使改变大小写、空格或全角形式）、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。
 8. SYNONYM_REPLACEMENT 是单选题：英文语境题干中标出目标词；4 个 options 都是纯英文候选词或短语。正确项在当前句子的词义、词性、数和搭配上可直接替换；其余项必须是语义相关但不能替换的干扰项。不得附中文释义。
 9. READING_COMPREHENSION 是单选题：英文问题和 4 个纯英文选项，必须依据本组英文文章考查目标词相关的细节、词义、推断或主旨，不考文章外知识，也不得附中文释义。
 10. 所有题目的正确答案和解析必须与文章、目标词释义一致。explanation 必须使用自然中文，说明语境依据与干扰项为何不成立；界面会单独先展示正确答案，因此 explanation 不要重复答案或输出英文解析。optionNotes 为空数组或省略。
@@ -1000,8 +1000,12 @@ export function validateGeneratedContent(
       const question = group.questions.find((item) => item.bookWordId === word.id);
       if (!question || !GENERATED_QUESTION_TYPES.has(question.type))
         throw new Error(`单词 ${word.word} 的题型不受支持，请重新生成学习计划`);
-      if (!containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers))
-        throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
+      if (
+        !containsEnglish(question.prompt) ||
+        containsChinese(question.prompt) ||
+        !Array.isArray(question.correctAnswers)
+      )
+        throw new Error(`单词 ${word.word} 缺少纯英文题干或可判定答案`);
       const targetType = expectedGroup.targetQuestionTypes?.[word.id];
       if (targetType && question.type !== targetType)
         throw new Error(`单词 ${word.word} 必须生成 ${targetType} 题型的变式题`);
@@ -1023,7 +1027,9 @@ export function validateGeneratedContent(
         (!Array.isArray(question.options) ||
           question.options.length !== 4 ||
           question.options.some((option) =>
-            expectsChineseOptions ? !containsChinese(option) : !containsEnglish(option),
+            expectsChineseOptions
+              ? !containsChinese(option)
+              : !containsEnglish(option) || containsChinese(option),
           ) ||
           !hasUniqueOptions(question.options))
       ) {
@@ -1033,6 +1039,9 @@ export function validateGeneratedContent(
         (!isMatching &&
           (!question.correctAnswers.length ||
             question.correctAnswers.some((answer) => !question.options.includes(answer)))) ||
+        (isMnemonic &&
+          new Set(question.correctAnswers.map(normalizeGeneratedLabel)).size !==
+            question.correctAnswers.length) ||
         (!isMnemonic && !isMatching && question.correctAnswers.length !== 1)
       ) {
         throw new Error(`单词 ${word.word} 的正确答案不符合题型要求`);

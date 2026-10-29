@@ -104,6 +104,45 @@ describe('study generation option validation', () => {
     ).toThrow('选项语言、数量或唯一性');
   });
 
+  it('rejects duplicated correct choices in a multiple-answer mnemonic question', () => {
+    const content = generatedQuestion('WORD_MNEMONIC', [
+      'steadiness',
+      'steadying',
+      'study',
+      'ready',
+    ]);
+    content.groups[0].questions[0].correctAnswers = ['steadiness', 'steadiness'];
+
+    expect(() => validateGeneratedContent(content as never, [{ index: 0, words: [word] }])).toThrow(
+      '正确答案不符合题型要求',
+    );
+  });
+
+  it('rejects Chinese hints in English question prompts and answer choices', () => {
+    const promptHint = generatedQuestion('SYNONYM_REPLACEMENT', [
+      'stable',
+      'calm',
+      'firm',
+      'quiet',
+    ]);
+    promptHint.groups[0].questions[0].prompt = 'Which word means stable（平稳的） here?';
+
+    expect(() =>
+      validateGeneratedContent(promptHint as never, [{ index: 0, words: [word] }]),
+    ).toThrow('纯英文题干');
+
+    const optionHint = generatedQuestion('READING_COMPREHENSION', [
+      'a stable road（平稳的道路）',
+      'a quiet road',
+      'a narrow road',
+      'a busy road',
+    ]);
+
+    expect(() =>
+      validateGeneratedContent(optionHint as never, [{ index: 0, words: [word] }]),
+    ).toThrow('选项语言、数量或唯一性');
+  });
+
   it('rejects unsupported generated question types before a plan can expose them', () => {
     const content = generatedQuestion('UNSUPPORTED_QUESTION', ['stable', 'calm', 'firm', 'quiet']);
 

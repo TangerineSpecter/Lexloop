@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.79',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '练习答案与提示结构校验更严谨',
+        entry: '学习计划 → 阅读材料 → 生成练习',
+        usage:
+          '助记多选不能重复正确选项，英语题干和英文选项不再接受中文提示；匹配提示会规范化后检查是否直接包含配对短语。这些校验不证明题目或解析的语义正确性。',
+      },
+    ],
+  },
+  {
     version: '1.27.78',
     date: '2026-10-29',
     items: [

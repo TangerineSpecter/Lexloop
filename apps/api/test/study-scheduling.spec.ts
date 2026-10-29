@@ -293,4 +293,23 @@ describe('generated matching-pair validation', () => {
       ]),
     ).toBe(false);
   });
+
+  it('rejects matching tips that leak a phrase after case, spacing, or Unicode normalization', () => {
+    expect(
+      hasValidGeneratedMatchingPairs([
+        { ...pairs[0], tip: 'SCHOOL   BAG 指上学时使用的包。' },
+        pairs[1],
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        { ...pairs[0], tip: 'ｓｃｈｏｏｌ ｂａｇ 指上学时使用的包。' },
+        pairs[1],
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
+  });
 });
