@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.66',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '每日输出重试不再重复累计耗时',
+        entry: '学习专项与处方 → 每日输出挑战',
+        usage:
+          '状态不明或批改失败时，同一回答沿用原请求编号和响应时间；确认完成或过期后只保留原稿，下一次提交重新计时。',
+      },
+    ],
+  },
+  {
     version: '1.27.65',
     date: '2026-10-29',
     items: [

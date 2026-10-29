@@ -7,6 +7,7 @@ export type OutputDraftIdentity = {
 export type OutputDraftSubmission = {
   answer: string;
   id: string;
+  responseTimeMs?: number;
 };
 
 export type OutputDraftRead = {
@@ -37,6 +38,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validRequestId(value: unknown): value is string {
   return typeof value === 'string' && value.length >= 8 && value.length <= 80;
+}
+
+function validResponseTimeMs(value: unknown): value is number {
+  return Number.isInteger(value) && typeof value === 'number' && value >= 0 && value <= 3_600_000;
 }
 
 export function readOutputDraft(
@@ -74,7 +79,13 @@ export function readOutputDraft(
     hasExactIdentity &&
     validRequestId(value.clientRequestId) &&
     value.requestAnswer === answer.trim()
-      ? { answer: value.requestAnswer, id: value.clientRequestId }
+      ? {
+          answer: value.requestAnswer,
+          id: value.clientRequestId,
+          ...(validResponseTimeMs(value.requestResponseTimeMs)
+            ? { responseTimeMs: value.requestResponseTimeMs }
+            : {}),
+        }
       : null;
   return { answer, submission, storageAvailable: true };
 }
@@ -98,7 +109,13 @@ export function saveOutputDraft(
     date: identity.date,
     answer: savedAnswer,
     ...(validSubmission
-      ? { clientRequestId: validSubmission.id, requestAnswer: validSubmission.answer }
+      ? {
+          clientRequestId: validSubmission.id,
+          requestAnswer: validSubmission.answer,
+          ...(validResponseTimeMs(validSubmission.responseTimeMs)
+            ? { requestResponseTimeMs: validSubmission.responseTimeMs }
+            : {}),
+        }
       : {}),
   };
   try {
@@ -138,6 +155,7 @@ export function clearOutputDraftSubmissionIfMatches(
   const draft = { ...value };
   delete draft.clientRequestId;
   delete draft.requestAnswer;
+  delete draft.requestResponseTimeMs;
   try {
     storage.setItem(key, JSON.stringify(draft));
     return true;

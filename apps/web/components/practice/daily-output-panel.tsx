@@ -24,16 +24,47 @@ export function DailyOutputPanel({ session }: { session: Session }) {
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
   const [pollRevision, setPollRevision] = useState(0);
   const modelSettingsTriggerRef = useRef<HTMLButtonElement>(null);
-  const started = useRef(Date.now());
+  const answerStartedAt = useRef<number | null>(null);
   const submitting = useRef(false);
   const loadedDraftIdentity = useRef<{ challengeId: string; date: string } | null>(null);
+  const finishedRequestIds = useRef(new Set<string>());
   const submissionKey = useRef<{
     userId: string;
     challengeId: string;
     date: string;
     answer: string;
     id: string;
+    responseTimeMs: number;
   } | null>(null);
+  const finishSubmission = useCallback(
+    (
+      identity: { userId: string; challengeId: string; date: string },
+      finishedAnswer: string,
+      clientRequestId: string,
+      expired = false,
+    ) => {
+      const current = submissionKey.current;
+      if (
+        !current ||
+        current.userId !== identity.userId ||
+        current.challengeId !== identity.challengeId ||
+        current.date !== identity.date ||
+        current.answer !== finishedAnswer ||
+        current.id !== clientRequestId
+      )
+        return;
+      const submission = {
+        answer: current.answer,
+        id: current.id,
+        responseTimeMs: current.responseTimeMs,
+      };
+      finishedRequestIds.current.add(current.id);
+      submissionKey.current = null;
+      answerStartedAt.current = expired ? Date.now() : null;
+      if (clearOutputDraftSubmissionIfMatches(identity, submission)) setDraftSaved(true);
+    },
+    [],
+  );
   const load = useCallback(async () => {
     const result = await request<DailyOutput | null>(
       '/practice/output/today',
@@ -57,6 +88,20 @@ export function DailyOutputPanel({ session }: { session: Session }) {
             date: result.date,
           };
           const restored = readOutputDraft(identity);
+          const matchingSubmission = restored.submission
+            ? result.submissions.find((item) => item.clientRequestId === restored.submission?.id)
+            : undefined;
+          const expiredSubmission =
+            matchingSubmission?.status === 'FAILED' &&
+            /超时|过期/.test(matchingSubmission.error ?? '');
+          const restoredSubmissionFinished =
+            matchingSubmission?.status === 'COMPLETED' || expiredSubmission;
+          if (restoredSubmissionFinished && restored.submission) {
+            finishedRequestIds.current.add(restored.submission.id);
+            if (clearOutputDraftSubmissionIfMatches(identity, restored.submission))
+              setDraftSaved(true);
+            answerStartedAt.current = expiredSubmission ? Date.now() : null;
+          }
           const previousIdentity = loadedDraftIdentity.current;
           const sameChallenge =
             previousIdentity?.challengeId === result.id && previousIdentity.date === result.date;
@@ -66,7 +111,9 @@ export function DailyOutputPanel({ session }: { session: Session }) {
           loadedDraftIdentity.current = { challengeId: result.id, date: result.date };
 
           const currentKey = submissionKey.current;
-          if (
+          if (restoredSubmissionFinished) {
+            submissionKey.current = null;
+          } else if (
             currentKey &&
             currentKey.userId === session.user.id &&
             currentKey.challengeId === result.id &&
@@ -80,12 +127,15 @@ export function DailyOutputPanel({ session }: { session: Session }) {
                   ...identity,
                   answer: restored.submission.answer,
                   id: restored.submission.id,
+                  // Older local drafts did not record timing; do not infer it later.
+                  responseTimeMs: restored.submission.responseTimeMs ?? 0,
                 }
               : null;
           }
         } else {
           setAnswer('');
           submissionKey.current = null;
+          answerStartedAt.current = null;
           loadedDraftIdentity.current = null;
         }
       })
@@ -102,6 +152,9 @@ export function DailyOutputPanel({ session }: { session: Session }) {
   const pending = daily?.submissions.find(
     (item) => item.status === 'QUEUED' || item.status === 'PROCESSING',
   );
+  const outputIdentity = daily
+    ? { userId: session.user.id, challengeId: daily.id, date: daily.date }
+    : null;
   useEffect(() => {
     if (!pending) return;
     let cancelled = false;
@@ -124,6 +177,10 @@ export function DailyOutputPanel({ session }: { session: Session }) {
           session.accessToken,
         );
         if (cancelled) return;
+        const expired = result.status === 'FAILED' && /超时|过期/.test(result.error ?? '');
+        if (outputIdentity && (result.status === 'COMPLETED' || expired)) {
+          finishSubmission(outputIdentity, result.answer, result.clientRequestId, expired);
+        }
         setDaily((current) =>
           current
             ? {
@@ -153,7 +210,16 @@ export function DailyOutputPanel({ session }: { session: Session }) {
       abort.abort();
       window.clearInterval(timer);
     };
-  }, [pending?.id, pollRevision, session.accessToken, load]);
+  }, [
+    pending?.id,
+    pollRevision,
+    session.accessToken,
+    session.user.id,
+    outputIdentity?.challengeId,
+    outputIdentity?.date,
+    finishSubmission,
+    load,
+  ]);
 
   const changeAnswer = (text: string) => {
     setAnswer(text);
@@ -166,9 +232,19 @@ export function DailyOutputPanel({ session }: { session: Session }) {
       currentKey.challengeId === identity.challengeId &&
       currentKey.date === identity.date &&
       currentKey.answer === text.trim()
-        ? { answer: currentKey.answer, id: currentKey.id }
+        ? {
+            answer: currentKey.answer,
+            id: currentKey.id,
+            responseTimeMs: currentKey.responseTimeMs,
+          }
         : null;
-    if (!matchingSubmission) submissionKey.current = null;
+    if (!matchingSubmission) {
+      answerStartedAt.current =
+        currentKey || (answerStartedAt.current === null && text.trim())
+          ? Date.now()
+          : answerStartedAt.current;
+      submissionKey.current = null;
+    }
     setDraftSaved(saveOutputDraft(identity, text, matchingSubmission));
   };
   async function submit() {
@@ -187,15 +263,27 @@ export function DailyOutputPanel({ session }: { session: Session }) {
       currentKey.answer !== submittedAnswer
     ) {
       const restored = readOutputDraft(identity);
-      const submission = restored.answer.trim() === submittedAnswer ? restored.submission : null;
+      const submission =
+        restored.answer.trim() === submittedAnswer &&
+        restored.submission &&
+        !finishedRequestIds.current.has(restored.submission.id)
+          ? restored.submission
+          : null;
       currentKey = {
         ...identity,
         answer: submittedAnswer,
         id: submission?.id ?? crypto.randomUUID(),
+        responseTimeMs:
+          submission?.responseTimeMs ??
+          Math.min(3_600_000, Math.max(0, Date.now() - (answerStartedAt.current ?? Date.now()))),
       };
       submissionKey.current = currentKey;
     }
-    const requestIdentity = { answer: currentKey.answer, id: currentKey.id };
+    const requestIdentity = {
+      answer: currentKey.answer,
+      id: currentKey.id,
+      responseTimeMs: currentKey.responseTimeMs,
+    };
     setDraftSaved(saveOutputDraft(identity, answer, requestIdentity));
     try {
       const submitted = await request<OutputSubmissionView>(
@@ -205,18 +293,16 @@ export function DailyOutputPanel({ session }: { session: Session }) {
           body: JSON.stringify({
             answer: submittedAnswer,
             clientRequestId: currentKey.id,
-            responseTimeMs: Math.min(3_600_000, Date.now() - started.current),
+            responseTimeMs: currentKey.responseTimeMs,
           }),
         },
         session.accessToken,
       );
-      await load();
       const expired = submitted.status === 'FAILED' && /超时|过期/.test(submitted.error ?? '');
       if (submitted.status === 'COMPLETED' || expired) {
-        if (submissionKey.current?.id === requestIdentity.id) submissionKey.current = null;
-        const cleared = clearOutputDraftSubmissionIfMatches(identity, requestIdentity);
-        if (cleared) setDraftSaved(true);
+        finishSubmission(identity, submitted.answer, submitted.clientRequestId, expired);
       }
+      await load();
       if (submitted.status === 'FAILED') {
         setMessage(
           expired
@@ -294,6 +380,10 @@ export function DailyOutputPanel({ session }: { session: Session }) {
             maxLength={1800}
             rows={8}
             disabled={!!pending || busy}
+            onFocus={() => {
+              if (!submissionKey.current && answerStartedAt.current === null)
+                answerStartedAt.current = Date.now();
+            }}
             onChange={(event) => changeAnswer(event.target.value)}
             placeholder="从一个简单的句子开始，再把几个目标词连起来。"
           />

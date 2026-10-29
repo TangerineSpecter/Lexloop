@@ -83,9 +83,12 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
         ),
       );
       expect(new Set(submissions.map((row) => row.id)).size).toBe(1);
+      expect(submissions[0].clientRequestId).toBe(clientId);
       expect(queue.add).toHaveBeenCalledTimes(1);
       const token = queue.add.mock.calls[0][1].workerToken;
       const id = submissions[0].id;
+      const restoredDaily = await output.daily(user.id);
+      expect(restoredDaily?.submissions[0].clientRequestId).toBe(clientId);
       const claim = await output.claim(id, token);
       expect(claim.done).toBe(false);
       const occupied = await output.claim(id, token);
@@ -175,7 +178,7 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       expect(firstFailed.status).toBe('FAILED');
 
       await expect(
-        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 99_000),
       ).rejects.toMatchObject({ status: 503 });
       const secondFailed = await prisma.outputSubmission.findUniqueOrThrow({
         where: { id: firstFailed.id },
@@ -186,8 +189,8 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       expect(secondFailed.workerTokenHash).not.toBe(firstFailed.workerTokenHash);
 
       const retries = await Promise.all([
-        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
-        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 4200),
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 100_000),
+        retryOutput.submit(user.id, daily.id, retryAnswer, retryClientId, 200_000),
       ]);
       expect(new Set(retries.map((row) => row.id)).size).toBe(1);
       expect(retries.map((row) => row.status)).toEqual(['QUEUED', 'QUEUED']);
@@ -199,6 +202,7 @@ describe.skipIf(!process.env.PRACTICE_TEST_DATABASE_URL)('practice database conc
       });
       expect(retried.status).toBe('QUEUED');
       expect(retried.answer).toBe(retryAnswer);
+      expect(retried.responseTimeMs).toBe(4200);
       expect(retried.workerTokenHash).not.toBe(secondFailed.workerTokenHash);
       const staleWorkerToken = retryQueue.add.mock.calls[0][1].workerToken;
       const auditsBeforeStaleJob = await prisma.aiCallAudit.count({

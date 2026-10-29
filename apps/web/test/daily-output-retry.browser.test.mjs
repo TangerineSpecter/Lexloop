@@ -217,6 +217,12 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
+          window.__fixtureClock = Number(localStorage.getItem('fixture.output.clock')) || 1000000;
+          Date.now = () => window.__fixtureClock;
+          window.advanceFixtureClock = (duration) => {
+            window.__fixtureClock += duration;
+            localStorage.setItem('fixture.output.clock', String(window.__fixtureClock));
+          };
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-a', user: { id: 'user-a', email: 'a@example.invalid', displayName: 'A', role: 'USER' } }));
           const rowsKey = (userId) => 'fixture.output.rows.' + userId;
           const readRows = (userId) => JSON.parse(localStorage.getItem(rowsKey(userId)) || '[]');
@@ -268,7 +274,7 @@ test(
               let row = rows.find((item) => item.id === 'submission-' + payload.clientRequestId);
               const now = new Date().toISOString();
               if (!row) {
-                row = { id: 'submission-' + payload.clientRequestId, answer: payload.answer, status: 'FAILED', feedback: null, error: '批改队列暂时不可用，请稍后重新提交。', createdAt: now, clientRequestId: payload.clientRequestId };
+                row = { id: 'submission-' + payload.clientRequestId, answer: payload.answer, status: 'FAILED', feedback: null, error: '批改队列暂时不可用，请稍后重新提交。', createdAt: now, clientRequestId: payload.clientRequestId, responseTimeMs: payload.responseTimeMs };
                 rows.push(row);
               }
               if (mode === 'first-fail' && requests.length === 1) {
@@ -306,7 +312,8 @@ test(
             }
             if (path.includes('/api/v1/practice/output/submissions/')) {
               const id = path.split('/').pop();
-              return makeResponse(readRows(userId).find((item) => item.id === id) || { message: 'missing' }, 404);
+              const row = readRows(userId).find((item) => item.id === id);
+              return row ? makeResponse(row) : makeResponse({ message: 'missing' }, 404);
             }
             if (path.includes('/api/v1/practice/output/history')) return makeResponse({ items: [], hasMore: false });
             if (path.endsWith('/api/v1/ai/models')) {
@@ -333,6 +340,7 @@ test(
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await until('document.querySelector("#output-answer").value.length > 0');
+      await evaluate('window.advanceFixtureClock(5000)');
       await evaluate(`(() => {
         const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('提交批改'));
         button.click();
@@ -348,10 +356,17 @@ test(
       assert.equal(draft.challengeId, 'challenge-user-a');
       assert.equal(draft.date, '2026-10-27');
       assert.equal(draft.clientRequestId?.length >= 8, true);
+      assert.equal(draft.requestResponseTimeMs, 5000);
       const firstId = draft.clientRequestId;
       assert.equal(
         await evaluate('JSON.parse(localStorage.getItem("fixture.output.requests")).length'),
         1,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests"))[0].responseTimeMs',
+        ),
+        5000,
       );
       assert.equal(
         await evaluate('JSON.parse(localStorage.getItem("fixture.output.rows.user-a")).length'),
@@ -359,6 +374,7 @@ test(
       );
 
       await evaluate('localStorage.setItem("fixture.output.mode", "lost-response")');
+      await evaluate('window.advanceFixtureClock(15000)');
       await evaluate(
         `[...document.querySelectorAll('button')].find((item) => item.textContent.includes('提交批改')).click()`,
       );
@@ -369,6 +385,12 @@ test(
           'JSON.parse(localStorage.getItem("fixture.output.requests"))[1].clientRequestId',
         ),
         firstId,
+      );
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests"))[1].responseTimeMs',
+        ),
+        5000,
       );
       assert.equal(
         await evaluate('JSON.parse(localStorage.getItem("fixture.output.rows.user-a")).length'),
@@ -384,16 +406,17 @@ test(
         1,
       );
 
+      await evaluate('localStorage.setItem("fixture.output.mode", "expired")');
+      await send('Page.reload');
+      await until('document.querySelector("#output-answer")?.value === ' + JSON.stringify(answer));
       await evaluate(`(() => {
         const rows = JSON.parse(localStorage.getItem('fixture.output.rows.user-a'));
         rows[0].status = 'FAILED';
-        rows[0].error = '批改任务已超时，请重新提交。';
-        rows[0].createdAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+        rows[0].error = '批改队列暂时不可用，请稍后重新提交。';
         localStorage.setItem('fixture.output.rows.user-a', JSON.stringify(rows));
-        localStorage.setItem('fixture.output.mode', 'expired');
       })()`);
-      await send('Page.reload');
-      await until('document.querySelector("#output-answer")?.value === ' + JSON.stringify(answer));
+      await until('!document.querySelector("#output-answer").disabled');
+      await evaluate('window.advanceFixtureClock(30000)');
       await evaluate(
         `[...document.querySelectorAll('button')].find((item) => item.textContent.includes('提交批改')).click()`,
       );
@@ -402,8 +425,16 @@ test(
       draft = await evaluate('JSON.parse(localStorage.getItem("lexloop.output.draft.user-a"))');
       assert.equal('clientRequestId' in draft, false);
       assert.equal('requestAnswer' in draft, false);
+      assert.equal('requestResponseTimeMs' in draft, false);
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests"))[2].responseTimeMs',
+        ),
+        5000,
+      );
 
       await evaluate('localStorage.setItem("fixture.output.mode", "accept")');
+      await evaluate('window.advanceFixtureClock(4000)');
       await evaluate(
         `[...document.querySelectorAll('button')].find((item) => item.textContent.includes('提交批改')).click()`,
       );
@@ -412,6 +443,12 @@ test(
         'JSON.parse(localStorage.getItem("fixture.output.requests"))[3].clientRequestId',
       );
       assert.notEqual(newId, firstId);
+      assert.equal(
+        await evaluate(
+          'JSON.parse(localStorage.getItem("fixture.output.requests"))[3].responseTimeMs',
+        ),
+        4000,
+      );
       assert.equal(
         await evaluate('JSON.parse(localStorage.getItem("fixture.output.rows.user-a")).length'),
         2,
@@ -795,9 +832,15 @@ test(
       );
       assert.equal(
         await evaluate(
-          'JSON.parse(localStorage.getItem("lexloop.output.draft.user-a")).clientRequestId',
+          '"clientRequestId" in JSON.parse(localStorage.getItem("lexloop.output.draft.user-a"))',
         ),
-        pendingDraftA.clientRequestId,
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          '"requestResponseTimeMs" in JSON.parse(localStorage.getItem("lexloop.output.draft.user-a"))',
+        ),
+        false,
       );
       assert.equal(
         await evaluate(
@@ -805,6 +848,84 @@ test(
         ),
         false,
       );
+
+      // A terminal result discovered by polling closes the old idempotency
+      // identity. A later deliberate resubmission becomes a new attempt.
+      await secondTab.evaluate(`(() => {
+        localStorage.setItem('fixture.output.rows.user-c', '[]');
+        localStorage.removeItem('lexloop.output.draft.user-c');
+        localStorage.setItem('fixture.output.mode', 'hold');
+        localStorage.setItem('lexloop.session', JSON.stringify({
+          accessToken: 'fixture-c',
+          user: { id: 'user-c', email: 'c@example.invalid', displayName: 'C', role: 'USER' },
+        }));
+      })()`);
+      await until('document.querySelector("#output-answer")?.value === ""');
+      const answerC = 'Our journey felt bright after the storm passed.';
+      await evaluate(`(() => {
+        const input = document.querySelector('#output-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(answerC)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until('document.querySelector("#output-answer")?.value === ' + JSON.stringify(answerC));
+      await evaluate('window.advanceFixtureClock(6000)');
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交批改")).click()',
+      );
+      await until(
+        'JSON.parse(localStorage.getItem("fixture.output.pending.user-c") || "null")?.answer === ' +
+          JSON.stringify(answerC),
+      );
+      const draftC = await evaluate(
+        'JSON.parse(localStorage.getItem("lexloop.output.draft.user-c"))',
+      );
+      assert.equal(draftC.requestResponseTimeMs, 6000);
+      await send('Page.reload');
+      await until('document.querySelector("#output-answer")?.value === ' + JSON.stringify(answerC));
+      await until('document.querySelector("#output-answer").disabled');
+      await send('Page.bringToFront');
+      const requestsBeforeCCompletion = await evaluate(
+        'JSON.parse(localStorage.getItem("fixture.output.requests")).length',
+      );
+      await evaluate(`(() => {
+        const rows = JSON.parse(localStorage.getItem('fixture.output.rows.user-c'));
+        Object.assign(rows[0], {
+          status: 'COMPLETED',
+          error: null,
+          feedback: {
+            score: 82,
+            grammarScore: 80,
+            coherenceScore: 84,
+            correctedText: 'Our journey felt bright after the storm passed.',
+            comments: ['C_RESULT_ONLY'],
+            words: [
+              { bookWordId: 'user-c-w1', used: true, correct: true, feedback: '自然使用。' },
+              { bookWordId: 'user-c-w2', used: true, correct: true, feedback: '自然使用。' },
+            ],
+          },
+        });
+        localStorage.setItem('fixture.output.rows.user-c', JSON.stringify(rows));
+      })()`);
+      await until('document.body.innerText.includes("C_RESULT_ONLY")');
+      await until('!document.querySelector("#output-answer").disabled');
+      const draftCAfterCompletion = await evaluate(
+        'JSON.parse(localStorage.getItem("lexloop.output.draft.user-c"))',
+      );
+      assert.equal(draftCAfterCompletion.answer, answerC);
+      assert.equal('clientRequestId' in draftCAfterCompletion, false);
+      await evaluate('document.querySelector("#output-answer").focus()');
+      await evaluate('window.advanceFixtureClock(2000)');
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((item) => item.textContent.includes("提交重写")).click()',
+      );
+      await until(
+        `JSON.parse(localStorage.getItem("fixture.output.requests")).length === ${requestsBeforeCCompletion + 1}`,
+      );
+      const secondRequestC = await evaluate(
+        'JSON.parse(localStorage.getItem("fixture.output.requests")).at(-1)',
+      );
+      assert.notEqual(secondRequestC.clientRequestId, draftC.clientRequestId);
+      assert.equal(secondRequestC.responseTimeMs, 2000);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       if (secondSocket?.readyState === WebSocket.OPEN) secondSocket.close();

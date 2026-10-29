@@ -103,6 +103,28 @@ test('successful request cleanup clears only the same saved snapshot', () => {
   });
 });
 
+test('a measured response duration stays bound to its request identity across draft restoration', () => {
+  const storage = createStorage();
+  const timedSubmission = { ...submission, responseTimeMs: 4200 };
+  saveOutputDraft(identity, answer, timedSubmission, storage);
+
+  assert.deepEqual(readOutputDraft(identity, storage), {
+    answer,
+    submission: timedSubmission,
+    storageAvailable: true,
+  });
+  assert.equal(readOutputDraft({ ...identity, userId: 'user-b' }, storage).submission, null);
+
+  const draft = JSON.parse(storage.getItem(outputDraftKey(identity.userId)));
+  draft.requestResponseTimeMs = 3_600_001;
+  storage.setItem(outputDraftKey(identity.userId), JSON.stringify(draft));
+  assert.deepEqual(readOutputDraft(identity, storage), {
+    answer,
+    submission,
+    storageAvailable: true,
+  });
+});
+
 test('corrupt and unavailable storage never interrupts editing or submission', () => {
   const corrupt = createStorage();
   corrupt.setItem(outputDraftKey(identity.userId), '{broken');

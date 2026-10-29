@@ -23,6 +23,7 @@ export type ReadingWordUseFeedback = {
 };
 export type OutputSubmissionView = {
   id: string;
+  clientRequestId: string;
   answer: string;
   status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   feedback: OutputFeedback | null;

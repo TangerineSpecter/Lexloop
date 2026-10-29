@@ -511,6 +511,7 @@ export class OutputService {
   }
   private publicSubmission = (row: {
     id: string;
+    clientRequestId: string;
     answer: string;
     status: OutputSubmissionView['status'];
     feedback: Prisma.JsonValue | null;
@@ -518,6 +519,7 @@ export class OutputService {
     createdAt: Date;
   }): OutputSubmissionView => ({
     id: row.id,
+    clientRequestId: row.clientRequestId,
     answer: row.answer,
     status: row.status,
     feedback: row.feedback as unknown as OutputSubmissionView['feedback'],
