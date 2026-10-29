@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.77',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '生成练习拦截无效题型和重复配对',
+        entry: '学习计划 → 阅读材料 → 单词匹配',
+        usage:
+          '匹配题会忽略大小写、重复空格和全角差异后检查短语与释义；未知题型和无效缓存不会作为可练习内容发给页面。',
+      },
+    ],
+  },
+  {
     version: '1.27.76',
     date: '2026-10-29',
     items: [

@@ -256,6 +256,33 @@ describe('generated matching-pair validation', () => {
     ).toBe(false);
   });
 
+  it('rejects matching choices that only differ by case, spacing, or Unicode width', () => {
+    expect(
+      hasValidGeneratedMatchingPairs([
+        pairs[0],
+        { ...pairs[1], left: 'SCHOOL   BAG' },
+        pairs[2],
+        pairs[3],
+      ]),
+    ).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        pairs[0],
+        pairs[1],
+        { ...pairs[2], left: 'ｈａｎｄｂａｇ' },
+        pairs[3],
+      ]),
+    ).toBe(false);
+    expect(
+      hasValidGeneratedMatchingPairs([
+        pairs[0],
+        pairs[1],
+        pairs[2],
+        { ...pairs[3], right: '  随身携带物品的手提包  ' },
+      ]),
+    ).toBe(false);
+  });
+
   it('rejects a tip that leaks its matching phrase', () => {
     expect(
       hasValidGeneratedMatchingPairs([

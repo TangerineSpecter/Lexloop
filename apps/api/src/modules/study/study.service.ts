@@ -74,6 +74,13 @@ type GeneratedQuestion = {
   optionNotes?: string[];
   pairs?: Array<{ left: string; right: string; tip?: string }>;
 };
+const GENERATED_QUESTION_TYPES = new Set<GeneratedQuestion['type']>([
+  'WORD_MNEMONIC',
+  'MEANING_RECOGNITION',
+  'WORD_MATCHING',
+  'SYNONYM_REPLACEMENT',
+  'READING_COMPREHENSION',
+]);
 type GeneratedGroup = {
   index: number;
   title: string;
@@ -830,8 +837,8 @@ export function hasValidGeneratedMatchingPairs(pairs: unknown) {
   )
     return false;
   return (
-    new Set(values.map((pair) => (pair.left as string).trim())).size === values.length &&
-    new Set(values.map((pair) => (pair.right as string).trim())).size === values.length
+    new Set(values.map((pair) => normalizeGeneratedLabel(pair.left))).size === values.length &&
+    new Set(values.map((pair) => normalizeGeneratedLabel(pair.right))).size === values.length
   );
 }
 
@@ -991,7 +998,9 @@ export function validateGeneratedContent(
     }
     for (const word of expectedGroup.words) {
       const question = group.questions.find((item) => item.bookWordId === word.id);
-      if (!question || !containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers))
+      if (!question || !GENERATED_QUESTION_TYPES.has(question.type))
+        throw new Error(`单词 ${word.word} 的题型不受支持，请重新生成学习计划`);
+      if (!containsEnglish(question.prompt) || !Array.isArray(question.correctAnswers))
         throw new Error(`单词 ${word.word} 缺少英文题干或可判定答案`);
       const targetType = expectedGroup.targetQuestionTypes?.[word.id];
       if (targetType && question.type !== targetType)
@@ -1045,12 +1054,14 @@ export { unfamiliarityScore };
 
 function hasUniqueOptions(options: unknown): boolean {
   if (!Array.isArray(options)) return false;
-  const normalized = options.map((option) =>
-    typeof option === 'string'
-      ? option.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase()
-      : '',
-  );
+  const normalized = options.map(normalizeGeneratedLabel);
   return normalized.every(Boolean) && new Set(normalized).size === normalized.length;
+}
+
+function normalizeGeneratedLabel(value: unknown) {
+  return typeof value === 'string'
+    ? value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase()
+    : '';
 }
 
 function escapeRegExp(value: string) {

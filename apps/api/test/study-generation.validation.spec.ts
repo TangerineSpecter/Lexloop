@@ -68,6 +68,14 @@ describe('study generation option validation', () => {
     ).toThrow('选项语言、数量或唯一性');
   });
 
+  it('rejects unsupported generated question types before a plan can expose them', () => {
+    const content = generatedQuestion('UNSUPPORTED_QUESTION', ['stable', 'calm', 'firm', 'quiet']);
+
+    expect(() => validateGeneratedContent(content as never, [{ index: 0, words: [word] }])).toThrow(
+      '题型不受支持',
+    );
+  });
+
   it('keeps validation bounded for a representative forty-question plan', () => {
     const groups = Array.from({ length: 10 }, (_, index) => {
       const words = ['steady', 'gentle', 'bright', 'quiet'].map((text, wordIndex) => ({
