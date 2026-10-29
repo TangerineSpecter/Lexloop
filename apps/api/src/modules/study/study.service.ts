@@ -279,45 +279,68 @@ export class StudyService {
 
     try {
       const invalidCacheIds = new Map<number, string>();
-      const cached = await Promise.all(
-        groupSpec.map(async (spec): Promise<ResolvedGroup | null> => {
-          const signature = contentSignature(
-            plan.mode,
-            spec.words,
-            plan.purpose,
-            spec.targetQuestionTypes,
-          );
-          const caches = await this.prisma.studyContentCache.findMany({
-            where: {
-              signature,
-              mode: plan.mode,
-              // A cache entry is reusable when this user has never answered a
-              // question from it. Other users' attempts do not block reuse.
-              planItems: { none: { attempts: { some: { userId } } } },
-            },
-            orderBy: [{ hitCount: 'desc' }, { createdAt: 'asc' }],
-            take: STUDY_CACHE_CANDIDATE_LIMIT,
-          });
-          let firstInvalidCacheId: string | undefined;
-          for (const cache of caches) {
-            const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
-            try {
-              validateGeneratedContent({ groups: [group] }, [spec]);
-            } catch {
-              firstInvalidCacheId ??= cache.id;
-              continue;
-            }
-            return {
-              cacheId: cache.id,
-              signature,
-              reused: true,
-              group,
-            };
+      const cacheLookupSpecs = groupSpec.map((spec) => ({
+        spec,
+        signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
+      }));
+      const signatures = [...new Set(cacheLookupSpecs.map(({ signature }) => signature))];
+      const cacheCandidates = signatures.length
+        ? await this.prisma.$queryRaw<
+            Array<{ id: string; signature: string; material: Prisma.JsonValue }>
+          >(Prisma.sql`
+            WITH ranked_cache AS (
+              SELECT
+                cache."id",
+                cache."signature",
+                cache."material",
+                ROW_NUMBER() OVER (
+                  PARTITION BY cache."signature"
+                  ORDER BY cache."hitCount" DESC, cache."createdAt" ASC
+                ) AS candidate_rank
+              FROM "public"."StudyContentCache" AS cache
+              WHERE cache."mode" = ${plan.mode}::"StudyPlanMode"
+                AND cache."signature" IN (${Prisma.join(signatures)})
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM "public"."StudyPlanItem" AS item
+                  JOIN "public"."WordReviewAttempt" AS attempt
+                    ON attempt."planItemId" = item."id"
+                  WHERE item."contentCacheId" = cache."id"
+                    AND attempt."userId" = ${userId}
+                )
+            )
+            SELECT "id", "signature", "material"
+            FROM ranked_cache
+            WHERE candidate_rank <= ${STUDY_CACHE_CANDIDATE_LIMIT}
+            ORDER BY "signature", candidate_rank
+          `)
+        : [];
+      const cacheCandidatesBySignature = new Map<string, typeof cacheCandidates>();
+      for (const candidate of cacheCandidates) {
+        const matches = cacheCandidatesBySignature.get(candidate.signature) ?? [];
+        matches.push(candidate);
+        cacheCandidatesBySignature.set(candidate.signature, matches);
+      }
+      const cached = cacheLookupSpecs.map(({ spec, signature }): ResolvedGroup | null => {
+        let firstInvalidCacheId: string | undefined;
+        for (const cache of cacheCandidatesBySignature.get(signature) ?? []) {
+          const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
+          try {
+            validateGeneratedContent({ groups: [group] }, [spec]);
+          } catch {
+            firstInvalidCacheId ??= cache.id;
+            continue;
           }
-          if (firstInvalidCacheId) invalidCacheIds.set(spec.index, firstInvalidCacheId);
-          return null;
-        }),
-      );
+          return {
+            cacheId: cache.id,
+            signature,
+            reused: true,
+            group,
+          };
+        }
+        if (firstInvalidCacheId) invalidCacheIds.set(spec.index, firstInvalidCacheId);
+        return null;
+      });
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
       let generatedMissing: GeneratedGroup[] = [];
       if (missingSpecs.length) {

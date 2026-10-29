@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.69',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '大型独立计划一次读取各组缓存',
+        entry: '词环 → 学习计划生成',
+        usage: '多个单词组的共享材料会一起读取，再分别校验和复用；每组内容与答案揭示规则保持不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.68',
     date: '2026-10-29',
     items: [
