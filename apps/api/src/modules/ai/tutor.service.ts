@@ -21,6 +21,12 @@ export type TutorContext =
   | { type: 'STUDY_GROUP'; planId: string; groupIndex: number }
   | { type: 'MISTAKE'; weaknessId: string };
 
+const MAX_TUTOR_HISTORY_CHARACTERS = 12_000;
+const MAX_TUTOR_LEARNING_CONTEXT_CHARACTERS = 12_000;
+const MAX_TUTOR_ANSWER_TOKENS = 1_200;
+const TUTOR_ANSWER_LIMIT_MESSAGE =
+  '回复达到单次长度上限；已生成内容会保留，你可以再发一条问题继续。';
+
 @Injectable()
 export class TutorService {
   constructor(
@@ -120,12 +126,9 @@ export class TutorService {
       { role: 'system', content: this.systemPrompt(context.type) },
       {
         role: 'system',
-        content: `可信学习上下文（仅用于辅导）：\n${JSON.stringify(learningContext)}`,
+        content: `可信学习上下文（仅用于辅导）：\n${this.learningContextForPrompt(learningContext)}`,
       },
-      ...previous.reverse().map((item) => ({
-        role: item.role === TutorMessageRole.USER ? 'user' : 'assistant',
-        content: item.content,
-      })),
+      ...this.historyForPrompt(previous.reverse()),
       { role: 'user', content: message },
     ];
     return {
@@ -146,10 +149,11 @@ export class TutorService {
     let complete = '';
     let finalized = false;
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let answerLimitReached = false;
     try {
       if (signal?.aborted) throw new Error('请求已中断');
       const response = await this.ai.selectedChatCompletions(
-        { messages, stream: true, temperature: 0.4 },
+        { messages, stream: true, temperature: 0.4, max_tokens: MAX_TUTOR_ANSWER_TOKENS },
         userId,
         signal,
       );
@@ -157,9 +161,10 @@ export class TutorService {
       const contentType = response.headers.get('content-type') ?? '';
       if (!contentType.includes('text/event-stream')) {
         const payload = (await response.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
+          choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
         };
         complete = payload.choices?.[0]?.message?.content ?? '';
+        answerLimitReached = payload.choices?.[0]?.finish_reason === 'length';
         if (complete) yield sse('delta', { content: complete });
       } else if (response.body) {
         reader = response.body.getReader();
@@ -177,9 +182,14 @@ export class TutorService {
               const data = line.slice(5).trim();
               if (!data || data === '[DONE]') continue;
               const payload = JSON.parse(data) as {
-                choices?: Array<{ delta?: { content?: string } }>;
+                choices?: Array<{
+                  delta?: { content?: string };
+                  finish_reason?: string | null;
+                }>;
               };
-              const delta = payload.choices?.[0]?.delta?.content;
+              const choice = payload.choices?.[0];
+              if (choice?.finish_reason === 'length') answerLimitReached = true;
+              const delta = choice?.delta?.content;
               if (delta) {
                 complete += delta;
                 yield sse('delta', { content: delta });
@@ -189,6 +199,7 @@ export class TutorService {
           if (done) break;
         }
       }
+      if (answerLimitReached) throw new Error(TUTOR_ANSWER_LIMIT_MESSAGE);
       if (!complete.trim()) throw new Error('模型没有返回可用内容');
       if (signal?.aborted) throw new Error('请求已中断');
       await this.prisma.$transaction([
@@ -293,8 +304,40 @@ export class TutorService {
         if (text) return text;
       }
     }
+    if (error instanceof Error && error.message === TUTOR_ANSWER_LIMIT_MESSAGE) {
+      return TUTOR_ANSWER_LIMIT_MESSAGE;
+    }
     if (error instanceof Error && error.message === '模型没有返回可用内容') return error.message;
     return '助手暂时无法回答，请稍后重试。';
+  }
+
+  private learningContextForPrompt(context: unknown) {
+    const serialized = JSON.stringify(context) ?? 'null';
+    if (serialized.length <= MAX_TUTOR_LEARNING_CONTEXT_CHARACTERS) return serialized;
+    const marker = '\n[学习上下文已截断] 未显示内容不可据此推断；信息不足时请先追问。';
+    return `${serialized.slice(0, MAX_TUTOR_LEARNING_CONTEXT_CHARACTERS - marker.length)}${marker}`;
+  }
+
+  private historyForPrompt(history: Array<{ role: TutorMessageRole; content: string }>) {
+    const bounded: Array<{ role: string; content: string }> = [];
+    let remaining = MAX_TUTOR_HISTORY_CHARACTERS;
+    for (let index = history.length - 1; index >= 0 && remaining > 0; index -= 1) {
+      const item = history[index];
+      const role = item.role === TutorMessageRole.USER ? 'user' : 'assistant';
+      if (item.content.length <= remaining) {
+        bounded.unshift({ role, content: item.content });
+        remaining -= item.content.length;
+        continue;
+      }
+      const marker = '[后续内容已省略]\n';
+      const prefixLength = Math.max(0, remaining - marker.length);
+      bounded.unshift({
+        role,
+        content: `${item.content.slice(0, prefixLength)}${marker.slice(0, remaining)}`,
+      });
+      break;
+    }
+    return bounded;
   }
 
   private systemPrompt(type: TutorContext['type']) {

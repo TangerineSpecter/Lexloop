@@ -1,6 +1,6 @@
 {
   "name": "lexloop",
-  "version": "1.27.87",
+  "version": "1.27.88",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {

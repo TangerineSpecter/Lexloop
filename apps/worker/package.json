@@ -1,6 +1,6 @@
 {
   "name": "@lexloop/worker",
-  "version": "1.27.87",
+  "version": "1.27.88",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/main.ts",

@@ -53,6 +53,26 @@ describe('TutorService learning context', () => {
     expect(JSON.stringify(context)).toContain('SECRET_EXPLANATION');
     expect(context.submitted).toBe(true);
   });
+
+  it('bounds prompt history and learning context while retaining the newest conversation turns', () => {
+    const service = serviceWith(null) as any;
+    const history = service.historyForPrompt([
+      { role: 'USER', content: 'older turn' },
+      { role: 'ASSISTANT', content: 'a'.repeat(15_000) },
+      { role: 'USER', content: 'newest question' },
+    ]);
+    const learningContext = service.learningContextForPrompt({ group: 'b'.repeat(15_000) });
+
+    expect(history).toHaveLength(2);
+    expect(history[0].role).toBe('assistant');
+    expect(history[0].content).toContain('[后续内容已省略]');
+    expect(history[1]).toEqual({ role: 'user', content: 'newest question' });
+    expect(
+      history.reduce((total: number, item: { content: string }) => total + item.content.length, 0),
+    ).toBeLessThanOrEqual(12_000);
+    expect(learningContext.length).toBeLessThanOrEqual(12_000);
+    expect(learningContext).toContain('[学习上下文已截断]');
+  });
 });
 
 describe('TutorService message preparation quota', () => {
@@ -111,6 +131,70 @@ describe('TutorService message preparation quota', () => {
 });
 
 describe('TutorService streaming cleanup', () => {
+  it('marks a provider length-limited answer incomplete and preserves its partial text', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: '保留的部分' }, finish_reason: null }] })}\n\n` +
+              `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n` +
+              'data: [DONE]\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    const tx = {
+      tutorMessage: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      aiCallAudit: { update: vi.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (operation: unknown) =>
+        typeof operation === 'function'
+          ? operation(tx)
+          : Promise.all(operation as Promise<unknown>[]),
+      ),
+      tutorDailyUsage: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const ai = {
+      selectedChatCompletions: vi
+        .fn()
+        .mockResolvedValue(
+          new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+        ),
+    };
+    const service = new TutorService(prisma as any, {} as any, ai as any, {} as any);
+    const stream = (service as any).streamAnswer('user-1', [], 'message-1', 'audit-1', {
+      remaining: 29,
+      usageDate: new Date('2026-09-12T00:00:00.000Z'),
+    });
+
+    expect((await stream.next()).value).toContain('保留的部分');
+    const failure = await stream.next();
+
+    expect(failure.value).toContain('event: error');
+    expect(failure.value).toContain('已生成内容会保留');
+    expect(ai.selectedChatCompletions).toHaveBeenCalledWith(
+      expect.objectContaining({ max_tokens: 1_200 }),
+      'user-1',
+      undefined,
+    );
+    expect(tx.tutorMessage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'message-1', status: 'PENDING' },
+        data: { content: '保留的部分', status: 'FAILED' },
+      }),
+    );
+    expect(tx.aiCallAudit.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'audit-1' },
+        data: expect.objectContaining({ status: 'FAILED' }),
+      }),
+    );
+    expect(prisma.tutorDailyUsage.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it('marks a pending call failed and refunds its original quota date when the consumer cancels', async () => {
     const cancel = vi.fn();
     const body = new ReadableStream({
