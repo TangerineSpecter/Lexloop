@@ -391,6 +391,27 @@
   background: var(--soft);
   color: inherit;
 }
+.tutor-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+.tutor-panel > header .tutor-stop {
+  display: inline-flex;
+  width: auto;
+  min-width: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.tutor-panel > header .tutor-stop:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
 .tutor-intro {
   margin: 12px 14px 8px;
   font-size: 13px;

@@ -300,6 +300,7 @@ test(
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
+          window.tutorRequests = [];
           window.alert = (message) => window.studyAlerts.push(String(message));
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           const nativeFetch = window.fetch;
@@ -338,6 +339,21 @@ test(
             }
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], hasMore: false });
+            if (path.endsWith('/api/v1/ai/tutor/messages') && method === 'POST') {
+              const record = { body: JSON.parse(options.body), aborted: false, cancelled: false };
+              window.tutorRequests.push(record);
+              const body = new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('event: delta\\ndata: {"content":"先从句子结构"}\\n\\n'));
+                  options.signal?.addEventListener('abort', () => {
+                    record.aborted = true;
+                    try { controller.error(new DOMException('Fixture stream aborted', 'AbortError')); } catch { /* Already closed by the reader. */ }
+                  }, { once: true });
+                },
+                cancel() { record.cancelled = true; },
+              });
+              return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+            }
             if (path.includes('/api/v1/mistakes?')) {
               window.mistakeRequests.push({ method, url: path });
               return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
@@ -594,6 +610,84 @@ test(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
       );
       await openCurrentPlan();
+      await evaluate(`(() => {
+        const input = document.querySelector('.tutor-composer textarea');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '为什么这里用这个时态？');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.closest('form').querySelector('button').click();
+      })()`);
+      await until(
+        'window.tutorRequests.length === 1 && document.querySelector(".tutor-message.is-assistant .tutor-message-body")?.textContent.includes("先从句子结构")',
+      );
+      assert.deepEqual(await evaluate('window.tutorRequests[0].body'), {
+        type: 'STUDY_GROUP',
+        planId: 'plan-1',
+        groupIndex: 0,
+        message: '为什么这里用这个时态？',
+      });
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const stopBounds = await evaluate(`(() => {
+        const button = document.querySelector('.tutor-stop').getBoundingClientRect();
+        return { left: button.left, right: button.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+      })()`);
+      assert.ok(
+        stopBounds.left >= 0 &&
+          stopBounds.right <= stopBounds.viewport &&
+          stopBounds.scrollWidth <= stopBounds.viewport,
+        JSON.stringify(stopBounds),
+      );
+      await evaluate('document.querySelector(".tutor-stop").focus()');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".tutor-stop")'),
+        true,
+      );
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until(
+        'window.tutorRequests[0].aborted && !document.querySelector(".tutor-panel .tutor-stop")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".tutor-message.is-assistant.is-failed .tutor-message-body")?.textContent.includes("先从句子结构")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".tutor-message.is-assistant.is-failed .tutor-failed button")?.textContent.includes("重试")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".tutor-error.is-error") === null'),
+        true,
+        'intentional stop must not be reported as a network error',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".tutor-error.is-success")?.textContent.includes("已收到的内容仍保留")',
+        ),
+        true,
+      );
+      await evaluate(
+        'document.querySelector(".tutor-message.is-assistant.is-failed .tutor-failed button").click()',
+      );
+      await until(
+        'window.tutorRequests.length === 2 && document.querySelector(".tutor-message.is-assistant.is-pending .tutor-message-body")?.textContent.includes("先从句子结构")',
+      );
+      assert.equal(
+        await evaluate('window.tutorRequests[1].body.message'),
+        '为什么这里用这个时态？',
+      );
+      await evaluate('document.querySelector(".lesson-page-head button").click()');
+      await until('document.querySelector(".sequence-panel") && window.tutorRequests[1].aborted');
+      await send('Emulation.clearDeviceMetricsOverride');
+      await openCurrentPlan();
+
       const choiceState = await evaluate(`({
         buttonCount: document.querySelectorAll('.answer-options button').length,
         hasCard: Boolean(document.querySelector('.generated-question')),

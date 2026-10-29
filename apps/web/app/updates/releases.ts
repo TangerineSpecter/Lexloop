@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.85',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '学习助手可以停止生成中的回答',
+        entry: '学习计划或错题详情 → 词环学习助手',
+        usage:
+          '停止按钮或离开会话都会取消仍在生成的回答；已经收到的片段保留，可重试，取消请求按原规则退回本次额度。',
+      },
+    ],
+  },
+  {
     version: '1.27.84',
     date: '2026-10-29',
     items: [

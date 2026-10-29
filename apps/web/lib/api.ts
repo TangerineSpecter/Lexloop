@@ -151,5 +151,8 @@ export async function streamSse(
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new ApiRequestError('助手连接中断了，请稍后重试。', 0);
+  } finally {
+    if (init.signal?.aborted) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
