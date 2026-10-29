@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.74',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '读取失败时不再显示上一页记录',
+        entry: '词环 → 生词本 / 句子收藏 / 精读与语法记录',
+        usage:
+          '切换筛选或页码后，列表只对应当前请求；读取失败可重试，不会把旧记录误当成新结果，也不会把失败当作空列表。',
+      },
+    ],
+  },
+  {
     version: '1.27.73',
     date: '2026-10-29',
     items: [

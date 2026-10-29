@@ -160,7 +160,7 @@ test(
         nextReviewAt: null,
       });
       const notebookPages = {
-        fixture: Array.from({ length: 20 }, (_, index) =>
+        fixture: Array.from({ length: 21 }, (_, index) =>
           index === 0
             ? makeNotebookWord(
                 'fixture',
@@ -212,6 +212,8 @@ test(
       window.failImportOnce = false;
       window.deferImportOnce = false;
       window.apiRequests = [];
+      window.failNotebookPageTwoOnce = false;
+      window.failFavoritePageTwoOnce = false;
       window.notebookSpeechAudit = [];
       window.notebookSpeechVoices = [{ lang: 'en-US', localService: true }];
       Object.defineProperty(window, 'SpeechSynthesisUtterance', {
@@ -240,10 +242,32 @@ test(
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: userId });
         if (path.includes('/api/v1/learning-lab/lessons?')) return Response.json(${JSON.stringify(history)});
         if (path.includes('/api/v1/vocabulary/notebook')) {
-          const search = new URL(path, location.origin).searchParams.get('search')?.toLowerCase() || '';
+          const params = new URL(path, location.origin).searchParams;
+          const search = params.get('search')?.toLowerCase() || '';
+          const page = Number(params.get('page') || 1);
+          if (page === 2 && window.failNotebookPageTwoOnce) {
+            window.failNotebookPageTwoOnce = false;
+            return Response.json({ message: '模拟生词本分页失败' }, { status: 503 });
+          }
           const items = notebookPages[userId] || [];
           const filtered = search ? items.filter(item => item.text.toLowerCase().includes(search)) : items;
-          return Response.json({ items: filtered, page: 1, pageSize: 20, total: filtered.length, hasMore: false });
+          return Response.json({ items: filtered.slice((page - 1) * 20, page * 20), page, pageSize: 20, total: filtered.length, hasMore: page * 20 < filtered.length });
+        }
+        if (path.includes('/api/v1/daily-sentences?')) {
+          const params = new URL(path, location.origin).searchParams;
+          const page = Number(params.get('page') || 1);
+          if (params.get('favorites') === 'true' && page === 2 && window.failFavoritePageTwoOnce) {
+            window.failFavoritePageTwoOnce = false;
+            return Response.json({ message: '模拟句子收藏分页失败' }, { status: 503 });
+          }
+          if (params.get('favorites') === 'true') {
+            const id = userId + '-favorite-page-' + page;
+            return Response.json({ items: [{
+              id, dateKey: '2026-10-' + (page === 1 ? '28' : '29'),
+              content: { english: 'Fixture sentence page ' + page + '.', chinese: '第 ' + page + ' 页译文', focus: 'daily practice' },
+              readAt: null, favorite: true, difficulty: null, difficultyTimestampReliable: false,
+            }], hasMore: page === 1 });
+          }
         }
         if (path.includes('/api/v1/vocabulary/personal/items')) {
           const body = JSON.parse(options.body);
@@ -320,6 +344,50 @@ test(
       assert.equal(desktopLayout.cards, 20);
       assert.ok(desktopLayout.page <= desktopLayout.viewport);
       assert.ok(desktopLayout.firstLeft >= 0 && desktopLayout.lastRight <= desktopLayout.viewport);
+
+      const notebookPageReadsBeforeFailure = await evaluate(
+        'window.apiRequests.filter((path) => path.includes("/api/v1/vocabulary/notebook")).length',
+      );
+      await evaluate(`(() => {
+        window.failNotebookPageTwoOnce = true;
+        document.querySelector('[aria-label="生词本分页"] button:last-child').click();
+      })()`);
+      await until(
+        'document.querySelector("[role=alert]")?.innerText.includes("模拟生词本分页失败")',
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
+        0,
+      );
+      assert.equal(
+        await evaluate('document.body.innerText.includes("你的生词本还是空白的")'),
+        false,
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("第 2 页")'), true);
+      assert.equal(
+        await evaluate(
+          'window.apiRequests.filter((path) => path.includes("/api/v1/vocabulary/notebook")).length',
+        ),
+        notebookPageReadsBeforeFailure + 1,
+      );
+      await evaluate('document.querySelector("[role=alert] button").click()');
+      await until(
+        'document.querySelector("[data-notebook-target]")?.textContent === "phrase number 21"',
+      );
+      assert.equal(
+        await evaluate('document.querySelectorAll("article[data-notebook-word]").length'),
+        1,
+      );
+      assert.equal(
+        await evaluate(
+          'window.apiRequests.filter((path) => path.includes("/api/v1/vocabulary/notebook")).length',
+        ),
+        notebookPageReadsBeforeFailure + 2,
+      );
+      await evaluate(
+        'document.querySelector("[aria-label=生词本分页] button:first-child").click()',
+      );
+      await until('document.querySelectorAll("article[data-notebook-word]").length === 20');
 
       const importDetails = 'document.querySelector("[data-personal-vocabulary-import]")';
       await evaluate(`${importDetails}.querySelector('summary').click()`);
@@ -950,6 +1018,49 @@ test(
       );
       assert.equal(await evaluate('document.body.innerText.includes("认为……理所当然")'), false);
       assert.equal(await evaluate('document.body.innerText.includes("in the long run")'), false);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/notebook?tab=sentences', baseUrl).href,
+      });
+      await until('document.body.innerText.includes("Fixture sentence page 1.")');
+      const favoritePageReadsBeforeFailure = await evaluate(
+        'window.apiRequests.filter((path) => path.includes("/api/v1/daily-sentences?")).length',
+      );
+      await evaluate(`(() => {
+        window.failFavoritePageTwoOnce = true;
+        document.querySelector('[aria-label="句子收藏分页"] button:last-child').click();
+      })()`);
+      await until(
+        'document.querySelector("[role=alert]")?.innerText.includes("模拟句子收藏分页失败")',
+      );
+      assert.equal(
+        await evaluate('document.body.innerText.includes("Fixture sentence page 1.")'),
+        false,
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("还没有收藏的句子")'), false);
+      assert.equal(await evaluate('document.body.innerText.includes("第 2 页")'), true);
+      assert.equal(
+        await evaluate(
+          'window.apiRequests.filter((path) => path.includes("/api/v1/daily-sentences?")).length',
+        ),
+        favoritePageReadsBeforeFailure + 1,
+      );
+      const failedFavoritesLayout = await evaluate(
+        `({ viewport: innerWidth, page: document.documentElement.scrollWidth })`,
+      );
+      assert.ok(failedFavoritesLayout.page <= failedFavoritesLayout.viewport);
+      await evaluate('document.querySelector("[role=alert] button").click()');
+      await until('document.body.innerText.includes("Fixture sentence page 2.")');
+      assert.equal(
+        await evaluate('document.body.innerText.includes("Fixture sentence page 1.")'),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'window.apiRequests.filter((path) => path.includes("/api/v1/daily-sentences?")).length',
+        ),
+        favoritePageReadsBeforeFailure + 2,
+      );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

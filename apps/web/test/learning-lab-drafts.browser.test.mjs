@@ -135,7 +135,7 @@ test(
         source: `
           const sessionKey = 'lexloop.session';
           if (!localStorage.getItem(sessionKey)) localStorage.setItem(sessionKey, JSON.stringify({ accessToken: 'learner-a-token', user: { id: 'learner-a', email: 'learner-a@example.invalid', displayName: 'Learner A', role: 'USER' } }));
-          window.labDraftFixture = { unexpected: [], apiCalls: [], storageKeys: () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter(Boolean) };
+          window.labDraftFixture = { unexpected: [], apiCalls: [], failHistoryPageOneOnce: location.search.includes('fail-history-first') && sessionStorage.getItem('__lab_history_initial_failure') !== '1', failHistoryPageTwoOnce: false, storageKeys: () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter(Boolean) };
           const lessonId = 'lesson-draft-fixture';
           const questionRows = [
             { id: 'q1', prompt: 'Choose the best reply.', options: ['That works for me.', 'At noon yesterday.', 'Blue is a color.'], correctIndex: 0, explanation: 'works for me 表示同意安排。' },
@@ -161,7 +161,23 @@ test(
             if (path.startsWith('/api/v1/')) window.labDraftFixture.apiCalls.push({ path, method: options.method || 'GET' });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: currentUser() });
             if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
-            if (path.includes('/api/v1/learning-lab/lessons?')) return Response.json({ items: [lesson()], hasMore: false });
+            if (path.includes('/api/v1/learning-lab/lessons?')) {
+              const page = Number(new URL(path, location.origin).searchParams.get('page') || 1);
+              if (page === 1 && window.labDraftFixture.failHistoryPageOneOnce) {
+                window.labDraftFixture.failHistoryPageOneOnce = false;
+                sessionStorage.setItem('__lab_history_initial_failure', '1');
+                return Response.json({ message: '模拟首次练习历史读取失败' }, { status: 503 });
+              }
+              if (page === 2 && window.labDraftFixture.failHistoryPageTwoOnce) {
+                window.labDraftFixture.failHistoryPageTwoOnce = false;
+                return Response.json({ message: '模拟练习历史分页失败' }, { status: 503 });
+              }
+              const pageLesson = page === 1 ? lesson() : {
+                ...lesson(), id: 'lesson-history-page-two',
+                content: { ...lesson().content, title: 'A different scheduling lesson' },
+              };
+              return Response.json({ items: [pageLesson], hasMore: page === 1 });
+            }
             if (path.includes('/api/v1/learning-lab/lessons/' + lessonId + '/answers')) {
               const requestBody = JSON.parse(options.body);
               const answerLogs = JSON.parse(localStorage.getItem('__learning_lab_fixture_logs') || '[]');
@@ -182,14 +198,79 @@ test(
         `,
       });
 
-      const url = new URL('/dashboard/notebook?tab=grammar', baseUrl).href;
+      const historySection = 'document.querySelector("[aria-label=学习历史]")';
+      const url = new URL('/dashboard/notebook?tab=grammar&fail-history-first=1', baseUrl).href;
       await send('Page.navigate', { url });
+      await until(
+        'document.querySelector("[aria-label=学习历史] [role=alert]")?.innerText.includes("模拟首次练习历史读取失败")',
+      );
+      assert.equal(await evaluate(`${historySection}.innerText.includes("正在读取历史")`), false);
+      assert.equal(
+        await evaluate(`${historySection}.innerText.includes("第一份练习会保存在这里")`),
+        false,
+      );
+      const historyReadsAfterInitialFailure = await evaluate(
+        'window.labDraftFixture.apiCalls.filter(({ path }) => path.includes("/api/v1/learning-lab/lessons?")).length',
+      );
+      await evaluate(`${historySection}.querySelector('[role="alert"] button').click()`);
       await until("document.querySelector('input[type=radio]')");
+      assert.equal(
+        await evaluate(
+          'window.labDraftFixture.apiCalls.filter(({ path }) => path.includes("/api/v1/learning-lab/lessons?")).length',
+        ),
+        historyReadsAfterInitialFailure + 1,
+      );
       assert.equal(
         await evaluate('document.querySelectorAll("fieldset input[type=radio]").length'),
         9,
       );
       assert.equal(await evaluate('localStorage.getItem("__learning_lab_fixture_logs")'), null);
+
+      assert.equal(
+        await evaluate(`${historySection}.innerText.includes("A small scheduling change")`),
+        true,
+      );
+      const historyReadsBeforeFailure = await evaluate(
+        'window.labDraftFixture.apiCalls.filter(({ path }) => path.includes("/api/v1/learning-lab/lessons?")).length',
+      );
+      await evaluate(`(() => {
+        window.labDraftFixture.failHistoryPageTwoOnce = true;
+        document.querySelector('[aria-label="练习记录分页"] button:last-child').click();
+      })()`);
+      await until(
+        'document.querySelector("[aria-label=学习历史] [role=alert]")?.innerText.includes("模拟练习历史分页失败")',
+      );
+      assert.equal(
+        await evaluate(`${historySection}.innerText.includes("A small scheduling change")`),
+        false,
+      );
+      assert.equal(
+        await evaluate(`${historySection}.innerText.includes("第一份练习会保存在这里")`),
+        false,
+      );
+      assert.equal(await evaluate(`${historySection}.innerText.includes("第 2 页")`), true);
+      assert.equal(
+        await evaluate(
+          'window.labDraftFixture.apiCalls.filter(({ path }) => path.includes("/api/v1/learning-lab/lessons?")).length',
+        ),
+        historyReadsBeforeFailure + 1,
+      );
+      await evaluate(`${historySection}.querySelector('[role="alert"] button').click()`);
+      await until(`${historySection}.innerText.includes("A different scheduling lesson")`);
+      assert.equal(
+        await evaluate(`${historySection}.innerText.includes("A small scheduling change")`),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'window.labDraftFixture.apiCalls.filter(({ path }) => path.includes("/api/v1/learning-lab/lessons?")).length',
+        ),
+        historyReadsBeforeFailure + 2,
+      );
+      await evaluate(
+        `${historySection}.querySelector('[aria-label="练习记录分页"] button:first-child').click()`,
+      );
+      await until(`${historySection}.innerText.includes("A small scheduling change")`);
 
       const apiCallsBeforeSelection = await evaluate('window.labDraftFixture.apiCalls.length');
       await evaluate(

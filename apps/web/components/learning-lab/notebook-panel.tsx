@@ -8,6 +8,11 @@ import { PersonalVocabularyImport } from './personal-vocabulary-import';
 import { NotebookSpellingPractice } from './notebook-spelling-practice';
 import styles from './lab.module.css';
 
+type NotebookLoadState =
+  | { key: string; status: 'loading' }
+  | { key: string; status: 'success'; data: NotebookPage }
+  | { key: string; status: 'error'; error: string };
+
 const sources: Array<[NotebookSource, string]> = [
   ['TRAVEL', '旅行场景'],
   ['READING', '阅读材料'],
@@ -40,23 +45,26 @@ export function NotebookPanel({
   onSelect: (ids: string[]) => void;
   onRead: () => void;
 }) {
-  const [data, setData] = useState<NotebookPage | null>(null);
+  const [loadState, setLoadState] = useState<NotebookLoadState | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [source, setSource] = useState('');
-  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
   const [recallMode, setRecallMode] = useState(false);
   const [revealedMeaningIds, setRevealedMeaningIds] = useState<Set<string>>(() => new Set());
   const [spellingPracticeUserId, setSpellingPracticeUserId] = useState<string | null>(null);
   const spellingPracticeActive = spellingPracticeUserId === session.user.id;
+  const loadKey = JSON.stringify([session.user.id, page, query, source, revision]);
+  const currentLoad = loadState?.key === loadKey ? loadState : null;
+  const data = currentLoad?.status === 'success' ? currentLoad.data : null;
+  const loading = !currentLoad || currentLoad.status === 'loading';
+  const loadError = currentLoad?.status === 'error' ? currentLoad.error : '';
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError('');
+    setLoadState({ key: loadKey, status: 'loading' });
     setRevealedMeaningIds(new Set());
     const params = new URLSearchParams({
       page: String(page),
@@ -65,25 +73,25 @@ export function NotebookPanel({
     });
     request<NotebookPage>(`/vocabulary/notebook?${params}`, {}, session.accessToken)
       .then((result) => {
-        if (active) setData(result);
+        if (active) setLoadState({ key: loadKey, status: 'success', data: result });
       })
       .catch((err) => {
-        if (active) setError(userFacingError(err));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (active) setLoadState({ key: loadKey, status: 'error', error: userFacingError(err) });
       });
     return () => {
       active = false;
     };
-  }, [session.user.id, session.accessToken, page, query, source, revision]);
+  }, [session.user.id, session.accessToken, page, query, source, revision, loadKey]);
   useEffect(() => {
     setSpellingPracticeUserId(null);
   }, [session.user.id]);
-  const refresh = useCallback(() => setRevision((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    setActionError('');
+    setRevision((value) => value + 1);
+  }, []);
   async function action(word: NotebookWord, kind: 'review' | 'master' | 'delete') {
     setBusy(word.id);
-    setError('');
+    setActionError('');
     try {
       await request(
         kind === 'delete'
@@ -98,7 +106,7 @@ export function NotebookPanel({
       }
       refresh();
     } catch (err) {
-      setError(userFacingError(err));
+      setActionError(userFacingError(err));
     } finally {
       setBusy(null);
     }
@@ -147,7 +155,7 @@ export function NotebookPanel({
           先看英文和原句，在心里回想中文释义，再逐项揭晓；这里不会保存作答或改变复习状态。
         </p>
       )}
-      {!loading && !error && (
+      {!loading && !loadError && data && (
         <NotebookSpellingPractice
           key={`${session.user.id}:${page}:${query}:${source}:${revision}`}
           items={data?.items ?? []}
@@ -167,6 +175,7 @@ export function NotebookPanel({
           data-notebook-filters
           onSubmit={(event) => {
             event.preventDefault();
+            setActionError('');
             setPage(1);
             setQuery(search.trim());
           }}
@@ -185,6 +194,7 @@ export function NotebookPanel({
             <select
               value={source}
               onChange={(event) => {
+                setActionError('');
                 setSource(event.target.value);
                 setPage(1);
               }}
@@ -198,16 +208,25 @@ export function NotebookPanel({
           </label>
           <button className={styles.button}>搜索</button>
         </form>
-        {error && (
+        {loadError && (
           <p className={styles.notice} role="alert">
-            {error}
+            {loadError}
             <button className={styles.button} onClick={refresh}>
               重试
             </button>
           </p>
         )}
+        {actionError && (
+          <p className={styles.notice} role="alert">
+            {actionError}
+          </p>
+        )}
         {loading ? (
           <p role="status">正在翻开生词本…</p>
+        ) : loadError ? (
+          <p className={styles.meta} role="status">
+            暂时无法确认当前筛选结果；重试成功后再判断是否有匹配收藏。
+          </p>
         ) : data?.items.length ? (
           <div className={styles.grid}>
             {data.items.map((word) => {
@@ -313,15 +332,21 @@ export function NotebookPanel({
           <button
             className={styles.button}
             disabled={loading || page <= 1}
-            onClick={() => setPage(page - 1)}
+            onClick={() => {
+              setActionError('');
+              setPage(page - 1);
+            }}
           >
             上一页
           </button>
           <span>第 {page} 页</span>
           <button
             className={styles.button}
-            disabled={loading || !data?.hasMore}
-            onClick={() => setPage(page + 1)}
+            disabled={loading || Boolean(loadError) || !data?.hasMore}
+            onClick={() => {
+              setActionError('');
+              setPage(page + 1);
+            }}
           >
             下一页
           </button>

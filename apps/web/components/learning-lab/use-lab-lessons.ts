@@ -3,9 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LabHistory, LabKind, LabLessonView } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
 
+type LabHistoryLoadState =
+  | { key: string; status: 'loading' }
+  | { key: string; status: 'success'; data: LabHistory }
+  | { key: string; status: 'error'; error: string };
+
 export function useLabLessons(session: Session, kind: LabKind) {
   const [lesson, setLesson] = useState<LabLessonView | null>(null);
-  const [history, setHistory] = useState<LabHistory | null>(null);
+  const [historyLoadState, setHistoryLoadState] = useState<LabHistoryLoadState | null>(null);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [pollRound, setPollRound] = useState(0);
@@ -14,6 +19,11 @@ export function useLabLessons(session: Session, kind: LabKind) {
   const [pollPaused, setPollPaused] = useState(false);
   const pendingRequest = useRef<{ signature: string; id: string } | null>(null);
   const active = useRef(true);
+  const historyLoadKey = JSON.stringify([session.user.id, kind, page, revision]);
+  const currentHistoryLoad = historyLoadState?.key === historyLoadKey ? historyLoadState : null;
+  const history = currentHistoryLoad?.status === 'success' ? currentHistoryLoad.data : null;
+  const historyLoading = !currentHistoryLoad || currentHistoryLoad.status === 'loading';
+  const historyError = currentHistoryLoad?.status === 'error' ? currentHistoryLoad.error : '';
   useEffect(() => {
     active.current = true;
     return () => {
@@ -22,19 +32,25 @@ export function useLabLessons(session: Session, kind: LabKind) {
   }, []);
   useEffect(() => {
     let cancelled = false;
+    setHistoryLoadState({ key: historyLoadKey, status: 'loading' });
     request<LabHistory>(`/learning-lab/lessons?kind=${kind}&page=${page}`, {}, session.accessToken)
       .then((value) => {
         if (cancelled) return;
-        setHistory(value);
+        setHistoryLoadState({ key: historyLoadKey, status: 'success', data: value });
         if (page === 1) setLesson((current) => current ?? value.items[0] ?? null);
       })
       .catch((err) => {
-        if (!cancelled) setError(userFacingError(err));
+        if (!cancelled)
+          setHistoryLoadState({
+            key: historyLoadKey,
+            status: 'error',
+            error: userFacingError(err),
+          });
       });
     return () => {
       cancelled = true;
     };
-  }, [session.accessToken, kind, page, revision]);
+  }, [session.accessToken, kind, page, revision, historyLoadKey]);
   useEffect(() => {
     if (!lesson || !['QUEUED', 'PROCESSING'].includes(lesson.status)) return;
     let cancelled = false;
@@ -142,9 +158,12 @@ export function useLabLessons(session: Session, kind: LabKind) {
     setPollRound((value) => value + 1);
     setRevision((value) => value + 1);
   }, []);
+  const reloadHistory = useCallback(() => setRevision((value) => value + 1), []);
   return {
     lesson,
     history,
+    historyLoading,
+    historyError,
     page,
     setPage,
     busy,
@@ -153,6 +172,7 @@ export function useLabLessons(session: Session, kind: LabKind) {
     create,
     submit,
     resume,
+    reloadHistory,
     open: (value: LabLessonView) => {
       setLesson(value);
       setError('');

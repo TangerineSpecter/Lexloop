@@ -162,9 +162,21 @@ export function LearningPanel({
             刷新
           </button>
         </header>
-        {!lab.history ? (
+        {lab.historyError && (
+          <p className={styles.notice} role="alert">
+            {lab.historyError}
+            <button className={styles.button} onClick={lab.reloadHistory}>
+              重试读取历史
+            </button>
+          </p>
+        )}
+        {lab.historyLoading ? (
           <p role="status">正在读取历史…</p>
-        ) : !lab.history.items.length ? (
+        ) : lab.historyError ? (
+          <p className={styles.meta} role="status">
+            暂时无法确认当前页的练习记录；重试成功后再判断是否有记录。
+          </p>
+        ) : !lab.history?.items.length ? (
           <p className={styles.meta}>第一份练习会保存在这里。</p>
         ) : (
           lab.history.items.map((item) => (
@@ -189,7 +201,7 @@ export function LearningPanel({
         <nav className={styles.pager} aria-label="练习记录分页">
           <button
             className={styles.button}
-            disabled={lab.page <= 1}
+            disabled={lab.historyLoading || lab.page <= 1}
             onClick={() => lab.setPage(lab.page - 1)}
           >
             上一页
@@ -197,7 +209,7 @@ export function LearningPanel({
           <span>第 {lab.page} 页</span>
           <button
             className={styles.button}
-            disabled={!lab.history?.hasMore}
+            disabled={lab.historyLoading || Boolean(lab.historyError) || !lab.history?.hasMore}
             onClick={() => lab.setPage(lab.page + 1)}
           >
             下一页
