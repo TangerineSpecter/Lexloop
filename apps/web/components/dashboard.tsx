@@ -46,6 +46,7 @@ import {
   PlaneTakeoff,
   X,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -62,17 +63,39 @@ import {
   type StudyDraftAnswers,
 } from '../lib/study-drafts';
 import { studyGroupCompletion } from '../lib/study-sequence';
-import { LearningHistoryPage } from './learning-history-page';
-import { StatisticsPage } from './statistics-page';
-import { SystemSettings } from './system-settings';
 import { Tooltip } from './tooltip';
 import { ReadingModelDrawer } from './reading-model-drawer';
-import { MistakesPage } from './mistakes-page';
 import { TutorPanel } from './tutor-panel';
-import { TravelScenarioPage } from './travel-scenario-page';
 import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
 import { PracticeEntries } from './practice/practice-entries';
+
+const TravelScenarioPage = dynamic(
+  () => import('./travel-scenario-page').then((module) => module.TravelScenarioPage),
+  { loading: () => <DashboardPageLoading page="travel" title="场景口语" /> },
+);
+const MistakesPage = dynamic(
+  () => import('./mistakes-page').then((module) => module.MistakesPage),
+  { loading: () => <DashboardPageLoading page="mistakes" title="待巩固" /> },
+);
+const LearningHistoryPage = dynamic(
+  () => import('./learning-history-page').then((module) => module.LearningHistoryPage),
+  { loading: () => <DashboardPageLoading page="history" title="学习历史" /> },
+);
+const StatisticsPage = dynamic(
+  () => import('./statistics-page').then((module) => module.StatisticsPage),
+  { loading: () => <DashboardPageLoading page="statistics" title="学习统计" /> },
+);
+const SystemSettings = dynamic(
+  () => import('./system-settings').then((module) => module.SystemSettings),
+  {
+    loading: () => (
+      <div role="status" aria-live="polite">
+        正在加载系统设置…
+      </div>
+    ),
+  },
+);
 
 type ExerciseType =
   | 'WORD_MNEMONIC'
@@ -336,6 +359,30 @@ const newWords: Word[] = [
   { word: 'study', part: 'n.', meaning: '学习；研究｜书房；课题' },
   { word: 'understand', part: 'vt.', meaning: '理解；明白｜获悉；听说' },
 ];
+
+function DashboardPageLoading({
+  page,
+  title,
+}: {
+  page: 'travel' | 'mistakes' | 'history' | 'statistics';
+  title: string;
+}) {
+  return (
+    <div
+      className="study-content dashboard-chunk-loading"
+      data-dashboard-page={page}
+      aria-busy="true"
+    >
+      <h1>{title}</h1>
+      <div className="dashboard-chunk-loading-card">
+        <span className="dashboard-chunk-loading-mark" aria-hidden="true" />
+        <p role="status" aria-live="polite">
+          正在打开栏目…
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<'words' | 'plan' | 'history'>('words');

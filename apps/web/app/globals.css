@@ -16780,6 +16780,36 @@ button[data-tooltip]::after {
 }
 
 /* Dashboard navigation should feel continuous without hiding the page state. */
+.dashboard-chunk-loading-card {
+  box-sizing: border-box;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 2px dashed var(--border-color);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--border-color);
+  font-weight: 800;
+}
+.dashboard-chunk-loading[data-dashboard-page='history'] .dashboard-chunk-loading-card {
+  min-height: 360px;
+}
+.dashboard-chunk-loading[data-dashboard-page='statistics'] .dashboard-chunk-loading-card {
+  min-height: 324px;
+}
+.dashboard-chunk-loading-card p {
+  margin: 0;
+}
+.dashboard-chunk-loading-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 2px 2px 0 var(--border-color);
+}
 .study-content,
 .statistics-page,
 .learning-history-page,

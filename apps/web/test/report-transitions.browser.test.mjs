@@ -13,6 +13,38 @@ test(
   'statistics and history keep the selected page stable through slow, cached, fast and failed loads',
   { skip: !baseUrl, timeout: 60_000 },
   async () => {
+    const loadableManifest = JSON.parse(
+      await readFile(new URL('../.next/react-loadable-manifest.json', import.meta.url), 'utf8'),
+    );
+    const appBuildManifest = JSON.parse(
+      await readFile(new URL('../.next/app-build-manifest.json', import.meta.url), 'utf8'),
+    );
+    const dashboardInitialFiles = new Set([
+      ...(appBuildManifest.pages['/layout'] ?? []),
+      ...(appBuildManifest.pages['/dashboard/page'] ?? []),
+    ]);
+    const dynamicChunkPaths = (key, initialFiles = dashboardInitialFiles) => {
+      const entry = loadableManifest[key];
+      assert.ok(entry?.files, `Missing production dynamic import entry: ${key}`);
+      return entry.files
+        .filter((file) => file.endsWith('.js') && !initialFiles.has(file))
+        .map((file) => `/_next/${file}`);
+    };
+    const rootInitialFiles = new Set([
+      ...(appBuildManifest.pages['/layout'] ?? []),
+      ...(appBuildManifest.pages['/page'] ?? []),
+    ]);
+    const rootDashboardChunkPaths = dynamicChunkPaths(
+      'app/page.tsx -> ../components/dashboard',
+      rootInitialFiles,
+    );
+    const dashboardChunkPaths = dynamicChunkPaths(
+      'app/dashboard/page.tsx -> ../../components/dashboard',
+    );
+    const historyChunkPaths = dynamicChunkPaths(
+      'components/dashboard.tsx -> ./learning-history-page',
+    );
+    const statisticsChunkPaths = dynamicChunkPaths('components/dashboard.tsx -> ./statistics-page');
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-report-transition-'));
     const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
@@ -166,7 +198,6 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture-token', user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'USER' } }));
           window.reportFixture = {
             historyRequests: [],
             statisticsRequests: [],
@@ -207,20 +238,24 @@ test(
             window.reportTimeline = [];
             let frame = 0;
             const sample = () => {
-              const page = document.querySelector('.learning-history-page, .statistics-page');
+              const page = document.querySelector('.learning-history-page, .statistics-page, .dashboard-chunk-loading');
               if (page) {
                 const heading = page.querySelector('h1');
-                const card = page.querySelector('.history-loading-card, .learning-history-empty-card, .statistics-loading-card, .statistics-empty-card');
+                const moduleLoading = page.classList.contains('dashboard-chunk-loading');
+                const card = moduleLoading
+                  ? page.querySelector('.dashboard-chunk-loading-card')
+                  : page.querySelector('.history-loading-card, .learning-history-empty-card, .statistics-loading-card, .statistics-empty-card');
                 const headingRect = heading?.getBoundingClientRect();
                 const cardRect = card?.getBoundingClientRect();
+                const title = heading?.textContent?.trim() ?? '';
                 window.reportTimeline.push({
                   at: performance.now(),
-                  page: page.classList.contains('learning-history-page') ? 'history' : 'statistics',
-                  title: heading?.textContent?.trim() ?? '',
+                  page: page.classList.contains('learning-history-page') || title === '学习历史' ? 'history' : 'statistics',
+                  title,
                   activeNav: document.querySelector('.sidebar-nav .nav-item.nav-button.active span')?.textContent?.trim() ?? '',
                   viewport: innerWidth,
-                  loading: Boolean(page.querySelector('.history-loading-card, .statistics-loading-card')),
-                  empty: Boolean(page.querySelector('.learning-history-empty-card:not(.history-loading-card), .statistics-empty-card:not(.statistics-loading-card)')),
+                  loading: moduleLoading || Boolean(page.querySelector('.history-loading-card, .statistics-loading-card')),
+                  empty: !moduleLoading && Boolean(page.querySelector('.learning-history-empty-card:not(.history-loading-card), .statistics-empty-card:not(.statistics-loading-card)')),
                   headingY: headingRect?.top ?? null,
                   cardY: cardRect?.top ?? null,
                   cardHeight: cardRect?.height ?? null,
@@ -298,9 +333,34 @@ test(
         `,
       });
 
+      await send('Page.navigate', { url: new URL('/', baseUrl).href });
+      await until('document.querySelector(".welcome-page")');
+      const publicHomeChunks = await evaluate(
+        'performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname)',
+      );
+      assert.ok(
+        !rootDashboardChunkPaths.some((file) => publicHomeChunks.includes(file)),
+        'Visitors should not download the authenticated dashboard before a session exists',
+      );
+      await evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-token',
+        user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'USER' }
+      }))`);
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector(".progress-grid .metric-card")');
       await until('document.querySelector(".sidebar-nav .nav-item.nav-button")');
+      const initiallyLoadedChunks = await evaluate(
+        'performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname)',
+      );
+      assert.ok(
+        dashboardChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
+        'The dashboard should download its split code after confirming the saved session',
+      );
+      assert.ok(
+        !historyChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
+          !statisticsChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
+        'History and statistics code should wait until the learner opens those pages',
+      );
 
       await evaluate('window.startReportTimeline()');
       await evaluate(
@@ -308,6 +368,13 @@ test(
       );
       await until(
         'window.reportFixture.pendingHistory.length === 1 && document.querySelector(".history-loading-card")',
+      );
+      const historyLoadedChunks = await evaluate(
+        'performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname)',
+      );
+      assert.ok(
+        historyChunkPaths.some((file) => historyLoadedChunks.includes(file)),
+        'Opening history should fetch its deferred page chunk',
       );
       await delay(240);
       await capture('history-loading-1440.png');
@@ -383,6 +450,13 @@ test(
       );
       await until(
         'window.reportFixture.pendingStatistics.length === 1 && document.querySelector(".statistics-loading-card")',
+      );
+      const statisticsLoadedChunks = await evaluate(
+        'performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname)',
+      );
+      assert.ok(
+        statisticsChunkPaths.some((file) => statisticsLoadedChunks.includes(file)),
+        'Opening statistics should fetch its deferred page chunk',
       );
       await delay(240);
       await capture('statistics-loading-1440.png');

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { gzipSync } from 'node:zlib';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultWebDir = resolve(rootDir, 'apps/web');
@@ -153,6 +154,69 @@ export async function prepareStandalone(webDir = defaultWebDir) {
   };
 }
 
+export async function verifyDashboardCodeSplits(webDir = defaultWebDir) {
+  const buildDir = join(webDir, '.next');
+  const appManifest = JSON.parse(await readFile(join(buildDir, 'app-build-manifest.json'), 'utf8'));
+  const loadableManifest = JSON.parse(
+    await readFile(join(buildDir, 'react-loadable-manifest.json'), 'utf8'),
+  );
+  const layoutFiles = appManifest.pages?.['/layout'];
+  if (!Array.isArray(layoutFiles)) throw new Error('构建清单缺少共享布局：/layout');
+  const routeAssets = new Map(
+    ['/page', '/dashboard/page'].map((route) => {
+      const files = appManifest.pages?.[route];
+      if (!Array.isArray(files)) throw new Error(`构建清单缺少首页路由：${route}`);
+      return [route, new Set([...layoutFiles, ...files])];
+    }),
+  );
+  const requiredDynamicImports = [
+    'app/page.tsx -> ../components/dashboard',
+    'app/dashboard/page.tsx -> ../../components/dashboard',
+    'components/dashboard.tsx -> ./learning-history-page',
+    'components/dashboard.tsx -> ./mistakes-page',
+    'components/dashboard.tsx -> ./statistics-page',
+    'components/dashboard.tsx -> ./system-settings',
+    'components/dashboard.tsx -> ./travel-scenario-page',
+  ];
+  const sharedLayoutAssets = new Set(layoutFiles);
+  const deferredAssets = new Set();
+  for (const key of requiredDynamicImports) {
+    const entry = loadableManifest[key];
+    if (!entry?.files?.some((file) => file.endsWith('.js'))) {
+      throw new Error(`Dashboard 按需加载模块未进入独立构建块：${key}`);
+    }
+    for (const file of entry.files) {
+      if (file.endsWith('.js') && !sharedLayoutAssets.has(file)) deferredAssets.add(file);
+    }
+  }
+  const allInitialAssets = new Set([...routeAssets.values()].flatMap((assets) => [...assets]));
+  const included = [...deferredAssets].filter((file) => allInitialAssets.has(file));
+  if (included.length) {
+    throw new Error(`首页首屏仍包含延迟模块：${included.join(', ')}`);
+  }
+
+  for (const [route, assets] of routeAssets) {
+    if (!assets.size) throw new Error(`${route} 首屏没有脚本资源`);
+  }
+
+  const sizes = {};
+  for (const [route, assets] of routeAssets) {
+    let rawBytes = 0;
+    let gzipBytes = 0;
+    for (const file of assets) {
+      if (!file.endsWith('.js')) continue;
+      const bytes = await readFile(join(buildDir, file));
+      rawBytes += bytes.length;
+      gzipBytes += gzipSync(bytes, { level: 9 }).length;
+    }
+    if (gzipBytes > 150_000) {
+      throw new Error(`${route} 首页 JavaScript 超过 150 KB gzip：${gzipBytes} 字节`);
+    }
+    sizes[route] = { rawBytes, gzipBytes };
+  }
+  return sizes;
+}
+
 function run(command, args, { cwd, env = process.env, label }) {
   if (interruptedBy) return Promise.reject(new Error(`验收已被 ${interruptedBy} 中断。`));
   return new Promise((resolveRun, rejectRun) => {
@@ -276,6 +340,10 @@ async function main() {
     cwd: webDir,
     label: 'Web 生产构建',
   });
+  const dashboardBundleSizes = await verifyDashboardCodeSplits(webDir);
+  console.log(
+    `首页首屏 JavaScript（原始 / gzip）：/ ${dashboardBundleSizes['/page'].rawBytes} / ${dashboardBundleSizes['/page'].gzipBytes} 字节，/dashboard ${dashboardBundleSizes['/dashboard/page'].rawBytes} / ${dashboardBundleSizes['/dashboard/page'].gzipBytes} 字节。`,
+  );
   const prepared = await prepareStandalone(webDir);
   console.log(
     `standalone 资源已准备：${prepared.staticFiles} 个静态文件（${prepared.javascriptFiles} JS / ${prepared.stylesheetFiles} CSS），${prepared.publicFiles} 个 public 文件。`,

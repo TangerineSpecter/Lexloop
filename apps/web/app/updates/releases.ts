@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.75',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '只在打开时加载学习栏目',
+        entry: '首页 → 登录后学习页 / 左侧主导航',
+        usage:
+          '未登录时不下载完整仪表盘；登录后只加载当前学习页，进入场景口语、学习历史、统计、待巩固或系统设置时再加载对应内容。',
+      },
+    ],
+  },
+  {
     version: '1.27.74',
     date: '2026-10-29',
     items: [

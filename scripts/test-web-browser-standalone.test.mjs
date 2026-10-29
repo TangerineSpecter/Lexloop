@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { prepareStandalone } from './test-web-browser-standalone.mjs';
+import { prepareStandalone, verifyDashboardCodeSplits } from './test-web-browser-standalone.mjs';
 
 async function fixture(t) {
   const webDir = await mkdtemp(join(tmpdir(), 'lexloop-standalone-prepare-'));
@@ -22,6 +22,49 @@ async function createBuild(webDir, { withPublic = true } = {}) {
     await mkdir(join(webDir, 'public'), { recursive: true });
     await writeFile(join(webDir, 'public/icon.svg'), '<svg/>');
   }
+}
+
+async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) {
+  const buildDir = join(webDir, '.next');
+  const staticDir = join(buildDir, 'static/chunks');
+  await mkdir(staticDir, { recursive: true });
+  const files = [
+    'shared.js',
+    'home.js',
+    'dashboard-route.js',
+    'dashboard.js',
+    'history.js',
+    'mistakes.js',
+    'statistics.js',
+    'settings.js',
+    'travel.js',
+  ];
+  for (const file of files) await writeFile(join(staticDir, file), `fixture:${file}`);
+  const dynamicManifest = {
+    'app/page.tsx -> ../components/dashboard': { files: ['static/chunks/dashboard.js'] },
+    'app/dashboard/page.tsx -> ../../components/dashboard': {
+      files: ['static/chunks/dashboard.js'],
+    },
+    'components/dashboard.tsx -> ./learning-history-page': { files: ['static/chunks/history.js'] },
+    'components/dashboard.tsx -> ./mistakes-page': { files: ['static/chunks/mistakes.js'] },
+    'components/dashboard.tsx -> ./statistics-page': { files: ['static/chunks/statistics.js'] },
+    'components/dashboard.tsx -> ./system-settings': { files: ['static/chunks/settings.js'] },
+    'components/dashboard.tsx -> ./travel-scenario-page': { files: ['static/chunks/travel.js'] },
+  };
+  const homeFiles = ['static/chunks/shared.js', 'static/chunks/home.js'];
+  const dashboardFiles = ['static/chunks/shared.js', 'static/chunks/dashboard-route.js'];
+  if (preloadStatistics) dashboardFiles.push('static/chunks/statistics.js');
+  await writeFile(
+    join(buildDir, 'app-build-manifest.json'),
+    JSON.stringify({
+      pages: {
+        '/layout': ['static/chunks/shared.js'],
+        '/page': homeFiles,
+        '/dashboard/page': dashboardFiles,
+      },
+    }),
+  );
+  await writeFile(join(buildDir, 'react-loadable-manifest.json'), JSON.stringify(dynamicManifest));
 }
 
 test('prepares static assets at the standalone server path and copies optional public files', async (t) => {
@@ -83,4 +126,21 @@ test('fails when static assets do not include both JavaScript and CSS', async (t
   await writeFile(join(webDir, '.next/static/chunks/app.js'), 'bundle fixture');
 
   await assert.rejects(prepareStandalone(webDir), /Web 静态资源不完整/);
+});
+
+test('verifies dashboard subpages are split out of the initial route JavaScript', async (t) => {
+  const webDir = await fixture(t);
+  await createDashboardBuild(webDir);
+
+  const sizes = await verifyDashboardCodeSplits(webDir);
+
+  assert.ok(sizes['/page'].gzipBytes > 0);
+  assert.ok(sizes['/dashboard/page'].gzipBytes > 0);
+});
+
+test('fails when a deferred learning page leaks back into the initial dashboard bundle', async (t) => {
+  const webDir = await fixture(t);
+  await createDashboardBuild(webDir, { preloadStatistics: true });
+
+  await assert.rejects(verifyDashboardCodeSplits(webDir), /首屏仍包含延迟模块.*statistics\.js/);
 });
