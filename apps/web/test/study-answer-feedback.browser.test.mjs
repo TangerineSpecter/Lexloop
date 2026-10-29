@@ -636,6 +636,12 @@ test(
       await evaluate(
         `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
       );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-tools button[aria-label*=换种说法]").getAttribute("aria-expanded")',
+        ),
+        'true',
+      );
       const rewriteNote = await evaluate(
         'document.querySelector(".sentence-rewrite-note")?.textContent',
       );
@@ -707,6 +713,20 @@ test(
       assert.equal(await evaluate('window.readingWordUseRequests.length'), 0);
       await evaluate(`${wordUseToggle}.click()`);
       await until('!document.querySelector("#reading-word-use-practice").hidden');
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
+        'Rooms look brighter when there is enough light.',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-panel .sentence-rewrite-feedback") !== null',
+        ),
+        true,
+      );
       assert.ok(
         (
           await evaluate(
@@ -714,6 +734,26 @@ test(
           )
         ).includes('只有点击提交后'),
       );
+      await evaluate(`${wordUseToggle}.focus()`);
+      for (const expectedFocus of [
+        'reading-word-use-practice-word',
+        'reading-word-use-practice-meaning-hint',
+        'reading-word-use-practice-answer',
+      ]) {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'Tab',
+          code: 'Tab',
+          windowsVirtualKeyCode: 9,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'Tab',
+          code: 'Tab',
+          windowsVirtualKeyCode: 9,
+        });
+        await until(`document.activeElement.id === ${JSON.stringify(expectedFocus)}`);
+      }
       const wordUseAnswer = 'The room is bright in the morning.';
       await evaluate(`(() => {
         const input = document.querySelector('#reading-word-use-practice-answer');
@@ -793,6 +833,32 @@ test(
       );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      await evaluate(
+        `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice").hidden'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        false,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        wordUseAnswer,
+      );
+      await evaluate(`${wordUseToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        wordUseAnswer,
+      );
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 2);
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 2);
       const wordUseMobile = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-word-use-panel').getBoundingClientRect();
         const input = document.querySelector('#reading-word-use-practice-answer').getBoundingClientRect();
@@ -835,6 +901,14 @@ test(
           wordUseMobile.inputRight <= wordUseMobile.viewport,
         JSON.stringify(wordUseMobile),
       );
+      await evaluate(
+        `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
+      );
+      await until('!document.querySelector(".sentence-rewrite-panel").hidden');
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice").hidden'),
+        true,
+      );
       const rewriteDesktop = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-rewrite-panel').getBoundingClientRect();
         return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, left: panel.left, right: panel.right, width: panel.width };
@@ -853,6 +927,7 @@ test(
         deviceScaleFactor: 1,
         mobile: true,
       });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
       const rewriteMobile = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-rewrite-panel').getBoundingClientRect();
         const field = document.querySelector('#sentence-rewrite-0-answer').getBoundingClientRect();

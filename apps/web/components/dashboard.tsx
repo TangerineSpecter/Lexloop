@@ -3963,9 +3963,10 @@ function GeneratedReadingContent({
                   aria-expanded={rewriteSentenceIndex === index}
                   aria-controls={`sentence-rewrite-${index}`}
                   data-tip="换种说法"
-                  onClick={() =>
-                    setRewriteSentenceIndex((current) => (current === index ? null : index))
-                  }
+                  onClick={() => {
+                    setWordUseOpen(false);
+                    setRewriteSentenceIndex((current) => (current === index ? null : index));
+                  }}
                 >
                   <PenLine size={16} />
                 </button>
@@ -3991,7 +3992,10 @@ function GeneratedReadingContent({
           className="reading-word-use-toggle"
           aria-expanded={wordUseOpen}
           aria-controls="reading-word-use-practice"
-          onClick={() => setWordUseOpen((open) => !open)}
+          onClick={() => {
+            setRewriteSentenceIndex(null);
+            setWordUseOpen((open) => !open);
+          }}
         >
           {wordUseOpen ? '收起造句练习' : '试着用本组词造一句'}
         </button>
@@ -4121,7 +4125,7 @@ function ReadingWordUsePractice({
         )}
         {selectedWord && (
           <details className="word-use-meaning-hint">
-            <summary>需要时查看词义提示</summary>
+            <summary id={`${id}-meaning-hint`}>需要时查看词义提示</summary>
             <small>{selectedWord.meaning}</small>
           </details>
         )}

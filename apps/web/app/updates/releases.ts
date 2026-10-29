@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.62',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '阅读练习一次展开一项',
+        entry: '词环 → 当前学习序列 → 阅读材料 → 改写 / 目标词造句',
+        usage:
+          '改写和目标词造句互斥展开，切换时保留当前学习组的草稿与反馈；收起的表单不会进入键盘 Tab 顺序。',
+      },
+    ],
+  },
+  {
     version: '1.27.61',
     date: '2026-10-29',
     items: [
