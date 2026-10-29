@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { PrismaClient, StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it, vi } from 'vitest';
 import { StudyService, contentSignature } from '../src/modules/study/study.service';
 
@@ -138,7 +139,22 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             StudyPlanPurpose.NORMAL,
           ),
         );
-        await prisma.studyContentCache.create({
+        const invalidCachedGroup = generatedGroup(
+          0,
+          book.bookWords[0].id,
+          book.bookWords[0].word.text,
+          'Broken high-hit lesson',
+        );
+        invalidCachedGroup.questions[0].options[2] = invalidCachedGroup.questions[0].options[0];
+        await prisma.studyContentCache.createMany({
+          data: Array.from({ length: 19 }, (_, index) => ({
+            signature: signatures[0],
+            mode: StudyPlanMode.INDIVIDUAL,
+            material: invalidCachedGroup,
+            hitCount: 20 - index,
+          })),
+        });
+        const validCache = await prisma.studyContentCache.create({
           data: {
             signature: signatures[0],
             mode: StudyPlanMode.INDIVIDUAL,
@@ -149,10 +165,16 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               'Shared cached lesson',
             ),
           },
+          select: { id: true },
         });
 
         const cachedPlan = await service.createPlan(users[0], 1, 'individual', 0, 'book');
+        const cacheStartedAt = performance.now();
         const completedFromCache = await service.generatePlan(users[0], cachedPlan.id);
+        const cacheResolutionMs = Math.round(performance.now() - cacheStartedAt);
+        console.log(
+          `shared cache resolution: 20 variants / 1 group, no model call, ${cacheResolutionMs} ms`,
+        );
         expect(completedFromCache.status).toBe('ACTIVE');
         expect(completedFromCache.content).toMatchObject({
           groups: [{ title: 'Shared cached lesson' }],
@@ -191,16 +213,24 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         const cacheRows = await prisma.studyContentCache.findMany({
           where: { signature: { in: signatures } },
-          orderBy: { signature: 'asc' },
-          select: { signature: true, hitCount: true },
+          orderBy: [{ signature: 'asc' }, { hitCount: 'desc' }],
+          select: { id: true, signature: true, hitCount: true, material: true },
         });
-        const sortedSignatures = [...signatures].sort((left, right) => left.localeCompare(right));
-        expect(cacheRows).toEqual(
-          sortedSignatures.map((signature) => ({
-            signature,
-            hitCount: signature === signatures[0] ? 2 : 0,
-          })),
+        const steadyVariants = cacheRows.filter((row) => row.signature === signatures[0]);
+        const repairedOrReused = steadyVariants.find((row) => row.id === validCache.id);
+        const untouchedInvalidVariants = steadyVariants.filter((row) => row.id !== validCache.id);
+        expect(steadyVariants).toHaveLength(20);
+        expect(repairedOrReused?.hitCount).toBe(2);
+        expect(untouchedInvalidVariants).toHaveLength(19);
+        expect(untouchedInvalidVariants.map((row) => row.hitCount).sort((a, b) => b - a)).toEqual(
+          Array.from({ length: 19 }, (_, index) => 20 - index),
         );
+        expect(untouchedInvalidVariants.map((row) => row.material)).toEqual(
+          Array.from({ length: 19 }, () => invalidCachedGroup),
+        );
+        expect(cacheRows.filter((row) => row.signature === signatures[1])).toEqual([
+          expect.objectContaining({ signature: signatures[1], hitCount: 0 }),
+        ]);
       } finally {
         if (users.length) await prisma.user.deleteMany({ where: { id: { in: users } } });
         if (signatures.length)

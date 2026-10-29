@@ -26,6 +26,7 @@ import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabula
 const DAY = 86_400_000;
 const MAX_DAILY_REVIEW_WORDS = 40;
 const MAX_INDIVIDUAL_WORDS = 20;
+const STUDY_CACHE_CANDIDATE_LIMIT = 20;
 const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
   'MEANING_RECOGNITION',
@@ -286,7 +287,7 @@ export class StudyService {
             plan.purpose,
             spec.targetQuestionTypes,
           );
-          const cache = await this.prisma.studyContentCache.findFirst({
+          const caches = await this.prisma.studyContentCache.findMany({
             where: {
               signature,
               mode: plan.mode,
@@ -295,21 +296,26 @@ export class StudyService {
               planItems: { none: { attempts: { some: { userId } } } },
             },
             orderBy: [{ hitCount: 'desc' }, { createdAt: 'asc' }],
+            take: STUDY_CACHE_CANDIDATE_LIMIT,
           });
-          if (!cache) return null;
-          const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
-          try {
-            validateGeneratedContent({ groups: [group] }, [spec]);
-          } catch {
-            invalidCacheIds.set(spec.index, cache.id);
-            return null;
+          let firstInvalidCacheId: string | undefined;
+          for (const cache of caches) {
+            const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
+            try {
+              validateGeneratedContent({ groups: [group] }, [spec]);
+            } catch {
+              firstInvalidCacheId ??= cache.id;
+              continue;
+            }
+            return {
+              cacheId: cache.id,
+              signature,
+              reused: true,
+              group,
+            };
           }
-          return {
-            cacheId: cache.id,
-            signature,
-            reused: true,
-            group,
-          };
+          if (firstInvalidCacheId) invalidCacheIds.set(spec.index, firstInvalidCacheId);
+          return null;
         }),
       );
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);

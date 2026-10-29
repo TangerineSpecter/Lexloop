@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.68',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '共享练习材料校验失败时继续查找可用版本',
+        entry: '词环 → 学习计划生成',
+        usage:
+          '系统会略过无法通过校验的共享材料，继续尝试可用版本；命中有效缓存时仍无需选择生成模型。',
+      },
+    ],
+  },
+  {
     version: '1.27.67',
     date: '2026-10-29',
     items: [
