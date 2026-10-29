@@ -213,7 +213,7 @@ test(
       window.deferImportOnce = false;
       window.apiRequests = [];
       window.notebookSpeechAudit = [];
-      window.notebookSpeechVoices = [{ lang: 'en-US' }];
+      window.notebookSpeechVoices = [{ lang: 'en-US', localService: true }];
       Object.defineProperty(window, 'SpeechSynthesisUtterance', {
         configurable: true,
         value: function(text) { this.text = text; },
@@ -545,7 +545,7 @@ test(
       await evaluate('window.notebookSpeechVoices = []');
       await evaluate('document.querySelector("[data-spelling-play]").click()');
       await until(
-        'document.querySelector("[data-spelling-notice]")?.textContent.includes("没有可用的英语语音")',
+        'document.querySelector("[data-spelling-notice]")?.textContent.includes("标记为本地服务")',
       );
       await evaluate('document.querySelector("[data-spelling-reveal]").click()');
       assert.equal(

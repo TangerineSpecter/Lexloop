@@ -2,16 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
+import { findLocalEnglishVoice } from '../lib/english-audio';
 import styles from './english-audio-controls.module.css';
-
-function findEnglishVoice(voices: SpeechSynthesisVoice[]) {
-  return (
-    voices.find((voice) => voice.lang.toLowerCase() === 'en-us') ??
-    voices.find((voice) => voice.lang.toLowerCase() === 'en') ??
-    voices.find((voice) => voice.lang.toLowerCase().startsWith('en-')) ??
-    null
-  );
-}
 
 export function createEnglishUtterance(text: string, rate = 1) {
   if (
@@ -21,7 +13,7 @@ export function createEnglishUtterance(text: string, rate = 1) {
   ) {
     return 'unsupported' as const;
   }
-  const voice = findEnglishVoice(window.speechSynthesis.getVoices());
+  const voice = findLocalEnglishVoice(window.speechSynthesis.getVoices());
   if (!voice) {
     window.speechSynthesis.cancel();
     return 'no-voice' as const;
@@ -55,7 +47,7 @@ export function EnglishAudioControls({ text, context }: { text: string; context:
     setEnglishVoiceUnavailable(false);
     const synthesis = 'speechSynthesis' in window ? window.speechSynthesis : null;
     const handleVoicesChanged = () => {
-      if (synthesis && findEnglishVoice(synthesis.getVoices())) {
+      if (synthesis && findLocalEnglishVoice(synthesis.getVoices())) {
         setEnglishVoiceUnavailable(false);
       }
     };
@@ -134,7 +126,7 @@ export function EnglishAudioControls({ text, context }: { text: string; context:
       <span className={styles.status} aria-live="polite">
         {playingRate === null
           ? englishVoiceUnavailable
-            ? '当前没有可用的英语语音；可稍后重试或直接阅读原句。'
+            ? '浏览器没有提供标记为本地服务的英语语音；可稍后重试或直接阅读原句。'
             : ''
           : playingRate < 1
             ? '正在慢速播放'

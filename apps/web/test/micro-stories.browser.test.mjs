@@ -226,7 +226,7 @@ test(
       const persistFixture = () => sessionStorage.setItem(fixtureKey, JSON.stringify({ index: window.microFixture.index, revealed: window.microFixture.revealed, interpretation: window.microFixture.interpretation, errors: window.microFixture.errors, reviewDone: window.microFixture.reviewDone }));
       const noSpeech = params.has('no-speech');
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: noSpeech ? undefined : class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; } } });
-      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: { getVoices: () => [{ lang: 'en-US' }], cancel: () => { window.microFixture.speechCancelCount += 1; }, speak: utterance => { window.microFixture.speechLog.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate }); } } });
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: { getVoices: () => params.has('remote-voice') ? [{ lang: 'en-US', localService: false }] : [{ lang: 'en-US', localService: true }], cancel: () => { window.microFixture.speechCancelCount += 1; }, speak: utterance => { window.microFixture.speechLog.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate }); } } });
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
@@ -876,6 +876,19 @@ test(
       );
       assert.equal(
         await evaluate('document.body.textContent.includes("Tom calls his boss.")'),
+        true,
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=remote-voice&remote-voice=1', baseUrl).href,
+      });
+      await until('document.body.textContent.includes("Tom misses the bus.")');
+      await evaluate(
+        `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
+      );
+      await until('document.body.textContent.includes("标记为本地服务")');
+      assert.equal(await evaluate('window.microFixture.speechLog.length'), 0);
+      assert.equal(
+        await evaluate('document.body.textContent.includes("Tom misses the bus.")'),
         true,
       );
       await send('Page.navigate', {

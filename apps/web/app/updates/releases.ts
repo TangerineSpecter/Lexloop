@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.63',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '语音播放避开远程语音',
+        entry: '生词本听音拼写、微故事、每日一句与分组阅读',
+        usage:
+          '只使用浏览器标记为本地服务的英语语音；没有时仍可阅读原文，不回退到远程语音。设备离线能力仍取决于浏览器和系统。',
+      },
+    ],
+  },
+  {
     version: '1.27.62',
     date: '2026-10-29',
     items: [

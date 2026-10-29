@@ -148,7 +148,7 @@ test(
           window.studySpeech = {
             voices: [
               { lang: 'zh-CN', name: 'Fixture Chinese' },
-              { lang: 'en-US', name: 'Fixture English' },
+              { lang: 'en-US', name: 'Fixture English', localService: true },
             ],
             cancelCount: 0,
             spoken: [],
@@ -606,10 +606,10 @@ test(
       assert.ok(await evaluate('window.studySpeech.cancelCount >= 2'));
       assert.equal(await evaluate('window.studySpeech.active.text.length > 0'), true);
       assert.equal(await evaluate('window.studySpeech.queue.length'), 1);
-      await evaluate(`window.studySpeech.voices = [];
+      await evaluate(`window.studySpeech.voices = [{ lang: 'en-US', name: 'Remote English', localService: false }];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until(
-        'document.querySelector(".reading-speech-status")?.textContent.includes("没有可用的英语语音")',
+        'document.querySelector(".reading-speech-status")?.textContent.includes("标记为本地服务")',
       );
       assert.equal(await evaluate('window.studySpeech.spoken.length'), 2);
       assert.equal(await evaluate('window.studySpeech.active === null'), true);
@@ -626,7 +626,7 @@ test(
       );
       assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeSpeech);
       await evaluate(`window.SpeechSynthesisUtterance = window.StudyUtteranceFixture;
-        window.studySpeech.voices = [{ lang: 'en-US', name: 'Fixture English' }];
+        window.studySpeech.voices = [{ lang: 'en-US', name: 'Fixture English', localService: true }];
         document.querySelector('button[aria-label="展开分句阅读"]').click()`);
       await until('document.querySelector(".sentence-tools button[aria-label=朗读]")');
       assert.equal(
@@ -965,10 +965,10 @@ test(
         deviceScaleFactor: 1,
         mobile: true,
       });
-      await evaluate(`window.studySpeech.voices = [];
+      await evaluate(`window.studySpeech.voices = [{ lang: 'en-US', name: 'Remote English', localService: false }];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until(
-        'document.querySelector(".reading-speech-status")?.textContent.includes("没有可用的英语语音")',
+        'document.querySelector(".reading-speech-status")?.textContent.includes("标记为本地服务")',
       );
       const mobileSpeechStatus = await evaluate(`(() => {
         const card = document.querySelector('.reading-card').getBoundingClientRect();
@@ -997,7 +997,7 @@ test(
       const apiCallsBeforeMobileSpeech = await evaluate('window.apiFetchLog.length');
       await evaluate(`window.studySpeech.voices = [
           { lang: 'zh-CN', name: 'Fixture Chinese' },
-          { lang: 'en-US', name: 'Fixture English' },
+          { lang: 'en-US', name: 'Fixture English', localService: true },
         ];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until('document.querySelector(".reading-speech-status")?.textContent === ""');

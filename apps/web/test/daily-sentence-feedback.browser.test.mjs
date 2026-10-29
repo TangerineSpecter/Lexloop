@@ -136,7 +136,7 @@ test(
           window.dailySentenceSpeech = { cancelCount: 0, spoken: [], utterances: [], noEnglishVoice: window.noEnglishVoice };
           Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class { constructor(text) { this.text = text; this.lang = ''; this.rate = 1; this.voice = null; this.onend = null; this.onerror = null; } } });
           Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
-            getVoices: () => window.dailySentenceSpeech.noEnglishVoice ? [] : [{ lang: 'en-US' }],
+            getVoices: () => window.dailySentenceSpeech.noEnglishVoice ? [{ lang: 'en-US', localService: false }] : [{ lang: 'en-US', localService: true }],
             cancel: () => {
               window.dailySentenceSpeech.cancelCount += 1;
               const previous = window.dailySentenceSpeech.utterances.at(-1);
@@ -370,7 +370,7 @@ test(
       const noVoiceWriteCount = await evaluate('window.dailySentenceWrites.length');
       await evaluate('document.querySelector(\'[aria-label="慢速播放每日一句"]\').click()');
       await until(
-        'document.querySelector("[aria-live=polite]")?.textContent.includes("没有可用的英语语音")',
+        'document.querySelector("[aria-live=polite]")?.textContent.includes("标记为本地服务")',
       );
       assert.equal(await evaluate('window.dailySentenceSpeech.spoken.length'), 0);
       assert.equal(
@@ -382,7 +382,7 @@ test(
         'window.dailySentenceSpeech.noEnglishVoice = false; window.speechSynthesis.dispatchEvent(new Event("voiceschanged"))',
       );
       await until(
-        '!document.querySelector("[aria-live=polite]")?.textContent.includes("没有可用的英语语音")',
+        '!document.querySelector("[aria-live=polite]")?.textContent.includes("标记为本地服务")',
       );
       await evaluate('document.querySelector(\'[aria-label="按正常速度播放每日一句"]\').click()');
       await until('window.dailySentenceSpeech.spoken.length === 1');

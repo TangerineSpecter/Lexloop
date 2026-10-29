@@ -181,7 +181,7 @@ export function NotebookSpellingPractice({
       result === 'played'
         ? '已请求浏览器播放英语发音。'
         : result === 'no-voice'
-          ? '当前设备没有可用的英语语音；可显示答案并结束本题。'
+          ? '浏览器没有提供标记为本地服务的英语语音；可显示答案并结束本题。'
           : '当前浏览器不支持语音播放；可显示答案并结束本题。',
     );
   }

@@ -2850,7 +2850,7 @@ function PlanPreview({
           result === 'played'
             ? ''
             : result === 'no-voice'
-              ? '当前没有可用的英语语音，可直接看词。'
+              ? '浏览器没有提供标记为本地服务的英语语音，可直接看词。'
               : '当前浏览器不支持语音播放。',
         );
       }
@@ -2985,7 +2985,7 @@ function PlanPreview({
                     result === 'played'
                       ? ''
                       : result === 'no-voice'
-                        ? '当前没有可用的英语语音，可直接看词。'
+                        ? '浏览器没有提供标记为本地服务的英语语音，可直接看词。'
                         : '当前浏览器不支持语音播放。',
                   );
                 }}
@@ -3840,7 +3840,7 @@ function GeneratedReadingContent({
     const result = speakEnglish(text);
     setSpeechNotice(
       result === 'no-voice'
-        ? '当前没有可用的英语语音；可直接阅读原文。'
+        ? '浏览器没有提供标记为本地服务的英语语音；可直接阅读原文。'
         : result === 'unsupported'
           ? '当前浏览器不支持语音播放，可直接阅读原文。'
           : '',
@@ -4813,8 +4813,7 @@ function GroupStudyPage({
           button.setAttribute('aria-label', label);
           button.addEventListener('click', () => {
             if (label === '复制') navigator.clipboard?.writeText(sentence);
-            if (label === '朗读')
-              window.speechSynthesis?.speak(new SpeechSynthesisUtterance(sentence));
+            if (label === '朗读') speakEnglish(sentence);
           });
           tools.append(button);
         });
@@ -4848,9 +4847,7 @@ function GroupStudyPage({
       simple.textContent = '简化版：我们分享有用的学习资源，帮助大家更好地交流。';
       card.append(simple);
     });
-    addTool('朗读全文', '◖', () =>
-      window.speechSynthesis?.speak(new SpeechSynthesisUtterance(sentences.join(' '))),
-    );
+    addTool('朗读全文', '◖', () => speakEnglish(sentences.join(' ')));
     card.append(toolbar);
     return () => toolbar.remove();
   }, [currentGroupIndex, words]);
