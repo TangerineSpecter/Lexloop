@@ -215,6 +215,11 @@
   background: #fff4b9;
   margin: 12px 0;
 }
+.staleNotice {
+  display: block;
+  margin-top: 6px;
+  font-weight: 700;
+}
 .notice button {
   display: block;
   margin-top: 10px;

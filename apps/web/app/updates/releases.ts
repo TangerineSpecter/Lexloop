@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.73',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '处方刷新失败时标明旧建议',
+        entry: '词环 → 学习专项 → 每周学习处方',
+        usage:
+          '刷新失败时保留上次成功读取的处方，并说明它可能还没有包含最新学习记录；恢复连接后可重试。',
+      },
+    ],
+  },
+  {
     version: '1.27.72',
     date: '2026-10-29',
     items: [

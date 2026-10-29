@@ -62,6 +62,11 @@ export function WeeklyPanel({
       {message && (
         <p className={styles.notice} role="alert">
           {message}
+          {plan && (
+            <span className={styles.staleNotice}>
+              仍显示上次成功读取的处方，可能未包含最新学习记录。
+            </span>
+          )}
         </p>
       )}
       <div className={styles.weekSummary}>
