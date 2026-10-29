@@ -266,6 +266,8 @@ test(
           };
           window.studyPlanWrites = [];
           window.studySubmissionAttempts = [];
+          window.readingRewriteRequests = [];
+          window.readingRewriteResolvers = [];
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
@@ -353,6 +355,21 @@ test(
               return Response.json(localStorage.getItem('lexloop.test.empty-study-plans') ? [] : [window.studyPlanResponse]);
             }
             if (path.includes('/api/v1/study/plans')) return Response.json([window.studyPlanResponse]);
+            if (path.endsWith('/api/v1/ai/reading-rewrite-feedback') && method === 'POST') {
+              window.readingRewriteRequests.push({
+                userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id,
+                body: JSON.parse(options.body),
+              });
+              if (window.readingRewriteRequests.length === 1) {
+                return new Promise((resolve) => window.readingRewriteResolvers.push(resolve));
+              }
+              return Response.json({
+                meaning: '保留了光线充足会让房间显得明亮这一层意思。',
+                grammar: 'rooms 作主语时，look 后可接形容词 brighter。',
+                naturalness: '整体表达清楚自然。',
+                alternative: 'Good lighting makes a big difference in a room.',
+              });
+            }
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
             return Response.json({});
           };
@@ -579,10 +596,122 @@ test(
       assert.ok(
         await evaluate('document.querySelector(".generated-passage")?.innerText.length > 0'),
       );
+      assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeSpeech);
       await evaluate(`window.SpeechSynthesisUtterance = window.StudyUtteranceFixture;
         window.studySpeech.voices = [{ lang: 'en-US', name: 'Fixture English' }];
         document.querySelector('button[aria-label="展开分句阅读"]').click()`);
       await until('document.querySelector(".sentence-tools button[aria-label=朗读]")');
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel")?.hidden'),
+        true,
+      );
+      await evaluate(
+        `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
+      );
+      const rewriteNote = await evaluate(
+        'document.querySelector(".sentence-rewrite-note")?.textContent',
+      );
+      assert.ok(rewriteNote.includes('当前选择的模型'));
+      assert.ok(rewriteNote.includes('不会保存作答'));
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 0);
+      await evaluate(`(() => {
+        const input = document.querySelector('#sentence-rewrite-0-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Rooms look brighter when there is enough light.');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.closest('form').querySelector('button[type="submit"]').focus();
+      })()`);
+      const rewriteSubmit =
+        'document.querySelector("#sentence-rewrite-0-answer").closest("form").querySelector("button[type=submit]")';
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'char',
+        key: 'Enter',
+        code: 'Enter',
+        text: '\r',
+        unmodifiedText: '\r',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('window.readingRewriteRequests.length === 1');
+      assert.equal(await evaluate(`${rewriteSubmit}.disabled`), true);
+      await evaluate(`${rewriteSubmit}.click()`);
+      await delay(80);
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 1);
+      await evaluate(
+        `window.readingRewriteResolvers.shift()(Response.json({ message: '模型暂时不可用' }, { status: 503 }))`,
+      );
+      await until('document.querySelector(".sentence-rewrite-error")');
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
+        'Rooms look brighter when there is enough light.',
+        'the learner draft remains available after a failed feedback request',
+      );
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      await evaluate(`${rewriteSubmit}.click()`);
+      await until('document.querySelector(".sentence-rewrite-feedback")');
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 2);
+      assert.equal(await evaluate('window.readingRewriteRequests[1].userId'), 'study-user');
+      assert.deepEqual(await evaluate('window.readingRewriteRequests[1].body'), {
+        sourceSentence: 'Bright rooms are bright; brightness matters when rooms are brightly lit.',
+        learnerRewrite: 'Rooms look brighter when there is enough light.',
+      });
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-feedback").innerText.includes("分" )',
+        ),
+        false,
+      );
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      const rewriteDesktop = await evaluate(`(() => {
+        const panel = document.querySelector('.sentence-rewrite-panel').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, left: panel.left, right: panel.right, width: panel.width };
+      })()`);
+      assert.ok(
+        rewriteDesktop.scrollWidth <= rewriteDesktop.viewport,
+        JSON.stringify(rewriteDesktop),
+      );
+      assert.ok(
+        rewriteDesktop.left >= 0 && rewriteDesktop.right <= rewriteDesktop.viewport,
+        JSON.stringify(rewriteDesktop),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const rewriteMobile = await evaluate(`(() => {
+        const panel = document.querySelector('.sentence-rewrite-panel').getBoundingClientRect();
+        const field = document.querySelector('#sentence-rewrite-0-answer').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, fieldRight: field.right, fieldWidth: field.width };
+      })()`);
+      assert.ok(rewriteMobile.scrollWidth <= 390, JSON.stringify(rewriteMobile));
+      assert.ok(
+        rewriteMobile.panelLeft >= 0 && rewriteMobile.panelRight <= 391,
+        JSON.stringify(rewriteMobile),
+      );
+      assert.ok(
+        rewriteMobile.fieldWidth > 0 && rewriteMobile.fieldRight <= 391,
+        JSON.stringify(rewriteMobile),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate('document.querySelector(".sentence-tools button[aria-label=朗读]").click()');
       assert.equal(await evaluate('window.studySpeech.spoken.length'), 3);
       assert.equal(
@@ -629,13 +758,14 @@ test(
         mobileSpeechStatus.statusRight <= mobileSpeechStatus.cardRight,
         JSON.stringify(mobileSpeechStatus),
       );
+      const apiCallsBeforeMobileSpeech = await evaluate('window.apiFetchLog.length');
       await evaluate(`window.studySpeech.voices = [
           { lang: 'zh-CN', name: 'Fixture Chinese' },
           { lang: 'en-US', name: 'Fixture English' },
         ];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until('document.querySelector(".reading-speech-status")?.textContent === ""');
-      assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeSpeech);
+      assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeMobileSpeech);
       const mobileLayout = await evaluate(`(() => {
         const card = document.querySelector('.reading-card').getBoundingClientRect();
         return { viewport: innerWidth, page: document.documentElement.scrollWidth, cardLeft: card.left, cardRight: card.right };

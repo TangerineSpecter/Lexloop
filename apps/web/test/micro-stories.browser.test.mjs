@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { closeChromium, spawnChromium } from './browser-process.mjs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
+const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
   'micro-stories support listening before revealing the text and refresh the notebook after a new error',
@@ -83,6 +84,15 @@ test(
             `${result.exceptionDetails.text}: ${result.exceptionDetails.exception?.description ?? ''}`,
           );
         return result.result.value;
+      };
+      const capture = async (name) => {
+        if (!screenshotDir) return;
+        await mkdir(screenshotDir, { recursive: true });
+        const { data } = await send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: false,
+        });
+        await writeFile(join(screenshotDir, name), Buffer.from(data, 'base64'));
       };
       const clickVisible = async (selector) => {
         let point = await evaluate(`(() => {
@@ -259,6 +269,18 @@ test(
         ).href,
       });
       await until('document.querySelector("textarea")');
+      const listenControlGap = await evaluate(`(() => {
+        const card = document.querySelector('[aria-labelledby="story-heading"]');
+        const divider = card?.querySelector(':scope > div[class*="cardHead"]');
+        const control = card?.querySelector(':scope > div[class*="cardHead"] + button');
+        return control && divider
+          ? control.getBoundingClientRect().top - divider.getBoundingClientRect().bottom
+          : null;
+      })()`);
+      assert.ok(
+        listenControlGap >= 10,
+        `The listen-before-reading button needs breathing room below its divider: ${listenControlGap}px`,
+      );
       const requestsOnInitialLoad = await evaluate('window.microFixture.requests.length');
       assert.equal(await evaluate('document.querySelector("details summary")'), null);
       assert.equal(await evaluate('window.microFixture.notebookSaves.length'), 0);
@@ -271,6 +293,7 @@ test(
         mobile: false,
       });
       await delay(100);
+      await capture('micro-story-listen-1440.png');
       const desktopPracticeBounds = await evaluate(
         'JSON.stringify((() => { const r = document.querySelector("[data-local-speaking-practice]").getBoundingClientRect(); const a = document.querySelector("[data-local-speaking-practice] audio"); const ar = a?.getBoundingClientRect(); return { left: r.left, right: r.right, audioRight: ar?.right ?? null, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',
       );
@@ -284,6 +307,7 @@ test(
         mobile: true,
       });
       await delay(100);
+      await capture('micro-story-listen-390.png');
       const mobileBounds = JSON.parse(
         await evaluate(
           'JSON.stringify((() => { const r = document.querySelector("[data-local-speaking-practice]").getBoundingClientRect(); const a = document.querySelector("[data-local-speaking-practice] audio"); const ar = a?.getBoundingClientRect(); return { left: r.left, right: r.right, audioRight: ar?.right ?? null, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth }; })())',

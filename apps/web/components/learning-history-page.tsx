@@ -18,6 +18,7 @@ import {
   MapPin,
   TriangleAlert,
 } from 'lucide-react';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 
@@ -51,6 +52,7 @@ const emptyTotals: LearningHistoryResponse['totals'] = {
   assessments: 0,
   scenarios: 0,
 };
+const HISTORY_PAGE_SIZE = 20;
 
 type StudyPlanReviewWord = {
   id: string;
@@ -82,60 +84,30 @@ export function LearningHistoryPage({
   session: Session;
   onBack: () => void;
 }) {
-  const [items, setItems] = useState<LearningHistoryItem[]>([]);
-  const [totals, setTotals] = useState(emptyTotals);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [loadMessage, setLoadMessage] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadMessage('');
-    request<LearningHistoryResponse>('/reports/history?page=1&pageSize=20', {}, session.accessToken)
-      .then((response) => {
-        if (cancelled) return;
-        setItems(response.items);
-        setTotals(response.totals);
-        setHasMore(response.hasMore);
-        setPage(1);
-      })
-      .catch((error) => {
-        if (!cancelled) setLoadMessage(error instanceof Error ? error.message : '学习历史加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [session.accessToken]);
-
-  const loadMore = async () => {
-    const nextPage = page + 1;
-    setLoadingMore(true);
-    try {
-      const response = await request<LearningHistoryResponse>(
-        `/reports/history?page=${nextPage}&pageSize=20`,
+  const historyQuery = useInfiniteQuery({
+    queryKey: ['reports', 'history', session.user.id, HISTORY_PAGE_SIZE],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      request<LearningHistoryResponse>(
+        `/reports/history?page=${pageParam}&pageSize=${HISTORY_PAGE_SIZE}`,
         {},
         session.accessToken,
-      );
-      setItems((current) => [...current, ...response.items]);
-      setTotals(response.totals);
-      setHasMore(response.hasMore);
-      setPage(nextPage);
-    } catch (error) {
-      setLoadMessage(error instanceof Error ? error.message : '学习历史加载失败');
-    } finally {
-      setLoadingMore(false);
-    }
-  };
+      ),
+    getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length + 1 : undefined),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const pages = historyQuery.data?.pages ?? [];
+  const items = pages.flatMap((response) => response.items);
+  const totals = pages[pages.length - 1]?.totals ?? emptyTotals;
+  const hasMore = historyQuery.hasNextPage ?? false;
+  const loadMessage =
+    historyQuery.error instanceof Error ? historyQuery.error.message : '学习历史加载失败';
 
-  if (loading) return <HistoryState title="正在读取学习记录…" icon={<BookOpen size={42} />} />;
-  if (loadMessage && !items.length)
+  if (historyQuery.isPending)
+    return <HistoryState title="正在读取学习记录…" icon={<BookOpen size={42} />} loading />;
+  if (historyQuery.isError && !items.length)
     return (
       <HistoryState
         title="学习历史加载失败"
@@ -143,6 +115,7 @@ export function LearningHistoryPage({
         icon={<TriangleAlert size={42} />}
         onBack={onBack}
         backLabel={backLabel}
+        onRetry={() => void historyQuery.refetch()}
       />
     );
   if (!items.length)
@@ -238,18 +211,21 @@ export function LearningHistoryPage({
           ),
         )}
       </section>
-      {loadMessage && (
-        <p className="history-load-message" role="status">
-          {loadMessage}
+      {historyQuery.isError && (
+        <p className="history-load-message" role="alert">
+          {loadMessage}{' '}
+          <button type="button" onClick={() => void historyQuery.refetch()}>
+            重试
+          </button>
         </p>
       )}
       {hasMore && (
         <button
           className="history-load-more"
-          onClick={() => void loadMore()}
-          disabled={loadingMore}
+          onClick={() => void historyQuery.fetchNextPage()}
+          disabled={historyQuery.isFetchingNextPage}
         >
-          {loadingMore ? '正在加载…' : '加载更多历史记录'}
+          {historyQuery.isFetchingNextPage ? '正在加载…' : '加载更多历史记录'}
         </button>
       )}
     </section>
@@ -578,37 +554,64 @@ function HistoryDate({ value }: { value: string }) {
 function HistoryState({
   backLabel,
   icon,
+  loading = false,
   message,
   onBack,
+  onRetry,
   title,
 }: {
   backLabel?: string;
   icon: React.ReactNode;
+  loading?: boolean;
   message?: string;
   onBack?: () => void;
+  onRetry?: () => void;
   title: string;
 }) {
   return (
     <section
-      className="learning-history-page learning-history-empty"
+      className={`learning-history-page learning-history-empty${loading ? ' is-loading' : ''}`}
       aria-labelledby="learning-history-title"
+      aria-busy={loading}
     >
       <p className="history-kicker">FINISHED NOTES</p>
       <h1 id="learning-history-title">学习历史</h1>
-      <div className="learning-history-empty-card">
-        {icon}
-        <strong>{title}</strong>
-        {message && <p>{message}</p>}
-        {onBack && (
-          <button onClick={onBack}>
-            <ArrowLeft size={17} />
-            {backLabel}
-          </button>
+      <div
+        className={`learning-history-empty-card${loading ? ' history-loading-card' : ''}`}
+        role={loading ? 'status' : onRetry ? 'alert' : undefined}
+      >
+        {loading ? (
+          <>
+            {icon}
+            <span className="history-loading-lines" aria-hidden="true">
+              <i />
+              <i />
+            </span>
+            <span className="history-loading-caption">{title}</span>
+          </>
+        ) : (
+          <>
+            {icon}
+            <strong>{title}</strong>
+            {message && <p>{message}</p>}
+            {onRetry && (
+              <button type="button" onClick={onRetry}>
+                重试
+              </button>
+            )}
+            {onBack && (
+              <button onClick={onBack}>
+                <ArrowLeft size={17} />
+                {backLabel}
+              </button>
+            )}
+          </>
         )}
       </div>
     </section>
   );
 }
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     month: 'long',

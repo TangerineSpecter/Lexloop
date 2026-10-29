@@ -1,5 +1,6 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
+import type { ReadingSentenceRewriteFeedback } from '@lexloop/types';
 
 import {
   ArrowLeft,
@@ -24,6 +25,7 @@ import {
   LogOut,
   Menu,
   Pause,
+  PenLine,
   Play,
   Plus,
   Send,
@@ -40,9 +42,9 @@ import {
   PlaneTakeoff,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { browserTimeZone, request, type Session } from '../lib/api';
+import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
 import { speakEnglish } from './english-audio-controls';
 import { findTargetWordMatches } from '../lib/target-word-highlighting';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
@@ -152,6 +154,30 @@ export type LearningPlan = {
   completedAt?: string | null;
 };
 type StudyPlanListStatus = 'loading' | 'ready' | 'error';
+type DashboardPage =
+  | 'study'
+  | 'travel'
+  | 'assessment'
+  | 'learning'
+  | 'mistakes'
+  | 'mastered'
+  | 'history'
+  | 'statistics'
+  | 'settings';
+const dashboardPages = new Set<DashboardPage>([
+  'study',
+  'travel',
+  'assessment',
+  'learning',
+  'mistakes',
+  'mastered',
+  'history',
+  'statistics',
+  'settings',
+]);
+function isDashboardPage(value: unknown): value is DashboardPage {
+  return typeof value === 'string' && dashboardPages.has(value as DashboardPage);
+}
 type ProgressSummary = { totalWords: number; masteredWords: number; progress: number };
 type ProgressSummaryState = {
   ownerId: string;
@@ -324,17 +350,29 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     left: number;
     top: number;
   } | null>(null);
-  const [page, setPage] = useState<
-    | 'study'
-    | 'travel'
-    | 'assessment'
-    | 'learning'
-    | 'mistakes'
-    | 'mastered'
-    | 'history'
-    | 'statistics'
-    | 'settings'
-  >('study');
+  const [page, setCurrentPage] = useState<DashboardPage>('study');
+  const currentPageRef = useRef<DashboardPage>('study');
+  currentPageRef.current = page;
+  const setPage = (nextPage: DashboardPage) => {
+    if (currentPageRef.current === nextPage) return;
+    const previousPage = currentPageRef.current;
+    currentPageRef.current = nextPage;
+    setCurrentPage(nextPage);
+    const state =
+      window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
+    window.history.pushState(
+      { ...state, lexloopDashboardPage: nextPage, lexloopPreviousDashboardPage: previousPage },
+      '',
+      window.location.href,
+    );
+  };
+  const returnToPage = (target: DashboardPage) => {
+    if (window.history.state?.lexloopPreviousDashboardPage === target) {
+      window.history.back();
+    } else {
+      setPage(target);
+    }
+  };
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
   const [currentBookState, setCurrentBookState] = useState<DefaultBookState>({
@@ -455,7 +493,31 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [accountMenuOpen, accountMenuPortalContainer, sidebarOpen]);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('view') === 'mistakes') setPage('mistakes');
+    const existingState =
+      window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
+    const requestedView = new URLSearchParams(window.location.search).get('view');
+    const initialPage: DashboardPage = requestedView === 'mistakes' ? 'mistakes' : 'study';
+    currentPageRef.current = initialPage;
+    setCurrentPage(initialPage);
+    window.history.replaceState(
+      {
+        ...existingState,
+        lexloopDashboardPage: initialPage,
+        lexloopPreviousDashboardPage: null,
+      },
+      '',
+      window.location.href,
+    );
+
+    const handlePopState = (event: PopStateEvent) => {
+      const nextPage = isDashboardPage(event.state?.lexloopDashboardPage)
+        ? event.state.lexloopDashboardPage
+        : 'study';
+      currentPageRef.current = nextPage;
+      setCurrentPage(nextPage);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   useEffect(() => {
@@ -976,15 +1038,15 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             key={session.user.id}
             session={session}
             startWithAssessment={page === 'assessment'}
-            onBack={() => setPage('study')}
+            onBack={() => returnToPage('study')}
           />
         ) : page === 'learning' ? (
-          <LearningWordsPage session={session} onBack={() => setPage('study')} />
+          <LearningWordsPage session={session} onBack={() => returnToPage('study')} />
         ) : page === 'mistakes' ? (
           <MistakesPage
             key={session.user.id}
             session={session}
-            onBack={() => setPage('study')}
+            onBack={() => returnToPage('study')}
             onOpenTutorSettings={
               session.user.role === 'ADMIN'
                 ? () => {
@@ -1001,19 +1063,19 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         ) : page === 'mastered' ? (
           <MasteredWordsPage
             session={session}
-            onBack={() => setPage('study')}
+            onBack={() => returnToPage('study')}
             onProgressChanged={() => setProgressRevision((current) => current + 1)}
           />
         ) : page === 'history' ? (
           <LearningHistoryPage
             session={session}
             backLabel={historyBackPage === 'statistics' ? '返回学习统计' : '返回学习进度'}
-            onBack={() => setPage(historyBackPage)}
+            onBack={() => returnToPage(historyBackPage)}
           />
         ) : page === 'statistics' ? (
           <StatisticsPage
             session={session}
-            onBack={() => setPage('study')}
+            onBack={() => returnToPage('study')}
             onOpenHistory={() => {
               setHistoryBackPage('statistics');
               setPage('history');
@@ -1032,7 +1094,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <AccountSettings
             session={session}
             initialSection={settingsSection}
-            onBack={() => setPage('study')}
+            onBack={() => returnToPage('study')}
             onLearningReset={() => {
               setPlans([]);
               setPreviewPlan(null);
@@ -3515,7 +3577,7 @@ function GeneratedStudyPage({
               <p className="reading-lede">先在短文中理解本组单词，再完成每个单词对应的一道练习。</p>
               <GeneratedReadingContent
                 session={session}
-                key={`${activePlan.id}:${group.index}`}
+                key={`${session.user.id}:${activePlan.id}:${group.index}`}
                 sentences={group.sentences}
                 words={words}
               />
@@ -3652,6 +3714,7 @@ function GeneratedReadingContent({
   const [sentenceMode, setSentenceMode] = useState(false);
   const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
   const [sentenceDetails, setSentenceDetails] = useState<Record<number, Detail | undefined>>({});
+  const [rewriteSentenceIndex, setRewriteSentenceIndex] = useState<number | null>(null);
   const [speechNotice, setSpeechNotice] = useState('');
 
   useEffect(
@@ -3700,6 +3763,7 @@ function GeneratedReadingContent({
           onClick={() => {
             window.speechSynthesis?.cancel();
             setSpeechNotice('');
+            setRewriteSentenceIndex(null);
             setSentenceMode((value) => !value);
           }}
         >
@@ -3742,7 +3806,10 @@ function GeneratedReadingContent({
       />
       <div className={sentenceMode ? 'sentence-reading generated-sentences' : 'generated-passage'}>
         {sentences.map((sentence, index) => (
-          <article className={sentenceMode ? 'sentence-line' : ''} key={index}>
+          <article
+            className={sentenceMode ? 'sentence-line' : ''}
+            key={`${index}:${sentence.english}`}
+          >
             <p>
               {sentenceMode && <b>{index + 1}. </b>}
               <HighlightedSentence text={sentence.english} words={words} />
@@ -3783,6 +3850,17 @@ function GeneratedReadingContent({
                 <button aria-label="朗读" data-tip="朗读" onClick={() => speak(sentence.english)}>
                   <Volume2 size={16} />
                 </button>
+                <button
+                  aria-label={`换种说法第 ${index + 1} 句`}
+                  aria-expanded={rewriteSentenceIndex === index}
+                  aria-controls={`sentence-rewrite-${index}`}
+                  data-tip="换种说法"
+                  onClick={() =>
+                    setRewriteSentenceIndex((current) => (current === index ? null : index))
+                  }
+                >
+                  <PenLine size={16} />
+                </button>
               </div>
             )}
             {sentenceMode && sentenceDetails[index] && (
@@ -3790,6 +3868,12 @@ function GeneratedReadingContent({
                 {detailText(sentence, sentenceDetails[index])}
               </small>
             )}
+            <ReadingSentenceRewritePractice
+              session={session}
+              sourceSentence={sentence.english}
+              id={`sentence-rewrite-${index}`}
+              open={sentenceMode && rewriteSentenceIndex === index}
+            />
           </article>
         ))}
       </div>
@@ -3803,6 +3887,108 @@ function GeneratedReadingContent({
         </p>
       )}
     </>
+  );
+}
+
+function ReadingSentenceRewritePractice({
+  id,
+  open,
+  session,
+  sourceSentence,
+}: {
+  id: string;
+  open: boolean;
+  session: Session;
+  sourceSentence: string;
+}) {
+  const [rewrite, setRewrite] = useState('');
+  const [feedback, setFeedback] = useState<ReadingSentenceRewriteFeedback | null>(null);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const answer = rewrite.trim();
+    if (!answer || submitting) return;
+    setSubmitting(true);
+    setError('');
+    setFeedback(null);
+    try {
+      const result = await request<ReadingSentenceRewriteFeedback>(
+        '/ai/reading-rewrite-feedback',
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceSentence, learnerRewrite: answer }),
+        },
+        session.accessToken,
+      );
+      setFeedback(result);
+    } catch (cause) {
+      setError(userFacingError(cause, '改写反馈暂时不可用。'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section id={id} className="sentence-rewrite-panel" aria-label="单句改写练习" hidden={!open}>
+      <h3>保留原意，换一种英文表达</h3>
+      <p className="sentence-rewrite-note">
+        只在提交后把原句和你的改写发送给当前选择的模型；不会保存作答、计分或调整复习计划。反馈是参考建议。
+      </p>
+      <form onSubmit={(event) => void submit(event)}>
+        <label htmlFor={`${id}-answer`}>你的改写</label>
+        <textarea
+          id={`${id}-answer`}
+          aria-label="你的英文改写"
+          maxLength={1200}
+          value={rewrite}
+          disabled={submitting}
+          onChange={(event) => {
+            setRewrite(event.target.value);
+            setFeedback(null);
+            setError('');
+          }}
+          placeholder="先写下你的表达，再提交查看意思、语法和自然度建议。"
+        />
+        <div className="sentence-rewrite-actions">
+          <button type="submit" disabled={!rewrite.trim() || submitting}>
+            {submitting ? '正在整理建议…' : '提交并查看建议'}
+          </button>
+          <span>{rewrite.length}/1200</span>
+        </div>
+      </form>
+      {error && (
+        <p className="sentence-rewrite-error" role="alert">
+          {error} 再次提交会重新请求所选模型。
+        </p>
+      )}
+      {feedback && (
+        <section className="sentence-rewrite-feedback" aria-label="改写参考反馈" aria-live="polite">
+          <h4>改写参考反馈</h4>
+          <dl>
+            <div>
+              <dt>意思</dt>
+              <dd>{feedback.meaning}</dd>
+            </div>
+            <div>
+              <dt>语法</dt>
+              <dd>{feedback.grammar}</dd>
+            </div>
+            <div>
+              <dt>自然度</dt>
+              <dd>{feedback.naturalness}</dd>
+            </div>
+            {feedback.alternative && (
+              <div>
+                <dt>另一种表达</dt>
+                <dd lang="en">{feedback.alternative}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      )}
+    </section>
   );
 }
 

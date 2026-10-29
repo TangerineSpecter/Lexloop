@@ -552,6 +552,13 @@ test(
       })()`);
       await evaluate('document.querySelector(".sidebar-book").click()');
       await until('document.querySelector(".account-menu[data-positioned=true]")');
+      assert.equal(
+        await evaluate('getComputedStyle(document.querySelector(".account-menu")).animationName'),
+        'account-menu-enter',
+      );
+      await until(
+        '[...document.querySelector(".account-menu").getAnimations()].every(animation => animation.playState === "finished")',
+      );
       const clickOnlyMenu = await evaluate(`(() => {
         const button = document.querySelector('.sidebar-book');
         const menu = document.querySelector('.account-menu');

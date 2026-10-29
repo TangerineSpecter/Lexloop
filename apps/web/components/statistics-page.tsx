@@ -9,7 +9,8 @@ import {
   RotateCcw,
   Trophy,
 } from 'lucide-react';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type {
   CareerActionTarget,
   PeriodActivityDay,
@@ -41,30 +42,27 @@ export function StatisticsPage({
 }) {
   const [view, setView] = useState<StatisticsView>('period');
   const [range, setRange] = useState<StatisticsRange>('7d');
-  const [statistics, setStatistics] = useState<PeriodStatistics | null>(null);
-  const [loadMessage, setLoadMessage] = useState('');
-  useEffect(() => {
-    let cancelled = false;
-    setStatistics(null);
-    setLoadMessage('');
-    request<PeriodStatistics>(
-      `/reports/statistics?range=${range}&timeZone=${encodeURIComponent(browserTimeZone())}`,
-      {},
-      session.accessToken,
-    )
-      .then((snapshot) => {
-        if (!cancelled) setStatistics(snapshot);
-      })
-      .catch((error) => {
-        if (!cancelled) setLoadMessage(error instanceof Error ? error.message : '学习统计加载失败');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [range, session.accessToken]);
+  const timeZone = browserTimeZone();
+  const statisticsQuery = useQuery({
+    queryKey: ['reports', 'statistics', session.user.id, range, timeZone],
+    queryFn: () =>
+      request<PeriodStatistics>(
+        `/reports/statistics?range=${range}&timeZone=${encodeURIComponent(timeZone)}`,
+        {},
+        session.accessToken,
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const statistics = statisticsQuery.data ?? null;
+  const loadMessage = statisticsQuery.error instanceof Error ? statisticsQuery.error.message : '';
   if (view === 'career')
     return (
-      <section className="statistics-page" aria-labelledby="statistics-title">
+      <section
+        className="statistics-page"
+        aria-labelledby="statistics-title"
+        aria-busy={statisticsQuery.isFetching}
+      >
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -77,7 +75,11 @@ export function StatisticsPage({
     );
   if (!statistics) {
     return (
-      <section className="statistics-page" aria-labelledby="statistics-title">
+      <section
+        className="statistics-page"
+        aria-labelledby="statistics-title"
+        aria-busy={statisticsQuery.isPending}
+      >
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -85,12 +87,21 @@ export function StatisticsPage({
           setRange={setRange}
           onOpenHistory={onOpenHistory}
         />
-        <div className="statistics-empty-card">
-          <BookOpen size={42} aria-hidden="true" />
-          <strong>{loadMessage ? '学习统计加载失败' : '正在加载学习统计…'}</strong>
-          <p>{loadMessage || '正在读取你的真实学习记录。'}</p>
-          {loadMessage && <button onClick={onBack}>返回学习进度</button>}
-        </div>
+        {statisticsQuery.isPending ? (
+          <StatisticsLoadingState />
+        ) : (
+          <div className="statistics-empty-card" role="alert">
+            <BookOpen size={42} aria-hidden="true" />
+            <strong>学习统计加载失败</strong>
+            <p>{loadMessage || '请检查网络后重试。'}</p>
+            <div className="statistics-empty-actions">
+              <button onClick={() => void statisticsQuery.refetch()}>重试</button>
+              <button className="is-secondary" onClick={onBack}>
+                返回学习进度
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -107,7 +118,11 @@ export function StatisticsPage({
 
   if (statistics.activeDays === 0) {
     return (
-      <section className="statistics-page" aria-labelledby="statistics-title">
+      <section
+        className="statistics-page"
+        aria-labelledby="statistics-title"
+        aria-busy={statisticsQuery.isFetching}
+      >
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -115,6 +130,17 @@ export function StatisticsPage({
           setRange={setRange}
           onOpenHistory={onOpenHistory}
         />
+        <span className="statistics-query-status" role="status" aria-live="polite">
+          {statisticsQuery.isFetching ? '正在更新学习统计…' : ''}
+        </span>
+        {statisticsQuery.isError && (
+          <p className="statistics-refresh-error" role="alert">
+            更新失败：{loadMessage}{' '}
+            <button type="button" onClick={() => void statisticsQuery.refetch()}>
+              重试
+            </button>
+          </p>
+        )}
         <div className="statistics-empty-card">
           <BookOpen size={42} aria-hidden="true" />
           <strong>{rangeName}还没有学习记录</strong>
@@ -134,8 +160,11 @@ export function StatisticsPage({
   }
 
   return (
-    <section className="statistics-page" aria-labelledby="statistics-title">
-      {loadMessage && <p className="book-message">{loadMessage}</p>}
+    <section
+      className="statistics-page"
+      aria-labelledby="statistics-title"
+      aria-busy={statisticsQuery.isFetching}
+    >
       <StatisticsHeading
         view={view}
         setView={setView}
@@ -143,6 +172,17 @@ export function StatisticsPage({
         setRange={setRange}
         onOpenHistory={onOpenHistory}
       />
+      <span className="statistics-query-status" role="status" aria-live="polite">
+        {statisticsQuery.isFetching ? '正在更新学习统计…' : ''}
+      </span>
+      {statisticsQuery.isError && (
+        <p className="statistics-refresh-error" role="alert">
+          更新失败：{loadMessage}{' '}
+          <button type="button" onClick={() => void statisticsQuery.refetch()}>
+            重试
+          </button>
+        </p>
+      )}
 
       <div className="statistics-metrics is-four" aria-label={`${rangeName}学习摘要`}>
         <article className="statistics-metric metric-streak">
@@ -390,6 +430,19 @@ export function StatisticsPage({
         </div>
       </section>
     </section>
+  );
+}
+
+function StatisticsLoadingState() {
+  return (
+    <div className="statistics-empty-card statistics-loading-card" role="status" aria-busy="true">
+      <BookOpen size={42} aria-hidden="true" />
+      <strong>正在读取学习统计…</strong>
+      <span className="statistics-loading-lines" aria-hidden="true">
+        <i />
+        <i />
+      </span>
+    </div>
   );
 }
 

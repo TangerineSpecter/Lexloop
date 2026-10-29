@@ -8,6 +8,12 @@ export type OutputFeedback = {
   comments: string[];
   words: Array<{ bookWordId: string; used: boolean; correct: boolean; feedback: string }>;
 };
+export type ReadingSentenceRewriteFeedback = {
+  meaning: string;
+  grammar: string;
+  naturalness: string;
+  alternative: string | null;
+};
 export type OutputSubmissionView = {
   id: string;
   answer: string;

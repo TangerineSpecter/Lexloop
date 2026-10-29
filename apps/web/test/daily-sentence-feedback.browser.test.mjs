@@ -361,6 +361,7 @@ test(
         url: new URL('/dashboard?no-english=1&user=second', baseUrl).href,
       });
       await until('document.querySelector("#daily-sentence-heading")');
+      await until('document.querySelector(\'[aria-label^="查看每日一句解析"]\')');
       await evaluate(`document.querySelector('[aria-label^="查看每日一句解析"]').click()`);
       await until('document.querySelector("dialog button[aria-controls]")');
       await until(
