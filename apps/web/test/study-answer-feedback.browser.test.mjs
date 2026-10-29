@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { closeChromium, spawnChromium } from './browser-process.mjs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
+const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
   'daily study holds back answer feedback until the server accepts the group',
@@ -90,6 +91,15 @@ test(
             result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
           );
         return result.result.value;
+      };
+      const capture = async (name) => {
+        if (!screenshotDir) return;
+        await mkdir(screenshotDir, { recursive: true });
+        const { data } = await send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: false,
+        });
+        await writeFile(join(screenshotDir, name), Buffer.from(data, 'base64'));
       };
       const until = async (expression) => {
         for (let attempt = 0; attempt < 120; attempt++) {
@@ -268,6 +278,8 @@ test(
           window.studySubmissionAttempts = [];
           window.readingRewriteRequests = [];
           window.readingRewriteResolvers = [];
+          window.readingWordUseRequests = [];
+          window.readingWordUseResolvers = [];
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
@@ -368,6 +380,22 @@ test(
                 grammar: 'rooms 作主语时，look 后可接形容词 brighter。',
                 naturalness: '整体表达清楚自然。',
                 alternative: 'Good lighting makes a big difference in a room.',
+              });
+            }
+            if (path.endsWith('/api/v1/ai/reading-word-use-feedback') && method === 'POST') {
+              window.readingWordUseRequests.push({
+                userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id,
+                body: JSON.parse(options.body),
+              });
+              if (window.readingWordUseRequests.length === 1) {
+                return new Promise((resolve) => window.readingWordUseResolvers.push(resolve));
+              }
+              return Response.json({
+                wordUse: 'bright 用作形容词修饰 room，符合给定词义。',
+                meaning: '句子表达了房间光线充足。',
+                grammar: '主谓搭配正确。',
+                naturalness: '表达清楚自然。',
+                alternative: null,
               });
             }
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
@@ -674,6 +702,139 @@ test(
       );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      const wordUseToggle = 'document.querySelector(".reading-word-use-toggle")';
+      assert.equal(await evaluate(`${wordUseToggle}.getAttribute('aria-expanded')`), 'false');
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 0);
+      await evaluate(`${wordUseToggle}.click()`);
+      await until('!document.querySelector("#reading-word-use-practice").hidden');
+      assert.ok(
+        (
+          await evaluate(
+            'document.querySelector(".sentence-word-use-panel .sentence-rewrite-note").textContent',
+          )
+        ).includes('只有点击提交后'),
+      );
+      const wordUseAnswer = 'The room is bright in the morning.';
+      await evaluate(`(() => {
+        const input = document.querySelector('#reading-word-use-practice-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(wordUseAnswer)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.closest('form').querySelector('button[type="submit"]').focus();
+      })()`);
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'char',
+        key: 'Enter',
+        code: 'Enter',
+        text: '\r',
+        unmodifiedText: '\r',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('window.readingWordUseRequests.length === 1');
+      const wordUseSubmit =
+        'document.querySelector("#reading-word-use-practice button[type=submit]")';
+      assert.equal(await evaluate(`${wordUseSubmit}.disabled`), true);
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-word").disabled'),
+        true,
+      );
+      await evaluate(`${wordUseSubmit}.click()`);
+      await delay(60);
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 1);
+      assert.deepEqual(await evaluate('window.readingWordUseRequests[0]'), {
+        userId: 'study-user',
+        body: {
+          word: 'bright',
+          meaning: '明亮的',
+          learnerSentence: wordUseAnswer,
+        },
+      });
+      await evaluate(`${wordUseToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice").hidden'),
+        true,
+      );
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 1);
+      await evaluate(`${wordUseToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        wordUseAnswer,
+      );
+      await evaluate(
+        `window.readingWordUseResolvers.shift()(Response.json({ message: '模型暂时不可用' }, { status: 503 }))`,
+      );
+      await until('document.querySelector("#reading-word-use-practice [role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        wordUseAnswer,
+      );
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 1);
+      await evaluate(`${wordUseSubmit}.click()`);
+      await until(
+        'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback")',
+      );
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 2);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback").innerText.includes("分")',
+        ),
+        false,
+      );
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      const wordUseMobile = await evaluate(`(() => {
+        const panel = document.querySelector('.sentence-word-use-panel').getBoundingClientRect();
+        const input = document.querySelector('#reading-word-use-practice-answer').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: panel.left, right: panel.right, inputRight: input.right };
+      })()`);
+      await capture('word-use-feedback-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      const wordUse390 = await evaluate(`(() => {
+        const panel = document.querySelector('.sentence-word-use-panel').getBoundingClientRect();
+        const input = document.querySelector('#reading-word-use-practice-answer').getBoundingClientRect();
+        const sidebar = document.querySelector('.study-sidebar').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: panel.left, right: panel.right, inputRight: input.right, sidebarRight: sidebar.right };
+      })()`);
+      assert.equal(wordUse390.viewport, 390);
+      assert.ok(
+        wordUse390.page <= 390 &&
+          wordUse390.left >= 0 &&
+          wordUse390.right <= 391 &&
+          wordUse390.inputRight <= 391 &&
+          wordUse390.sidebarRight <= 1,
+        JSON.stringify(wordUse390),
+      );
+      await capture('word-use-feedback-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      assert.ok(
+        wordUseMobile.page <= wordUseMobile.viewport &&
+          wordUseMobile.left >= 0 &&
+          wordUseMobile.right <= wordUseMobile.viewport &&
+          wordUseMobile.inputRight <= wordUseMobile.viewport,
+        JSON.stringify(wordUseMobile),
+      );
       const rewriteDesktop = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-rewrite-panel').getBoundingClientRect();
         return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, left: panel.left, right: panel.right, width: panel.width };

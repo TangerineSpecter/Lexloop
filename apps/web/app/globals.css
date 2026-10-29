@@ -16941,6 +16941,94 @@ button[data-tooltip]::after {
 .generated-sentences .sentence-rewrite-panel[hidden] {
   display: none;
 }
+.reading-word-use-entry {
+  margin-top: 14px;
+}
+.reading-word-use-toggle {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.reading-word-use-toggle:focus-visible,
+.sentence-word-use-panel button:focus-visible,
+.sentence-word-use-panel select:focus-visible,
+.sentence-word-use-panel textarea:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 2px;
+}
+.sentence-word-use-panel {
+  margin-top: 10px;
+  padding: 16px;
+  border: 2px solid rgba(8, 40, 119, 0.2);
+  border-radius: 10px;
+  background: #fffefa;
+  box-shadow: 3px 3px 0 rgba(8, 40, 119, 0.14);
+}
+.sentence-word-use-panel[hidden] {
+  display: none;
+}
+.sentence-word-use-panel h3 {
+  margin: 0;
+  color: var(--border-color);
+  font-size: 16px;
+}
+.sentence-word-use-panel form {
+  display: grid;
+  gap: 8px;
+}
+.sentence-word-use-panel label {
+  color: var(--border-color);
+  font-size: 14px;
+  font-weight: 800;
+}
+.sentence-word-use-panel select,
+.sentence-word-use-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 2px solid rgba(8, 40, 119, 0.3);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--border-color);
+  font: inherit;
+}
+.sentence-word-use-panel select {
+  min-height: 42px;
+  padding: 7px 10px;
+}
+.sentence-word-use-panel textarea {
+  min-height: 96px;
+  padding: 11px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.word-use-meaning-hint {
+  margin: 2px 0 4px;
+  color: rgba(8, 40, 119, 0.78);
+  font-size: 13px;
+}
+.word-use-meaning-hint summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.word-use-meaning-hint small {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.word-use-loading {
+  margin: 10px 0 0;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 700;
+}
 .sentence-rewrite-panel h3,
 .sentence-rewrite-feedback h4 {
   margin: 0;
@@ -17043,6 +17131,9 @@ button[data-tooltip]::after {
 }
 @media (max-width: 680px) {
   .generated-sentences .sentence-rewrite-panel {
+    padding: 12px;
+  }
+  .sentence-word-use-panel {
     padding: 12px;
   }
   .sentence-rewrite-feedback dl > div {

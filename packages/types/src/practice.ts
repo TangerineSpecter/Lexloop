@@ -14,6 +14,13 @@ export type ReadingSentenceRewriteFeedback = {
   naturalness: string;
   alternative: string | null;
 };
+export type ReadingWordUseFeedback = {
+  wordUse: string;
+  meaning: string;
+  grammar: string;
+  naturalness: string;
+  alternative: string | null;
+};
 export type OutputSubmissionView = {
   id: string;
   answer: string;
