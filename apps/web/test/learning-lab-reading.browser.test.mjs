@@ -144,6 +144,10 @@ test(
           localStorage.setItem(sessionKey, JSON.stringify({ accessToken: 'reading-fixture-token', user: { id: 'reading-fixture-user', email: 'reader@example.invalid', displayName: 'Fixture Reader', role: 'USER' } }));
           window.readingFixture = { unexpected: [], requests: [], createBody: null, submissions: [], savedAnswers: null, holdAnswer: false, releaseAnswer: null };
           const lessonId = 'reading-fixture-lesson';
+          const notebookWords = [
+            { id: 'wordupdate', wordId: 'word-record-update', text: 'update', type: 'WORD', meaning: '情况更新', example: 'Please send a quick update.', sourceScenario: 'fixture', sourceType: 'MANUAL', state: 'REVIEWING', nextReviewAt: null },
+            { id: 'wordlongrun', wordId: 'word-record-long-run', text: 'in the long run', type: 'PHRASE', meaning: '从长远来看', example: 'It will help in the long run.', sourceScenario: 'fixture', sourceType: 'MANUAL', state: 'REVIEWING', nextReviewAt: null },
+          ];
           const publicQuestions = [
             { id: 'main-idea', prompt: 'Why did Maya move the meeting?', options: ['Her train was delayed.', 'She forgot the address.', 'The room was too small.'] },
             { id: 'phrase-meaning', prompt: 'What does “in the long run” mean here?', options: ['Over a longer period.', 'Before the trip.', 'Only for one day.'] },
@@ -176,6 +180,9 @@ test(
             const path = String(url);
             if (path.startsWith('/api/v1/')) window.readingFixture.requests.push({ path, method: options.method || 'GET' });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'reading-fixture-user' });
+            if (path.includes('/api/v1/vocabulary/notebook?')) {
+              return Response.json({ items: notebookWords, hasMore: false, total: notebookWords.length });
+            }
             if (path.includes('/api/v1/learning-lab/lessons?')) {
               return Response.json({ items: window.readingFixture.savedAnswers ? [lesson(true)] : [], hasMore: false });
             }
@@ -210,10 +217,27 @@ test(
       });
 
       await send('Page.navigate', {
-        url: new URL('/dashboard/notebook?tab=reading&words=wordupdate,wordlongrun', baseUrl).href,
+        url: new URL('/dashboard/notebook?tab=words', baseUrl).href,
       });
+      await until('document.querySelectorAll("article[data-notebook-word]").length === 2');
+      await evaluate(
+        'document.querySelector("article[data-notebook-word=wordupdate] input[type=checkbox]").click()',
+      );
+      await until('document.body.innerText.includes("已选 1/6")');
+      await evaluate(
+        'document.querySelector("article[data-notebook-word=wordlongrun] input[type=checkbox]").click()',
+      );
+      await until('document.body.innerText.includes("已选 2/6")');
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("用选中词精读")).click()',
+      );
+      await until('document.body.innerText.includes("在短文里，再遇见生词")');
       await until('document.body.innerText.includes("已选 2/6 个词")');
       await until('document.body.innerText.includes("第一份练习会保存在这里")');
+      const readingRoute = await evaluate(
+        '({ tab: new URLSearchParams(location.search).get("tab"), words: new URLSearchParams(location.search).get("words") })',
+      );
+      assert.deepEqual(readingRoute, { tab: 'reading', words: 'wordupdate,wordlongrun' });
       const generateButton =
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("生成精读短文"))';
       assert.equal(await evaluate(`${generateButton}?.disabled`), false);
