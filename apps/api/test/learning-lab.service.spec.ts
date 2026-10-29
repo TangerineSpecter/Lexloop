@@ -166,18 +166,16 @@ describe('grammar evidence provenance', () => {
         ]),
       },
       labLesson: {
-        findMany: vi
-          .fn()
-          .mockResolvedValue([
-            {
-              id: 'drill1',
-              content: grammar,
-              submittedAt: now,
-              answers: grammar.questions.map((question, index) =>
-                index ? question.correctIndex : 0,
-              ),
-            },
-          ]),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'drill1',
+            content: grammar,
+            submittedAt: now,
+            answers: grammar.questions.map((question, index) =>
+              index ? question.correctIndex : 0,
+            ),
+          },
+        ]),
       },
     };
     const service = new LabService(prisma as never, {} as never, {} as never);

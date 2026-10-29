@@ -13,10 +13,46 @@ export type ClassSeed = {
 };
 
 const base: ClassSeed[] = [
-  { id: 'class-warrior', key: 'warrior', name: '战士', description: '用稳定命中积累护盾与反击。', combatRole: 'VANGUARD', tier: 0, requiredLevel: 1, sortOrder: 1 },
-  { id: 'class-mage', key: 'mage', name: '法师', description: '消耗专注强化精准回答的爆发。', combatRole: 'BURST', tier: 0, requiredLevel: 1, sortOrder: 2 },
-  { id: 'class-ranger', key: 'ranger', name: '游侠', description: '连续正确时获得暴击与额外探索。', combatRole: 'STRIKER', tier: 0, requiredLevel: 1, sortOrder: 3 },
-  { id: 'class-cleric', key: 'cleric', name: '牧师', description: '通过清晰表达恢复生命并维持增益。', combatRole: 'SUPPORT', tier: 0, requiredLevel: 1, sortOrder: 4 },
+  {
+    id: 'class-warrior',
+    key: 'warrior',
+    name: '战士',
+    description: '用稳定命中积累护盾与反击。',
+    combatRole: 'VANGUARD',
+    tier: 0,
+    requiredLevel: 1,
+    sortOrder: 1,
+  },
+  {
+    id: 'class-mage',
+    key: 'mage',
+    name: '法师',
+    description: '消耗专注强化精准回答的爆发。',
+    combatRole: 'BURST',
+    tier: 0,
+    requiredLevel: 1,
+    sortOrder: 2,
+  },
+  {
+    id: 'class-ranger',
+    key: 'ranger',
+    name: '游侠',
+    description: '连续正确时获得暴击与额外探索。',
+    combatRole: 'STRIKER',
+    tier: 0,
+    requiredLevel: 1,
+    sortOrder: 3,
+  },
+  {
+    id: 'class-cleric',
+    key: 'cleric',
+    name: '牧师',
+    description: '通过清晰表达恢复生命并维持增益。',
+    combatRole: 'SUPPORT',
+    tier: 0,
+    requiredLevel: 1,
+    sortOrder: 4,
+  },
 ];
 
 const branches: ClassSeed[] = [
@@ -31,18 +67,49 @@ const branches: ClassSeed[] = [
 ];
 
 const advanced: ClassSeed[] = [
-  advancedClass('guardian', '守护者', 'knight', 1), advancedClass('warlord', '战争领主', 'berserker', 2),
-  advancedClass('archmage', '大魔导师', 'elementalist', 1), advancedClass('chronomancer', '时术师', 'arcanist', 2),
-  advancedClass('deadeye', '鹰眼', 'sharpshooter', 1), advancedClass('warden', '荒野守望者', 'pathfinder', 2),
-  advancedClass('high-priest', '大祭司', 'priest', 1), advancedClass('seer', '先知', 'oracle', 2),
+  advancedClass('guardian', '守护者', 'knight', 1),
+  advancedClass('warlord', '战争领主', 'berserker', 2),
+  advancedClass('archmage', '大魔导师', 'elementalist', 1),
+  advancedClass('chronomancer', '时术师', 'arcanist', 2),
+  advancedClass('deadeye', '鹰眼', 'sharpshooter', 1),
+  advancedClass('warden', '荒野守望者', 'pathfinder', 2),
+  advancedClass('high-priest', '大祭司', 'priest', 1),
+  advancedClass('seer', '先知', 'oracle', 2),
 ];
 
-function branch(key: string, name: string, description: string, role: string, parent: string, order: number): ClassSeed {
-  return { id: `class-${key}`, key, name, description, combatRole: role, tier: 1, requiredLevel: 10, parentId: `class-${parent}`, sortOrder: order };
+function branch(
+  key: string,
+  name: string,
+  description: string,
+  role: string,
+  parent: string,
+  order: number,
+): ClassSeed {
+  return {
+    id: `class-${key}`,
+    key,
+    name,
+    description,
+    combatRole: role,
+    tier: 1,
+    requiredLevel: 10,
+    parentId: `class-${parent}`,
+    sortOrder: order,
+  };
 }
 
 function advancedClass(key: string, name: string, parent: string, order: number): ClassSeed {
-  return { id: `class-${key}`, key, name, description: `${name}将职业特性推进到新的阶段。`, combatRole: 'SPECIALIST', tier: 2, requiredLevel: 25, parentId: `class-${parent}`, sortOrder: order };
+  return {
+    id: `class-${key}`,
+    key,
+    name,
+    description: `${name}将职业特性推进到新的阶段。`,
+    combatRole: 'SPECIALIST',
+    tier: 2,
+    requiredLevel: 25,
+    parentId: `class-${parent}`,
+    sortOrder: order,
+  };
 }
 
 export const CLASS_NODES = [...base, ...branches, ...advanced];
@@ -57,38 +124,153 @@ const skillNames = [
   ['寻宝直觉', '提高结算时的材料收益。', { materialBonus: 0.12 }],
 ] as const;
 
-export const SKILLS = CLASS_NODES.flatMap(node => skillNames.map((skill, index) => ({
-  id: `skill-${node.key}-${index + 1}`,
-  key: `${node.key}-${index + 1}`,
-  classNodeId: node.id,
-  name: `${node.name}·${skill[0]}`,
-  description: skill[1],
-  target: (index === 2 || index === 5 ? SkillTarget.SELF : SkillTarget.ENEMY),
-  cost: index === 3 ? 2 : index < 4 ? 1 : 0,
-  requiredLevel: node.requiredLevel + Math.min(index, 3),
-  effect: skill[2],
-  requiredSkillId: index > 0 ? `skill-${node.key}-${index}` : undefined,
-  sortOrder: index + 1,
-})));
+export const SKILLS = CLASS_NODES.flatMap((node) =>
+  skillNames.map((skill, index) => ({
+    id: `skill-${node.key}-${index + 1}`,
+    key: `${node.key}-${index + 1}`,
+    classNodeId: node.id,
+    name: `${node.name}·${skill[0]}`,
+    description: skill[1],
+    target: index === 2 || index === 5 ? SkillTarget.SELF : SkillTarget.ENEMY,
+    cost: index === 3 ? 2 : index < 4 ? 1 : 0,
+    requiredLevel: node.requiredLevel + Math.min(index, 3),
+    effect: skill[2],
+    requiredSkillId: index > 0 ? `skill-${node.key}-${index}` : undefined,
+    sortOrder: index + 1,
+  })),
+);
 
 export const EQUIPMENT = [
-  equipment('ink-blade', '墨线短剑', '答对后的伤害略微提高。', EquipmentSlot.WEAPON, EquipmentRarity.COMMON, 1, { attackMultiplier: 1.06 }),
-  equipment('yellow-quill', '黄标羽杖', '精准命中时更容易积累资源。', EquipmentSlot.WEAPON, EquipmentRarity.RARE, 4, { attackMultiplier: 1.1, perfectResource: 1 }),
-  equipment('margin-bow', '页边长弓', '连续正确时提高伤害。', EquipmentSlot.WEAPON, EquipmentRarity.EPIC, 9, { attackMultiplier: 1.16 }),
-  equipment('paper-mail', '折页轻甲', '格挡失败时减少少量伤害。', EquipmentSlot.ARMOR, EquipmentRarity.COMMON, 1, { blockBonus: 0.08 }),
-  equipment('blue-margin', '蓝墨守护袍', '提高最大生命和格挡效果。', EquipmentSlot.ARMOR, EquipmentRarity.RARE, 4, { maxHp: 10, blockBonus: 0.1 }),
-  equipment('archive-plate', '档案重甲', '大幅提高生存能力。', EquipmentSlot.ARMOR, EquipmentRarity.EPIC, 9, { maxHp: 18, blockBonus: 0.12 }),
-  equipment('word-charm', '生词护符', '提高材料收益。', EquipmentSlot.ACCESSORY, EquipmentRarity.COMMON, 1, { materialBonus: 0.08 }),
-  equipment('recall-seal', '回忆印章', '生产型题目提供更多经验。', EquipmentSlot.ACCESSORY, EquipmentRarity.RARE, 4, { productionExperience: 0.12 }),
-  equipment('cartographer-eye', '制图师之眼', '同时提高金币与材料收益。', EquipmentSlot.ACCESSORY, EquipmentRarity.EPIC, 9, { goldBonus: 0.12, materialBonus: 0.12 }),
-  equipment('lexicon-edge', '词典之锋', '把精准召回转化为强力攻击。', EquipmentSlot.WEAPON, EquipmentRarity.LEGENDARY, 15, { attackMultiplier: 1.22, perfectResource: 1 }),
-  equipment('memory-aegis', '长忆壁垒', '提高生命并强化格挡。', EquipmentSlot.ARMOR, EquipmentRarity.LEGENDARY, 15, { maxHp: 24, blockBonus: 0.16 }),
-  equipment('loop-compass', '词环罗盘', '显著提高远征结算收益。', EquipmentSlot.ACCESSORY, EquipmentRarity.LEGENDARY, 15, { goldBonus: 0.16, materialBonus: 0.16, productionExperience: 0.15 }),
+  equipment(
+    'ink-blade',
+    '墨线短剑',
+    '答对后的伤害略微提高。',
+    EquipmentSlot.WEAPON,
+    EquipmentRarity.COMMON,
+    1,
+    { attackMultiplier: 1.06 },
+  ),
+  equipment(
+    'yellow-quill',
+    '黄标羽杖',
+    '精准命中时更容易积累资源。',
+    EquipmentSlot.WEAPON,
+    EquipmentRarity.RARE,
+    4,
+    { attackMultiplier: 1.1, perfectResource: 1 },
+  ),
+  equipment(
+    'margin-bow',
+    '页边长弓',
+    '连续正确时提高伤害。',
+    EquipmentSlot.WEAPON,
+    EquipmentRarity.EPIC,
+    9,
+    { attackMultiplier: 1.16 },
+  ),
+  equipment(
+    'paper-mail',
+    '折页轻甲',
+    '格挡失败时减少少量伤害。',
+    EquipmentSlot.ARMOR,
+    EquipmentRarity.COMMON,
+    1,
+    { blockBonus: 0.08 },
+  ),
+  equipment(
+    'blue-margin',
+    '蓝墨守护袍',
+    '提高最大生命和格挡效果。',
+    EquipmentSlot.ARMOR,
+    EquipmentRarity.RARE,
+    4,
+    { maxHp: 10, blockBonus: 0.1 },
+  ),
+  equipment(
+    'archive-plate',
+    '档案重甲',
+    '大幅提高生存能力。',
+    EquipmentSlot.ARMOR,
+    EquipmentRarity.EPIC,
+    9,
+    { maxHp: 18, blockBonus: 0.12 },
+  ),
+  equipment(
+    'word-charm',
+    '生词护符',
+    '提高材料收益。',
+    EquipmentSlot.ACCESSORY,
+    EquipmentRarity.COMMON,
+    1,
+    { materialBonus: 0.08 },
+  ),
+  equipment(
+    'recall-seal',
+    '回忆印章',
+    '生产型题目提供更多经验。',
+    EquipmentSlot.ACCESSORY,
+    EquipmentRarity.RARE,
+    4,
+    { productionExperience: 0.12 },
+  ),
+  equipment(
+    'cartographer-eye',
+    '制图师之眼',
+    '同时提高金币与材料收益。',
+    EquipmentSlot.ACCESSORY,
+    EquipmentRarity.EPIC,
+    9,
+    { goldBonus: 0.12, materialBonus: 0.12 },
+  ),
+  equipment(
+    'lexicon-edge',
+    '词典之锋',
+    '把精准召回转化为强力攻击。',
+    EquipmentSlot.WEAPON,
+    EquipmentRarity.LEGENDARY,
+    15,
+    { attackMultiplier: 1.22, perfectResource: 1 },
+  ),
+  equipment(
+    'memory-aegis',
+    '长忆壁垒',
+    '提高生命并强化格挡。',
+    EquipmentSlot.ARMOR,
+    EquipmentRarity.LEGENDARY,
+    15,
+    { maxHp: 24, blockBonus: 0.16 },
+  ),
+  equipment(
+    'loop-compass',
+    '词环罗盘',
+    '显著提高远征结算收益。',
+    EquipmentSlot.ACCESSORY,
+    EquipmentRarity.LEGENDARY,
+    15,
+    { goldBonus: 0.16, materialBonus: 0.16, productionExperience: 0.15 },
+  ),
 ];
 
-function equipment(key: string, name: string, description: string, slot: EquipmentSlot, rarity: EquipmentRarity, minFloor: number, baseStats: Record<string, number>) {
+function equipment(
+  key: string,
+  name: string,
+  description: string,
+  slot: EquipmentSlot,
+  rarity: EquipmentRarity,
+  minFloor: number,
+  baseStats: Record<string, number>,
+) {
   return { id: `equipment-${key}`, key, name, description, slot, rarity, minFloor, baseStats };
 }
 
-export const FLOOR_TITLES = ['墨迹入口', '回声书库', '断句长廊', '同义岔路', '遗忘矿坑', '语序钟楼', '表达深井', '复述祭坛'];
+export const FLOOR_TITLES = [
+  '墨迹入口',
+  '回声书库',
+  '断句长廊',
+  '同义岔路',
+  '遗忘矿坑',
+  '语序钟楼',
+  '表达深井',
+  '复述祭坛',
+];
 export const ENEMIES = ['漏墨史莱姆', '错序蝙蝠', '遗忘菌菇', '近义伪装者', '语法石像', '沉默守卫'];

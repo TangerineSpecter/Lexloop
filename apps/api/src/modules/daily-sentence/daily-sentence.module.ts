@@ -7,5 +7,9 @@ import { DAILY_SENTENCE_QUEUE } from './daily-sentence.rules';
 import { DailySentenceSettingsService } from './daily-sentence-settings.service';
 import { DailySentenceSettingsController } from './daily-sentence-settings.controller';
 
-@Module({ imports: [AiModule, BullModule.registerQueue({ name: DAILY_SENTENCE_QUEUE })], controllers: [DailySentenceController, DailySentenceSettingsController], providers: [DailySentenceService, DailySentenceSettingsService] })
+@Module({
+  imports: [AiModule, BullModule.registerQueue({ name: DAILY_SENTENCE_QUEUE })],
+  controllers: [DailySentenceController, DailySentenceSettingsController],
+  providers: [DailySentenceService, DailySentenceSettingsService],
+})
 export class DailySentenceModule {}

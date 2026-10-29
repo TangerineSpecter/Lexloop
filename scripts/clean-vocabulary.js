@@ -7,21 +7,69 @@ const CORE_DICT = {
   'for long': { uk: 'fɔː lɒŋ', us: 'fɔːr lɔːŋ', meaning: 'adv. 长久地；很长时间' },
   'as follows': { uk: 'æz ˈfɒləʊz', us: 'æz ˈfɑːloʊz', meaning: 'adv. 如下' },
   'because of': { uk: 'bɪˈkɒz ɒv', us: 'bɪˈkɔːz əv', meaning: 'prep. 因为；由于' },
-  'compare a with b': { uk: 'kəmˈpeə aɪ wɪð biː', us: 'kəmˈper eɪ wɪð biː', meaning: 'v. 把A与B进行比较' },
-  'mistake a for b': { uk: 'mɪˈsteɪk aɪ fɔː biː', us: 'mɪˈsteɪk eɪ fɔːr biː', meaning: 'v. 把A误认为是B' },
-  'stick to something': { uk: 'stɪk tuː ˈsʌmθɪŋ', us: 'stɪk tuː ˈsʌmθɪŋ', meaning: 'v. 坚持某事；紧贴某物' },
-  'take your advice': { uk: 'teɪk jɔː ədˈvaɪs', us: 'teɪk jʊr ədˈvaɪs', meaning: 'v. 接受你的建议' },
-  'contrast a with b': { uk: 'ˈkɒntrɑːst aɪ wɪð biː', us: 'ˈkɑːntræst eɪ wɪð biː', meaning: 'v. 使A与B形成对比' },
-  'be likely to do': { uk: 'biː ˈlaɪkli tuː duː', us: 'biː ˈlaɪkli tuː duː', meaning: 'v. 可能做某事' },
-  'range from a to b': { uk: 'reɪndʒ frɒm aɪ tuː biː', us: 'reɪndʒ frəm eɪ tuː biː', meaning: 'v. 范围从A到B' },
-  'compare a to b': { uk: 'kəmˈpeə aɪ tuː biː', us: 'kəmˈper eɪ tuː biː', meaning: 'v. 把A比作B；比较A与B' },
-  'distinguish a from b': { uk: 'dɪˈstɪŋɡwɪʃ aɪ frɒm biː', us: 'dɪˈstɪŋɡwɪʃ eɪ frəm biː', meaning: 'v. 区分A和B；把A与B区别开' },
-  'call for something': { uk: 'kɔːl fɔː ˈsʌmθɪŋ', us: 'kɔːl fɔːr ˈsʌmθɪŋ', meaning: 'v. 需要某物；呼吁某事' },
-  'invest in something': { uk: 'ɪnˈvest ɪn ˈsʌmθɪŋ', us: 'ɪnˈvest ɪn ˈsʌmθɪŋ', meaning: 'v. 投资于某事' },
+  'compare a with b': {
+    uk: 'kəmˈpeə aɪ wɪð biː',
+    us: 'kəmˈper eɪ wɪð biː',
+    meaning: 'v. 把A与B进行比较',
+  },
+  'mistake a for b': {
+    uk: 'mɪˈsteɪk aɪ fɔː biː',
+    us: 'mɪˈsteɪk eɪ fɔːr biː',
+    meaning: 'v. 把A误认为是B',
+  },
+  'stick to something': {
+    uk: 'stɪk tuː ˈsʌmθɪŋ',
+    us: 'stɪk tuː ˈsʌmθɪŋ',
+    meaning: 'v. 坚持某事；紧贴某物',
+  },
+  'take your advice': {
+    uk: 'teɪk jɔː ədˈvaɪs',
+    us: 'teɪk jʊr ədˈvaɪs',
+    meaning: 'v. 接受你的建议',
+  },
+  'contrast a with b': {
+    uk: 'ˈkɒntrɑːst aɪ wɪð biː',
+    us: 'ˈkɑːntræst eɪ wɪð biː',
+    meaning: 'v. 使A与B形成对比',
+  },
+  'be likely to do': {
+    uk: 'biː ˈlaɪkli tuː duː',
+    us: 'biː ˈlaɪkli tuː duː',
+    meaning: 'v. 可能做某事',
+  },
+  'range from a to b': {
+    uk: 'reɪndʒ frɒm aɪ tuː biː',
+    us: 'reɪndʒ frəm eɪ tuː biː',
+    meaning: 'v. 范围从A到B',
+  },
+  'compare a to b': {
+    uk: 'kəmˈpeə aɪ tuː biː',
+    us: 'kəmˈper eɪ tuː biː',
+    meaning: 'v. 把A比作B；比较A与B',
+  },
+  'distinguish a from b': {
+    uk: 'dɪˈstɪŋɡwɪʃ aɪ frɒm biː',
+    us: 'dɪˈstɪŋɡwɪʃ eɪ frəm biː',
+    meaning: 'v. 区分A和B；把A与B区别开',
+  },
+  'call for something': {
+    uk: 'kɔːl fɔː ˈsʌmθɪŋ',
+    us: 'kɔːl fɔːr ˈsʌmθɪŋ',
+    meaning: 'v. 需要某物；呼吁某事',
+  },
+  'invest in something': {
+    uk: 'ɪnˈvest ɪn ˈsʌmθɪŋ',
+    us: 'ɪnˈvest ɪn ˈsʌmθɪŋ',
+    meaning: 'v. 投资于某事',
+  },
   'build up': { uk: 'bɪld ʌp', us: 'bɪld ʌp', meaning: 'v. 建立；增强；增进' },
-  'breakthrough': { uk: 'ˈbreɪkθruː', us: 'ˈbreɪkθruː', meaning: 'n. 突破；重大进展' },
+  breakthrough: { uk: 'ˈbreɪkθruː', us: 'ˈbreɪkθruː', meaning: 'n. 突破；重大进展' },
   'go on': { uk: 'ɡəʊ ɒn', us: 'ɡoʊ ɑːn', meaning: 'v. 继续进行；发生' },
-  'carbon dioxide': { uk: 'ˈkɑːbən daɪˈɒksaɪd', us: 'ˈkɑːrbən daɪˈɑːksaɪd', meaning: 'n. 二氧化碳' },
+  'carbon dioxide': {
+    uk: 'ˈkɑːbən daɪˈɒksaɪd',
+    us: 'ˈkɑːrbən daɪˈɑːksaɪd',
+    meaning: 'n. 二氧化碳',
+  },
   'lay down': { uk: 'leɪ daʊn', us: 'leɪ daʊn', meaning: 'v. 放下；制定；牺牲' },
   'be busy with': { uk: 'biː ˈbɪzi wɪð', us: 'biː ˈbɪzi wɪð', meaning: 'v. 忙于……' },
   'a bowl of something': { uk: 'ə bəʊl ɒv ˈsʌmθɪŋ', us: 'ə boʊl əv ˈsʌmθɪŋ', meaning: 'n. 一碗……' },
@@ -31,24 +79,28 @@ const CORE_DICT = {
   'make soup': { uk: 'meɪk suːp', us: 'meɪk suːp', meaning: 'v. 做汤' },
   'on a vacation': { uk: 'ɒn ə vəˈkeɪʃn', us: 'ɑːn ə veɪˈkeɪʃn', meaning: 'adv. 在度假中' },
   'enjoy reading': { uk: 'ɪnˈdʒɔɪ ˈriːdɪŋ', us: 'ɪnˈdʒɔɪ ˈriːdɪŋ', meaning: 'v. 喜欢阅读' },
-  'of medium height': { uk: 'ɒv ˈmiːdiəm haɪt', us: 'əv ˈmiːdiəm haɪt', meaning: 'adj. 中等身高的' },
+  'of medium height': {
+    uk: 'ɒv ˈmiːdiəm haɪt',
+    us: 'əv ˈmiːdiəm haɪt',
+    meaning: 'adj. 中等身高的',
+  },
 
   // 常见缺失单词补全样本
-  'beach': { uk: 'biːtʃ', us: 'biːtʃ', meaning: 'n. 海滩；沙滩' },
-  'rose': { uk: 'rəʊz', us: 'roʊz', meaning: 'n. 玫瑰，月季；玫瑰色\nv. rise的过去式' },
-  'where': { uk: 'weə(r)', us: 'wer', meaning: 'adv. 在哪里；到哪里\nconj. 在……地方\npron. 哪里' },
-  'hope': { uk: 'həʊp', us: 'hoʊp', meaning: 'v. 希望；期望\nn. 希望；期望' },
-  'shine': { uk: 'ʃaɪn', us: 'ʃaɪn', meaning: 'v. 照耀；发光；杰出\nn. 光亮；光泽' },
-  'star': { uk: 'stɑː(r)', us: 'stɑːr', meaning: 'n. 星，恒星；明星\nv. 主演；用星号标出' },
-  'rain': { uk: 'reɪn', us: 'reɪn', meaning: 'n. 雨，雨水\nv. 下雨' },
-  'alert': { uk: 'əˈlɜːt', us: 'əˈlɜːrt', meaning: 'adj. 警觉的；机警的\nn. 警报\nv. 警告；使警觉' },
-  'barbecue': { uk: 'ˈbɑːbɪkjuː', us: 'ˈbɑːrbɪkjuː', meaning: 'n. 户外烧烤；烤肉\nv. 烧烤' },
-  'identical': { uk: 'aɪˈdentɪkl', us: 'aɪˈdentɪkl', meaning: 'adj. 完全相同的；极相似的' },
-  'mutual': { uk: 'ˈmjuːtʃuəl', us: 'ˈmjuːtʃuəl', meaning: 'adj. 相互的；共有的' },
-  'resort': { uk: 'rɪˈzɔːt', us: 'rɪˈzɔːrt', meaning: 'n. 度假胜地；求助，诉诸\nv. 诉诸；求助' },
-  'romantic': { uk: 'rəʊˈmæntɪk', us: 'roʊˈmæntɪk', meaning: 'adj. 浪漫的；传奇的' },
-  'snack': { uk: 'snæk', us: 'snæk', meaning: 'n. 小吃，点心\nv. 吃零食' },
-  'pencil box': { uk: 'ˈpensl bɒks', us: 'ˈpensl bɑːks', meaning: 'n. 铅笔盒；文具盒' }
+  beach: { uk: 'biːtʃ', us: 'biːtʃ', meaning: 'n. 海滩；沙滩' },
+  rose: { uk: 'rəʊz', us: 'roʊz', meaning: 'n. 玫瑰，月季；玫瑰色\nv. rise的过去式' },
+  where: { uk: 'weə(r)', us: 'wer', meaning: 'adv. 在哪里；到哪里\nconj. 在……地方\npron. 哪里' },
+  hope: { uk: 'həʊp', us: 'hoʊp', meaning: 'v. 希望；期望\nn. 希望；期望' },
+  shine: { uk: 'ʃaɪn', us: 'ʃaɪn', meaning: 'v. 照耀；发光；杰出\nn. 光亮；光泽' },
+  star: { uk: 'stɑː(r)', us: 'stɑːr', meaning: 'n. 星，恒星；明星\nv. 主演；用星号标出' },
+  rain: { uk: 'reɪn', us: 'reɪn', meaning: 'n. 雨，雨水\nv. 下雨' },
+  alert: { uk: 'əˈlɜːt', us: 'əˈlɜːrt', meaning: 'adj. 警觉的；机警的\nn. 警报\nv. 警告；使警觉' },
+  barbecue: { uk: 'ˈbɑːbɪkjuː', us: 'ˈbɑːrbɪkjuː', meaning: 'n. 户外烧烤；烤肉\nv. 烧烤' },
+  identical: { uk: 'aɪˈdentɪkl', us: 'aɪˈdentɪkl', meaning: 'adj. 完全相同的；极相似的' },
+  mutual: { uk: 'ˈmjuːtʃuəl', us: 'ˈmjuːtʃuəl', meaning: 'adj. 相互的；共有的' },
+  resort: { uk: 'rɪˈzɔːt', us: 'rɪˈzɔːrt', meaning: 'n. 度假胜地；求助，诉诸\nv. 诉诸；求助' },
+  romantic: { uk: 'rəʊˈmæntɪk', us: 'roʊˈmæntɪk', meaning: 'adj. 浪漫的；传奇的' },
+  snack: { uk: 'snæk', us: 'snæk', meaning: 'n. 小吃，点心\nv. 吃零食' },
+  'pencil box': { uk: 'ˈpensl bɒks', us: 'ˈpensl bɑːks', meaning: 'n. 铅笔盒；文具盒' },
 };
 
 // 音标清洗规范化
@@ -66,19 +118,44 @@ function cleanPhonetic(phonetic) {
 
 // 词性标准化映射表
 const POS_MAP = {
-  'n': 'n.', 'n.': 'n.', 'n：': 'n.', 'noun': 'n.',
-  'v': 'v.', 'v.': 'v.', 'v：': 'v.', 'verb': 'v.',
-  'vt': 'vt.', 'vt.': 'vt.', 'vi': 'vi.', 'vi.': 'vi.',
-  'adj': 'adj.', 'adj.': 'adj.', 'a': 'adj.', 'a.': 'adj.', 'adj：': 'adj.',
-  'adv': 'adv.', 'adv.': 'adv.', 'ad': 'adv.', 'ad.': 'adv.', 'adv：': 'adv.',
-  'prep': 'prep.', 'prep.': 'prep.',
-  'conj': 'conj.', 'conj.': 'conj.',
-  'pron': 'pron.', 'pron.': 'pron.',
-  'num': 'num.', 'num.': 'num.',
-  'art': 'art.', 'art.': 'art.',
-  'interj': 'interj.', 'interj.': 'interj.',
-  'abbr': 'abbr.', 'abbr.': 'abbr.',
-  'phrase': 'phrase.', 'phrase.': 'phrase.'
+  n: 'n.',
+  'n.': 'n.',
+  'n：': 'n.',
+  noun: 'n.',
+  v: 'v.',
+  'v.': 'v.',
+  'v：': 'v.',
+  verb: 'v.',
+  vt: 'vt.',
+  'vt.': 'vt.',
+  vi: 'vi.',
+  'vi.': 'vi.',
+  adj: 'adj.',
+  'adj.': 'adj.',
+  a: 'adj.',
+  'a.': 'adj.',
+  'adj：': 'adj.',
+  adv: 'adv.',
+  'adv.': 'adv.',
+  ad: 'adv.',
+  'ad.': 'adv.',
+  'adv：': 'adv.',
+  prep: 'prep.',
+  'prep.': 'prep.',
+  conj: 'conj.',
+  'conj.': 'conj.',
+  pron: 'pron.',
+  'pron.': 'pron.',
+  num: 'num.',
+  'num.': 'num.',
+  art: 'art.',
+  'art.': 'art.',
+  interj: 'interj.',
+  'interj.': 'interj.',
+  abbr: 'abbr.',
+  'abbr.': 'abbr.',
+  phrase: 'phrase.',
+  'phrase.': 'phrase.',
 };
 
 // 释义清洗与词性规范化
@@ -91,7 +168,10 @@ function cleanMeaning(meaning) {
   str = str.replace(/^\s+/, '');
 
   // 统一换行符
-  const lines = str.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const lines = str
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const cleanedLines = [];
 
   for (let line of lines) {
@@ -137,5 +217,5 @@ function cleanMeaning(meaning) {
 module.exports = {
   CORE_DICT,
   cleanPhonetic,
-  cleanMeaning
+  cleanMeaning,
 };

@@ -14,9 +14,20 @@ import { RolesGuard } from '../auth/roles.guard';
 @Controller('jobs')
 class JobsController {
   constructor(@InjectQueue('maintenance') private readonly queue: Queue) {}
-  @Get('health') async health() { return { waiting: await this.queue.getWaitingCount(), active: await this.queue.getActiveCount() }; }
-  @Post('example') async enqueue() { const job = await this.queue.add('example', { source: 'api' }); return { id: job.id, status: 'queued' }; }
+  @Get('health') async health() {
+    return {
+      waiting: await this.queue.getWaitingCount(),
+      active: await this.queue.getActiveCount(),
+    };
+  }
+  @Post('example') async enqueue() {
+    const job = await this.queue.add('example', { source: 'api' });
+    return { id: job.id, status: 'queued' };
+  }
 }
 
-@Module({ imports: [BullModule.registerQueue({ name: 'maintenance' })], controllers: [JobsController] })
+@Module({
+  imports: [BullModule.registerQueue({ name: 'maintenance' })],
+  controllers: [JobsController],
+})
 export class JobsModule {}

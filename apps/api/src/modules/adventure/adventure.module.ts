@@ -5,5 +5,9 @@ import { MistakesModule } from '../mistakes/mistakes.module';
 import { AdventureController } from './adventure.controller';
 import { AdventureService } from './adventure.service';
 
-@Module({ imports: [PrismaModule, MistakesModule, AiModule], controllers: [AdventureController], providers: [AdventureService] })
+@Module({
+  imports: [PrismaModule, MistakesModule, AiModule],
+  controllers: [AdventureController],
+  providers: [AdventureService],
+})
 export class AdventureModule {}

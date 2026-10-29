@@ -5,7 +5,7 @@ const { CORE_DICT, cleanPhonetic, cleanMeaning } = require('./clean-vocabulary')
 
 function getAllFiles(dir, fileList = []) {
   const files = fs.readdirSync(dir);
-  files.forEach(file => {
+  files.forEach((file) => {
     const filePath = path.join(dir, file);
     if (fs.statSync(filePath).isDirectory()) {
       getAllFiles(filePath, fileList);
@@ -28,7 +28,7 @@ for (const [w, info] of Object.entries(CORE_DICT)) {
   globalDict.set(w.toLowerCase(), {
     uk: info.uk,
     us: info.us,
-    meaning: info.meaning
+    meaning: info.meaning,
   });
 }
 
@@ -90,7 +90,7 @@ let stats = {
   cleanedPhoneticCount: 0,
   enrichedPhoneticCount: 0,
   cleanedMeaningCount: 0,
-  enrichedMeaningCount: 0
+  enrichedMeaningCount: 0,
 };
 
 console.log('Starting cleaning and rewriting Excel files...');
@@ -104,7 +104,7 @@ for (const file of files) {
 
     if (!rows || rows.length === 0) continue;
 
-    const newRows = [ ['单词', '英音', '美音', '释义'] ];
+    const newRows = [['单词', '英音', '美音', '释义']];
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
@@ -153,7 +153,6 @@ for (const file of files) {
     const newSheet = XLSX.utils.aoa_to_sheet(newRows);
     workbook.Sheets[sheetName] = newSheet;
     XLSX.writeFile(workbook, file);
-
   } catch (e) {
     console.error(`Error processing and writing ${file}:`, e.message);
   }

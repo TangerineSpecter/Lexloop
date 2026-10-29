@@ -19,12 +19,19 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.getHttpAdapter().getInstance().get('/', () => ({
-    name: 'Lexloop API',
-    health: '/api/v1/health',
-    docs: '/api/docs',
-  }));
-  const swagger = new DocumentBuilder().setTitle('Lexloop API').setVersion('v1').addBearerAuth().build();
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .get('/', () => ({
+      name: 'Lexloop API',
+      health: '/api/v1/health',
+      docs: '/api/docs',
+    }));
+  const swagger = new DocumentBuilder()
+    .setTitle('Lexloop API')
+    .setVersion('v1')
+    .addBearerAuth()
+    .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swagger));
   await app.listen(Number(process.env.PORT ?? 52101), '0.0.0.0');
 }

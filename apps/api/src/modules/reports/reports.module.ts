@@ -4,5 +4,9 @@ import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 import { AiModule } from '../ai/ai.module';
 
-@Module({ imports: [PrismaModule, AiModule], controllers: [ReportsController], providers: [ReportsService] })
+@Module({
+  imports: [PrismaModule, AiModule],
+  controllers: [ReportsController],
+  providers: [ReportsService],
+})
 export class ReportsModule {}

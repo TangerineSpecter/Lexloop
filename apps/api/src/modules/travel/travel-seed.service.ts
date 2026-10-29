@@ -12,15 +12,29 @@ export class TravelSeedService implements OnApplicationBootstrap {
     await this.seedAssessments();
     await this.seedScenarios();
     await this.seedSkills();
-    this.logger.log(`旅行英语内容初始化完成：${SCENARIOS.length} 个场景，${ASSESSMENT_ITEMS.length} 道测评题。`);
+    this.logger.log(
+      `旅行英语内容初始化完成：${SCENARIOS.length} 个场景，${ASSESSMENT_ITEMS.length} 道测评题。`,
+    );
   }
 
   private async seedAssessments() {
     for (const item of ASSESSMENT_ITEMS) {
       await this.prisma.assessmentItem.upsert({
         where: { id: item.id },
-        create: { ...item, options: inputJson(item.options), correctAnswers: inputJson(item.correctAnswers), rubric: inputJson(item.rubric) },
-        update: { ...item, options: inputJson(item.options), correctAnswers: inputJson(item.correctAnswers), rubric: inputJson(item.rubric), version: 1, isActive: true },
+        create: {
+          ...item,
+          options: inputJson(item.options),
+          correctAnswers: inputJson(item.correctAnswers),
+          rubric: inputJson(item.rubric),
+        },
+        update: {
+          ...item,
+          options: inputJson(item.options),
+          correctAnswers: inputJson(item.correctAnswers),
+          rubric: inputJson(item.rubric),
+          version: 1,
+          isActive: true,
+        },
       });
     }
   }
@@ -37,9 +51,15 @@ export class TravelSeedService implements OnApplicationBootstrap {
 
   private async seedSkills() {
     for (const skill of LANGUAGE_SKILLS) {
-      await this.prisma.languageSkill.upsert({ where: { id: skill.id }, create: skill, update: skill });
+      await this.prisma.languageSkill.upsert({
+        where: { id: skill.id },
+        create: skill,
+        update: skill,
+      });
     }
   }
 }
 
-function inputJson(value: unknown) { return value === undefined ? undefined : value as Prisma.InputJsonValue; }
+function inputJson(value: unknown) {
+  return value === undefined ? undefined : (value as Prisma.InputJsonValue);
+}

@@ -6,5 +6,10 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { TutorController } from './tutor.controller';
 import { TutorService } from './tutor.service';
 
-@Module({ imports: [AdminModule, PrismaModule], controllers: [AiController, TutorController], providers: [AiService, TutorService], exports: [AiService] })
+@Module({
+  imports: [AdminModule, PrismaModule],
+  controllers: [AiController, TutorController],
+  providers: [AiService, TutorService],
+  exports: [AiService],
+})
 export class AiModule {}
