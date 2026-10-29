@@ -4068,7 +4068,6 @@ function ReadingWordUsePractice({
     const submittedAnswer = learnerSentence;
     setSubmitting(true);
     setError(null);
-    setFeedback(null);
     try {
       const result = await request<ReadingWordUseFeedback>(
         '/ai/reading-word-use-feedback',
@@ -4150,12 +4149,12 @@ function ReadingWordUsePractice({
       </form>
       {visibleError && (
         <p className="sentence-rewrite-error" role="alert">
-          {visibleError} 草稿保留，可检查后重试。
+          {visibleError} {visibleFeedback ? '上次成功的反馈仍保留。' : ''}草稿保留，可检查后重试。
         </p>
       )}
       {submitting && (
         <p className="word-use-loading" role="status" aria-live="polite">
-          正在整理建议…
+          {visibleFeedback ? '正在更新建议…' : '正在整理建议…'}
         </p>
       )}
       {visibleFeedback && (
@@ -4213,7 +4212,6 @@ function ReadingSentenceRewritePractice({
     if (!answer || submitting) return;
     setSubmitting(true);
     setError('');
-    setFeedback(null);
     try {
       const result = await request<ReadingSentenceRewriteFeedback>(
         '/ai/reading-rewrite-feedback',
@@ -4254,14 +4252,14 @@ function ReadingSentenceRewritePractice({
         />
         <div className="sentence-rewrite-actions">
           <button type="submit" disabled={!rewrite.trim() || submitting}>
-            {submitting ? '正在整理建议…' : '提交并查看建议'}
+            {submitting ? (feedback ? '正在更新建议…' : '正在整理建议…') : '提交并查看建议'}
           </button>
           <span>{rewrite.length}/1200</span>
         </div>
       </form>
       {error && (
         <p className="sentence-rewrite-error" role="alert">
-          {error} 再次提交会重新请求所选模型。
+          {error} {feedback ? '上次成功的反馈仍保留。' : ''}再次提交会重新请求所选模型。
         </p>
       )}
       {feedback && (

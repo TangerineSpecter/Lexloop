@@ -278,8 +278,10 @@ test(
           window.studySubmissionAttempts = [];
           window.readingRewriteRequests = [];
           window.readingRewriteResolvers = [];
+          window.failNextRewriteFeedback = false;
           window.readingWordUseRequests = [];
           window.readingWordUseResolvers = [];
+          window.failNextWordUseFeedback = false;
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
@@ -372,6 +374,10 @@ test(
                 userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id,
                 body: JSON.parse(options.body),
               });
+              if (window.failNextRewriteFeedback) {
+                window.failNextRewriteFeedback = false;
+                return new Promise((resolve) => window.readingRewriteResolvers.push(resolve));
+              }
               if (window.readingRewriteRequests.length === 1) {
                 return new Promise((resolve) => window.readingRewriteResolvers.push(resolve));
               }
@@ -387,6 +393,10 @@ test(
                 userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id,
                 body: JSON.parse(options.body),
               });
+              if (window.failNextWordUseFeedback) {
+                window.failNextWordUseFeedback = false;
+                return new Promise((resolve) => window.readingWordUseResolvers.push(resolve));
+              }
               if (window.readingWordUseRequests.length === 1) {
                 return new Promise((resolve) => window.readingWordUseResolvers.push(resolve));
               }
@@ -708,6 +718,37 @@ test(
       );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      const previousRewriteFeedback = await evaluate(
+        'document.querySelector(".sentence-rewrite-feedback").innerText',
+      );
+      await evaluate(`window.failNextRewriteFeedback = true; ${rewriteSubmit}.click()`);
+      await until('window.readingRewriteRequests.length === 3');
+      assert.equal(await evaluate(`${rewriteSubmit}.textContent.includes('正在更新建议…')`), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-feedback").innerText.includes("保留了光线充足")',
+        ),
+        true,
+        'the last successful feedback stays visible while the same answer is retried',
+      );
+      await evaluate(
+        `window.readingRewriteResolvers.shift()(Response.json({ message: '模型暂时不可用' }, { status: 503 }))`,
+      );
+      await until('document.querySelector(".sentence-rewrite-error")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-error").textContent.includes("上次成功的反馈仍保留")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-feedback").innerText'),
+        previousRewriteFeedback,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
+        'Rooms look brighter when there is enough light.',
+      );
       const wordUseToggle = 'document.querySelector(".reading-word-use-toggle")';
       assert.equal(await evaluate(`${wordUseToggle}.getAttribute('aria-expanded')`), 'false');
       assert.equal(await evaluate('window.readingWordUseRequests.length'), 0);
@@ -825,6 +866,9 @@ test(
         'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback")',
       );
       assert.equal(await evaluate('window.readingWordUseRequests.length'), 2);
+      const previousWordUseFeedback = await evaluate(
+        'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback").innerText',
+      );
       assert.equal(
         await evaluate(
           'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback").innerText.includes("分")',
@@ -833,6 +877,40 @@ test(
       );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      await evaluate(`window.failNextWordUseFeedback = true; ${wordUseSubmit}.click()`);
+      await until('window.readingWordUseRequests.length === 3');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice [role=status]")?.textContent',
+        ),
+        '正在更新建议…',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback").innerText',
+        ),
+        previousWordUseFeedback,
+      );
+      await evaluate(
+        `window.readingWordUseResolvers.shift()(Response.json({ message: '模型暂时不可用' }, { status: 503 }))`,
+      );
+      await until('document.querySelector("#reading-word-use-practice [role=alert]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice [role=alert]").textContent.includes("上次成功的反馈仍保留")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback").innerText',
+        ),
+        previousWordUseFeedback,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        wordUseAnswer,
+      );
       await evaluate(
         `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
       );
@@ -857,8 +935,8 @@ test(
         await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
         wordUseAnswer,
       );
-      assert.equal(await evaluate('window.readingRewriteRequests.length'), 2);
-      assert.equal(await evaluate('window.readingWordUseRequests.length'), 2);
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 3);
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 3);
       const wordUseMobile = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-word-use-panel').getBoundingClientRect();
         const input = document.querySelector('#reading-word-use-practice-answer').getBoundingClientRect();

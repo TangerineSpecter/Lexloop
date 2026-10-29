@@ -1,6 +1,10 @@
-import { BadGatewayException, BadRequestException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ValidationPipe } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AiController } from '../src/modules/ai/ai.controller';
+import {
+  AiController,
+  ReadingSentenceRewriteDto,
+  ReadingWordUseDto,
+} from '../src/modules/ai/ai.controller';
 import {
   parseReadingSentenceRewriteFeedback,
   parseReadingWordUseFeedback,
@@ -96,6 +100,18 @@ describe('AiController reading sentence rewrite feedback', () => {
     expect(
       parseReadingSentenceRewriteFeedback(
         JSON.stringify({ ...feedback, score: 91, cefr: 'B2', mastery: true }),
+      ),
+    ).toEqual(feedback);
+  });
+
+  it('rejects array responses and strips nested provider metadata', () => {
+    expect(() => parseReadingSentenceRewriteFeedback(JSON.stringify([feedback]))).toThrow();
+    expect(
+      parseReadingSentenceRewriteFeedback(
+        JSON.stringify({
+          ...feedback,
+          metadata: { score: 91, profile: { cefr: 'B2', mastery: true } },
+        }),
       ),
     ).toEqual(feedback);
   });
@@ -379,5 +395,67 @@ describe('AiController reading word-use feedback', () => {
         example.response,
       );
     }
+  });
+});
+
+describe('formative feedback DTO validation', () => {
+  it('rejects oversized, array and nested request values using the API validation pipe', async () => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    const transform = (value: unknown, metatype: new () => object) =>
+      pipe.transform(value, { type: 'body', metatype });
+
+    await expect(
+      transform(
+        { sourceSentence: 'x'.repeat(1201), learnerRewrite: 'valid' },
+        ReadingSentenceRewriteDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { sourceSentence: ['not', 'a string'], learnerRewrite: 'valid' },
+        ReadingSentenceRewriteDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { sourceSentence: 'valid', learnerRewrite: { text: 'not a string' } },
+        ReadingSentenceRewriteDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { word: 'x'.repeat(101), meaning: 'valid', learnerSentence: 'valid' },
+        ReadingWordUseDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { word: 'valid', meaning: ['not', 'a string'], learnerSentence: 'valid' },
+        ReadingWordUseDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { word: 'valid', meaning: 'x'.repeat(501), learnerSentence: 'valid' },
+        ReadingWordUseDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { word: 'valid', meaning: 'valid', learnerSentence: 'x'.repeat(1201) },
+        ReadingWordUseDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      transform(
+        {
+          sourceSentence: 'valid',
+          learnerRewrite: 'valid',
+          metadata: { nested: { score: 100 } },
+        },
+        ReadingSentenceRewriteDto,
+      ),
+    ).resolves.toEqual({ sourceSentence: 'valid', learnerRewrite: 'valid' });
   });
 });

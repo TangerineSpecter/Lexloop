@@ -35,11 +35,11 @@ import {
 class ExplainDto {
   @IsString() @MinLength(1) text!: string;
 }
-class ReadingSentenceRewriteDto {
+export class ReadingSentenceRewriteDto {
   @IsString() @MinLength(1) @MaxLength(1200) sourceSentence!: string;
   @IsString() @MinLength(1) @MaxLength(1200) learnerRewrite!: string;
 }
-class ReadingWordUseDto {
+export class ReadingWordUseDto {
   @IsString() @MinLength(1) @MaxLength(100) word!: string;
   @IsString() @MinLength(1) @MaxLength(500) meaning!: string;
   @IsString() @MinLength(1) @MaxLength(1200) learnerSentence!: string;

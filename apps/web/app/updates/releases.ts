@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.65',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '建议重试失败时保留上次反馈',
+        entry: '词环 → 当前学习序列 → 阅读材料 → 改写 / 目标词造句',
+        usage:
+          '同一答案重新请求时，旧建议会保留到新建议成功；失败后可继续参考旧建议并重试，改过的答案不会显示旧反馈。',
+      },
+    ],
+  },
+  {
     version: '1.27.64',
     date: '2026-10-29',
     items: [
