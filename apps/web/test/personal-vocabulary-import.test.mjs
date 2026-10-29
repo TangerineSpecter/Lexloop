@@ -5,7 +5,7 @@ import { parsePersonalVocabularyTsv } from '../lib/personal-vocabulary-import.ts
 test('parses two or three TSV columns, trims words and previews duplicates', () => {
   assert.deepEqual(
     parsePersonalVocabularyTsv(
-      ' look   forward to \t期待\tI look forward to Sunday.\nNOTICE\t注意到\nnotice\t另一个释义',
+      ' look   forward to \t期待\tI look forward to Sunday.\nNOTICE\t注意到\nnotice\t注意到',
     ),
     {
       items: [
@@ -26,6 +26,29 @@ test('ignores a UTF-8 byte-order mark copied from an exported vocabulary file', 
     rowCount: 1,
     errors: [],
   });
+});
+
+test('blocks same-expression rows that would silently discard a different meaning or example', () => {
+  const meaningConflict = parsePersonalVocabularyTsv(
+    'notice\t注意到\tI noticed the sign.\nNOTICE\t通知\tI noticed the sign.',
+  );
+  assert.equal(meaningConflict.items.length, 1);
+  assert.equal(meaningConflict.duplicates, 1);
+  assert.deepEqual(meaningConflict.errors, [
+    {
+      line: 2,
+      message:
+        '“NOTICE”与第 1 行的释义或例句不同；当前按词面只保留一组释义和例句，请确认后整理为一行。',
+    },
+  ]);
+
+  const exampleConflict = parsePersonalVocabularyTsv(
+    'notice\t注意到\tI noticed the sign.\nnotice\t注意到\tPlease notice the sign.',
+  );
+  assert.equal(exampleConflict.items.length, 1);
+  assert.equal(exampleConflict.duplicates, 1);
+  assert.equal(exampleConflict.errors[0].line, 2);
+  assert.match(exampleConflict.errors[0].message, /第 1 行/);
 });
 
 test('rejects malformed, empty and overlong rows instead of partially accepting them', () => {

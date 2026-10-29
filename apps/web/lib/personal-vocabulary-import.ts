@@ -19,7 +19,7 @@ export function parsePersonalVocabularyTsv(value: string): PersonalVocabularyImp
   const rows = lines.filter(({ value: line }) => line.length > 0);
   const errors: PersonalVocabularyImportPreview['errors'] = [];
   const items: PersonalVocabularyImportRow[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, { line: number; item: PersonalVocabularyImportRow }>();
   let duplicates = 0;
 
   if (rows.length > 40) errors.push({ line: 0, message: '一次最多导入 40 行，请分批粘贴。' });
@@ -40,12 +40,24 @@ export function parsePersonalVocabularyTsv(value: string): PersonalVocabularyImp
       continue;
     }
     const normalized = text.toLowerCase();
-    if (seen.has(normalized)) {
+    const previous = seen.get(normalized);
+    if (previous) {
       duplicates++;
+      const normalizeContent = (content: string) => content.trim().replace(/\s+/g, ' ');
+      if (
+        normalizeContent(previous.item.meaning) !== normalizeContent(meaning) ||
+        normalizeContent(previous.item.example ?? '') !== normalizeContent(example)
+      ) {
+        errors.push({
+          line,
+          message: `“${text}”与第 ${previous.line} 行的释义或例句不同；当前按词面只保留一组释义和例句，请确认后整理为一行。`,
+        });
+      }
       continue;
     }
-    seen.add(normalized);
-    items.push({ text, meaning, ...(example ? { example } : {}) });
+    const item = { text, meaning, ...(example ? { example } : {}) };
+    seen.set(normalized, { line, item });
+    items.push(item);
   }
 
   return { items, duplicates, rowCount: rows.length, errors };

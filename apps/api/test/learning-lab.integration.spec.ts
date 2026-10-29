@@ -160,7 +160,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
       const first = await service.importPersonalItems(user.id, [
         { text: 'Look forward to', meaning: '期待', example: 'I look forward to Sunday.' },
         { text: 'notice', meaning: '注意到' },
-        { text: 'look   forward   to', meaning: '不得覆盖的重复释义', example: 'Wrong example.' },
+        { text: 'look   forward   to', meaning: '期待', example: 'I look forward to Sunday.' },
       ]);
       expect(first).toEqual({ imported: 2, restored: 0, duplicates: 1 });
       const firstPage = await service.notebook(user.id, 1, 'look forward to');
@@ -172,6 +172,29 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('notebook and lab database b
         sourceType: 'MANUAL',
         state: 'REVIEWING',
       });
+
+      await expect(
+        service.importPersonalItems(user.id, [
+          { text: 'context phrase', meaning: '语境甲', example: 'We discussed it in class.' },
+          { text: 'CONTEXT   PHRASE', meaning: '语境甲', example: 'We used it at work.' },
+        ]),
+      ).rejects.toThrow(/第 1、2 项.*释义或例句不同/);
+      expect(
+        await prisma.vocabularyWord.count({
+          where: { normalized: `personal:${user.id}:context phrase` },
+        }),
+      ).toBe(0);
+      await expect(
+        service.importPersonalItems(user.id, [
+          { text: 'sense collision', meaning: '注意到', example: 'I noticed the sign.' },
+          { text: 'SENSE COLLISION', meaning: '通知', example: 'I noticed the sign.' },
+        ]),
+      ).rejects.toThrow(/第 1、2 项.*释义或例句不同/);
+      expect(
+        await prisma.vocabularyWord.count({
+          where: { normalized: `personal:${user.id}:sense collision` },
+        }),
+      ).toBe(0);
 
       await service.markMastered(user.id, phrase.id);
       expect(

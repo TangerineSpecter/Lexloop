@@ -399,14 +399,24 @@ export class VocabularyService {
     });
 
     const unique: typeof prepared = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, { index: number; row: (typeof prepared)[number] }>();
     let duplicates = 0;
-    for (const row of prepared) {
-      if (seen.has(row.normalized)) {
+    const normalizeContent = (value: string) => value.trim().replace(/\s+/g, ' ');
+    for (const [index, row] of prepared.entries()) {
+      const previous = seen.get(row.normalized);
+      if (previous) {
         duplicates++;
+        if (
+          normalizeContent(previous.row.meaning) !== normalizeContent(row.meaning) ||
+          normalizeContent(previous.row.example) !== normalizeContent(row.example)
+        ) {
+          throw new BadRequestException(
+            `第 ${previous.index + 1}、${index + 1} 项的英文表达相同，但释义或例句不同；请整理成同一项后再导入`,
+          );
+        }
         continue;
       }
-      seen.add(row.normalized);
+      seen.set(row.normalized, { index, row });
       unique.push(row);
     }
 

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.83',
+    date: '2026-10-29',
+    items: [
+      {
+        title: '批量导入会拦下同词异义的重复行',
+        entry: '生词本 → 批量导入自己的词表',
+        usage:
+          '完全重复的行仍会跳过；同一英文表达带有不同释义或例句时，预览会指出冲突行并保留原粘贴内容供整理。',
+      },
+    ],
+  },
+  {
     version: '1.27.82',
     date: '2026-10-29',
     items: [

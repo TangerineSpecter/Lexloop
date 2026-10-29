@@ -395,7 +395,7 @@ test(
       const importSubmit = `${importDetails}.querySelector('[data-import-vocabulary-submit]')`;
       await evaluate(`(() => {
         const input = ${importInput};
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t重复释义');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t河流\\tThe river is wide.');
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await until(
@@ -403,6 +403,25 @@ test(
       );
       assert.equal(await evaluate(`${importSubmit}.disabled`), false);
       assert.equal(await evaluate(`${importDetails}.innerText.includes('表内重复 1 项')`), true);
+      const importsBeforeConflict = await evaluate('window.importRequests.length');
+      await evaluate(`(() => {
+        const input = ${importInput};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nRIVER\\t河床\\tThe river is wide.');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await until(
+        `${importSubmit}.disabled && ${importDetails}.querySelector('[data-import-vocabulary-preview]')?.innerText.includes('第 2 行')`,
+      );
+      const conflictPreview = await evaluate(`(() => ({
+        preview: ${importDetails}.querySelector('[data-import-vocabulary-preview]').innerText,
+        source: ${importInput}.value,
+      }))()`);
+      assert.match(conflictPreview.preview, /第 2 行：.*第 1 行.*释义或例句不同/);
+      assert.equal(
+        conflictPreview.source.includes('RIVER') && conflictPreview.source.includes('河床'),
+        true,
+      );
+      assert.equal(await evaluate('window.importRequests.length'), importsBeforeConflict);
       await evaluate(`(() => {
         const input = ${importInput};
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'malformed row');
@@ -412,7 +431,7 @@ test(
       assert.equal(await evaluate(`${importDetails}.innerText.includes('每行格式应为')`), true);
       await evaluate(`(() => {
         const input = ${importInput};
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t重复释义');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'river\\t河流\\tThe river is wide.\\nnotice\\t注意到\\nRIVER\\t河流\\tThe river is wide.');
         input.dispatchEvent(new Event('input', { bubbles: true }));
         window.failImportOnce = true;
       })()`);
