@@ -5,6 +5,7 @@ import { request, userFacingError, type Session } from '../../lib/api';
 import { useLabLessons } from './use-lab-lessons';
 import { LabLesson } from './lab-lesson';
 import styles from './lab.module.css';
+import { StyledSelect } from '../styled-select';
 
 export function LearningPanel({
   session,
@@ -88,18 +89,18 @@ export function LearningPanel({
             选择 1–6
             个收藏词生成短文，逐句查看译文和讲解，再完成读后小测。生成使用首页已选择的阅读材料模型。
           </p>
-          <label>
+          <label className={styles.levelControl}>
             阅读难度
-            <select
-              className={styles.select}
+            <StyledSelect
               value={level}
-              onChange={(event) => setLevel(event.target.value)}
-              style={{ width: 'auto', marginLeft: 12 }}
-            >
-              <option value="A2">A2 · 简单日常</option>
-              <option value="B1">B1 · 日常进阶</option>
-              <option value="B2">B2 · 丰富表达</option>
-            </select>
+              label="阅读难度"
+              onChange={setLevel}
+              options={[
+                { value: 'A2', label: 'A2 · 简单日常' },
+                { value: 'B1', label: 'B1 · 日常进阶' },
+                { value: 'B2', label: 'B2 · 丰富表达' },
+              ]}
+            />
           </label>
           {!selected.length && !lab.lesson && (
             <div className={styles.empty}>

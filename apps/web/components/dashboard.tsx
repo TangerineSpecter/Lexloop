@@ -1,6 +1,6 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
-import { DashboardBootstrapLoading } from './dashboard-loading';
+import { DashboardBootstrapLoading, LearningLoadingMark } from './dashboard-loading';
 import type { VocabularyArchivePage } from '@lexloop/types';
 
 import {
@@ -53,6 +53,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
@@ -82,6 +83,7 @@ import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
 import { PracticeEntries } from './practice/practice-entries';
 import { QuickReviewSession } from './quick-review-session';
+import { DashboardBackButton } from './dashboard-back-button';
 
 const TravelScenarioPage = dynamic(
   () => import('./travel-scenario-page').then((module) => module.TravelScenarioPage),
@@ -108,6 +110,18 @@ const SystemSettings = dynamic(
       </div>
     ),
   },
+);
+const NotebookPage = dynamic(
+  () => import('./learning-lab/notebook-page').then((module) => module.NotebookPage),
+  { loading: () => <DashboardPageLoading page="notebook" title="生词本与学习笔记" /> },
+);
+const MicroStoriesPage = dynamic(
+  () => import('./micro-stories/micro-stories-page').then((module) => module.MicroStoriesPage),
+  { loading: () => <DashboardPageLoading page="micro-stories" title="一分钟微故事" /> },
+);
+const PracticePage = dynamic(
+  () => import('./practice/practice-page').then((module) => module.PracticePage),
+  { loading: () => <DashboardPageLoading page="practice" title="学习专项与处方" /> },
 );
 
 type ExerciseType =
@@ -205,6 +219,7 @@ type DashboardPage =
   | 'history'
   | 'statistics'
   | 'settings';
+type DashboardRoutePage = DashboardPage | 'notebook' | 'micro-stories' | 'practice';
 const dashboardPages = new Set<DashboardPage>([
   'study',
   'travel',
@@ -216,6 +231,44 @@ const dashboardPages = new Set<DashboardPage>([
   'statistics',
   'settings',
 ]);
+const dashboardRoutePages = new Set<DashboardRoutePage>([
+  ...dashboardPages,
+  'notebook',
+  'micro-stories',
+  'practice',
+]);
+
+function dashboardPageFromLocation(
+  pathname: string,
+  search: string,
+  state: unknown,
+  userId: string,
+): DashboardRoutePage {
+  const normalizedPath = pathname.replace(/\/$/, '') || '/';
+  if (normalizedPath === '/dashboard/notebook') return 'notebook';
+  if (normalizedPath === '/dashboard/micro-stories') return 'micro-stories';
+  if (normalizedPath === '/dashboard/practice') return 'practice';
+  const params = new URLSearchParams(search);
+  const view = params.get('view');
+  if (view && dashboardRoutePages.has(view as DashboardRoutePage)) {
+    return view as DashboardRoutePage;
+  }
+  if (
+    state &&
+    typeof state === 'object' &&
+    (state as { lexloopDashboardUserId?: string }).lexloopDashboardUserId === userId
+  ) {
+    const statePage = (state as { lexloopDashboardPage?: unknown }).lexloopDashboardPage;
+    if (typeof statePage === 'string' && dashboardRoutePages.has(statePage as DashboardRoutePage)) {
+      return statePage as DashboardRoutePage;
+    }
+  }
+  return 'study';
+}
+
+function dashboardUrlForPage(page: DashboardPage): string {
+  return page === 'study' ? '/dashboard' : `/dashboard?view=${encodeURIComponent(page)}`;
+}
 function isDashboardPage(value: unknown): value is DashboardPage {
   return typeof value === 'string' && dashboardPages.has(value as DashboardPage);
 }
@@ -394,7 +447,8 @@ function DashboardPageLoading({
   page,
   title,
 }: {
-  page: 'travel' | 'mistakes' | 'history' | 'statistics';
+  page:
+    'travel' | 'mistakes' | 'history' | 'statistics' | 'notebook' | 'micro-stories' | 'practice';
   title: string;
 }) {
   return (
@@ -402,13 +456,18 @@ function DashboardPageLoading({
       className="study-content dashboard-chunk-loading"
       data-dashboard-page={page}
       aria-busy="true"
+      role="status"
+      aria-live="polite"
     >
       <h1>{title}</h1>
       <div className="dashboard-chunk-loading-card">
-        <span className="dashboard-chunk-loading-mark" aria-hidden="true" />
-        <p role="status" aria-live="polite">
-          正在打开栏目…
-        </p>
+        <LearningLoadingMark className="dashboard-chunk-loading-mark" />
+        <p>正在打开栏目…</p>
+        <div className="dashboard-chunk-skeleton" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
       </div>
     </div>
   );
@@ -500,13 +559,19 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     top: number;
   } | null>(null);
   const [dashboardRouteReady, setDashboardRouteReady] = useState(false);
-  const [page, setCurrentPage] = useState<DashboardPage>('study');
-  const currentPageRef = useRef<DashboardPage>('study');
+  const [page, setCurrentPage] = useState<DashboardRoutePage>('study');
+  const currentPageRef = useRef<DashboardRoutePage>('study');
   currentPageRef.current = page;
-  const setPage = (nextPage: DashboardPage) => {
-    if (currentPageRef.current === nextPage) return;
+  const setPage = (nextPage: DashboardRoutePage, targetUrl?: string) => {
+    const url =
+      targetUrl ??
+      (dashboardPages.has(nextPage as DashboardPage)
+        ? dashboardUrlForPage(nextPage as DashboardPage)
+        : `/dashboard/${nextPage}`);
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentPageRef.current === nextPage && currentUrl === url) return;
     const previousPage = currentPageRef.current;
-    planCreateIntentRef.current++;
+    if (previousPage !== nextPage) planCreateIntentRef.current++;
     currentPageRef.current = nextPage;
     setCurrentPage(nextPage);
     const state =
@@ -517,17 +582,27 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         lexloopDashboardPage: nextPage,
         lexloopDashboardUserId: session.user.id,
         lexloopPreviousDashboardPage: previousPage,
+        lexloopDashboardSettingsSection: settingsSection,
       },
       '',
-      window.location.href,
+      url,
     );
+    window.dispatchEvent(new Event('lexloop-dashboard-navigate'));
   };
   const returnToPage = (target: DashboardPage) => {
-    if (window.history.state?.lexloopPreviousDashboardPage === target) {
-      window.history.back();
-    } else {
-      setPage(target);
+    setPage(target);
+  };
+  const navigateDashboardLink = (
+    event: ReactMouseEvent<HTMLAnchorElement>,
+    target: DashboardRoutePage,
+    href: string,
+  ) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
     }
+    event.preventDefault();
+    setPage(target, href);
+    setSidebarOpen(false);
   };
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
   const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
@@ -694,14 +769,28 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       isDashboardPage(existingState.lexloopDashboardRetryPage)
         ? existingState.lexloopDashboardRetryPage
         : null;
-    const initialPage: DashboardPage =
-      retryPage ?? (requestedView === 'mistakes' ? 'mistakes' : 'study');
+    const routePage = dashboardPageFromLocation(
+      window.location.pathname,
+      window.location.search,
+      existingState,
+      session.user.id,
+    );
+    const initialPage: DashboardRoutePage =
+      retryPage ?? (requestedView === 'mistakes' ? 'mistakes' : routePage);
     setSettingsSection(
-      retryPage === 'settings' &&
+      (retryPage === 'settings' &&
         existingState.lexloopDashboardUserId === session.user.id &&
-        existingState.lexloopDashboardSettingsSection === 'system'
+        existingState.lexloopDashboardSettingsSection === 'system') ||
+        new URLSearchParams(window.location.search).get('section') === 'system'
         ? 'system'
         : 'account',
+    );
+    setHistoryBackPage(
+      new URLSearchParams(window.location.search).get('from') === 'statistics' ||
+        (existingState.lexloopDashboardUserId === session.user.id &&
+          existingState.lexloopPreviousDashboardPage === 'statistics')
+        ? 'statistics'
+        : 'study',
     );
     if (currentPageRef.current !== initialPage) planCreateIntentRef.current++;
     currentPageRef.current = initialPage;
@@ -720,11 +809,30 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setDashboardRouteReady(true);
 
     const handlePopState = (event: PopStateEvent) => {
-      const nextPage =
-        event.state?.lexloopDashboardUserId === session.user.id &&
-        isDashboardPage(event.state?.lexloopDashboardPage)
-          ? event.state.lexloopDashboardPage
-          : 'study';
+      const nextPage = dashboardPageFromLocation(
+        window.location.pathname,
+        window.location.search,
+        event.state,
+        session.user.id,
+      );
+      if (nextPage === 'history') {
+        setHistoryBackPage(
+          new URLSearchParams(window.location.search).get('from') === 'statistics' ||
+            (event.state?.lexloopDashboardUserId === session.user.id &&
+              event.state?.lexloopPreviousDashboardPage === 'statistics')
+            ? 'statistics'
+            : 'study',
+        );
+      }
+      if (nextPage === 'settings') {
+        setSettingsSection(
+          new URLSearchParams(window.location.search).get('section') === 'system' ||
+            (event.state?.lexloopDashboardUserId === session.user.id &&
+              event.state?.lexloopDashboardSettingsSection === 'system')
+            ? 'system'
+            : 'account',
+        );
+      }
       if (currentPageRef.current !== nextPage) planCreateIntentRef.current++;
       currentPageRef.current = nextPage;
       setCurrentPage(nextPage);
@@ -734,6 +842,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [session.user.id]);
 
   useEffect(() => {
+    if (!dashboardRouteReady || page !== 'study') return;
     let active = true;
     const ownerId = session.user.id;
     const requestId = ++defaultBookRequestRef.current;
@@ -767,7 +876,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       active = false;
       if (defaultBookRequestRef.current === requestId) defaultBookRequestRef.current++;
     };
-  }, [session.accessToken, session.user.id, currentBookLoadAttempt]);
+  }, [dashboardRouteReady, page, session.accessToken, session.user.id, currentBookLoadAttempt]);
 
   const retryCurrentBookLoad = () => {
     setCurrentBookLoadAttempt((attempt) => attempt + 1);
@@ -780,6 +889,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   };
 
   useEffect(() => {
+    if (!dashboardRouteReady || page !== 'study') return;
     let active = true;
     const ownerId = session.user.id;
     setProgressSummaryState({ ownerId, status: 'loading', summary: null });
@@ -802,7 +912,15 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     return () => {
       active = false;
     };
-  }, [session.accessToken, session.user.id, plans, progressRevision, progressSummaryAttempt]);
+  }, [
+    dashboardRouteReady,
+    page,
+    session.accessToken,
+    session.user.id,
+    plans,
+    progressRevision,
+    progressSummaryAttempt,
+  ]);
 
   const retryProgressSummary = () => {
     setProgressSummaryAttempt((attempt) => attempt + 1);
@@ -836,6 +954,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [accountMenuOpen]);
 
   useEffect(() => {
+    if (!dashboardRouteReady || page !== 'study') return;
     let active = true;
     setPlansOwnerId(session.user.id);
     setPlans([]);
@@ -854,7 +973,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     return () => {
       active = false;
     };
-  }, [session.accessToken, session.user.id, plansLoadAttempt]);
+  }, [dashboardRouteReady, page, session.accessToken, session.user.id, plansLoadAttempt]);
 
   useEffect(() => {
     setActiveTab('words');
@@ -949,23 +1068,51 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <Swords size={16} />
               <span>地下词环</span>
             </a>
-            <a className="nav-item" href="/dashboard/notebook">
+            <a
+              className={`nav-item ${page === 'notebook' ? 'active' : ''}`}
+              href="/dashboard/notebook"
+              onClick={(event) => navigateDashboardLink(event, 'notebook', '/dashboard/notebook')}
+            >
               <BookOpen size={16} />
               <span>生词本与收藏</span>
             </a>
-            <a className="nav-item" href="/dashboard/micro-stories">
+            <a
+              className={`nav-item ${page === 'micro-stories' ? 'active' : ''}`}
+              href="/dashboard/micro-stories"
+              onClick={(event) =>
+                navigateDashboardLink(event, 'micro-stories', '/dashboard/micro-stories')
+              }
+            >
               <BookOpen size={16} />
               <span>一分钟微故事</span>
             </a>
-            <a className="nav-item" href="/dashboard/notebook?tab=reading">
+            <a
+              className={`nav-item ${page === 'notebook' && new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('tab') === 'reading' ? 'active' : ''}`}
+              href="/dashboard/notebook?tab=reading"
+              onClick={(event) =>
+                navigateDashboardLink(event, 'notebook', '/dashboard/notebook?tab=reading')
+              }
+            >
               <BookOpen size={16} />
               <span>生词短文精读</span>
             </a>
-            <a className="nav-item" href="/dashboard/notebook?tab=grammar">
+            <a
+              className={`nav-item ${page === 'notebook' && new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('tab') === 'grammar' ? 'active' : ''}`}
+              href="/dashboard/notebook?tab=grammar"
+              onClick={(event) =>
+                navigateDashboardLink(event, 'notebook', '/dashboard/notebook?tab=grammar')
+              }
+            >
               <Sparkles size={16} />
               <span>语法薄弱项专项</span>
             </a>
-            <a className="nav-item" href="/dashboard/practice?tab=output">
+            <a
+              className={`nav-item ${page === 'practice' ? 'active' : ''}`}
+              href="/dashboard/practice?tab=output"
+              onClick={(event) =>
+                navigateDashboardLink(event, 'practice', '/dashboard/practice?tab=output')
+              }
+            >
               <Sparkles size={16} />
               <span>学习专项与处方</span>
             </a>
@@ -1054,7 +1201,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         />
       )}
 
-      <section className="study-shell">
+      <section className="study-shell" data-dashboard-route={page}>
         <header className="study-topbar">
           <button
             className="menu-trigger"
@@ -1110,7 +1257,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               session.user.role === 'ADMIN'
                 ? () => {
                     setSettingsSection('system');
-                    setPage('settings');
+                    setPage('settings', '/dashboard?view=settings&section=system');
                   }
                 : undefined
             }
@@ -1285,7 +1432,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 session.user.role === 'ADMIN'
                   ? () => {
                       setSettingsSection('system');
-                      setPage('settings');
+                      setPage('settings', '/dashboard?view=settings&section=system');
                     }
                   : undefined
               }
@@ -1317,7 +1464,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               onBack={() => returnToPage('study')}
               onOpenHistory={() => {
                 setHistoryBackPage('statistics');
-                setPage('history');
+                setPage('history', '/dashboard?view=history&from=statistics');
               }}
               onNavigate={(target) => {
                 if (target === 'mistakes') setPage('mistakes');
@@ -1330,7 +1477,28 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               }}
             />
           </DashboardChunkErrorBoundary>
-        ) : (
+        ) : page === 'notebook' ? (
+          <NotebookPage
+            key={session.user.id}
+            session={session}
+            embedded
+            onBack={() => setPage('study')}
+          />
+        ) : page === 'micro-stories' ? (
+          <MicroStoriesPage
+            key={session.user.id}
+            session={session}
+            embedded
+            onBack={() => setPage('study')}
+          />
+        ) : page === 'practice' ? (
+          <PracticePage
+            key={session.user.id}
+            session={session}
+            embedded
+            onBack={() => setPage('study')}
+          />
+        ) : page === 'settings' ? (
           <AccountSettings
             session={session}
             initialSection={settingsSection}
@@ -1343,7 +1511,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               setProgressRevision((current) => current + 1);
             }}
           />
-        )}
+        ) : null}
       </section>
       {accountMenuOpen && accountMenuPortalContainer
         ? createPortal(
@@ -1373,13 +1541,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               }}
               onSettings={() => {
                 setSettingsSection('account');
-                setPage('settings');
+                setPage('settings', '/dashboard?view=settings&section=system');
                 setAccountMenuOpen(false);
                 setSidebarOpen(false);
               }}
               onSystemSettings={() => {
                 setSettingsSection('system');
-                setPage('settings');
+                setPage('settings', '/dashboard?view=settings&section=system');
                 setAccountMenuOpen(false);
                 setSidebarOpen(false);
               }}
@@ -1527,10 +1695,7 @@ function MasteredWordsPage({
   };
   return (
     <section className="mastered-page">
-      <button className="mastered-back" onClick={onBack}>
-        <ArrowLeft size={17} />
-        返回学习进度
-      </button>
+      <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
       <header className="mastered-heading">
         <div>
           <p>MY WORDS</p>
@@ -1656,10 +1821,7 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
       : '尚未复习';
   return (
     <section className="learning-words-page">
-      <button className="mastered-back" onClick={onBack}>
-        <ArrowLeft size={17} />
-        返回学习进度
-      </button>
+      <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
       <header className="mastered-heading">
         <div>
           <p>MY WORDS</p>
@@ -2477,9 +2639,7 @@ function AccountSettings({
     <div className="settings-page">
       <header className="settings-heading">
         <div>
-          <button className="settings-back" onClick={onBack}>
-            ← 返回学习
-          </button>
+          <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
           <h1>设置</h1>
           <p>管理您的账号和系统设置</p>
         </div>
@@ -4101,10 +4261,7 @@ function GroupSettlement({
           </section>
         </aside>
       </div>
-      <button className="settlement-return" onClick={onBack}>
-        <ArrowLeft size={19} />
-        返回学习序列
-      </button>
+      <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
     </section>
   );
 }
@@ -4191,7 +4348,7 @@ function GeneratedStudyPage({
         <Sparkles size={32} />
         <strong>学习内容还没有生成好</strong>
         <p>{plan?.generationError ?? '返回预习页等待生成完成后再开始挑战。'}</p>
-        <button onClick={onBack}>返回学习序列</button>
+        <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
       </section>
     );
   }
@@ -4283,10 +4440,7 @@ function GeneratedStudyPage({
   return (
     <section className="lesson-page">
       <header className="lesson-page-head">
-        <button onClick={onBack}>
-          <ArrowLeft size={19} />
-          返回学习序列
-        </button>
+        <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
         <div>
           <span>
             {activePlan.purpose === 'weakness'
@@ -5305,10 +5459,7 @@ function GroupStudyPage({
   return (
     <section className="lesson-page">
       <header className="lesson-page-head">
-        <button onClick={onBack}>
-          <ArrowLeft size={19} />
-          返回学习序列
-        </button>
+        <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
         <div>
           <span>分组学习 · 正常模式</span>
           <strong>

@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  AdventurePracticeFocus,
   AdventureProfile,
   AdventureSkill,
   BattleResolution,
@@ -14,7 +15,6 @@ import type {
 } from '@lexloop/types';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  ArrowLeft,
   Backpack,
   BookOpenCheck,
   Check,
@@ -37,6 +37,8 @@ import {
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ApiRequestError, request, userFacingError, type Session } from '../../lib/api';
+import { DashboardBackButton } from '../dashboard-back-button';
+import { LearningLoadingMark } from '../dashboard-loading';
 import styles from './adventure-page.module.css';
 
 type View = 'map' | 'character' | 'inventory';
@@ -66,6 +68,26 @@ const initialBattle: BattleUi = {
   fx: null,
   loot: null,
 };
+const PRACTICE_FOCUS_OPTIONS: Array<{
+  value: AdventurePracticeFocus;
+  title: string;
+  description: string;
+}> = [
+  { value: 'BALANCED', title: '均衡探索', description: '沿用原来的五类题目轮换。' },
+  {
+    value: 'RECALL',
+    title: '主动回想',
+    description: '增加看释义拼写的题目，练习不看选项回忆单词。',
+  },
+  {
+    value: 'CONTEXT',
+    title: '语境组句',
+    description: '增加用词汇排列完整句子的题目。',
+  },
+];
+function practiceFocusLabel(focus: AdventurePracticeFocus | undefined) {
+  return PRACTICE_FOCUS_OPTIONS.find((item) => item.value === focus)?.title ?? '均衡探索';
+}
 function adventureRunStorageKey(userId: string) {
   return `lexloop.adventureRun.${userId}`;
 }
@@ -198,14 +220,21 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
     }
   }
 
-  async function startRun(floor: DungeonFloorSummary, durationMinutes: 5 | 10 | 15) {
+  async function startRun(
+    floor: DungeonFloorSummary,
+    durationMinutes: 5 | 10 | 15,
+    practiceFocus: AdventurePracticeFocus,
+  ) {
     if (recoveryPending) return;
     setBusy(true);
     setNotice('');
     try {
       const nextRun = await request<DungeonRunState>(
         '/adventure/runs',
-        { method: 'POST', body: JSON.stringify({ floorId: floor.id, durationMinutes }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ floorId: floor.id, durationMinutes, practiceFocus }),
+        },
         session.accessToken,
       );
       rememberAdventureRun(session.user.id, nextRun.id);
@@ -235,6 +264,7 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
       <BattlePage
         run={run}
         session={session}
+        onBack={onBack}
         onRun={setRun}
         onFinished={() => {
           clearAdventureRun(session.user.id);
@@ -248,9 +278,7 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
-        <button onClick={onBack} aria-label="返回词环">
-          <ArrowLeft />
-        </button>
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <div>
           <small>LEXLOOP ADVENTURE LOG</small>
           <strong>地下词环</strong>
@@ -359,7 +387,7 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
           <RoutePicker
             floor={routeFloor}
             onClose={() => setRouteFloor(null)}
-            onStart={(minutes) => void startRun(routeFloor, minutes)}
+            onStart={(minutes, focus) => void startRun(routeFloor, minutes, focus)}
           />
         )}
       </AnimatePresence>
@@ -384,9 +412,7 @@ function ClassSelection({
   const classes = profile.availableClasses.filter((item) => item.tier === 0);
   return (
     <main className={styles.classPage}>
-      <button className={styles.back} onClick={onBack}>
-        <ArrowLeft /> 返回词环
-      </button>
+      <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
       <header>
         <small>CHOOSE YOUR CALLING</small>
         <h1>在第一页，写下你的职业。</h1>
@@ -597,8 +623,9 @@ function RoutePicker({
 }: {
   floor: DungeonFloorSummary;
   onClose: () => void;
-  onStart: (minutes: 5 | 10 | 15) => void;
+  onStart: (minutes: 5 | 10 | 15, focus: AdventurePracticeFocus) => void;
 }) {
+  const [focus, setFocus] = useState<AdventurePracticeFocus>('BALANCED');
   return (
     <motion.div
       className={styles.modalLayer}
@@ -623,9 +650,33 @@ function RoutePicker({
             <X />
           </button>
         </header>
-        <div>
+        <fieldset className={styles.practiceFocus}>
+          <legend>先选这趟想练的方式</legend>
+          <div>
+            {PRACTICE_FOCUS_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className={focus === option.value ? styles.focusSelected : ''}
+              >
+                <input
+                  type="radio"
+                  name="adventure-practice-focus"
+                  value={option.value}
+                  checked={focus === option.value}
+                  onChange={() => setFocus(option.value)}
+                />
+                <span>
+                  <strong>{option.title}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+          <small>只调整本局题目组合，不改变楼层进度、复习排期或掌握判定。</small>
+        </fieldset>
+        <div className={styles.routeDurations}>
           {([5, 10, 15] as const).map((minutes) => (
-            <button key={minutes} onClick={() => onStart(minutes)}>
+            <button key={minutes} onClick={() => onStart(minutes, focus)}>
               <span>
                 <Footprints />
               </span>
@@ -654,11 +705,13 @@ function RoutePicker({
 function BattlePage({
   run,
   session,
+  onBack,
   onRun,
   onFinished,
 }: {
   run: DungeonRunState;
   session: Session;
+  onBack: () => void;
   onRun: (run: DungeonRunState) => void;
   onFinished: () => void;
 }) {
@@ -712,15 +765,16 @@ function BattlePage({
   return (
     <main className={styles.battlePage}>
       <header>
-        <button onClick={() => history.back()}>
-          <ArrowLeft /> 离开战斗页
-        </button>
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <div>
           <small>{run.floor.cefrLevel} DUNGEON</small>
           <strong>{run.floor.title}</strong>
         </div>
-        <span>
-          房间 {run.currentRoom + 1} / {run.roomCount}
+        <span className={styles.runHeaderMeta}>
+          <small>本局：{practiceFocusLabel(run.practiceFocus)}</small>
+          <strong>
+            房间 {run.currentRoom + 1} / {run.roomCount}
+          </strong>
         </span>
       </header>
       <nav className={styles.roomTrack}>
@@ -1243,11 +1297,18 @@ function InventorySheet({
 function AdventureLoading({ onBack, message }: { onBack: () => void; message?: string }) {
   return (
     <main className={styles.loading}>
-      <button onClick={onBack}>
-        <ArrowLeft />
-      </button>
-      <LoaderCircle className={styles.spin} />
-      <strong>{message || '正在绘制地牢地图…'}</strong>
+      <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
+      <section className={styles.loadingCard} role="status" aria-live="polite" aria-busy="true">
+        <div>
+          <small>UNDERGROUND WORD RING</small>
+          <strong className={styles.loadingTitle}>
+            <LearningLoadingMark />
+            <span>{message || '正在绘制地牢地图…'}</span>
+          </strong>
+          <span className={styles.loadingLine} aria-hidden="true" />
+          <span className={styles.loadingLine} aria-hidden="true" />
+        </div>
+      </section>
     </main>
   );
 }

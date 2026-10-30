@@ -1,0 +1,45 @@
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 13px;
+  border: 2px solid #082877;
+  border-radius: 8px;
+  background: #fffefa;
+  color: #082877;
+  box-shadow: 3px 3px 0 #082877;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.back:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #082877;
+  background: #fff4b9;
+}
+
+.back:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #082877;
+}
+
+.back:focus-visible {
+  outline: 3px solid #315eb6;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .back {
+    transition: none;
+  }
+}

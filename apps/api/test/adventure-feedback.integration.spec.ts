@@ -7,6 +7,90 @@ import { MistakesService } from '../src/modules/mistakes/mistakes.service';
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'adventure feedback recovery in an isolated database',
   () => {
+    it('persists the selected practice focus and treats legacy runs as balanced', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const sourceKey = `adventure-focus-${fixtureId}`;
+      const normalized = Array.from({ length: 12 }, (_, index) => `${sourceKey}-${index}`);
+      let userId: string | undefined;
+      const service = new AdventureService(prisma as never, new MistakesService(prisma as never), {
+        generateForUser: vi.fn(),
+      } as never);
+
+      try {
+        const user = await prisma.user.create({
+          data: {
+            email: `${sourceKey}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        userId = user.id;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure practice focus fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: normalized.map((value, position) => ({
+                position,
+                word: {
+                  create: { normalized: value, text: `focus${position}`, meaning: '练习词' },
+                },
+              })),
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: user.id, bookId: book.id, isDefault: true },
+        });
+        await service.chooseClass(user.id, 'warrior');
+        const floor = (await service.dungeons(user.id)).floors[0];
+
+        const focused = await service.startRun(user.id, floor.id, 5, 'RECALL');
+        expect(focused).toMatchObject({ practiceFocus: 'RECALL', challenge: { type: 'SPELLING' } });
+        expect(await service.recoverRun(user.id, focused.id)).toMatchObject({
+          practiceFocus: 'RECALL',
+          challenge: { type: 'SPELLING' },
+        });
+        expect(
+          await prisma.dungeonRun.findUniqueOrThrow({
+            where: { id: focused.id },
+            select: { snapshot: true },
+          }),
+        ).toMatchObject({ snapshot: { practiceFocus: 'RECALL' } });
+        expect(await prisma.battleAction.count({ where: { runId: focused.id } })).toBe(0);
+        expect(await prisma.adventureLearningEvidence.count({ where: { runId: focused.id } })).toBe(
+          0,
+        );
+        expect(await prisma.wordReviewAttempt.count({ where: { userId: user.id } })).toBe(0);
+
+        await prisma.dungeonRun.update({
+          where: { id: focused.id },
+          data: { status: 'RETREATED', completedAt: new Date() },
+        });
+        const legacy = await service.startRun(user.id, floor.id, 5);
+        expect(legacy).toMatchObject({ practiceFocus: 'BALANCED', challenge: { type: 'CHOICE' } });
+        await prisma.dungeonRun.update({
+          where: { id: legacy.id },
+          data: { snapshot: { version: 1, classId: 'class-warrior', stats: {} } },
+        });
+        expect(await service.recoverRun(user.id, legacy.id)).toMatchObject({
+          practiceFocus: 'BALANCED',
+        });
+      } finally {
+        if (userId) await prisma.user.delete({ where: { id: userId } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
     it('hides previously cached mastery when its only evidence was provisional', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

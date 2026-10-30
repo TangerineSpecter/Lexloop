@@ -38,9 +38,7 @@ test(
       'app/page.tsx -> ../components/dashboard',
       rootInitialFiles,
     );
-    const dashboardChunkPaths = dynamicChunkPaths(
-      'app/dashboard/page.tsx -> ../../components/dashboard',
-    );
+    const dashboardChunkPaths = dynamicChunkPaths('components/dashboard-route.tsx -> ./dashboard');
     const historyChunkPaths = dynamicChunkPaths(
       'components/dashboard.tsx -> ./learning-history-page',
     );
@@ -133,12 +131,51 @@ test(
       };
       const capture = async (name) => {
         if (!screenshotDir) return;
+        await until(
+          `Array.from(document.getAnimations()).every(animation => animation.playState !== 'running' && !animation.pending || animation.effect?.getComputedTiming().iterations === Infinity)`,
+          5000,
+        );
         await mkdir(screenshotDir, { recursive: true });
         const { data } = await send('Page.captureScreenshot', {
           format: 'png',
           captureBeyondViewport: false,
         });
         await writeFile(join(screenshotDir, name), Buffer.from(data, 'base64'));
+      };
+      const clickAt = async (x, y) => {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x,
+          y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x,
+          y,
+          button: 'left',
+          clickCount: 1,
+        });
+      };
+      const clickElement = async (selector) => {
+        const point = await evaluate(`new Promise(resolve => requestAnimationFrame(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return resolve(null);
+          element.scrollIntoView({ block: 'center', inline: 'nearest' });
+          requestAnimationFrame(() => {
+            const rect = element.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const hit = document.elementFromPoint(x, y);
+            resolve({ x, y, visible: rect.width > 0 && rect.height > 0 && x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight, hit: hit === element || element.contains(hit) });
+          });
+        }))`);
+        assert.ok(point, `Expected visible element to click: ${selector}`);
+        assert.equal(point.visible, true, `Expected in-viewport element: ${selector}`);
+        assert.equal(point.hit, true, `Expected unobstructed element: ${selector}`);
+        await clickAt(point.x, point.y);
       };
       const until = async (expression, timeoutMs = 12_000) => {
         const deadline = Date.now() + timeoutMs;
@@ -216,7 +253,12 @@ test(
       });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
+          const holdAuthMe = sessionStorage.getItem('lexloop.test.hold-auth-me') === 'true';
+          sessionStorage.removeItem('lexloop.test.hold-auth-me');
           window.reportFixture = {
+            authMeRequests: 0,
+            holdAuthMe,
+            pendingAuthMe: [],
             historyRequests: [],
             statisticsRequests: [],
             learningWordsRequests: [],
@@ -234,7 +276,6 @@ test(
             failLearningWords: false,
             failMasteredWords: false,
             failLearningNextPage: false,
-            failMasteredNextPage: false,
             historyResponse: ${JSON.stringify(emptyHistory)},
             statisticsResponse: ${JSON.stringify(emptyStatistics)},
             learningWordsResponse: ${JSON.stringify(emptyArchivePage)},
@@ -287,7 +328,13 @@ test(
           window.fetch = async (url, options = {}) => {
             const parsed = new URL(String(url), location.href);
             const path = parsed.pathname;
-            if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
+            if (path.includes('/api/v1/auth/me')) {
+              window.reportFixture.authMeRequests += 1;
+              if (window.reportFixture.holdAuthMe) {
+                return new Promise((resolve) => window.reportFixture.pendingAuthMe.push(resolve));
+              }
+              return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
+            }
             if (path.includes('/api/v1/reports/history')) {
               const index = window.reportFixture.historyRequests.length;
               window.reportFixture.historyRequests.push({ userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id, page: parsed.searchParams.get('page') });
@@ -345,6 +392,10 @@ test(
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/study/plans')) return Response.json([]);
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
+            if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: 0, total: 21, lesson: null, review: null });
+            if (path.includes('/api/v1/learning-lab/lessons')) return Response.json({ items: [], page: 1, pageSize: 10, total: 0, hasMore: false });
+            if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
+            if (path.includes('/api/v1/practice/output/today')) return Response.json(null);
             if (path.startsWith('/api/v1/')) return Response.json({ message: 'unexpected fixture API request: ' + path }, { status: 404 });
             return nativeFetch(url, options);
           };
@@ -1493,8 +1544,447 @@ test(
         savedDraftValue,
         'chunk retry must not clear local study drafts',
       );
+
+      await evaluate(
+        'window.dashboardSidebarReference = document.querySelector(".study-sidebar"); true',
+      );
+      const readingTriggerSelector = '[aria-label="阅读难度"]';
+      const readingListboxSelector = '[role="listbox"][aria-label="阅读难度"]';
+      const grammarNavSelector = '.sidebar-nav a[href="/dashboard/notebook?tab=grammar"].active';
+      const outputNavSelector = '.sidebar-nav a[href="/dashboard/practice?tab=output"].active';
+      const readingNavSelector = '.sidebar-nav a[href="/dashboard/notebook?tab=reading"]';
+      const mistakeTriggerSelector = '.mistakes-toolbar [aria-label="按题型筛选"]';
+      const mistakeListboxSelector = '[role="listbox"][aria-label="按题型筛选"]';
+      const inShellAuthRequests = await evaluate('window.reportFixture.authMeRequests');
+      const clickRoute = async (selector, expectedPath, expectedHeading) => {
+        await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+        await until(`location.pathname + location.search === ${JSON.stringify(expectedPath)}`);
+        await until(
+          `Boolean(document.querySelector(".study-sidebar") && [...document.querySelectorAll("h1, h2")].some(node => node.textContent.trim() === ${JSON.stringify(expectedHeading)}))`,
+        );
+        const state = await evaluate(`(() => ({
+          shell: Boolean(document.querySelector('.study-shell')),
+          sidebar: Boolean(document.querySelector('.study-sidebar')),
+          page: document.querySelector('[data-dashboard-route]')?.dataset.dashboardRoute ?? null,
+          titleText: [...document.querySelectorAll('h1, h2')].find(node => node.textContent.trim() === ${JSON.stringify(expectedHeading)})?.textContent.trim() ?? null,
+          titleLines: (() => { const heading = [...document.querySelectorAll('h1, h2')].find(node => node.textContent.trim() === ${JSON.stringify(expectedHeading)}); if (!heading) return null; const range = document.createRange(); range.selectNodeContents(heading); return new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size; })(),
+          returnButton: document.querySelector('.dashboard-return-button')?.getBoundingClientRect().toJSON() ?? null,
+          titleRect: [...document.querySelectorAll('h1, h2')].find(node => node.textContent.trim() === ${JSON.stringify(expectedHeading)})?.getBoundingClientRect().toJSON() ?? null,
+          contentLeft: document.querySelector('.study-shell')?.getBoundingClientRect().left ?? null,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewport: innerWidth
+        }))()`);
+        assert.equal(state.shell, true, 'section changes should retain the shared dashboard shell');
+        assert.equal(state.sidebar, true);
+        assert.equal(
+          state.page,
+          expectedPath.includes('/notebook')
+            ? 'notebook'
+            : expectedPath.includes('/micro-stories')
+              ? 'micro-stories'
+              : expectedPath.includes('/practice')
+                ? 'practice'
+                : state.page,
+        );
+        assert.equal(state.titleText, expectedHeading);
+        assert.ok(
+          state.scrollWidth <= state.viewport,
+          `horizontal overflow: ${state.scrollWidth}/${state.viewport}`,
+        );
+        assert.ok(state.returnButton, 'page should have the shared left return button');
+        assert.ok(
+          state.returnButton.left - state.contentLeft >= (state.viewport <= 680 ? 12 : 20),
+          `return button should have a responsive content gutter: ${state.returnButton.left - state.contentLeft}px at ${state.viewport}px`,
+        );
+        if (state.viewport <= 680) {
+          assert.ok(
+            state.titleLines <= 1,
+            `embedded page title should avoid an orphan line at ${state.viewport}px: ${state.titleLines} lines`,
+          );
+        }
+        assert.ok(
+          Math.abs(state.returnButton.left - state.titleRect.left) <= 2,
+          `return and title should share the content left edge: ${state.returnButton.left} vs ${state.titleRect.left}`,
+        );
+        assert.equal(
+          await evaluate(
+            'document.querySelector(".study-sidebar") === window.dashboardSidebarReference',
+          ),
+          true,
+          'dashboard shell should remain mounted while the right pane changes',
+        );
+        return state;
+      };
+
+      const notebookState = await clickRoute(
+        '.sidebar-nav a[href="/dashboard/notebook"]',
+        '/dashboard/notebook',
+        '让收藏，接上下一次学习。',
+      );
+      await capture('dashboard-notebook-1440.png');
+      await clickRoute(
+        '.sidebar-nav a[href="/dashboard/micro-stories"]',
+        '/dashboard/micro-stories',
+        '生活缝隙里的英语故事',
+      );
+      await capture('dashboard-micro-stories-1440.png');
+      await clickRoute(
+        '.sidebar-nav a[href="/dashboard/notebook?tab=reading"]',
+        '/dashboard/notebook?tab=reading',
+        '在短文里，再遇见生词',
+      );
+      await capture('dashboard-reading-1440.png');
+      const readingControl = await evaluate(`(() => {
+        const button = document.querySelector('.styled-select-trigger, [class*="styled-select_trigger"]');
+        return button ? { label: button.getAttribute('aria-label'), rect: button.getBoundingClientRect().toJSON(), text: button.textContent.trim() } : null;
+      })()`);
+      assert.equal(readingControl?.label, '阅读难度');
+      assert.ok(
+        readingControl.rect.height < 60,
+        `reading difficulty control is unexpectedly tall: ${readingControl.rect.height}`,
+      );
+      await clickElement('[aria-label="阅读难度"]');
+      await until(
+        `document.querySelector(${JSON.stringify('[role="listbox"][aria-label="阅读难度"]')})`,
+      );
+      const readingMenuBounds = await evaluate(`(() => {
+        const menu = document.querySelector('[role="listbox"][aria-label="阅读难度"]');
+        const rect = menu.getBoundingClientRect();
+        const first = menu.querySelector('[role="option"]');
+        const firstRect = first.getBoundingClientRect();
+        const hit = document.elementFromPoint(firstRect.left + 8, firstRect.top + 8);
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, hit: Boolean(hit && first.contains(hit)), firstText: first.textContent.trim() };
+      })()`);
+      assert.ok(readingMenuBounds.hit, 'visible reading option must receive pointer hits');
+      const readingOptionPoint = await evaluate(`(() => {
+        const option = [...document.querySelectorAll('[role="listbox"][aria-label="阅读难度"] [role="option"]')].find((item) => item.textContent.includes('A2'));
+        const rect = option?.getBoundingClientRect();
+        return rect ? { x: rect.left + Math.min(24, rect.width / 2), y: rect.top + rect.height / 2 } : null;
+      })()`);
+      assert.ok(readingOptionPoint, 'A2 reading level should be visible in the styled menu');
+      await clickAt(readingOptionPoint.x, readingOptionPoint.y);
+      await until(
+        `document.querySelector(${JSON.stringify(readingTriggerSelector)}).textContent.includes("A2") && !document.querySelector("[role=listbox]")`,
+      );
+      await clickElement('[aria-label="阅读难度"]');
+      await until(`document.querySelector(${JSON.stringify(readingListboxSelector)})`);
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(`!document.querySelector(${JSON.stringify(readingListboxSelector)})`);
+      assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'), '阅读难度');
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'ArrowDown',
+        code: 'ArrowDown',
+        windowsVirtualKeyCode: 40,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'ArrowDown',
+        code: 'ArrowDown',
+        windowsVirtualKeyCode: 40,
+      });
+      await until(
+        `document.querySelector(${JSON.stringify(readingListboxSelector)}) && document.activeElement.getAttribute("role") === "option"`,
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'ArrowDown',
+        code: 'ArrowDown',
+        windowsVirtualKeyCode: 40,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'ArrowDown',
+        code: 'ArrowDown',
+        windowsVirtualKeyCode: 40,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until(
+        `document.querySelector(${JSON.stringify(readingTriggerSelector)}).textContent.includes("B1")`,
+      );
+
+      await clickRoute(
+        '.sidebar-nav a[href="/dashboard/notebook?tab=grammar"]',
+        '/dashboard/notebook?tab=grammar',
+        '从表达中的问题，练起',
+      );
+      await clickRoute(
+        '.sidebar-nav a[href="/dashboard/practice?tab=output"]',
+        '/dashboard/practice?tab=output',
+        '让学过的词，用起来。',
+      );
+      await capture('dashboard-practice-1440.png');
+
+      await evaluate('window.history.back()');
+      await until('location.pathname + location.search === "/dashboard/notebook?tab=grammar"');
+      await until(
+        `document.querySelector(".study-shell") && document.querySelector(${JSON.stringify(grammarNavSelector)})`,
+      );
+      await evaluate('window.history.forward()');
+      await until('location.pathname + location.search === "/dashboard/practice?tab=output"');
+      await until(`document.querySelector(${JSON.stringify(outputNavSelector)})`);
+
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await evaluate(`document.querySelector(${JSON.stringify(readingNavSelector)}).click()`);
+      await until('location.pathname + location.search === "/dashboard/notebook?tab=reading"');
+      await clickElement('[aria-label="阅读难度"]');
+      await until(`document.querySelector(${JSON.stringify(readingListboxSelector)})`);
+      const reducedMotion = await evaluate(`({
+        routeAnimation: getComputedStyle(document.querySelector('.dashboard-route-content')).animationName,
+        localAnimation: getComputedStyle(document.querySelector('.dashboard-local-transition')).animationName,
+        menuAnimation: getComputedStyle(document.querySelector('[role="listbox"][aria-label="阅读难度"]')).animationName
+      })`);
+      assert.deepEqual(reducedMotion, {
+        routeAnimation: 'none',
+        localAnimation: 'none',
+        menuAnimation: 'none',
+      });
+      await evaluate(`document.querySelector(${JSON.stringify(readingTriggerSelector)}).click()`);
+
+      await clickElement('.sidebar-book');
+      await until('document.querySelector(".account-menu")?.dataset.positioned === "true"');
+      const reducedAccountMenu = await evaluate(
+        'getComputedStyle(document.querySelector(".account-menu")).animationName',
+      );
+      assert.equal(reducedAccountMenu, 'none');
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(
+        'document.querySelector(".sidebar-book")?.getAttribute("aria-expanded") === "false" && document.activeElement === document.querySelector(".sidebar-book")',
+      );
+      assert.equal(
+        await evaluate(
+          '!document.querySelector(".account-menu") || document.querySelector(".account-menu").getAttribute("aria-hidden") === "true"',
+        ),
+        true,
+        'Escape should close the account menu and return focus to its trigger',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await clickElement('.menu-trigger');
+      await until(
+        'document.querySelector(".study-sidebar.is-open") && document.querySelector(".sidebar-scrim")',
+      );
+      const reducedMobileNavigation = await evaluate(`({
+        sidebar: getComputedStyle(document.querySelector('.study-sidebar')).transitionDuration,
+        scrim: getComputedStyle(document.querySelector('.sidebar-scrim')).animationName
+      })`);
+      assert.deepEqual(reducedMobileNavigation, { sidebar: '0s', scrim: 'none' });
+      const scrimPoint = await evaluate(`(() => {
+        const scrim = document.querySelector('.sidebar-scrim');
+        const sidebar = document.querySelector('.study-sidebar');
+        const x = Math.min(innerWidth - 12, sidebar.getBoundingClientRect().right + 20);
+        const y = innerHeight / 2;
+        return { x, y, hit: document.elementFromPoint(x, y) === scrim };
+      })()`);
+      assert.equal(scrimPoint.hit, true, 'the scrim must be clickable outside the open sidebar');
+      await clickAt(scrimPoint.x, scrimPoint.y);
+      await until('!document.querySelector(".sidebar-scrim")');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await send('Emulation.setEmulatedMedia', { features: [] });
+
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-children button")].find(button => button.textContent.includes("待巩固")).click()',
+      );
+      await until(
+        'location.search === "?view=mistakes" && document.querySelector(".mistakes-order-note")',
+      );
+      const mistakesDesktop = await evaluate(`(() => {
+        const page = document.querySelector('.mistakes-page');
+        const button = page.querySelector('.dashboard-return-button').getBoundingClientRect();
+        const title = page.querySelector('h1').getBoundingClientRect();
+        const note = page.querySelector('.mistakes-order-note').getBoundingClientRect();
+        const toolbar = page.querySelector('.mistakes-toolbar').getBoundingClientRect();
+        return { scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth, buttonLeft: button.left, titleLeft: title.left, noteTop: note.top, toolbarBottom: toolbar.bottom };
+      })()`);
+      assert.ok(mistakesDesktop.scrollWidth <= mistakesDesktop.viewport);
+      assert.ok(Math.abs(mistakesDesktop.buttonLeft - mistakesDesktop.titleLeft) <= 2);
+      assert.ok(mistakesDesktop.noteTop >= mistakesDesktop.toolbarBottom + 8);
+      await capture('dashboard-mistakes-1440.png');
+      await evaluate('document.querySelector(".dashboard-return-button").click()');
+      await until('location.pathname === "/dashboard" && document.querySelector(".progress-grid")');
+      assert.equal(
+        await evaluate('window.reportFixture.authMeRequests'),
+        inShellAuthRequests,
+        'right-pane navigation must not repeat dashboard authentication checks',
+      );
+      await evaluate(`document.querySelector(${JSON.stringify(readingNavSelector)}).click()`);
+      await until(
+        `location.pathname === "/dashboard/notebook" && document.querySelector(${JSON.stringify(readingTriggerSelector)})`,
+      );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await clickRoute(
+        '.sidebar-nav a[href="/dashboard/notebook?tab=reading"]',
+        '/dashboard/notebook?tab=reading',
+        '在短文里，再遇见生词',
+      );
+      await evaluate(`document.querySelector(${JSON.stringify(readingTriggerSelector)}).click()`);
+      await until(`document.querySelector(${JSON.stringify(readingListboxSelector)})`);
+      const narrowMenu = await evaluate(
+        `(() => { const rect = document.querySelector('[role="listbox"][aria-label="阅读难度"]').getBoundingClientRect(); return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth}; })()`,
+      );
+      assert.ok(narrowMenu.left >= 0 && narrowMenu.right <= narrowMenu.viewport);
+      assert.ok(narrowMenu.bottom <= 844 && narrowMenu.scrollWidth <= narrowMenu.viewport);
+      await capture('dashboard-reading-390.png');
+      await evaluate(`document.querySelector(${JSON.stringify(readingTriggerSelector)}).click()`);
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-children button")].find(button => button.textContent.includes("待巩固")).click()',
+      );
+      await until(
+        `location.search === "?view=mistakes" && document.querySelector(${JSON.stringify(mistakeTriggerSelector)})`,
+      );
+      const mistakesLayout = await evaluate(`(() => {
+        const page = document.querySelector('.mistakes-page');
+        const button = page.querySelector('.dashboard-return-button');
+        const title = page.querySelector('h1');
+        const note = page.querySelector('.mistakes-order-note');
+        const toolbar = page.querySelector('.mistakes-toolbar');
+        return { scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth, buttonLeft: button.getBoundingClientRect().left, titleLeft: title.getBoundingClientRect().left, noteTop: note.getBoundingClientRect().top, toolbarBottom: toolbar.getBoundingClientRect().bottom, hasNativeSelect: Boolean(toolbar.querySelector('select')) };
+      })()`);
+      assert.ok(mistakesLayout.scrollWidth <= mistakesLayout.viewport);
+      assert.ok(Math.abs(mistakesLayout.buttonLeft - mistakesLayout.titleLeft) <= 2);
+      assert.ok(
+        mistakesLayout.noteTop >= mistakesLayout.toolbarBottom + 8,
+        'sort explanation should have a distinct gap below the toolbar',
+      );
+      assert.equal(mistakesLayout.hasNativeSelect, false);
+      await clickElement('.mistakes-toolbar [aria-label="按题型筛选"]');
+      await until(`document.querySelector(${JSON.stringify(mistakeListboxSelector)})`);
+      const mistakeMenu = await evaluate(
+        `(() => { const rect = document.querySelector('[role="listbox"][aria-label="按题型筛选"]').getBoundingClientRect(); return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth}; })()`,
+      );
+      assert.ok(mistakeMenu.left >= 0 && mistakeMenu.right <= mistakeMenu.viewport);
+      assert.ok(mistakeMenu.bottom <= 844 && mistakeMenu.scrollWidth <= mistakeMenu.viewport);
+      await capture('dashboard-mistakes-390.png');
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(`!document.querySelector(${JSON.stringify(mistakeListboxSelector)})`);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '按题型筛选',
+      );
+      await evaluate('document.querySelector(".dashboard-return-button").click()');
+      await until('location.pathname === "/dashboard" && document.querySelector(".progress-grid")');
+
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `window.uiRouteFrames = []; let uiFrame = 0; const sampleUiRoute = () => { const route = document.querySelector('[data-dashboard-route]')?.dataset.dashboardRoute ?? (document.querySelector('[data-dashboard-bootstrap-loading]') ? 'bootstrap' : null); const title = document.querySelector('.study-shell[data-dashboard-route] .study-content h1, .study-shell[data-dashboard-route] h1, .study-shell[data-dashboard-route] h2')?.textContent.trim() ?? ''; window.uiRouteFrames.push({ route, title }); if (uiFrame++ < 220) requestAnimationFrame(sampleUiRoute); }; requestAnimationFrame(sampleUiRoute);`,
+      });
+      await send('Page.navigate', {
+        url: new URL('/dashboard/notebook?tab=reading', baseUrl).href,
+      });
+      await until(
+        'document.querySelector(".study-shell") && location.pathname === "/dashboard/notebook" && [...document.querySelectorAll("h1, h2")].some(node => node.textContent.trim() === "在短文里，再遇见生词")',
+      );
+      const deepLinkState = await evaluate(`({
+        page: document.querySelector('[data-dashboard-route]')?.dataset.dashboardRoute ?? null,
+        tab: document.querySelector('nav[aria-label="生词与学习笔记"] button[aria-current]')?.textContent.trim() ?? null,
+        sidebar: Boolean(document.querySelector('.study-sidebar')),
+        frames: window.uiRouteFrames ?? []
+      })`);
+      assert.equal(deepLinkState.page, 'notebook');
+      assert.equal(deepLinkState.tab, '生词短文精读');
+      assert.equal(deepLinkState.sidebar, true);
+      assert.ok(
+        !deepLinkState.frames.some(
+          (frame) => frame.route === 'study' && frame.title === '学习进度',
+        ),
+        'deep-link entry must not flash the dashboard study page before rendering the selected section',
+      );
+      assert.equal(
+        await evaluate('window.reportFixture.authMeRequests'),
+        1,
+        'a direct deep link authenticates once after the full document navigation',
+      );
+      await capture('dashboard-deep-link-reading-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await evaluate(`sessionStorage.setItem('lexloop.test.hold-auth-me', 'true')`);
+      await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await until('document.querySelector("[data-dashboard-bootstrap-loading]")');
+      const bootstrapBounds = await evaluate(`(() => {
+        const root = document.querySelector('.dashboard-bootstrap');
+        return { width: root.scrollWidth, viewport: innerWidth, status: root.querySelector('[role="status"]')?.textContent.trim() ?? '', skeletons: root.querySelectorAll('.dashboard-bootstrap-line, .dashboard-bootstrap-block').length, lineAnimation: getComputedStyle(root.querySelector('.dashboard-bootstrap-line')).animationName, blockAnimation: getComputedStyle(root.querySelector('.dashboard-bootstrap-block')).animationName };
+      })()`);
+      assert.equal(bootstrapBounds.status, '正在展开你的词环…');
+      assert.ok(bootstrapBounds.skeletons >= 4);
+      assert.ok(bootstrapBounds.width <= bootstrapBounds.viewport);
+      assert.equal(bootstrapBounds.lineAnimation, 'none');
+      assert.equal(bootstrapBounds.blockAnimation, 'none');
+      await capture('dashboard-bootstrap-loading-1440.png');
+      await until('window.reportFixture.pendingAuthMe.length === 1');
+      await evaluate(
+        `window.reportFixture.pendingAuthMe.shift()?.(Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id }))`,
+      );
+      await until('document.querySelector(".study-shell .progress-grid")');
+      await send('Emulation.setEmulatedMedia', { features: [] });
       process.stdout.write(
-        'deferred chunks: failed travel chunk showed a selected-page retry; reload restored the same page and preserved the local draft.\n',
+        `deferred chunks: failed travel chunk showed a selected-page retry; reload restored the page and preserved the local draft. Shared-shell routes retained the dashboard for five learning entries; URL/back-forward and deep-link selection were preserved. Return/title aligned within 2px at desktop; reading selector ${readingControl.rect.width.toFixed(0)}x${readingControl.rect.height.toFixed(0)}px and menu bounds checked. 390px reading/mistake layouts ${narrowMenu.scrollWidth}/${narrowMenu.viewport}px and ${mistakesLayout.scrollWidth}/${mistakesLayout.viewport}px; reduced-motion route/local/menu/account/sidebar/scrim ${reducedMotion.routeAnimation}/${reducedMotion.localAnimation}/${reducedMotion.menuAnimation}/${reducedAccountMenu}/${reducedMobileNavigation.sidebar}/${reducedMobileNavigation.scrim}. Bootstrap retained ${bootstrapBounds.skeletons} layout skeletons at ${bootstrapBounds.width}/${bootstrapBounds.viewport}px with line/block animations ${bootstrapBounds.lineAnimation}/${bootstrapBounds.blockAnimation}.\n`,
       );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();

@@ -14,6 +14,7 @@ import {
 import styles from './micro-stories.module.css';
 import { EnglishAudioControls } from '../english-audio-controls';
 import { LocalSpeakingPractice } from './local-speaking-practice';
+import { DashboardBackButton } from '../dashboard-back-button';
 
 type Lesson = {
   key: string;
@@ -55,7 +56,15 @@ type CompletedStoryAnswer = CompletedStoryPreview & {
   focusMeaning: string;
 };
 
-export function MicroStoriesPage({ session }: { session: Session }) {
+export function MicroStoriesPage({
+  session,
+  embedded = false,
+  onBack,
+}: {
+  session: Session;
+  embedded?: boolean;
+  onBack?: () => void;
+}) {
   const [current, setCurrent] = useState<Current | null>(null);
   const [interpretation, setInterpretation] = useState('');
   const [ownSentence, setOwnSentence] = useState('');
@@ -251,15 +260,25 @@ export function MicroStoriesPage({ session }: { session: Session }) {
   const lesson = current?.lesson;
   const reviewCard = current?.review;
   return (
-    <main className={styles.page}>
+    <div
+      className={['dashboard-route-content', styles.page, embedded ? styles.embedded : '']
+        .filter(Boolean)
+        .join(' ')}
+    >
       <div className={styles.shell}>
-        <header className={styles.heading}>
+        <header
+          className={[styles.heading, embedded ? styles.embeddedHeading : '']
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <DashboardBackButton onClick={onBack ?? (() => window.location.assign('/dashboard'))}>
+            返回学习进度
+          </DashboardBackButton>
           <div>
             <small>ONE SCENE · ONE MINUTE</small>
             <h1>生活缝隙里的英语故事</h1>
             <p>读两句，写下理解，马上看偏差。下次打开再接着读。</p>
           </div>
-          <a href="/dashboard">← 返回词环</a>
         </header>
         {error && (
           <p className={styles.error} role="alert">
@@ -799,6 +818,6 @@ export function MicroStoriesPage({ session }: { session: Session }) {
           </section>
         )}
       </div>
-    </main>
+    </div>
   );
 }

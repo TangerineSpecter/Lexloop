@@ -17,6 +17,8 @@ export class ChooseClassDto {
 export class StartRunDto {
   @IsString() floorId!: string;
   @Type(() => Number) @IsInt() @IsIn([5, 10, 15]) durationMinutes!: 5 | 10 | 15;
+  @IsOptional() @IsIn(['BALANCED', 'RECALL', 'CONTEXT']) practiceFocus?:
+    'BALANCED' | 'RECALL' | 'CONTEXT';
 }
 export class BattleActionDto {
   @IsString() @MinLength(8) @MaxLength(80) clientActionId!: string;

@@ -8,7 +8,6 @@ import type {
   LearningHistoryScenarioItem,
 } from '@lexloop/types';
 import {
-  ArrowLeft,
   Award,
   BookOpen,
   CheckCircle2,
@@ -21,6 +20,7 @@ import {
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
+import { DashboardBackButton } from './dashboard-back-button';
 
 const modeLabel: Record<LearningHistoryPlanItem['mode'], string> = {
   group: '分组学习',
@@ -112,7 +112,15 @@ export function LearningHistoryPage({
   };
 
   if (historyQuery.isPending)
-    return <HistoryState title="正在读取学习记录…" icon={<BookOpen size={42} />} loading />;
+    return (
+      <HistoryState
+        title="正在读取学习记录…"
+        icon={<BookOpen size={42} />}
+        loading
+        onBack={onBack}
+        backLabel={backLabel}
+      />
+    );
   if (historyQuery.isError && !items.length)
     return (
       <HistoryState
@@ -141,15 +149,12 @@ export function LearningHistoryPage({
   return (
     <section className="learning-history-page" aria-labelledby="learning-history-title">
       <header className="learning-history-heading">
+        <DashboardBackButton onClick={onBack}>{backLabel}</DashboardBackButton>
         <div>
           <p className="history-kicker">FINISHED NOTES</p>
           <h1 id="learning-history-title">学习历史</h1>
           <p>学习序列、正式测评和旅行场景，都按完成时间留在这里。</p>
         </div>
-        <button className="history-back" onClick={onBack}>
-          <ArrowLeft size={17} />
-          {backLabel}
-        </button>
       </header>
 
       <div className="learning-history-overview" aria-label="历史学习汇总">
@@ -580,6 +585,9 @@ function HistoryState({
       aria-labelledby="learning-history-title"
       aria-busy={loading}
     >
+      {onBack && (
+        <DashboardBackButton onClick={onBack}>{backLabel ?? '返回学习进度'}</DashboardBackButton>
+      )}
       <p className="history-kicker">FINISHED NOTES</p>
       <h1 id="learning-history-title">学习历史</h1>
       <div
@@ -603,12 +611,6 @@ function HistoryState({
             {onRetry && (
               <button type="button" onClick={onRetry}>
                 重试
-              </button>
-            )}
-            {onBack && (
-              <button onClick={onBack}>
-                <ArrowLeft size={17} />
-                {backLabel}
               </button>
             )}
           </>

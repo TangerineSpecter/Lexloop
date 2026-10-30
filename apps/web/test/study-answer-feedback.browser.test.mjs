@@ -2196,6 +2196,8 @@ test(
       assert.equal(await evaluate('window.mistakeRequests[0].method'), 'GET');
 
       await evaluate('localStorage.setItem("lexloop.test.empty-study-plans", "yes")');
+      await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await until('document.querySelector("[role=tab]")');
       await send('Page.reload');
       await until('document.querySelector("[role=tab]")');
       await evaluate(

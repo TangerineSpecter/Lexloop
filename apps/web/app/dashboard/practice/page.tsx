@@ -1,48 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { PracticePage } from '../../../components/practice/practice-page';
-import {
-  clearSession,
-  readSession,
-  refreshSession,
-  request,
-  saveSession,
-  type Session,
-} from '../../../lib/api';
+import { DashboardRoute } from '../../../components/dashboard-route';
 
-export default function PracticeRoute() {
-  const router = useRouter();
-  const [session, setSession] = useState<Session | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const saved = readSession();
-    const load = saved
-      ? request('/auth/me', {}, saved.accessToken)
-          .then(() => saved)
-          .catch(() => refreshSession())
-      : refreshSession();
-    load
-      .then((next) => {
-        if (!cancelled) {
-          saveSession(next);
-          setSession(next);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          clearSession();
-          router.replace('/login');
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
-  if (!session)
-    return (
-      <main className="min-h-screen grid place-items-center paper-grain">正在打开学习专项…</main>
-    );
-  return <PracticePage session={session} />;
+export default function DashboardPracticePage() {
+  return <DashboardRoute />;
 }

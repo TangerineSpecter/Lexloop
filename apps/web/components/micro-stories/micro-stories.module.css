@@ -13,6 +13,20 @@
     'PingFang SC',
     sans-serif;
 }
+.embedded {
+  min-height: 0;
+  background: transparent;
+}
+.embeddedHeading {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.embedded .shell {
+  width: 100%;
+  padding: 26px 24px 48px;
+}
 .shell {
   width: min(760px, calc(100% - 32px));
   margin: auto;
@@ -23,6 +37,12 @@
   grid-template-columns: 1fr auto;
   gap: 16px;
   align-items: start;
+  margin-bottom: 24px;
+}
+.embedded .heading {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 14px;
   margin-bottom: 24px;
 }
 .heading small {
@@ -291,8 +311,16 @@
   font-size: 17px;
 }
 @media (max-width: 680px) {
+  .embedded .shell {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
   .heading {
     grid-template-columns: 1fr;
+  }
+  .embeddedHeading h1 {
+    font-size: clamp(24px, 7vw, 28px);
+    line-height: 1.35;
   }
   .card {
     padding: 16px;

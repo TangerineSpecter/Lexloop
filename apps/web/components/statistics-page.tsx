@@ -20,6 +20,7 @@ import type {
 } from '@lexloop/types';
 import { browserTimeZone, request, type Session } from '../lib/api';
 import { CareerStatisticsView } from './career-statistics-view';
+import { DashboardBackButton } from './dashboard-back-button';
 
 type StatisticsView = 'period' | 'career';
 
@@ -63,6 +64,7 @@ export function StatisticsPage({
         aria-labelledby="statistics-title"
         aria-busy={statisticsQuery.isFetching}
       >
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -80,6 +82,7 @@ export function StatisticsPage({
         aria-labelledby="statistics-title"
         aria-busy={statisticsQuery.isPending}
       >
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -96,9 +99,6 @@ export function StatisticsPage({
             <p>{loadMessage || '请检查网络后重试。'}</p>
             <div className="statistics-empty-actions">
               <button onClick={() => void statisticsQuery.refetch()}>重试</button>
-              <button className="is-secondary" onClick={onBack}>
-                返回学习进度
-              </button>
             </div>
           </div>
         )}
@@ -123,6 +123,7 @@ export function StatisticsPage({
         aria-labelledby="statistics-title"
         aria-busy={statisticsQuery.isFetching}
       >
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <StatisticsHeading
           view={view}
           setView={setView}
@@ -165,6 +166,7 @@ export function StatisticsPage({
       aria-labelledby="statistics-title"
       aria-busy={statisticsQuery.isFetching}
     >
+      <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
       <StatisticsHeading
         view={view}
         setView={setView}

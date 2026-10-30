@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  ArrowLeft,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +18,8 @@ import {
 } from '../lib/mistake-learning-directions';
 import type { LearningPlan } from './dashboard';
 import { TutorPanel } from './tutor-panel';
+import { DashboardBackButton } from './dashboard-back-button';
+import { StyledSelect } from './styled-select';
 
 type MistakeStatus = 'active' | 'ignored' | 'resolved';
 type Weakness = {
@@ -305,15 +306,12 @@ export function MistakesPage({
   return (
     <section className="mistakes-page" aria-labelledby="mistakes-title">
       <header className="mistakes-heading">
+        <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
         <div>
           <p>REVIEW LOOP</p>
           <h1 id="mistakes-title">待巩固</h1>
           <span>把每次错误变成下一次真正掌握的线索。</span>
         </div>
-        <button onClick={onBack}>
-          <ArrowLeft size={17} />
-          返回学习进度
-        </button>
       </header>
       <div className="mistakes-toolbar">
         <div role="tablist" aria-label="错题状态">
@@ -334,22 +332,19 @@ export function MistakesPage({
             </button>
           ))}
         </div>
-        <select
+        <StyledSelect
           value={questionType}
-          onChange={(event) => {
+          label="按题型筛选"
+          options={[
+            { value: '', label: '全部题型' },
+            ...Object.entries(labels).map(([value, title]) => ({ value, label: title })),
+          ]}
+          onChange={(value) => {
             prepareForListChange();
-            setQuestionType(event.target.value);
+            setQuestionType(value);
             setPage(1);
           }}
-          aria-label="按题型筛选"
-        >
-          <option value="">全部题型</option>
-          {Object.entries(labels).map(([value, label]) => (
-            <option value={value} key={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        />
         {status === 'active' && (
           <button
             className="mistakes-create"

@@ -1,58 +1,7 @@
 'use client';
-import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import {
-  clearSession,
-  readSession,
-  refreshSession,
-  request,
-  saveSession,
-  type Session,
-} from '../../lib/api';
-import { DashboardBootstrapLoading } from '../../components/dashboard-loading';
 
-const Dashboard = dynamic(
-  () => import('../../components/dashboard').then((module) => module.Dashboard),
-  { loading: () => <DashboardBootstrapLoading /> },
-);
+import { DashboardRoute } from '../../components/dashboard-route';
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [session, setSession] = useState<Session | null>(null);
-  useEffect(() => {
-    const saved = readSession();
-    if (!saved) {
-      refreshSession()
-        .then((nextSession) => {
-          saveSession(nextSession);
-          setSession(nextSession);
-        })
-        .catch(() => router.replace('/login'));
-      return;
-    }
-    request('/auth/me', {}, saved.accessToken)
-      .then(() => setSession(saved))
-      .catch(() =>
-        refreshSession()
-          .then((nextSession) => {
-            saveSession(nextSession);
-            setSession(nextSession);
-          })
-          .catch(() => {
-            clearSession();
-            router.replace('/login');
-          }),
-      );
-  }, [router]);
-  if (!session) return <DashboardBootstrapLoading />;
-  return (
-    <Dashboard
-      session={session}
-      onLogout={() => {
-        clearSession();
-        router.replace('/');
-      }}
-    />
-  );
+  return <DashboardRoute />;
 }

@@ -21,6 +21,7 @@ import {
   WordProgressState,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import type { AdventurePracticeFocus } from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { MistakesService } from '../mistakes/mistakes.service';
@@ -36,6 +37,8 @@ import {
   gradeProvisionalFreeResponse,
   hitGrade,
   incomingDamage,
+  challengeTypeForFocus,
+  normalizePracticeFocus,
 } from './adventure.rules';
 
 type StoredChallenge = {
@@ -192,7 +195,13 @@ export class AdventureService {
     };
   }
 
-  async startRun(userId: string, floorId: string, durationMinutes: 5 | 10 | 15) {
+  async startRun(
+    userId: string,
+    floorId: string,
+    durationMinutes: 5 | 10 | 15,
+    practiceFocus: AdventurePracticeFocus = 'BALANCED',
+  ) {
+    practiceFocus = normalizePracticeFocus(practiceFocus);
     const profile = await this.requireProfile(userId);
     if (!profile.currentClassId) throw new BadRequestException('请先选择冒险职业');
     const active = await this.prisma.dungeonRun.findFirst({
@@ -235,7 +244,7 @@ export class AdventureService {
           roomCount: roomTypes.length,
           playerHp: maxHp,
           playerMaxHp: maxHp,
-          snapshot: json({ version: 1, classId: profile.currentClassId, stats }),
+          snapshot: json({ version: 2, classId: profile.currentClassId, stats, practiceFocus }),
         },
       });
       for (let index = 0; index < roomTypes.length; index += 1) {
@@ -247,6 +256,7 @@ export class AdventureService {
           index,
           AdventureActionPhase.ATTACK,
           seed,
+          practiceFocus,
         );
         await tx.dungeonRoom.create({
           data: {
@@ -483,6 +493,7 @@ export class AdventureService {
             room.position + state.attackCount,
             nextPhase,
             current.seed,
+            normalizePracticeFocus(snapshot.practiceFocus),
           ),
         );
       }
@@ -1151,6 +1162,7 @@ export class AdventureService {
       id: run.id,
       status: run.status,
       durationMinutes: run.durationMinutes,
+      practiceFocus: normalizePracticeFocus(record(run.snapshot).practiceFocus),
       currentRoom: run.currentRoom,
       roomCount: run.roomCount,
       playerHp: run.playerHp,
@@ -1376,15 +1388,9 @@ function buildChallenge(
   ordinal: number,
   phase: AdventureActionPhase,
   seed: string,
+  focus: AdventurePracticeFocus,
 ): StoredChallenge {
-  const types = [
-    AdventureChallengeType.CHOICE,
-    AdventureChallengeType.SPELLING,
-    AdventureChallengeType.SENTENCE_ORDER,
-    AdventureChallengeType.MATCHING,
-    AdventureChallengeType.FREE_RESPONSE,
-  ];
-  const type = types[(ordinal + (phase === AdventureActionPhase.BLOCK ? 1 : 0)) % types.length];
+  const type = challengeTypeForFocus(focus, ordinal, phase);
   const word = target.bookWord.word.text;
   const meaning =
     target.bookWord.contextMeaning || stripPart(target.bookWord.word.meaning) || '暂无释义';

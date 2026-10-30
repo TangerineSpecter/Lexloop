@@ -38,7 +38,12 @@ export class AdventureController {
     return this.adventure.dungeons(request.user.sub);
   }
   @Post('runs') startRun(@Req() request: AuthenticatedRequest, @Body() dto: StartRunDto) {
-    return this.adventure.startRun(request.user.sub, dto.floorId, dto.durationMinutes);
+    return this.adventure.startRun(
+      request.user.sub,
+      dto.floorId,
+      dto.durationMinutes,
+      dto.practiceFocus,
+    );
   }
   @Get('runs/active') activeRun(@Req() request: AuthenticatedRequest) {
     return this.adventure.activeRun(request.user.sub);

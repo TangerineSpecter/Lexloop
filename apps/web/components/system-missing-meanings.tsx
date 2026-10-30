@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import { request } from '../lib/api';
+import { DashboardBackButton } from './dashboard-back-button';
 
 type MissingMeaningBook = { id: string; title: string; missingMeaningCount?: number | null };
 type MissingMeaningItem = { position: number; word: string };
@@ -75,10 +75,7 @@ export function SystemMissingMeanings({
 
   return (
     <section className="book-missing-meanings" aria-labelledby="book-missing-meanings-title">
-      <button className="book-missing-back" type="button" onClick={onBack}>
-        <ArrowLeft size={17} aria-hidden="true" />
-        返回词表列表
-      </button>
+      <DashboardBackButton onClick={onBack}>返回词表列表</DashboardBackButton>
       <header className="book-missing-heading">
         <div>
           <h3 id="book-missing-meanings-title" ref={headingRef} tabIndex={-1}>

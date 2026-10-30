@@ -1,4 +1,49 @@
-import { AdventureEvidenceKind, AdventureHitGrade, AdventureRoomType } from '@prisma/client';
+import {
+  AdventureActionPhase,
+  AdventureChallengeType,
+  AdventureEvidenceKind,
+  AdventureHitGrade,
+  AdventureRoomType,
+} from '@prisma/client';
+import type { AdventurePracticeFocus } from '@lexloop/types';
+
+const CHALLENGE_SEQUENCES: Record<AdventurePracticeFocus, AdventureChallengeType[]> = {
+  BALANCED: [
+    AdventureChallengeType.CHOICE,
+    AdventureChallengeType.SPELLING,
+    AdventureChallengeType.SENTENCE_ORDER,
+    AdventureChallengeType.MATCHING,
+    AdventureChallengeType.FREE_RESPONSE,
+  ],
+  RECALL: [
+    AdventureChallengeType.SPELLING,
+    AdventureChallengeType.SPELLING,
+    AdventureChallengeType.CHOICE,
+    AdventureChallengeType.SPELLING,
+    AdventureChallengeType.SENTENCE_ORDER,
+  ],
+  CONTEXT: [
+    AdventureChallengeType.SENTENCE_ORDER,
+    AdventureChallengeType.SENTENCE_ORDER,
+    AdventureChallengeType.SPELLING,
+    AdventureChallengeType.SENTENCE_ORDER,
+    AdventureChallengeType.MATCHING,
+  ],
+};
+
+export function normalizePracticeFocus(value: unknown): AdventurePracticeFocus {
+  return value === 'RECALL' || value === 'CONTEXT' ? value : 'BALANCED';
+}
+
+export function challengeTypeForFocus(
+  focus: AdventurePracticeFocus,
+  ordinal: number,
+  phase: AdventureActionPhase,
+) {
+  const sequence = CHALLENGE_SEQUENCES[focus];
+  const offset = Number.isFinite(ordinal) ? Math.max(0, Math.floor(ordinal)) : 0;
+  return sequence[(offset + (phase === AdventureActionPhase.BLOCK ? 1 : 0)) % sequence.length];
+}
 
 export type ProvisionalFreeResponseGrade = {
   score: number;

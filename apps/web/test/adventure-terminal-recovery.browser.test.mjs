@@ -119,6 +119,13 @@ test(
             }));
             localStorage.setItem('lexloop.adventureRun.learner-a', 'run-ended-a');
           }
+          const testLoading = new URLSearchParams(location.search).get('testLoading') === '1';
+          let holdInitialAuth = testLoading && sessionStorage.getItem('adventure-test-auth-held') !== '1';
+          let holdInitialProfile = testLoading && sessionStorage.getItem('adventure-test-profile-held') !== '1';
+          if (holdInitialAuth) sessionStorage.setItem('adventure-test-auth-held', '1');
+          if (holdInitialProfile) sessionStorage.setItem('adventure-test-profile-held', '1');
+          window.pendingAdventureAuth = [];
+          window.pendingAdventureProfile = [];
           window.recoveryFixture = JSON.parse(sessionStorage.getItem('adventure-terminal-fixture') || '{"reads":{},"writes":[]}');
           const terminalRun = {
             id: 'run-ended-a', status: 'COMPLETED', durationMinutes: 5, currentRoom: 0, roomCount: 1,
@@ -130,19 +137,32 @@ test(
             availableSkills: [], canRetreat: false,
           };
           const floor = { id: 'floor-a', floorNumber: 1, title: '墨迹入口', cefrLevel: 'A1', targetCount: 2, exploration: 50, mastery: 0, bossUnlocked: false, completed: false, locked: false };
+          window.makeAdventureProfile = userId => ({
+            id: 'profile-' + userId, level: 1, experience: 0, experienceToNextLevel: 100, gold: 0, materials: 0,
+            skillPoints: 1, highestFloor: 0, soundEnabled: false,
+            currentClass: { id: 'class-warrior', key: 'warrior', name: '战士', description: '', combatRole: 'VANGUARD', tier: 0, requiredLevel: 1, parentId: null, available: true, current: true },
+            availableClasses: [], skills: [],
+          });
           const nativeFetch = window.fetch;
           window.fetch = async (input, options = {}) => {
             const path = String(input);
             const method = options.method ?? 'GET';
             const session = JSON.parse(localStorage.getItem('lexloop.session'));
             const userId = session.user.id;
-            if (path.includes('/api/v1/auth/me')) return Response.json({ id: userId });
-            if (path.includes('/api/v1/adventure/profile')) return Response.json({
-              id: 'profile-' + userId, level: 1, experience: 0, experienceToNextLevel: 100, gold: 0, materials: 0,
-              skillPoints: 1, highestFloor: 0, soundEnabled: false,
-              currentClass: { id: 'class-warrior', key: 'warrior', name: '战士', description: '', combatRole: 'VANGUARD', tier: 0, requiredLevel: 1, parentId: null, available: true, current: true },
-              availableClasses: [], skills: [],
-            });
+            if (path.includes('/api/v1/auth/me')) {
+              if (holdInitialAuth) {
+                holdInitialAuth = false;
+                return new Promise(resolve => window.pendingAdventureAuth.push(resolve));
+              }
+              return Response.json({ id: userId });
+            }
+            if (path.includes('/api/v1/adventure/profile')) {
+              if (holdInitialProfile) {
+                holdInitialProfile = false;
+                return new Promise(resolve => window.pendingAdventureProfile.push(resolve));
+              }
+              return Response.json(window.makeAdventureProfile(userId));
+            }
             if (path.includes('/api/v1/adventure/dungeons')) return Response.json({ book: { id: 'book-a', title: '测试词书' }, floors: [floor] });
             if (path.includes('/api/v1/adventure/runs/active')) return Response.json(null);
             if (path.includes('/api/v1/adventure/runs/recover/')) {
@@ -164,15 +184,53 @@ test(
         `,
       });
 
-      const navigate = async () =>
-        send('Page.navigate', { url: new URL('/dashboard/adventure', baseUrl).href });
+      const navigate = async (search = '') =>
+        send('Page.navigate', { url: new URL(`/dashboard/adventure${search}`, baseUrl).href });
       const reload = async () => evaluate('location.reload()');
       const expectMap = async () => {
         await until('document.body.innerText.includes("第 1 层远征准备")');
         assert.equal(await evaluate('document.body.innerText.includes("探索完成！")'), false);
       };
 
-      await navigate();
+      await navigate('?testLoading=1');
+      await until('document.querySelector("[data-dashboard-bootstrap-loading]")');
+      await until(
+        'getComputedStyle(document.querySelector("[data-dashboard-bootstrap-loading] .learning-loading-mark")).animationName === "dashboard-load-turn"',
+      );
+      const adventureBootstrap = await evaluate(`(() => ({
+        context: document.querySelector('[data-dashboard-bootstrap-loading]')?.dataset.loadingContext,
+        label: document.querySelector('[data-dashboard-bootstrap-loading] [role="status"]')?.textContent.trim(),
+        width: document.querySelector('[data-dashboard-bootstrap-loading]')?.scrollWidth,
+        viewport: innerWidth,
+        ring: getComputedStyle(document.querySelector('[data-dashboard-bootstrap-loading] .learning-loading-mark')).animationName
+      }))()`);
+      assert.equal(adventureBootstrap.context, 'adventure');
+      assert.equal(adventureBootstrap.label, '正在翻开冒险手账…');
+      assert.ok(adventureBootstrap.width <= adventureBootstrap.viewport);
+      assert.equal(adventureBootstrap.ring, 'dashboard-load-turn');
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      assert.equal(
+        await evaluate(
+          'getComputedStyle(document.querySelector(".learning-loading-mark")).animationName',
+        ),
+        'none',
+      );
+      await send('Emulation.setEmulatedMedia', { features: [] });
+      await evaluate(`window.pendingAdventureAuth.shift()?.(Response.json({ id: 'learner-a' }))`);
+      await until('document.body.innerText.includes("正在绘制地牢地图")');
+      const dungeonLoading = await evaluate(`(() => ({
+        label: [...document.querySelectorAll('section[role="status"] span')].find(node => node.textContent.includes('正在绘制地牢地图'))?.textContent.trim(),
+        ring: getComputedStyle(document.querySelector('.learning-loading-mark')).animationName,
+        status: document.querySelector('section[role="status"][aria-busy="true"]')?.getAttribute('aria-busy')
+      }))()`);
+      assert.equal(dungeonLoading.label, '正在绘制地牢地图…');
+      assert.equal(dungeonLoading.ring, 'dashboard-load-turn');
+      assert.equal(dungeonLoading.status, 'true');
+      await evaluate(
+        `window.pendingAdventureProfile.shift()?.(Response.json(window.makeAdventureProfile('learner-a')))`,
+      );
       await expectMap();
       await until('document.body.innerText.includes("重试找回上次探索")');
       assert.equal(

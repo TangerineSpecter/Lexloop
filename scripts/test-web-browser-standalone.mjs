@@ -163,7 +163,13 @@ export async function verifyDashboardCodeSplits(webDir = defaultWebDir) {
   const layoutFiles = appManifest.pages?.['/layout'];
   if (!Array.isArray(layoutFiles)) throw new Error('构建清单缺少共享布局：/layout');
   const routeAssets = new Map(
-    ['/page', '/dashboard/page'].map((route) => {
+    [
+      '/page',
+      '/dashboard/page',
+      '/dashboard/notebook/page',
+      '/dashboard/micro-stories/page',
+      '/dashboard/practice/page',
+    ].map((route) => {
       const files = appManifest.pages?.[route];
       if (!Array.isArray(files)) throw new Error(`构建清单缺少首页路由：${route}`);
       return [route, new Set([...layoutFiles, ...files])];
@@ -171,7 +177,7 @@ export async function verifyDashboardCodeSplits(webDir = defaultWebDir) {
   );
   const requiredDynamicImports = [
     'app/page.tsx -> ../components/dashboard',
-    'app/dashboard/page.tsx -> ../../components/dashboard',
+    'components/dashboard-route.tsx -> ./dashboard',
     'components/dashboard.tsx -> ./learning-history-page',
     'components/dashboard.tsx -> ./mistakes-page',
     'components/dashboard.tsx -> ./statistics-page',

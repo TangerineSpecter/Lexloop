@@ -103,10 +103,14 @@ test(
           const x = rect.left + rect.width / 2;
           const y = rect.top + rect.height / 2;
           const hit = document.elementFromPoint(x, y);
-          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit) };
+          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit), hitDescription: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().replace(/\\s+/g, '.') : '') : null };
         })()`);
         assert.ok(point?.visible, `Expected visible click target: ${selector}`);
-        assert.equal(point.hit, true, `Expected unobstructed click target: ${selector}`);
+        assert.equal(
+          point.hit,
+          true,
+          `Expected unobstructed click target: ${selector}; hit=${point.hitDescription}`,
+        );
         await send('Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: point.x,
@@ -121,13 +125,13 @@ test(
           const x = rect.left + rect.width / 2;
           const y = rect.top + rect.height / 2;
           const hit = document.elementFromPoint(x, y);
-          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit) };
+          return { x, y, visible: rect.width > 0 && rect.height > 0, hit: hit === element || element.contains(hit), hitDescription: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().replace(/\\s+/g, '.') : '') : null };
         })()`);
         assert.ok(point?.visible, `Expected visible click target after hover: ${selector}`);
         assert.equal(
           point.hit,
           true,
-          `Expected unobstructed click target after hover: ${selector}`,
+          `Expected unobstructed click target after hover: ${selector}; hit=${point.hitDescription}`,
         );
         await send('Input.dispatchMouseEvent', {
           type: 'mousePressed',
@@ -665,6 +669,12 @@ test(
       );
       assert.ok(mobileNotebookBounds.scrollWidth <= mobileNotebookBounds.viewport);
       await send('Emulation.clearDeviceMetricsOverride');
+      await until(`(() => {
+        const sidebar = document.querySelector('.study-sidebar');
+        return innerWidth > 920
+          ? getComputedStyle(sidebar).transform === 'none'
+          : sidebar.getBoundingClientRect().right <= 0;
+      })()`);
       assert.equal(await evaluate('document.querySelector("details form").checkValidity()'), true);
       await clickVisible('details form button');
       await until('window.microFixture.notebookSaves.length === 1');

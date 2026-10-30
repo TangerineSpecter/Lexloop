@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AdventurePage } from '../../../components/adventure/adventure-page';
+import { DashboardBootstrapLoading } from '../../../components/dashboard-loading';
 import {
   clearSession,
   readSession,
@@ -32,9 +33,6 @@ export default function AdventureRoute() {
         router.replace('/login');
       });
   }, [router]);
-  if (!session)
-    return (
-      <main className="min-h-screen grid place-items-center paper-grain">正在翻开冒险手账…</main>
-    );
+  if (!session) return <DashboardBootstrapLoading context="adventure" label="正在翻开冒险手账…" />;
   return <AdventurePage session={session} onBack={() => router.push('/dashboard')} />;
 }

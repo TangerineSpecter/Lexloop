@@ -1447,7 +1447,9 @@ test(
         await evaluate('window.bookPickerFixture.missingMeaningRequests.map(item => item.cursor)'),
         [null, null, 'fixture-next-page', 'fixture-next-page'],
       );
-      await evaluate('document.querySelector(".book-missing-back").click()');
+      await evaluate(
+        'document.querySelector(".book-missing-meanings .dashboard-return-button").click()',
+      );
       await until('document.querySelector(".book-choice")');
       assert.equal(
         await evaluate('document.activeElement.getAttribute("aria-label")'),

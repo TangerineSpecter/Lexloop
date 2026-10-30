@@ -107,11 +107,15 @@ test(
           const x = rect.left + rect.width / 2;
           const y = rect.top + rect.height / 2;
           const hit = document.elementFromPoint(x, y);
-          return { x, y, visible: rect.width > 0 && rect.height > 0, enabled: !element.disabled, hit: hit === element || element.contains(hit) };
+          return { x, y, visible: rect.width > 0 && rect.height > 0, enabled: !element.disabled, hit: hit === element || element.contains(hit), hitDescription: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().replace(/\\s+/g, '.') : '') : null };
         })()`);
         assert.ok(point?.visible, `Expected visible control: ${selector}`);
         assert.equal(point.enabled, true, `Expected enabled control: ${selector}`);
-        assert.equal(point.hit, true, `Expected unobstructed control: ${selector}`);
+        assert.equal(
+          point.hit,
+          true,
+          `Expected unobstructed control: ${selector}; hit=${point.hitDescription}`,
+        );
         await send('Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: point.x,
@@ -973,6 +977,7 @@ test(
         deviceScaleFactor: 1,
         mobile: true,
       });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 0');
       const contextMobileLayout = await evaluate(`(() => {
         const practice = document.querySelector('[data-notebook-spelling-practice]').getBoundingClientRect();
         const prompt = document.querySelector('[data-context-prompt]').getBoundingClientRect();

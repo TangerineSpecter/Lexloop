@@ -16,6 +16,20 @@
   background: var(--soft) radial-gradient(rgba(8, 40, 119, 0.06) 0.65px, transparent 0.8px) 0 0 /
     8px 8px;
 }
+.embedded {
+  min-height: 0;
+  background: transparent;
+}
+.embeddedHeading {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  justify-items: start;
+  margin-bottom: 24px;
+}
+.embedded .shell {
+  width: 100%;
+  padding: 26px 24px 48px;
+}
 .shell {
   width: min(1220px, calc(100% - 64px));
   margin: auto;
@@ -27,6 +41,12 @@
   gap: 24px;
   align-items: center;
   margin-bottom: 28px;
+}
+.embedded .heading {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 14px;
+  margin-bottom: 24px;
 }
 .heading small,
 .eyebrow {
@@ -112,6 +132,14 @@
   align-items: center;
   gap: 16px;
   margin-bottom: 20px;
+}
+.levelControl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin: 18px 0;
+  font-weight: 800;
 }
 .head h2 {
   font-size: 24px;
@@ -550,12 +578,20 @@
     width: calc(100% - 32px);
     padding-top: 24px;
   }
+  .embedded .shell {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
   .heading {
     grid-template-columns: 1fr;
     gap: 12px;
   }
   .heading h1 {
     font-size: 30px;
+  }
+  .embeddedHeading h1 {
+    font-size: clamp(24px, 7vw, 28px);
+    line-height: 1.35;
   }
   .grid,
   .lesson {

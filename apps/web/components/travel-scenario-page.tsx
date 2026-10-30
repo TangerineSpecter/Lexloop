@@ -28,6 +28,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import type { NotebookPage } from '@lexloop/types';
 import { request, type Session, userFacingError } from '../lib/api';
 import { TravelDeferredFeedback } from './travel-deferred-feedback';
+import { DashboardBackButton } from './dashboard-back-button';
 import { TravelReportRehearsal } from './travel-report-rehearsal';
 import resumeStyles from './travel-session-resume.module.css';
 
@@ -461,13 +462,13 @@ export function TravelScenarioPage({
   return (
     <div className="travel-page">
       <header className="travel-page-head">
-        <button className="travel-back" onClick={onBack} aria-label="返回词环">
-          <ArrowLeft size={18} />
-        </button>
-        <div>
-          <p className="travel-kicker">TRAVEL ENGLISH · 旅行任务手账</p>
-          <h1>把英语，带到真正要说的地方。</h1>
-          <p>不用背台词。完成一次真实沟通，再把卡住你的表达拆开学会。</p>
+        <div className="travel-page-intro">
+          <DashboardBackButton onClick={onBack}>返回学习进度</DashboardBackButton>
+          <div>
+            <p className="travel-kicker">TRAVEL ENGLISH · 旅行任务手账</p>
+            <h1>把英语，带到真正要说的地方。</h1>
+            <p>不用背台词。完成一次真实沟通，再把卡住你的表达拆开学会。</p>
+          </div>
         </div>
         <div className="passport-stamp" aria-label={`当前等级 ${profile?.overallLevel ?? 'A1'}`}>
           <small>MY LEVEL</small>

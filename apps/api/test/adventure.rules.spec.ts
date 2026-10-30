@@ -3,13 +3,35 @@ import { describe, expect, it } from 'vitest';
 import {
   aggregateMastery,
   attackDamage,
+  challengeTypeForFocus,
   experienceLevel,
   gradeProvisionalFreeResponse,
   hitGrade,
   incomingDamage,
+  normalizePracticeFocus,
 } from '../src/modules/adventure/adventure.rules';
 
 describe('adventure learning RPG rules', () => {
+  it('offers deterministic challenge mixes without changing legacy defaults', () => {
+    const balanced = Array.from({ length: 5 }, (_, index) =>
+      challengeTypeForFocus('BALANCED', index, 'ATTACK'),
+    );
+    const recall = Array.from({ length: 5 }, (_, index) =>
+      challengeTypeForFocus('RECALL', index, 'ATTACK'),
+    );
+    const context = Array.from({ length: 5 }, (_, index) =>
+      challengeTypeForFocus('CONTEXT', index, 'ATTACK'),
+    );
+
+    expect(balanced).toEqual(['CHOICE', 'SPELLING', 'SENTENCE_ORDER', 'MATCHING', 'FREE_RESPONSE']);
+    expect(recall.filter((type) => type === 'SPELLING')).toHaveLength(3);
+    expect(context.filter((type) => type === 'SENTENCE_ORDER')).toHaveLength(3);
+    expect([...recall, ...context]).not.toContain('FREE_RESPONSE');
+    expect(challengeTypeForFocus('RECALL', 0, 'BLOCK')).toBe('SPELLING');
+    expect(normalizePracticeFocus(undefined)).toBe('BALANCED');
+    expect(normalizePracticeFocus('unknown')).toBe('BALANCED');
+  });
+
   it('maps scores to the four visible hit grades', () => {
     expect(hitGrade(90)).toBe(AdventureHitGrade.PERFECT);
     expect(hitGrade(70)).toBe(AdventureHitGrade.HIT);

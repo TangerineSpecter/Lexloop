@@ -33,6 +33,9 @@ async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) 
     'home.js',
     'dashboard-route.js',
     'dashboard.js',
+    'notebook-route.js',
+    'stories-route.js',
+    'practice-route.js',
     'history.js',
     'mistakes.js',
     'statistics.js',
@@ -42,7 +45,7 @@ async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) 
   for (const file of files) await writeFile(join(staticDir, file), `fixture:${file}`);
   const dynamicManifest = {
     'app/page.tsx -> ../components/dashboard': { files: ['static/chunks/dashboard.js'] },
-    'app/dashboard/page.tsx -> ../../components/dashboard': {
+    'components/dashboard-route.tsx -> ./dashboard': {
       files: ['static/chunks/dashboard.js'],
     },
     'components/dashboard.tsx -> ./learning-history-page': { files: ['static/chunks/history.js'] },
@@ -53,6 +56,9 @@ async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) 
   };
   const homeFiles = ['static/chunks/shared.js', 'static/chunks/home.js'];
   const dashboardFiles = ['static/chunks/shared.js', 'static/chunks/dashboard-route.js'];
+  const notebookFiles = ['static/chunks/shared.js', 'static/chunks/notebook-route.js'];
+  const storiesFiles = ['static/chunks/shared.js', 'static/chunks/stories-route.js'];
+  const practiceFiles = ['static/chunks/shared.js', 'static/chunks/practice-route.js'];
   if (preloadStatistics) dashboardFiles.push('static/chunks/statistics.js');
   await writeFile(
     join(buildDir, 'app-build-manifest.json'),
@@ -61,6 +67,9 @@ async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) 
         '/layout': ['static/chunks/shared.js'],
         '/page': homeFiles,
         '/dashboard/page': dashboardFiles,
+        '/dashboard/notebook/page': notebookFiles,
+        '/dashboard/micro-stories/page': storiesFiles,
+        '/dashboard/practice/page': practiceFiles,
       },
     }),
   );
@@ -136,6 +145,9 @@ test('verifies dashboard subpages are split out of the initial route JavaScript'
 
   assert.ok(sizes['/page'].gzipBytes > 0);
   assert.ok(sizes['/dashboard/page'].gzipBytes > 0);
+  assert.ok(sizes['/dashboard/notebook/page'].gzipBytes > 0);
+  assert.ok(sizes['/dashboard/micro-stories/page'].gzipBytes > 0);
+  assert.ok(sizes['/dashboard/practice/page'].gzipBytes > 0);
 });
 
 test('fails when a deferred learning page leaks back into the initial dashboard bundle', async (t) => {

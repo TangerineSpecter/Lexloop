@@ -96,6 +96,59 @@ test(
         );
       };
 
+      const clickVisible = async (selector) => {
+        const point = await evaluate(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) return null;
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { x, y, visible: rect.width > 0 && rect.height > 0,
+            hit: hit === element || element.contains(hit),
+            hitDescription: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().replace(/\\s+/g, '.') : '') : null };
+        })()`);
+        assert.ok(point?.visible, `Expected visible control: ${selector}`);
+        assert.equal(
+          point.hit,
+          true,
+          `Expected unobstructed control: ${selector}; hit=${point.hitDescription}`,
+        );
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: point.x,
+          y: point.y,
+          button: 'none',
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+      };
+
+      const selectQuestionType = async (value, label) => {
+        const trigger = 'button[aria-label="按题型筛选"]';
+        await clickVisible(trigger);
+        await until(
+          `document.querySelector(${JSON.stringify(trigger)})?.getAttribute('aria-expanded') === 'true'`,
+        );
+        await clickVisible(`[role="option"][data-option-value="${value}"]`);
+        await until(
+          `document.querySelector(${JSON.stringify(trigger)})?.textContent.trim() === ${JSON.stringify(label)}`,
+        );
+      };
+
       const weaknesses = (id, questionType, wrongCount = 2) => ({
         id,
         questionType,
@@ -396,9 +449,7 @@ test(
         false,
       );
 
-      await evaluate(
-        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), 'OUTPUT'); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
-      );
+      await selectQuestionType('OUTPUT', '每日输出');
       await until(
         'document.querySelector(".mistakes-empty[role=alert]")?.textContent.includes("薄弱词暂时无法加载")',
       );
@@ -423,17 +474,13 @@ test(
       });
       await until('document.querySelector("#mistakes-title")');
       await until('document.querySelectorAll(".mistakes-list > article").length === 3');
-      await evaluate(
-        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), 'OUTPUT'); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
-      );
+      await selectQuestionType('OUTPUT', '每日输出');
       await until(
         'window.mistakeListRequests.some((item) => item.activeRace && item.questionType === "OUTPUT")',
       );
       assert.equal(await evaluate('document.querySelector(".mistakes-list")'), null);
       assert.equal(await evaluate('document.querySelector(".mistakes-create").disabled'), true);
-      await evaluate(
-        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), 'WORD_MATCHING'); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
-      );
+      await selectQuestionType('WORD_MATCHING', '单词匹配');
       await until(
         'document.querySelector(".mistakes-list")?.textContent.includes("current-standard")',
       );
@@ -760,9 +807,7 @@ test(
         '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("阅读理解")).click()',
       );
       await until('typeof window.releaseDeferredMistakeDetail === "function"');
-      await evaluate(
-        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), 'OUTPUT'); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
-      );
+      await selectQuestionType('OUTPUT', '每日输出');
       await until('document.querySelector(".mistakes-list")?.textContent.includes("journey")');
       await evaluate('window.releaseDeferredMistakeDetail()');
       await delay(100);
@@ -775,9 +820,7 @@ test(
         /journey/,
       );
 
-      await evaluate(
-        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), ''); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
-      );
+      await selectQuestionType('', '全部题型');
       await until('document.querySelectorAll(".mistakes-list > article").length === 3');
       await evaluate(
         '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("阅读理解")).click()',

@@ -202,6 +202,7 @@ export type AdventureChallengeType =
 export type AdventureHitGrade = 'PERFECT' | 'HIT' | 'GRAZE' | 'MISS';
 export type AdventureRoomType = 'COMBAT' | 'ELITE' | 'EVENT' | 'CAMP' | 'TREASURE' | 'BOSS';
 export type AdventureRunStatus = 'ACTIVE' | 'COMPLETED' | 'FAILED' | 'RETREATED';
+export type AdventurePracticeFocus = 'BALANCED' | 'RECALL' | 'CONTEXT';
 export type EquipmentSlot = 'WEAPON' | 'ARMOR' | 'ACCESSORY';
 export type EquipmentRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
 
@@ -304,6 +305,8 @@ export interface DungeonRunState {
   id: string;
   status: AdventureRunStatus;
   durationMinutes: 5 | 10 | 15;
+  /** Older saved runs omit this field and are interpreted as BALANCED. */
+  practiceFocus?: AdventurePracticeFocus;
   currentRoom: number;
   roomCount: number;
   playerHp: number;
