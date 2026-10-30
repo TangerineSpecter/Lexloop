@@ -6208,6 +6208,18 @@ button {
   background: var(--gold);
   font-family: 'DM Mono', monospace;
 }
+.book-choice-meaning-status {
+  margin: 8px 0 0;
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.book-choice-meaning-status.has-missing {
+  padding-left: 7px;
+  border-left: 3px solid var(--coral);
+}
 .book-choice-learning-meta {
   display: flex;
   justify-content: space-between;

@@ -248,10 +248,26 @@ type VocabularyBookCard = {
   publisher: string | null;
   grade: string | null;
   totalWords: number;
+  missingMeaningCount?: number | null;
   learnedWords: number;
   isLearning: boolean;
   isDefault: boolean;
 };
+
+function vocabularyBookMeaningStatus(book: VocabularyBookCard) {
+  if (!Number.isInteger(book.totalWords) || book.totalWords < 0) return '词条总数未知';
+  if (book.totalWords === 0) return '词书暂无词条';
+  const missingMeaningCount = book.missingMeaningCount;
+  if (
+    typeof missingMeaningCount !== 'number' ||
+    !Number.isInteger(missingMeaningCount) ||
+    missingMeaningCount < 0 ||
+    missingMeaningCount > book.totalWords
+  ) {
+    return '缺释义字段数未知';
+  }
+  return `缺释义字段：${missingMeaningCount} 条`;
+}
 type VocabularyCatalog = {
   categories: Array<{ key: string; label: string; count: number }>;
   books: VocabularyBookCard[];
@@ -2301,6 +2317,14 @@ function BookCards({
                   <b>{book.totalWords}</b> 词
                 </span>
               </div>
+              {!showProgress && (
+                <p
+                  className={`book-choice-meaning-status ${book.missingMeaningCount ? 'has-missing' : ''}`}
+                  data-missing-meaning-status
+                >
+                  {vocabularyBookMeaningStatus(book)}
+                </p>
+              )}
               {showProgress && (
                 <div className="book-choice-learning-meta">
                   <span>

@@ -933,15 +933,26 @@ test(
       ];
       window.bookPickerFixture.catalogBooks = Array.from({ length: 600 }, (_, index) => {
         const isTarget = index === 599;
+        const isLegacyResponse = index === 597;
+        const isEmptyBook = index === 598;
         const category = index < 300 ? 'general' : 'exam';
         return {
           id: isTarget ? 'search-target' : 'fixture-book-' + index,
           category,
           categoryLabel: category === 'general' ? '通用交流' : '应试词汇',
-          title: isTarget ? 'CET-4 高频词汇训练' : '词汇练习 ' + (index + 1),
+          title: isTarget
+            ? 'CET-4 高频词汇训练'
+            : isEmptyBook
+              ? '空词书（无关联词条）'
+              : isLegacyResponse
+                ? '旧版接口词书（统计未知）'
+                : '词汇练习 ' + (index + 1),
           publisher: isTarget ? 'Lexloop Press' : '示例教材 ' + (index % 12 + 1),
           grade: isTarget ? '大学英语四级' : '初中 ' + (index % 3 + 1) + ' 年级',
-          totalWords: 120,
+          totalWords: isEmptyBook ? 0 : 120,
+          ...(!isLegacyResponse
+            ? { missingMeaningCount: isEmptyBook ? 0 : isTarget ? 17 : index % 2 }
+            : {}),
           learnedWords: 0,
           isLearning: false,
           isDefault: false,
@@ -958,6 +969,25 @@ test(
         'document.querySelectorAll(".book-category-tabs [role=tab]").length === 2 && document.querySelectorAll(".book-choice").length === 600',
       );
       assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), '');
+      const completenessCards = await evaluate(`(() => {
+        const card = title => [...document.querySelectorAll('.book-choice')].find(item =>
+          item.querySelector('strong')?.textContent === title);
+        const status = title => card(title)?.querySelector('[data-missing-meaning-status]')?.textContent.trim();
+        return {
+          target: status('CET-4 高频词汇训练'),
+          targetWords: card('CET-4 高频词汇训练')?.querySelector('.book-choice-count')?.textContent.trim(),
+          targetCanStart: !card('CET-4 高频词汇训练')?.querySelector('button')?.disabled,
+          empty: status('空词书（无关联词条）'),
+          legacy: status('旧版接口词书（统计未知）'),
+        };
+      })()`);
+      assert.deepEqual(completenessCards, {
+        target: '缺释义字段：17 条',
+        targetWords: '120 词',
+        targetCanStart: true,
+        empty: '词书暂无词条',
+        legacy: '缺释义字段数未知',
+      });
       const searchLayoutDesktop = await evaluate(`(() => {
         const drawer = document.querySelector('.book-drawer').getBoundingClientRect();
         const input = document.querySelector('#book-catalog-search').getBoundingClientRect();
@@ -1074,6 +1104,31 @@ test(
         ),
         true,
       );
+      await evaluate(
+        '[...document.querySelectorAll(".book-category-tabs [role=tab]")].find(button => button.textContent.includes("应试词汇")).click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 300');
+      assert.deepEqual(
+        await evaluate(`(() => {
+          const card = title => [...document.querySelectorAll('.book-choice')].find(item =>
+            item.querySelector('strong')?.textContent === title);
+          return [
+            card('CET-4 高频词汇训练')?.querySelector('[data-missing-meaning-status]')?.textContent.trim(),
+            card('空词书（无关联词条）')?.querySelector('[data-missing-meaning-status]')?.textContent.trim(),
+            card('旧版接口词书（统计未知）')?.querySelector('[data-missing-meaning-status]')?.textContent.trim(),
+          ];
+        })()`),
+        ['缺释义字段：17 条', '词书暂无词条', '缺释义字段数未知'],
+        'category cards preserve the same completeness facts and legacy unknown state',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".book-category-tabs [role=tab]")].find(button => button.textContent.includes("应试词汇")).click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 600');
+      await evaluate(
+        '[...document.querySelectorAll(".book-category-tabs [role=tab]")].find(button => button.textContent.includes("通用")).click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 300');
 
       await send('Emulation.setEmulatedMedia', {
         features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
@@ -1113,6 +1168,43 @@ test(
       await capture('vocabulary-search-mobile.png');
       await evaluate(
         'document.querySelector(".book-search-control button[aria-label=清除词表搜索]").click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 300');
+      await evaluate(
+        '[...document.querySelectorAll(".book-category-tabs [role=tab]")].find(button => button.textContent.includes("通用")).click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 600');
+      await setCatalogQuery('CET-4');
+      await until('document.querySelectorAll(".book-choice").length === 1');
+      const completenessLayoutMobile = await evaluate(`(() => {
+        const card = document.querySelector('.book-choice');
+        const status = card?.querySelector('[data-missing-meaning-status]');
+        const button = card?.querySelector('button');
+        const cardBox = card?.getBoundingClientRect();
+        const statusBox = status?.getBoundingClientRect();
+        const buttonBox = button?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          cardRight: cardBox?.right, statusLeft: statusBox?.left, statusRight: statusBox?.right,
+          buttonLeft: buttonBox?.left, buttonRight: buttonBox?.right,
+          status: status?.textContent.trim(), ariaLabel: button?.getAttribute('aria-label') };
+      })()`);
+      assert.ok(
+        completenessLayoutMobile.viewport === 390 &&
+          completenessLayoutMobile.page <= 390 &&
+          completenessLayoutMobile.statusRight <= completenessLayoutMobile.cardRight &&
+          completenessLayoutMobile.statusLeft >= 0 &&
+          completenessLayoutMobile.buttonRight <= 390 &&
+          completenessLayoutMobile.status === '缺释义字段：17 条' &&
+          completenessLayoutMobile.ariaLabel === '开始学习：CET-4 高频词汇训练',
+        JSON.stringify(completenessLayoutMobile),
+      );
+      await capture('vocabulary-completeness-mobile.png');
+      await evaluate(
+        'document.querySelector(".book-search-control button[aria-label=清除词表搜索]").click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 600');
+      await evaluate(
+        '[...document.querySelectorAll(".book-category-tabs [role=tab]")].find(button => button.textContent.includes("通用")).click()',
       );
       await until('document.querySelectorAll(".book-choice").length === 300');
       await send('Emulation.setDeviceMetricsOverride', {

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.103',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '选择词书前查看缺释义字段数',
+        entry: '首页 → 切换词汇表 → 系统词表',
+        usage:
+          '词书卡显示当前数据库中的关联词条总数和缺释义字段数。共享词条按词书语境释义优先统计；字段统计不判断释义正确性、不限制选书，旧接口缺少统计时显示未知。',
+      },
+    ],
+  },
+  {
     version: '1.27.102',
     date: '2026-10-30',
     items: [

@@ -99,7 +99,6 @@ export class VocabularyService {
         },
         orderBy: [{ category: 'asc' }, { title: 'asc' }],
         include: {
-          _count: { select: { bookWords: true } },
           userBooks: { where: { userId }, select: { isDefault: true } },
         },
       }),
@@ -114,6 +113,43 @@ export class VocabularyService {
         _count: { _all: true },
       }),
     ]);
+    const bookWordCounts = books.length
+      ? await this.prisma.$queryRaw<
+          Array<{ bookId: string; totalWords: bigint; missingMeaningCount: bigint }>
+        >(
+          Prisma.sql`
+            SELECT
+              book_word."bookId",
+              COUNT(*)::bigint AS "totalWords",
+              COUNT(*) FILTER (
+                WHERE
+                  effective_meaning.value IS NULL
+                  OR effective_meaning.value IN ('', '无')
+              )::bigint AS "missingMeaningCount"
+            FROM "VocabularyBookWord" AS book_word
+            JOIN "VocabularyWord" AS word ON word."id" = book_word."wordId"
+            CROSS JOIN LATERAL (
+              SELECT REGEXP_REPLACE(
+                CASE
+                  WHEN book_word."contextMeaning" IS NULL THEN word."meaning"
+                  ELSE book_word."contextMeaning"
+                END,
+                '^[[:space:]]+|[[:space:]]+$',
+                '',
+                'g'
+              ) AS value
+            ) AS effective_meaning
+            WHERE book_word."bookId" IN (${Prisma.join(books.map((book) => book.id))})
+            GROUP BY book_word."bookId"
+          `,
+        )
+      : [];
+    const bookWordCountsById = new Map(
+      bookWordCounts.map(({ bookId, totalWords, missingMeaningCount }) => [
+        bookId,
+        { totalWords: Number(totalWords), missingMeaningCount: Number(missingMeaningCount) },
+      ]),
+    );
     return {
       categories: categories
         .sort((a, b) =>
@@ -131,7 +167,8 @@ export class VocabularyService {
         title: book.title,
         publisher: book.publisher,
         grade: book.grade,
-        totalWords: book._count.bookWords,
+        totalWords: bookWordCountsById.get(book.id)?.totalWords ?? 0,
+        missingMeaningCount: bookWordCountsById.get(book.id)?.missingMeaningCount ?? 0,
         learnedWords: 0,
         isLearning: book.userBooks.length > 0,
         isDefault: book.userBooks[0]?.isDefault ?? false,
