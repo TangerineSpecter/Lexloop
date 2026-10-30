@@ -4243,6 +4243,7 @@ function GeneratedReadingContent({
               </small>
             )}
             <ReadingSentenceRewritePractice
+              key={`${session.user.id}:${index}:${sentence.english}`}
               session={session}
               sourceSentence={sentence.english}
               id={`sentence-rewrite-${index}`}
@@ -4274,6 +4275,7 @@ function GeneratedReadingContent({
           {wordUseOpen ? '收起造句练习' : '试着用本组词造一句'}
         </button>
         <ReadingWordUsePractice
+          key={`${session.user.id}:${JSON.stringify(words.map((word) => [word.id ?? word.word, word.word, word.meaning]))}`}
           id="reading-word-use-practice"
           open={wordUseOpen}
           session={session}
@@ -4307,11 +4309,17 @@ function ReadingWordUsePractice({
   const wordKey = (word: Word) => word.id ?? word.word;
   const [selectedWordKey, setSelectedWordKey] = useState(words[0] ? wordKey(words[0]) : '');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [feedback, setFeedback] = useState<{
-    wordKey: string;
-    answer: string;
-    value: ReadingWordUseFeedback;
-  } | null>(null);
+  const [feedbackByWord, setFeedbackByWord] = useState<
+    Record<
+      string,
+      {
+        answer: string;
+        word: string;
+        meaning: string;
+        value: ReadingWordUseFeedback;
+      }
+    >
+  >({});
   const [error, setError] = useState<{
     wordKey: string;
     answer: string;
@@ -4329,8 +4337,8 @@ function ReadingWordUsePractice({
 
   const selectedWord = words.find((word) => wordKey(word) === selectedWordKey);
   const answer = drafts[selectedWordKey] ?? '';
-  const visibleFeedback =
-    feedback?.wordKey === selectedWordKey && feedback.answer === answer ? feedback.value : null;
+  const lastSubmission = feedbackByWord[selectedWordKey] ?? null;
+  const visibleFeedback = lastSubmission?.value ?? null;
   const visibleError =
     error?.wordKey === selectedWordKey && error.answer === answer ? error.message : '';
 
@@ -4356,7 +4364,15 @@ function ReadingWordUsePractice({
         session.accessToken,
       );
       if (mountedRef.current) {
-        setFeedback({ wordKey: submittedWordKey, answer: submittedAnswer, value: result });
+        setFeedbackByWord((current) => ({
+          ...current,
+          [submittedWordKey]: {
+            answer: submittedAnswer,
+            word: selectedWord.word,
+            meaning: selectedWord.meaning,
+            value: result,
+          },
+        }));
       }
     } catch (cause) {
       if (mountedRef.current) {
@@ -4433,6 +4449,14 @@ function ReadingWordUsePractice({
       )}
       {visibleFeedback && (
         <section className="sentence-rewrite-feedback" aria-label="造句参考反馈" aria-live="polite">
+          <div className="sentence-feedback-submission">
+            <strong>这条建议对应的已提交内容</strong>
+            <p>
+              <b lang="en">{lastSubmission?.word}</b>
+              <span> · {lastSubmission?.meaning}</span>
+            </p>
+            <blockquote lang="en">{lastSubmission?.answer}</blockquote>
+          </div>
           <h4>造句参考反馈</h4>
           <dl>
             <div>
@@ -4476,7 +4500,10 @@ function ReadingSentenceRewritePractice({
   sourceSentence: string;
 }) {
   const [rewrite, setRewrite] = useState('');
-  const [feedback, setFeedback] = useState<ReadingSentenceRewriteFeedback | null>(null);
+  const [lastSubmission, setLastSubmission] = useState<{
+    answer: string;
+    feedback: ReadingSentenceRewriteFeedback;
+  } | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -4495,7 +4522,7 @@ function ReadingSentenceRewritePractice({
         },
         session.accessToken,
       );
-      setFeedback(result);
+      setLastSubmission({ answer, feedback: result });
     } catch (cause) {
       setError(userFacingError(cause, '改写反馈暂时不可用。'));
     } finally {
@@ -4519,43 +4546,47 @@ function ReadingSentenceRewritePractice({
           disabled={submitting}
           onChange={(event) => {
             setRewrite(event.target.value);
-            setFeedback(null);
             setError('');
           }}
           placeholder="先写下你的表达，再提交查看意思、语法和自然度建议。"
         />
         <div className="sentence-rewrite-actions">
           <button type="submit" disabled={!rewrite.trim() || submitting}>
-            {submitting ? (feedback ? '正在更新建议…' : '正在整理建议…') : '提交并查看建议'}
+            {submitting ? (lastSubmission ? '正在更新建议…' : '正在整理建议…') : '提交并查看建议'}
           </button>
           <span>{rewrite.length}/1200</span>
         </div>
       </form>
       {error && (
         <p className="sentence-rewrite-error" role="alert">
-          {error} {feedback ? '上次成功的反馈仍保留。' : ''}再次提交会重新请求所选模型。
+          {error} {lastSubmission ? '上次成功的反馈（对应下方所示版本）仍保留。' : ''}
+          再次提交会重新请求所选模型。
         </p>
       )}
-      {feedback && (
+      {lastSubmission && (
         <section className="sentence-rewrite-feedback" aria-label="改写参考反馈" aria-live="polite">
+          <div className="sentence-feedback-submission">
+            <strong>这条建议对应的已提交改写</strong>
+            <blockquote lang="en">{lastSubmission.answer}</blockquote>
+          </div>
           <h4>改写参考反馈</h4>
           <dl>
             <div>
               <dt>意思</dt>
-              <dd>{feedback.meaning}</dd>
+              <dd>{lastSubmission.feedback.meaning}</dd>
             </div>
             <div>
               <dt>语法</dt>
-              <dd>{feedback.grammar}</dd>
+              <dd>{lastSubmission.feedback.grammar}</dd>
             </div>
             <div>
               <dt>自然度</dt>
-              <dd>{feedback.naturalness}</dd>
+              <dd>{lastSubmission.feedback.naturalness}</dd>
             </div>
-            {feedback.alternative && (
+            {lastSubmission.feedback.alternative && (
               <div>
                 <dt>另一种表达</dt>
-                <dd lang="en">{feedback.alternative}</dd>
+                <dd lang="en">{lastSubmission.feedback.alternative}</dd>
               </div>
             )}
           </dl>

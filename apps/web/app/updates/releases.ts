@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.92',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '改稿时保留原提交与对应建议',
+        entry: '分组阅读 → 先用中文理解、单句改写或目标词造句',
+        usage:
+          '修改答案后仍可对照上次成功提交的文本和建议；新建议成功后才替换上一版。内容只留在当前页面，不计分、不保存作答，也不改变复习安排。',
+      },
+    ],
+  },
+  {
     version: '1.27.91',
     date: '2026-10-30',
     items: [

@@ -17269,6 +17269,25 @@ button[data-tooltip]::after {
   padding-top: 12px;
   border-top: 1px solid rgba(8, 40, 119, 0.2);
 }
+.sentence-feedback-submission {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--gold);
+  border-radius: 0 7px 7px 0;
+  background: #fff8d8;
+  color: var(--border-color);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.sentence-feedback-submission p {
+  margin: 6px 0 0;
+}
+.sentence-feedback-submission blockquote {
+  margin: 6px 0 0;
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
 .sentence-rewrite-feedback dl {
   display: grid;
   gap: 10px;

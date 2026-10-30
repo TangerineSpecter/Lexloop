@@ -71,21 +71,28 @@ test(
         const pending = waiting.get(message.id);
         if (!pending) return;
         waiting.delete(message.id);
-        if (message.error) pending.reject(new Error(message.error.message));
+        if (message.error) pending.reject(new Error(`${pending.method}: ${message.error.message}`));
         else pending.resolve(message.result);
       });
       const send = (method, params = {}) =>
         new Promise((resolve, reject) => {
           const id = ++sequence;
-          waiting.set(id, { resolve, reject });
+          waiting.set(id, { resolve, reject, method });
           socket.send(JSON.stringify({ id, method, params }));
         });
       const evaluate = async (expression) => {
-        const result = await send('Runtime.evaluate', {
-          expression,
-          returnByValue: true,
-          awaitPromise: true,
-        });
+        let result;
+        try {
+          result = await send('Runtime.evaluate', {
+            expression,
+            returnByValue: true,
+            awaitPromise: true,
+          });
+        } catch (cause) {
+          throw new Error(
+            `${cause instanceof Error ? cause.message : String(cause)}; expression=${expression.slice(0, 160)}`,
+          );
+        }
         if (result.exceptionDetails)
           throw new Error(
             result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
@@ -854,6 +861,19 @@ test(
       const previousRewriteFeedback = await evaluate(
         'document.querySelector(".sentence-rewrite-feedback").innerText',
       );
+      const revisedRewrite = 'Good lighting makes the room appear brighter.';
+      await evaluate(`(() => {
+        const input = document.querySelector('#sentence-rewrite-0-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(revisedRewrite)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-feedback blockquote").textContent',
+        ),
+        'Rooms look brighter when there is enough light.',
+        'editing keeps the submitted version that produced the visible feedback',
+      );
       await evaluate(`window.failNextRewriteFeedback = true; ${rewriteSubmit}.click()`);
       await until('window.readingRewriteRequests.length === 3');
       assert.equal(await evaluate(`${rewriteSubmit}.textContent.includes('正在更新建议…')`), true);
@@ -862,7 +882,7 @@ test(
           'document.querySelector(".sentence-rewrite-feedback").innerText.includes("保留了光线充足")',
         ),
         true,
-        'the last successful feedback stays visible while the same answer is retried',
+        'the last successful feedback stays attached to its submitted answer during a new request',
       );
       await evaluate(
         `window.readingRewriteResolvers.shift()(Response.json({ message: '模型暂时不可用' }, { status: 503 }))`,
@@ -870,7 +890,7 @@ test(
       await until('document.querySelector(".sentence-rewrite-error")');
       assert.equal(
         await evaluate(
-          'document.querySelector(".sentence-rewrite-error").textContent.includes("上次成功的反馈仍保留")',
+          'document.querySelector(".sentence-rewrite-error").textContent.includes("上次成功的反馈（对应下方所示版本）仍保留")',
         ),
         true,
       );
@@ -880,7 +900,26 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
+        revisedRewrite,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sentence-rewrite-feedback blockquote").textContent',
+        ),
         'Rooms look brighter when there is enough light.',
+      );
+      await evaluate(`${rewriteSubmit}.click()`);
+      await until('window.readingRewriteRequests.length === 4');
+      await until(
+        `document.querySelector(".sentence-rewrite-feedback blockquote")?.textContent === ${JSON.stringify(revisedRewrite)}`,
+      );
+      assert.equal(
+        await evaluate('window.readingRewriteRequests[2].body.learnerRewrite'),
+        revisedRewrite,
+      );
+      assert.equal(
+        await evaluate('window.readingRewriteRequests[3].body.learnerRewrite'),
+        revisedRewrite,
       );
       const wordUseToggle = 'document.querySelector(".reading-word-use-toggle")';
       assert.equal(await evaluate(`${wordUseToggle}.getAttribute('aria-expanded')`), 'false');
@@ -893,7 +932,7 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
-        'Rooms look brighter when there is enough light.',
+        revisedRewrite,
       );
       assert.equal(
         await evaluate(
@@ -1010,6 +1049,50 @@ test(
       );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      const revisedWordUseAnswer = 'Good lighting keeps the reading corner bright.';
+      await evaluate(`(() => {
+        const input = document.querySelector('#reading-word-use-practice-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(revisedWordUseAnswer)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback blockquote").textContent',
+        ),
+        wordUseAnswer,
+        'the prior feedback keeps its submitted sentence visible after editing',
+      );
+      await evaluate(
+        'document.querySelector("#reading-word-use-practice").scrollIntoView({ block: "center" })',
+      );
+      await capture('word-use-prior-submission-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      const wordUseRevision390 = await evaluate(`(() => {
+        const panel = document.querySelector('#reading-word-use-practice').getBoundingClientRect();
+        const feedback = document.querySelector('#reading-word-use-practice .sentence-rewrite-feedback').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, feedbackRight: feedback.right };
+      })()`);
+      assert.ok(
+        wordUseRevision390.viewport === 390 &&
+          wordUseRevision390.scrollWidth <= 390 &&
+          wordUseRevision390.panelLeft >= 0 &&
+          wordUseRevision390.panelRight <= 391 &&
+          wordUseRevision390.feedbackRight <= 391,
+        JSON.stringify(wordUseRevision390),
+      );
+      await capture('word-use-prior-submission-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate(`window.failNextWordUseFeedback = true; ${wordUseSubmit}.click()`);
       await until('window.readingWordUseRequests.length === 3');
       assert.equal(
@@ -1042,7 +1125,18 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
+        revisedWordUseAnswer,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback blockquote").textContent',
+        ),
         wordUseAnswer,
+      );
+      await evaluate(`${wordUseSubmit}.click()`);
+      await until('window.readingWordUseRequests.length === 4');
+      await until(
+        `document.querySelector("#reading-word-use-practice .sentence-rewrite-feedback blockquote")?.textContent === ${JSON.stringify(revisedWordUseAnswer)}`,
       );
       await evaluate(
         `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
@@ -1057,7 +1151,7 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
-        wordUseAnswer,
+        revisedWordUseAnswer,
       );
       await evaluate(`${wordUseToggle}.click()`);
       assert.equal(
@@ -1066,10 +1160,10 @@ test(
       );
       assert.equal(
         await evaluate('document.querySelector("#reading-word-use-practice-answer").value'),
-        wordUseAnswer,
+        revisedWordUseAnswer,
       );
-      assert.equal(await evaluate('window.readingRewriteRequests.length'), 3);
-      assert.equal(await evaluate('window.readingWordUseRequests.length'), 3);
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 4);
+      assert.equal(await evaluate('window.readingWordUseRequests.length'), 4);
       const translationDetailToggle =
         'document.querySelector(\'.sentence-tools button[aria-label="翻译"]\')';
       await evaluate(`${translationDetailToggle}.click()`);
@@ -1150,6 +1244,12 @@ test(
         naturalness: '中文表达自然。',
       }))`);
       await until('document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback blockquote").textContent',
+        ),
+        translationAnswer,
+      );
       assert.equal(
         await evaluate('document.querySelector("#sentence-translation-0-reference").textContent'),
         '房间要明亮，充足的光线也很重要。',
@@ -1249,6 +1349,13 @@ test(
         document.querySelector('#sentence-translation-0-answer').dispatchEvent(new Event('input', { bubbles: true }));
         ${translationSubmit}.click()`);
       await until('window.readingTranslationRequests.length === 2');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback blockquote").textContent',
+        ),
+        translationAnswer,
+        'a new draft does not relabel the previous feedback as if it described this draft',
+      );
       await until('document.querySelector("#sentence-translation-0 [role=alert]")');
       assert.equal(
         await evaluate('document.querySelector("#sentence-translation-0-answer").value'),
@@ -1256,13 +1363,49 @@ test(
       );
       await evaluate(`${translationSubmit}.click()`);
       await until('window.readingTranslationRequests.length === 3');
-      await until('document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")');
+      await until(
+        'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback blockquote")?.textContent === "光线好会让房间显得更亮。"',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback blockquote").textContent',
+        ),
+        '光线好会让房间显得更亮。',
+      );
       assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
       assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
       await evaluate(`Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(document.querySelector('#sentence-translation-0-answer'), '先读懂，再自己翻译。');
         document.querySelector('#sentence-translation-0-answer').dispatchEvent(new Event('input', { bubbles: true }));
         window.holdNextTranslationFeedback = true; ${translationSubmit}.click()`);
       await until('window.readingTranslationRequests.length === 4');
+      await capture('reading-translation-prior-submission-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      const translationRevision390 = await evaluate(`(() => {
+        const panel = document.querySelector('#sentence-translation-0').getBoundingClientRect();
+        const feedback = document.querySelector('#sentence-translation-0 .sentence-rewrite-feedback').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, feedbackRight: feedback.right };
+      })()`);
+      assert.ok(
+        translationRevision390.viewport === 390 &&
+          translationRevision390.scrollWidth <= 390 &&
+          translationRevision390.panelLeft >= 0 &&
+          translationRevision390.panelRight <= 391 &&
+          translationRevision390.feedbackRight <= 391,
+        JSON.stringify(translationRevision390),
+      );
+      await capture('reading-translation-prior-submission-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate(`${translationToggle}.click()`);
       assert.equal(await evaluate(`${translationPanel}.hidden`), true);
       await evaluate(
@@ -1275,11 +1418,23 @@ test(
         await evaluate('document.querySelector("#sentence-translation-0-answer").value'),
         '先读懂，再自己翻译。',
       );
+      assert.notEqual(
+        await evaluate(
+          'Boolean(document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback"))',
+        ),
+        false,
+      );
       assert.equal(
         await evaluate(
-          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")',
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback blockquote").textContent',
         ),
-        null,
+        '光线好会让房间显得更亮。',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback").innerText.includes("迟到的结果")',
+        ),
+        false,
       );
       assert.equal(await evaluate('window.readingTranslationRequests.length'), 4);
       const wordUseMobile = await evaluate(`(() => {

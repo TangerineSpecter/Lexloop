@@ -18,7 +18,10 @@ export function ReadingSentenceTranslationPractice({
   referenceTranslation: string;
 }) {
   const [translation, setTranslation] = useState('');
-  const [feedback, setFeedback] = useState<ReadingTranslationFeedback | null>(null);
+  const [lastSubmission, setLastSubmission] = useState<{
+    answer: string;
+    feedback: ReadingTranslationFeedback;
+  } | null>(null);
   const [referenceVisible, setReferenceVisible] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -67,7 +70,7 @@ export function ReadingSentenceTranslationPractice({
       );
       if (abortController.signal.aborted || activeRequest.current !== requestId || !openRef.current)
         return;
-      setFeedback(result);
+      setLastSubmission({ answer, feedback: result });
       setReferenceVisible(true);
     } catch (cause) {
       if (!abortController.signal.aborted && activeRequest.current === requestId) {
@@ -102,7 +105,6 @@ export function ReadingSentenceTranslationPractice({
           disabled={submitting}
           onChange={(event) => {
             setTranslation(event.target.value);
-            setFeedback(null);
             setReferenceVisible(false);
             setError('');
           }}
@@ -131,20 +133,24 @@ export function ReadingSentenceTranslationPractice({
       )}
       {error && (
         <p className="sentence-rewrite-error" role="alert">
-          {error} 你的输入仍保留，可稍后重新提交。
+          {error} 你的输入仍保留；此前成功的建议及其对应版本也仍保留，可检查后重试。
         </p>
       )}
-      {feedback && (
+      {lastSubmission && (
         <section className="sentence-rewrite-feedback" aria-label="翻译参考反馈" aria-live="polite">
+          <div className="sentence-feedback-submission">
+            <strong>这条建议对应的已提交译文</strong>
+            <blockquote lang="zh-CN">{lastSubmission.answer}</blockquote>
+          </div>
           <h4>理解参考建议</h4>
           <dl>
             <div>
               <dt>意思</dt>
-              <dd>{feedback.meaning}</dd>
+              <dd>{lastSubmission.feedback.meaning}</dd>
             </div>
             <div>
               <dt>中文表达</dt>
-              <dd>{feedback.naturalness}</dd>
+              <dd>{lastSubmission.feedback.naturalness}</dd>
             </div>
           </dl>
         </section>
