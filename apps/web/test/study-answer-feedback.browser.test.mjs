@@ -394,6 +394,9 @@ test(
               window.studyPlanCreateAttempts.push(JSON.parse(options.body));
               if (window.firstPlanJourney) {
                 window.studyPlanCreations.push(window.firstPlanGeneratingResponse);
+                if (window.delayFirstPlanJourneyCreate) {
+                  return new Promise((resolve) => window.studyPlanCreateResolvers.push(resolve));
+                }
                 return Response.json(window.firstPlanGeneratingResponse);
               }
               if (window.studyPlanCreations.length) {
@@ -2185,6 +2188,7 @@ test(
         };
         window.firstPlanGenerationAttempts = [];
         window.firstPlanJourney = true;
+        window.delayFirstPlanJourneyCreate = true;
       })()`);
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
@@ -2209,15 +2213,46 @@ test(
         '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
       );
       await until('!document.querySelector(".create").disabled');
-      await evaluate('document.querySelector(".create").click()');
+      await evaluate(`document.querySelector(".create").click();
+        document.querySelector(".create").click();`);
       await until('window.studyPlanCreateAttempts.length === 1');
+      assert.equal(await evaluate('window.studyPlanCreateResolvers.length'), 1);
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
       assert.deepEqual(await evaluate('window.studyPlanCreateAttempts[0]'), {
         newWordCount: 2,
         reviewWordCount: 0,
         mode: 'group',
       });
+      await evaluate('document.querySelector(".switch-book").click()');
+      await until('document.querySelector(".book-drawer")');
+      await until(
+        '[...document.querySelectorAll(".book-choice")].some((card) => card.textContent.includes("Book A"))',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book A")).querySelector("button").click()',
+      );
+      await until('window.defaultBook?.id === "book-a"');
+      await until(
+        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "take"',
+      );
+      await evaluate(
+        'window.resolveStudyPlanCreate(Response.json(window.firstPlanGeneratingResponse))',
+      );
       await until(
         'document.querySelector(".plan-preview-layer") && window.firstPlanGenerationAttempts.length === 1',
+      );
+      assert.equal(await evaluate('window.defaultBook?.id'), 'book-a');
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent)',
+        ),
+        ['take'],
+        'the delayed Book B plan response must not replace the newly selected Book A words',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
+        'adapt',
+        'the already-created Book B plan remains available for recovery',
       );
       assert.deepEqual(await evaluate('window.firstPlanGenerationAttempts'), ['first-plan-book-b']);
       await until(
