@@ -238,6 +238,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(afterMiss.feedback.passiveTrigger).toBeUndefined();
 
         const cleric = runs[3];
+        const clericModelCallsBefore = ai.generateForUser.mock.calls.length;
         await prisma.dungeonRun.update({
           where: { id: cleric.run.id },
           data: { playerHp: 90 },
@@ -257,6 +258,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           feedback: { passiveTrigger: '温和疗愈：恢复 4 点生命（本房间一次）。' },
           run: { playerHp: 94 },
         });
+        expect(ai.generateForUser).toHaveBeenCalledTimes(clericModelCallsBefore);
         const clericBlockChallenge = await setChallenge(cleric.run.id, cleric.run.currentRoom, {
           type: 'SENTENCE_ORDER',
           phase: 'BLOCK',
@@ -270,6 +272,59 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
         expect(clericBlock.run.playerHp).toBe(94);
         expect(clericBlock.feedback.passiveTrigger).toBeUndefined();
+
+        await prisma.dungeonRun.update({
+          where: { id: cleric.run.id },
+          data: { status: 'RETREATED', completedAt: new Date() },
+        });
+        const clericFallbackRun = await service.startRun(
+          cleric.userId,
+          cleric.run.floor.id,
+          5,
+          'RECALL',
+        );
+        await prisma.dungeonRun.update({
+          where: { id: clericFallbackRun.id },
+          data: { playerHp: 90 },
+        });
+        const fallbackChallenge = await setChallenge(
+          clericFallbackRun.id,
+          clericFallbackRun.currentRoom,
+          {
+            type: 'FREE_RESPONSE',
+            phase: 'ATTACK',
+            word: 'calm',
+            expected: ['I feel calm in this room.'],
+          },
+        );
+        const evidenceBeforeFallback = await prisma.adventureLearningEvidence.count({
+          where: { userId: cleric.userId, runId: clericFallbackRun.id },
+        });
+        const attemptsBeforeFallback = await prisma.wordReviewAttempt.count({
+          where: { userId: cleric.userId },
+        });
+        ai.generateForUser.mockRejectedValueOnce(new Error('offline fixture'));
+        const provisionalFallback = await act(
+          cleric.userId,
+          clericFallbackRun.id,
+          'cleric-provisional',
+          ['I feel calm in this room.'],
+        );
+        expect(provisionalFallback).toMatchObject({
+          score: 60,
+          damageDealt: expect.any(Number),
+          feedback: { correct: false, provisional: true, unjudgeable: true },
+          run: { playerHp: 90 },
+        });
+        expect(provisionalFallback.feedback.passiveTrigger).toBeUndefined();
+        expect(
+          await prisma.adventureLearningEvidence.count({
+            where: { userId: cleric.userId, runId: clericFallbackRun.id },
+          }),
+        ).toBe(evidenceBeforeFallback);
+        expect(await prisma.wordReviewAttempt.count({ where: { userId: cleric.userId } })).toBe(
+          attemptsBeforeFallback,
+        );
 
         const legacyRun = await service.startRun(
           warrior.userId,

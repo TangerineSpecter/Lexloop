@@ -633,6 +633,17 @@
   grid-column: 2;
   grid-row: 2;
 }
+.practiceFocus > small.passiveRouteNote {
+  margin: 9px 0 0;
+  padding: 10px 12px;
+  border: 2px dashed var(--ink);
+  border-radius: 8px;
+  background: #fff4b9;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  opacity: 1;
+}
 .bossNote {
   margin: 0 22px 22px;
   padding: 10px 12px;

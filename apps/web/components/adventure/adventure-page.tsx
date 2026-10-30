@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  AdventureCombatPassiveKey,
   AdventurePracticeFocus,
   AdventureProfile,
   AdventureSkill,
@@ -387,6 +388,7 @@ export function AdventurePage({ session, onBack }: { session: Session; onBack: (
         {routeFloor && (
           <RoutePicker
             floor={routeFloor}
+            combatPassiveKey={profile.currentClass.combatPassive?.key ?? null}
             onClose={() => setRouteFloor(null)}
             onStart={(minutes, focus) => void startRun(routeFloor, minutes, focus)}
           />
@@ -625,10 +627,12 @@ function DungeonBoard({
 
 function RoutePicker({
   floor,
+  combatPassiveKey,
   onClose,
   onStart,
 }: {
   floor: DungeonFloorSummary;
+  combatPassiveKey: AdventureCombatPassiveKey | null;
   onClose: () => void;
   onStart: (minutes: 5 | 10 | 15, focus: AdventurePracticeFocus) => void;
 }) {
@@ -680,6 +684,12 @@ function RoutePicker({
             ))}
           </div>
           <small>只调整本局题目组合，不改变楼层进度、复习排期或掌握判定。</small>
+          {combatPassiveKey === 'SUPPORT' && focus === 'RECALL' && (
+            <small className={styles.passiveRouteNote}>
+              牧师被动只在生命未满时答对词块组句或有效评分的自由作答后恢复。5 分钟短途的 3
+              道开局题都不含这两类题；战斗继续到后续题序时才可能遇到。
+            </small>
+          )}
         </fieldset>
         <div className={styles.routeDurations}>
           {([5, 10, 15] as const).map((minutes) => (

@@ -22,7 +22,7 @@ export const COMBAT_PASSIVES: Record<AdventureCombatPassiveKey, AdventureCombatP
   SUPPORT: {
     key: 'SUPPORT',
     title: '温和疗愈',
-    description: '生产类题目有效答对时，每个房间最多恢复 4 点生命。',
+    description: '未满生命时答对词块组句，或有效评分的自由作答，每个房间最多恢复 4 点生命。',
   },
 };
 

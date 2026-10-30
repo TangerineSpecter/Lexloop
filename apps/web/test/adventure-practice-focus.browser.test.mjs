@@ -425,6 +425,37 @@ test(
         ),
         JSON.stringify(mobileClassLayout),
       );
+      await clickSelector('[class*=classGrid] button:nth-child(4)');
+      await until('document.querySelector("[class*=floorTrail] button")');
+      await clickSelector('[class*=floorTrail] button');
+      await until('document.querySelector("[class*=practiceFocus]")');
+      await clickSelector('[class*=practiceFocus] input[value=RECALL]');
+      await until('document.querySelector("[class*=passiveRouteNote]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[class*=passiveRouteNote]")?.innerText.includes("5 分钟短途的 3 道开局题都不含这两类题")',
+        ),
+        true,
+        'short recall route should explain why the cleric passive normally has no opening trigger',
+      );
+      const passiveNoteLayout = await evaluate(`(() => {
+        const note = document.querySelector('[class*=passiveRouteNote]').getBoundingClientRect();
+        const modal = document.querySelector('[class*=routePicker]').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, left: note.left, right: note.right, modalLeft: modal.left, modalRight: modal.right };
+      })()`);
+      assert.equal(passiveNoteLayout.document, 390, JSON.stringify(passiveNoteLayout));
+      assert.ok(
+        passiveNoteLayout.left >= passiveNoteLayout.modalLeft &&
+          passiveNoteLayout.right <= passiveNoteLayout.modalRight &&
+          passiveNoteLayout.modalRight <= 390,
+        JSON.stringify(passiveNoteLayout),
+      );
+      await clickSelector('[class*=routePicker] header button[aria-label=关闭]');
+      await until('!document.querySelector("[class*=routePicker]")');
+      await evaluate(
+        'window.focusFixture.selectedClassKey = null; persistFocusFixture(); location.reload()',
+      );
+      await until('document.querySelectorAll("[class*=classGrid] button").length === 4');
       await clickSelector('[class*=classGrid] button:nth-child(2)');
       await until('document.querySelector("[class*=floorTrail] button")');
       await send('Emulation.setDeviceMetricsOverride', {

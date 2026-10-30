@@ -176,6 +176,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             'TREASURE',
           ],
         } as const;
+        const productionQuestionCounts = {
+          BALANCED: { 5: 1, 10: 2, 15: 3 },
+          RECALL: { 5: 0, 10: 1, 15: 1 },
+          CONTEXT: { 5: 2, 10: 4, 15: 6 },
+        } as const;
         const fullMap = await service.dungeons(users[0].id);
         const fullFloor = fullMap.floors[0];
         for (const focus of Object.keys(focusSequences) as Array<keyof typeof focusSequences>) {
@@ -197,6 +202,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
                 (_, index) => focusSequences[focus][index % focusSequences[focus].length],
               ),
             );
+            expect(
+              challengeTypes.filter((type) => type === 'SENTENCE_ORDER' || type === 'FREE_RESPONSE')
+                .length,
+            ).toBe(productionQuestionCounts[focus][durationMinutes]);
             if (focus === 'RECALL')
               expect(challengeTypes.filter((type) => type === 'SPELLING').length).toBeGreaterThan(
                 challengeTypes.length / 2,
