@@ -97,6 +97,23 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(await prisma.learningEvent.count({ where: { userId: users[0].id } })).toBe(
           before.events,
         );
+
+        await prisma.microProgress.update({
+          where: { userId: users[0].id },
+          data: {
+            completedKeys: MICRO_STORIES.filter(
+              (story) => !story.key.startsWith('bike-repair-'),
+            ).map((story) => story.key),
+          },
+        });
+        const nextStory = await service.current(users[0].id);
+        expect(nextStory).toMatchObject({
+          completed: 18,
+          total: 21,
+          lesson: { key: 'bike-repair-01', series: '单车维修', part: 1, level: 'B1' },
+        });
+        expect(nextStory.lesson).not.toHaveProperty('reference');
+        expect((await service.current(users[1].id)).lesson).toMatchObject({ key: 'bus-01' });
       } finally {
         await prisma.user.deleteMany({ where: { id: { in: userIds } } });
         await prisma.$disconnect();

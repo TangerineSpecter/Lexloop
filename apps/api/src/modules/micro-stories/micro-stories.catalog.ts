@@ -266,6 +266,54 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     focusPhrase: 'by Friday',
     focusMeaning: '周五或更早完成；周五是最晚期限。',
   },
+  {
+    key: 'bike-repair-01',
+    series: '单车维修',
+    part: 1,
+    level: 'B1',
+    english:
+      'Nina drops off her bike at a repair shop on Friday morning. The message says it will be ready after 4 p.m., but she reads it too quickly and thinks she can collect it before 4.',
+    reference:
+      '周五上午，妮娜把自行车送到修理店。店里的消息说下午 4 点以后可以取车，但她看得太快，以为 4 点前就能取。',
+    explanation:
+      'after 4 p.m. 表示下午 4 点之后，不是 4 点之前。妮娜把时间看反了，所以她原先以为取车的时间与消息相反。',
+    frame: 'It will be ready after ___.',
+    example: 'The report will be ready after lunch.',
+    focusPhrase: 'after 4 p.m.',
+    focusMeaning: '下午 4 点之后；不表示 4 点之前。',
+  },
+  {
+    key: 'bike-repair-02',
+    series: '单车维修',
+    part: 2,
+    level: 'B1',
+    english:
+      'Before leaving work, Nina checks the message again and calls the shop. The mechanic confirms that the bike will not be ready before 4 and should be ready around 4:30.',
+    reference:
+      '下班前，妮娜重新看了消息并给修理店打电话。维修师傅确认自行车在 4 点前还不能取，预计 4 点半左右可以取。',
+    explanation:
+      'not be ready before 4 表示 4 点前还不能取；around 4:30 是预计时间，不是保证精确到 4 点半。',
+    frame: 'It will not be ready before ___.',
+    example: 'The room will not be ready before noon.',
+    focusPhrase: 'not be ready before 4',
+    focusMeaning: '4 点前还不能取；店里预计 4 点半左右修好。',
+  },
+  {
+    key: 'bike-repair-03',
+    series: '单车维修',
+    part: 3,
+    level: 'B1',
+    english:
+      'At 4:30, the mechanic texts Nina that the repair is finished. She asks her friend Max to meet her outside the shop at 4:45, collects the bike, and they ride home together.',
+    reference:
+      '下午 4 点半，维修师傅发消息告诉妮娜自行车已经修好。她约朋友 Max 4 点 45 分在店外见面，取回自行车后，两人一起骑车回家。',
+    explanation:
+      'collect the bike 在这里指从修理店取回修好的自行车；师傅在 4 点半确认修好，妮娜约 4 点 45 分碰面。',
+    frame: 'I need to collect ___ from the shop.',
+    example: 'I need to collect my coat from the cleaner.',
+    focusPhrase: 'collects the bike',
+    focusMeaning: '从修理店取回已经修好的自行车。',
+  },
 ];
 
 export function storyByKey(key: string) {

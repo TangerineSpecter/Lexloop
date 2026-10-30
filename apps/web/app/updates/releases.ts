@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.102',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '新增单车维修连续微故事',
+        entry: '精读 → 一分钟微故事 → B1 单车维修',
+        usage:
+          '新增三段原创连续阅读：从看错取车时间，到向修理店确认，再按确认信息安排取车。原有 18 段的 key 与顺序保持不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.101',
     date: '2026-10-30',
     items: [

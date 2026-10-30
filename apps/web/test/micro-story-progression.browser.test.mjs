@@ -143,7 +143,7 @@ test(
             const method = options.method ?? 'GET';
             window.storyFixture.requests.push({ path, method, body: options.body ? JSON.parse(options.body) : null });
             if (path.endsWith('/api/v1/auth/me')) return Response.json({ id: 'b1-learner' });
-            if (path.endsWith('/api/v1/micro-stories/current')) return Response.json({ completed: 15, total: 18, lesson, review: null });
+            if (path.endsWith('/api/v1/micro-stories/current')) return Response.json({ completed: 15, total: 21, lesson, review: null });
             if (path.endsWith('/api/v1/micro-stories/deadline-01/interpret') && method === 'POST') {
               return Response.json({
                 ...lesson,
@@ -164,7 +164,7 @@ test(
         url: new URL('/dashboard/micro-stories', baseUrl).href,
       });
       await until('document.querySelector("#story-heading")?.textContent.includes("项目改期")');
-      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/18")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/21")'), true);
       assert.equal(
         await evaluate('document.body.textContent.includes("客户把截止日期提前了一周")'),
         false,
