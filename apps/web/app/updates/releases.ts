@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.97',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '词表选择支持键盘和清晰状态',
+        entry: '首页 → 切换词汇表 / 选择词表开始',
+        usage:
+          '打开后焦点进入词表弹层，Tab 留在弹层内，Escape 关闭后回到打开位置。加载、无词表和加载失败分别显示；窄屏长名称保留在操作名称中。',
+      },
+    ],
+  },
+  {
     version: '1.27.96',
     date: '2026-10-30',
     items: [

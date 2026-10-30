@@ -262,6 +262,23 @@ test(
             };
           };
           window.studyPlanResponse = makePlan(0);
+          window.historyJourney = { reviewCalls: 0 };
+          const historyJourneyItem = {
+            id: 'plan-review-journey', kind: 'PLAN', occurredAt: '2026-10-29T08:00:00.000Z',
+            mode: 'group', wordCount: 1, totalQuestions: 1, correctQuestions: 0,
+            durationSeconds: 12, typeStats: [{ type: 'MEANING_RECOGNITION', total: 1, correct: 0 }],
+            weakWords: ['adapt'],
+          };
+          const historyJourneyReview = {
+            id: 'plan-review-journey', status: 'COMPLETED',
+            words: [{
+              id: 'book-b-word-1', word: 'adapt', result: false, selectedAnswer: ['拒绝'],
+              question: {
+                type: 'MEANING_RECOGNITION', prompt: 'In the sentence, what does “adapt” mean?',
+                correctAnswers: ['适应'], explanation: 'adapt 表示适应新的情况或环境。',
+              },
+            }],
+          };
           window.planCreateResponse = {
             ...makePlan(0),
             id: 'plan-book-b',
@@ -329,6 +346,10 @@ test(
               window.defaultBook = bookActivation[0] === 'book-b'
                 ? { id: 'book-b', title: 'Book B', totalWords: 20 }
                 : { id: 'book-a', title: 'Book A', totalWords: 10 };
+              window.learningBooks = window.learningBooks.map((book) => ({
+                ...book,
+                isDefault: book.id === bookActivation[0],
+              }));
               return Response.json(window.defaultBook);
             }
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
@@ -349,6 +370,14 @@ test(
                 : { defaultNewWordCount: 1, reviewWords: [], newWords: [{ id: 'word-new', word: 'take', part: 'vt.', meaning: '拿；取' }] });
             }
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
+            if (path.includes('/api/v1/reports/history')) return Response.json({
+              items: [historyJourneyItem], hasMore: false, nextCursor: null,
+              totals: { records: 1, plans: 1, words: 1, questions: 1, correctQuestions: 0, assessments: 0, scenarios: 0 },
+            });
+            if (path.endsWith('/api/v1/study/plans/plan-review-journey/review')) {
+              window.historyJourney.reviewCalls++;
+              return Response.json(historyJourneyReview);
+            }
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], hasMore: false });
             if (path.endsWith('/api/v1/ai/tutor/messages') && method === 'POST') {
               const record = { body: JSON.parse(options.body), aborted: false, cancelled: false };
@@ -2194,14 +2223,44 @@ test(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
       );
       if ((await evaluate('window.defaultBook?.id')) !== 'book-b') {
-        await evaluate('document.querySelector(".switch-book").click()');
+        await send('Emulation.setDeviceMetricsOverride', {
+          width: 390,
+          height: 844,
+          deviceScaleFactor: 1,
+          mobile: true,
+        });
+        await send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+        });
+        await evaluate('document.querySelector(".menu-trigger").focus()');
+        await pressKey('Enter', 'Enter', 13, '\r');
+        await until('document.querySelector(".study-sidebar.is-open")');
+        assert.deepEqual(
+          await evaluate(`({
+            reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            sidebarTransition: getComputedStyle(document.querySelector('.study-sidebar')).transitionDuration,
+            scrimAnimation: getComputedStyle(document.querySelector('.sidebar-scrim')).animationName,
+          })`),
+          { reducedMotion: true, sidebarTransition: '0s', scrimAnimation: 'none' },
+        );
+        await evaluate('document.querySelector(".switch-book").focus()');
+        await pressKey('Enter', 'Enter', 13, '\r');
         await until('document.querySelector(".book-drawer")');
         await until(
           '[...document.querySelectorAll(".book-choice")].some((card) => card.textContent.includes("Book B"))',
         );
         await evaluate(
-          '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book B")).querySelector("button").click()',
+          '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book B")).querySelector("button").focus()',
         );
+        await pressKey('Enter', 'Enter', 13, '\r');
+        await until('window.defaultBook?.id === "book-b"');
+        await pressKey('Escape', 'Escape', 27);
+        await until('document.querySelector(".book-drawer") === null');
+        await evaluate(
+          '[...document.querySelectorAll(".study-sidebar .nav-item.nav-button")].find((button) => button.textContent.includes("词环")).focus()',
+        );
+        await pressKey('Enter', 'Enter', 13, '\r');
+        await until('!document.querySelector(".study-sidebar.is-open")');
       }
       await until(
         'document.querySelector(".words-load-error") || [...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
@@ -2315,6 +2374,75 @@ test(
         ),
         ['适应', '拒绝'],
       );
+
+      // Continue the same fixture journey through a keyboard answer and a
+      // narrow-screen history review. The history item represents a previously
+      // completed session; API persistence remains covered by isolated tests.
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await evaluate('document.querySelector(".lesson-page .answer-options button").focus()');
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('document.querySelector(".lesson-page .answer-options button.selected")');
+      const mobileLessonLayout = await evaluate(`({
+        viewport: document.documentElement.clientWidth,
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        selectedAnswer: document.querySelector('.lesson-page .answer-options button.selected')?.textContent.trim(),
+      })`);
+      assert.equal(
+        mobileLessonLayout.document,
+        mobileLessonLayout.viewport,
+        JSON.stringify(mobileLessonLayout),
+      );
+      assert.equal(
+        mobileLessonLayout.body,
+        mobileLessonLayout.viewport,
+        JSON.stringify(mobileLessonLayout),
+      );
+      assert.equal(mobileLessonLayout.selectedAnswer, '适应');
+      await evaluate('document.querySelector(".menu-trigger").focus()');
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('document.querySelector(".study-sidebar.is-open")');
+      await evaluate(
+        '[...document.querySelectorAll(".study-sidebar .nav-item.nav-button")].find((button) => button.textContent.includes("学习历史")).focus()',
+      );
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('document.querySelector(".learning-history-page h1")');
+      await until('document.querySelector(".learning-history-card.is-plan")');
+      await evaluate('document.querySelector(".history-details-toggle").focus()');
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('document.querySelector(".history-question-review")');
+      await evaluate('document.querySelector(".history-review-button").focus()');
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('document.querySelector(".history-review-question")');
+      assert.equal(await evaluate('window.historyJourney.reviewCalls'), 1);
+      assert.equal(
+        await evaluate('document.body.innerText.includes("adapt 表示适应新的情况或环境")'),
+        true,
+      );
+      const mobileHistoryLayout = await evaluate(`({
+        viewport: document.documentElement.clientWidth,
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        review: document.querySelector('.history-review-list')?.getBoundingClientRect().width ?? 0,
+      })`);
+      assert.equal(
+        mobileHistoryLayout.document,
+        mobileHistoryLayout.viewport,
+        JSON.stringify(mobileHistoryLayout),
+      );
+      assert.equal(
+        mobileHistoryLayout.body,
+        mobileHistoryLayout.viewport,
+        JSON.stringify(mobileHistoryLayout),
+      );
+      assert.ok(mobileHistoryLayout.review > 0, JSON.stringify(mobileHistoryLayout));
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(`keyboard learning journey: 390px picker → practice answer → history review`);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

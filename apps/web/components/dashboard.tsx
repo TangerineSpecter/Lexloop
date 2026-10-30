@@ -1920,45 +1920,128 @@ function BookPicker({
   const [category, setCategory] = useState<string>();
   const [message, setMessage] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [learningStatus, setLearningStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [catalogError, setCatalogError] = useState('');
+  const [learningError, setLearningError] = useState('');
+  const catalogRequestRef = useRef(0);
+  const learningRequestRef = useRef(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const load = async (selectedCategory?: string) => {
-    try {
-      const [nextCatalog, nextLearning] = await Promise.all([
-        request<VocabularyCatalog>(
-          `/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`,
-          {},
-          session.accessToken,
-        ),
-        request<VocabularyBookCard[]>('/vocabulary/learning', {}, session.accessToken),
-      ]);
-      setCatalog(nextCatalog);
-      setLearning(nextLearning);
-      setMessage('');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '词表加载失败');
+    const catalogRequest = ++catalogRequestRef.current;
+    const learningRequest = ++learningRequestRef.current;
+    setCatalogStatus('loading');
+    setLearningStatus('loading');
+    setCatalogError('');
+    setLearningError('');
+
+    const [catalogResult, learningResult] = await Promise.allSettled([
+      request<VocabularyCatalog>(
+        `/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`,
+        {},
+        session.accessToken,
+      ),
+      request<VocabularyBookCard[]>('/vocabulary/learning', {}, session.accessToken),
+    ]);
+    if (catalogRequestRef.current === catalogRequest) {
+      if (catalogResult.status === 'fulfilled') {
+        setCatalog(catalogResult.value);
+        setCatalogStatus('ready');
+      } else {
+        setCatalogError(
+          catalogResult.reason instanceof Error ? catalogResult.reason.message : '词表加载失败',
+        );
+        setCatalogStatus('error');
+      }
+    }
+    if (learningRequestRef.current === learningRequest) {
+      if (learningResult.status === 'fulfilled') {
+        setLearning(learningResult.value);
+        setLearningStatus('ready');
+      } else {
+        setLearningError(
+          learningResult.reason instanceof Error ? learningResult.reason.message : '词表加载失败',
+        );
+        setLearningStatus('error');
+      }
     }
   };
   const loadCatalog = async (selectedCategory?: string) => {
+    const requestId = ++catalogRequestRef.current;
+    setCatalogStatus('loading');
+    setCatalogError('');
     try {
-      setCatalog(
-        await request<VocabularyCatalog>(
-          `/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`,
-          {},
-          session.accessToken,
-        ),
+      const nextCatalog = await request<VocabularyCatalog>(
+        `/vocabulary/system${selectedCategory ? `?category=${selectedCategory}` : ''}`,
+        {},
+        session.accessToken,
       );
-      setMessage('');
+      if (catalogRequestRef.current !== requestId) return;
+      setCatalog(nextCatalog);
+      setCatalogStatus('ready');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '词表加载失败');
+      if (catalogRequestRef.current !== requestId) return;
+      setCatalogError(error instanceof Error ? error.message : '词表加载失败');
+      setCatalogStatus('error');
     }
   };
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const scrollPosition = { x: window.scrollX, y: window.scrollY };
+    headingRef.current?.focus({ preventScroll: true });
+
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter(
+        (element) =>
+          element.getClientRects().length > 0 && element.getAttribute('aria-hidden') !== 'true',
+      );
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && activeIndex <= 0) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && (activeIndex === -1 || activeIndex === focusable.length - 1)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
     };
-    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('keydown', handleDialogKeyDown);
     void load();
-    return () => document.removeEventListener('keydown', closeOnEscape);
-    // The dialog is intentionally loaded once per opening; category switches call load explicitly.
+    return () => {
+      document.removeEventListener('keydown', handleDialogKeyDown);
+      catalogRequestRef.current++;
+      learningRequestRef.current++;
+      const fallback =
+        document.querySelector<HTMLElement>('.learning-tabs [role="tab"][aria-selected="true"]') ??
+        document.querySelector<HTMLElement>('.switch-book');
+      const returnTarget = opener?.isConnected && !opener.matches(':disabled') ? opener : fallback;
+      returnTarget?.focus({ preventScroll: true });
+      if (window.scrollX !== scrollPosition.x || window.scrollY !== scrollPosition.y) {
+        window.scrollTo({ left: scrollPosition.x, top: scrollPosition.y, behavior: 'instant' });
+      }
+    };
+    // The dialog loads once per opening; category changes retry the catalog separately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, session.accessToken]);
   const activate = async (book: VocabularyBookCard, action: 'start' | 'continue') => {
@@ -1992,10 +2075,19 @@ function BookPicker({
   };
 
   return (
-    <div className="book-drawer" role="dialog" aria-modal="true" aria-label="选择词表">
+    <div
+      className="book-drawer"
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="book-picker-title"
+      tabIndex={-1}
+    >
       <header>
         <div>
-          <h2>选择词表</h2>
+          <h2 id="book-picker-title" ref={headingRef} tabIndex={-1}>
+            选择词表
+          </h2>
           <p>请选择一个词表开始您的学习之旅。</p>
         </div>
         <button onClick={onClose} aria-label="关闭">
@@ -2004,13 +2096,17 @@ function BookPicker({
       </header>
       <div className="book-tabs">
         <button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>
-          学习中（{learning.length}）
+          学习中（{learningStatus === 'ready' ? learning.length : '…'}）
         </button>
         <button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>
           我的词表
         </button>
         <button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>
-          系统词表（{catalog.categories.reduce((sum, item) => sum + item.count, 0)}）
+          系统词表（
+          {catalogStatus === 'ready'
+            ? catalog.categories.reduce((sum, item) => sum + item.count, 0)
+            : '…'}
+          ）
         </button>
       </div>
       {message && <p className="book-message">{message}</p>}
@@ -2018,6 +2114,9 @@ function BookPicker({
         <BookCards
           cards={learning}
           busyId={busyId}
+          status={learningStatus}
+          error={learningError}
+          onRetry={() => void load()}
           showProgress
           onActivate={(book) => activate(book, 'continue')}
         />
@@ -2053,6 +2152,9 @@ function BookPicker({
           <BookCards
             cards={catalog.books}
             busyId={busyId}
+            status={catalogStatus}
+            error={catalogError}
+            onRetry={() => void loadCatalog(category)}
             onActivate={(book) => activate(book, 'start')}
           />
         </div>
@@ -2064,14 +2166,38 @@ function BookPicker({
 function BookCards({
   cards,
   busyId,
+  status = 'ready',
+  error = '',
+  onRetry,
   showProgress = false,
   onActivate,
 }: {
   cards: VocabularyBookCard[];
   busyId: string | null;
+  status?: 'loading' | 'ready' | 'error';
+  error?: string;
+  onRetry?: () => void;
   showProgress?: boolean;
   onActivate: (book: VocabularyBookCard) => void;
 }) {
+  if (status === 'loading')
+    return (
+      <div className="book-empty book-load-state" role="status">
+        <strong>正在加载词表…</strong>
+      </div>
+    );
+  if (status === 'error')
+    return (
+      <div className="book-empty book-load-state" role="alert">
+        <strong>词表加载失败</strong>
+        <p>{error || '请检查网络后重试。'}</p>
+        {onRetry && (
+          <button type="button" onClick={onRetry}>
+            重试
+          </button>
+        )}
+      </div>
+    );
   if (!cards.length)
     return (
       <div className="book-empty">
@@ -2124,6 +2250,7 @@ function BookCards({
             </div>
             <button
               className={book.isDefault ? 'current' : ''}
+              aria-label={`${book.isDefault ? '当前词表' : showProgress ? '切换到词表' : '开始学习'}：${book.title}`}
               disabled={busyId === book.id || book.isDefault}
               onClick={() => onActivate(book)}
             >

@@ -6421,6 +6421,16 @@ button {
     transform: none;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .book-drawer,
+  .book-drawer *,
+  .book-drawer *::before,
+  .book-drawer *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
 .settings-page {
   width: min(1220px, calc(100% - 72px));
   margin: 0 auto;

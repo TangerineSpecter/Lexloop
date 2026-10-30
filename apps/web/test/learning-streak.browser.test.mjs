@@ -90,6 +90,23 @@ test(
         }
         assert.fail(`Timed out waiting for ${expression}`);
       };
+      const pressKey = async (key, code, windowsVirtualKeyCode, modifiers = 0) => {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key,
+          code,
+          windowsVirtualKeyCode,
+          ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}),
+          ...(modifiers ? { modifiers } : {}),
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key,
+          code,
+          windowsVirtualKeyCode,
+          ...(modifiers ? { modifiers } : {}),
+        });
+      };
       const capture = async (name) => {
         if (!screenshotDir) return;
         await mkdir(screenshotDir, { recursive: true });
@@ -165,6 +182,17 @@ test(
         },
       };
       window.bookPickerRequests = [];
+      window.bookPickerFixture = {
+        hold: new URL(location.href).searchParams.has('book-picker-loading'),
+        failLearning: false,
+        bookTitle: '2026 年新课标初中英语日常交流与主题阅读综合词汇训练词表',
+        learningBooks: [],
+        resolvers: [],
+        releaseAll() {
+          this.hold = false;
+          for (const item of this.resolvers.splice(0)) item.resolve(Response.json(item.body));
+        },
+      };
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
@@ -186,17 +214,26 @@ test(
         }
         if (path.includes('/api/v1/vocabulary/system')) {
           window.bookPickerRequests.push('system');
-          return Response.json({
+          const body = {
             categories: [{ key: 'general', label: '通用', count: 1 }],
-            books: [{ id: 'starter-book', category: 'general', categoryLabel: '通用', title: '入门词表', publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
-          });
+            books: [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: window.bookPickerFixture.bookTitle, publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
+          };
+          if (window.bookPickerFixture.hold) {
+            return new Promise((resolve) => window.bookPickerFixture.resolvers.push({ resolve, body }));
+          }
+          return Response.json(body);
         }
         if (path.endsWith('/api/v1/vocabulary/learning')) {
           window.bookPickerRequests.push('learning');
-          return Response.json([]);
+          if (window.bookPickerFixture.hold) {
+            return new Promise((resolve) => window.bookPickerFixture.resolvers.push({ resolve, body: [] }));
+          }
+          if (window.bookPickerFixture.failLearning) return Response.json({ message: '学习词表暂时不可用' }, { status: 503 });
+          return Response.json(window.bookPickerFixture.learningBooks);
         }
         if (path.endsWith('/api/v1/vocabulary/books/starter-book/start') && options.method === 'POST') {
-          window.defaultBookFixture.book = { id: 'starter-book', title: '入门词表', totalWords: 300 };
+          window.defaultBookFixture.book = { id: 'starter-book', title: window.bookPickerFixture.bookTitle, totalWords: 300 };
+          window.bookPickerFixture.learningBooks = [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: window.bookPickerFixture.bookTitle, publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: true, isDefault: true }];
           return Response.json(window.defaultBookFixture.book);
         }
         if (path.includes('/api/v1/vocabulary/progress-summary')) {
@@ -232,7 +269,9 @@ test(
     `,
       });
 
-      await send('Page.navigate', { url: new URL('/dashboard?new-user=1', baseUrl).href });
+      await send('Page.navigate', {
+        url: new URL('/dashboard?new-user=1&book-picker-loading=1', baseUrl).href,
+      });
       await until('document.querySelector(".streak-count b")?.textContent === "4"');
       await until('document.body.textContent.includes("今天还没有已完成的学习活动")');
       await until(
@@ -299,23 +338,185 @@ test(
         JSON.stringify(newLearnerPromptMobile),
       );
       await capture('new-learner-no-book-mobile.png');
-      await evaluate('document.querySelector(".book-selection-prompt button").click()');
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await evaluate('document.querySelector(".book-selection-prompt button").focus()');
+      const bookPickerScrollBeforeOpen = await evaluate('window.scrollY');
+      await pressKey('Enter', 'Enter', 13);
       await until('document.querySelector(".book-drawer")');
       assert.equal(
-        await evaluate('document.querySelector(".book-drawer").getAttribute("aria-label")'),
-        '选择词表',
+        await evaluate('document.querySelector(".book-drawer").getAttribute("aria-labelledby")'),
+        'book-picker-title',
       );
-      await evaluate(
-        '[...document.querySelectorAll(".book-tabs button")].find((button) => button.textContent.includes("系统词表")).click()',
+      await until('window.bookPickerFixture.resolvers.length === 2');
+      assert.deepEqual(
+        await evaluate(`({
+          focusedHeading: document.activeElement === document.querySelector('#book-picker-title'),
+          loading: document.querySelector('.book-drawer [role=status]')?.textContent.trim(),
+          hasEmpty: Boolean(document.querySelector('.book-drawer .book-empty:not(.book-load-state)')),
+          learningCount: [...document.querySelectorAll('.book-tabs button')][0]?.textContent.trim(),
+          systemCount: [...document.querySelectorAll('.book-tabs button')][2]?.textContent.replace(/\\s+/g, ' ').trim(),
+          animation: getComputedStyle(document.querySelector('.book-drawer')).animationName,
+          runningAnimations: document.querySelector('.book-drawer').getAnimations().filter(item => item.playState !== 'finished').length,
+          reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+          closeTransition: getComputedStyle(document.querySelector('.book-drawer header > button')).transitionDuration,
+        })`),
+        {
+          focusedHeading: true,
+          loading: '正在加载词表…',
+          hasEmpty: false,
+          learningCount: '学习中（…）',
+          systemCount: '系统词表（…）',
+          animation: 'none',
+          runningAnimations: 0,
+          reducedMotion: true,
+          closeTransition: '0s',
+        },
       );
-      await until('document.querySelector(".book-choice")?.textContent.includes("入门词表")');
-      assert.deepEqual(await evaluate('window.bookPickerRequests'), ['system', 'learning']);
-      await evaluate('document.querySelector(".book-choice button").click()');
+      assert.equal(await evaluate('window.scrollY'), bookPickerScrollBeforeOpen);
+      await pressKey('Tab', 'Tab', 9, 8);
+      assert.equal(
+        await evaluate('document.activeElement.textContent.includes("系统词表")'),
+        true,
+        'Shift+Tab from the dialog heading wraps to the last available control',
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '关闭',
+        'Tab from the final tab stays inside the dialog',
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(await evaluate('document.activeElement.textContent.includes("学习中")'), true);
+      await evaluate('window.bookPickerFixture.releaseAll()');
+      await until(
+        'document.querySelector(".book-empty")?.textContent.includes("还没有可展示的词表")',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".book-drawer [role=status]") === null'),
+        true,
+      );
+      await pressKey('Tab', 'Tab', 9);
+      await pressKey('Tab', 'Tab', 9);
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.querySelector(".book-choice")');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const bookChoiceDesktopLayout = await evaluate(`(() => {
+        const drawer = document.querySelector('.book-drawer').getBoundingClientRect();
+        const card = document.querySelector('.book-choice').getBoundingClientRect();
+        const action = document.querySelector('.book-choice button').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          drawerLeft: drawer.left, drawerRight: drawer.right,
+          cardLeft: card.left, cardRight: card.right, actionRight: action.right };
+      })()`);
+      assert.ok(
+        bookChoiceDesktopLayout.viewport === 1440 &&
+          bookChoiceDesktopLayout.page <= 1440 &&
+          bookChoiceDesktopLayout.drawerLeft >= 0 &&
+          bookChoiceDesktopLayout.drawerRight <= 1440 &&
+          bookChoiceDesktopLayout.cardLeft >= 0 &&
+          bookChoiceDesktopLayout.cardRight <= 1440 &&
+          bookChoiceDesktopLayout.actionRight <= bookChoiceDesktopLayout.cardRight,
+        JSON.stringify(bookChoiceDesktopLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('innerWidth === 390');
+      assert.equal(await evaluate('document.activeElement.textContent.includes("系统词表")'), true);
+      await pressKey('Enter', 'Enter', 13);
+      await until(
+        'document.querySelector(".book-choice")?.textContent.includes(window.bookPickerFixture.bookTitle)',
+      );
+      const bookChoiceLayout = await evaluate(`(() => {
+        const drawer = document.querySelector('.book-drawer').getBoundingClientRect();
+        const card = document.querySelector('.book-choice').getBoundingClientRect();
+        const title = document.querySelector('.book-choice strong');
+        const action = document.querySelector('.book-choice button');
+        const chips = [...document.querySelectorAll('.book-choice-tags span')];
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          drawerLeft: drawer.left,
+          drawerRight: drawer.right,
+          cardLeft: card.left,
+          cardRight: card.right,
+          actionRight: action.getBoundingClientRect().right,
+          titleIsEllipsized: title.scrollWidth > title.clientWidth,
+          titleTooltip: title.title,
+          actionName: action.getAttribute('aria-label'),
+          chipsFit: chips.every((chip) => chip.getBoundingClientRect().right <= card.right),
+        };
+      })()`);
+      assert.ok(
+        bookChoiceLayout.viewport === 390 &&
+          bookChoiceLayout.page <= 390 &&
+          bookChoiceLayout.drawerLeft >= 0 &&
+          bookChoiceLayout.drawerRight <= 390 &&
+          bookChoiceLayout.cardLeft >= 0 &&
+          bookChoiceLayout.cardRight <= 390 &&
+          bookChoiceLayout.actionRight <= bookChoiceLayout.cardRight &&
+          bookChoiceLayout.titleIsEllipsized &&
+          bookChoiceLayout.titleTooltip ===
+            (await evaluate('window.bookPickerFixture.bookTitle')) &&
+          bookChoiceLayout.actionName ===
+            `开始学习：${await evaluate('window.bookPickerFixture.bookTitle')}` &&
+          bookChoiceLayout.chipsFit,
+        JSON.stringify(bookChoiceLayout),
+      );
+      assert.equal(await evaluate('document.activeElement.textContent.includes("系统词表")'), true);
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(await evaluate('document.activeElement.getAttribute("role")'), 'tab');
+      assert.equal(await evaluate('document.activeElement.textContent.includes("通用")'), true);
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        `开始学习：${await evaluate('window.bookPickerFixture.bookTitle')}`,
+      );
+      await pressKey('Tab', 'Tab', 9, 8);
+      assert.equal(await evaluate('document.activeElement.textContent.includes("通用")'), true);
+      await pressKey('Tab', 'Tab', 9);
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '关闭',
+        'Tab from the final card action wraps back to the first dialog control',
+      );
+      await pressKey('Tab', 'Tab', 9, 8);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        `开始学习：${await evaluate('window.bookPickerFixture.bookTitle')}`,
+      );
+      await pressKey('Enter', 'Enter', 13);
       await until('window.defaultBookFixture.book?.id === "starter-book"');
       await until('document.querySelector(".book-choice button.current")');
-      await evaluate('document.querySelector(".book-drawer header button").click()');
+      await until('document.querySelector(".book-selection-prompt") === null');
+      await pressKey('Escape', 'Escape', 27);
       await until('document.querySelector(".book-drawer") === null');
       await until('document.querySelector(".word-row strong")?.textContent === "begin"');
+      const focusAfterBookSelection = await evaluate(`(() => ({
+        tag: document.activeElement?.tagName,
+        className: document.activeElement?.className,
+        text: document.activeElement?.textContent?.trim(),
+        selectedTab: document.querySelector('.learning-tabs [role=tab][aria-selected=true]')?.textContent.trim(),
+        promptExists: Boolean(document.querySelector('.book-selection-prompt')),
+      }))()`);
+      assert.ok(
+        await evaluate(
+          'document.activeElement.matches(".learning-tabs [role=tab][aria-selected=true]")',
+        ),
+        `when the new-user trigger disappears, focus returns to the selected learning tab: ${JSON.stringify(focusAfterBookSelection)}`,
+      );
+      assert.equal(await evaluate('window.scrollY'), bookPickerScrollBeforeOpen);
       assert.equal(
         await evaluate('document.querySelector(".book-selection-prompt") === null'),
         true,
@@ -325,6 +526,44 @@ test(
         'system',
         'learning',
         'system',
+      ]);
+      await evaluate(`window.bookPickerFixture.failLearning = true;
+        document.querySelector('.switch-book').focus();`);
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.querySelector(".book-drawer [role=alert]")');
+      assert.deepEqual(
+        await evaluate(`({
+          error: document.querySelector('.book-drawer [role=alert]').textContent.includes('学习词表暂时不可用'),
+          empty: Boolean(document.querySelector('.book-drawer .book-empty:not([role=alert])')),
+          retry: document.querySelector('.book-drawer [role=alert] button')?.textContent.trim(),
+        })`),
+        { error: true, empty: false, retry: '重试' },
+      );
+      await evaluate(`window.bookPickerFixture.failLearning = false;
+        document.querySelector('.book-drawer [role=alert] button').click();`);
+      await until(
+        'document.querySelector(".book-choice")?.textContent.includes(window.bookPickerFixture.bookTitle)',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".book-drawer [role=alert]") === null'),
+        true,
+      );
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector(".book-drawer") === null');
+      assert.equal(
+        await evaluate('document.activeElement.matches(".switch-book")'),
+        true,
+        'the switch-book trigger receives focus after closing',
+      );
+      await send('Emulation.setEmulatedMedia', { features: [] });
+      assert.deepEqual(await evaluate('window.bookPickerRequests'), [
+        'system',
+        'learning',
+        'system',
+        'system',
+        'learning',
+        'system',
+        'learning',
       ]);
       await send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
