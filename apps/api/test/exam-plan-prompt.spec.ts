@@ -54,7 +54,11 @@ describe('exam study plans', () => {
 
   it('creates an exam plan with target question types instead of rejecting the mode', async () => {
     const tx = {
-      $queryRaw: vi.fn(),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'bw-1' }, { id: 'bw-2' }]),
       studyPlan: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'plan-exam' }),
@@ -116,7 +120,10 @@ describe('exam study plans', () => {
 
   it('selects mistake words for an individual plan instead of the daily queue', async () => {
     const tx = {
-      $queryRaw: vi.fn(),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ bookWordId: 'mistake-1' }, { bookWordId: 'mistake-2' }]),
       studyPlan: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'plan-individual' }),
@@ -150,6 +157,8 @@ describe('exam study plans', () => {
     } as never);
 
     await service.createPlan('user-1', 10, 'individual', 0, 'mistakes');
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.weaknessSignal.findMany).not.toHaveBeenCalled();
     expect(tx.userWordProgress.findMany).not.toHaveBeenCalled();
     expect(tx.vocabularyBookWord.findMany).not.toHaveBeenCalled();
     const createdItems = tx.studyPlanItem.createMany.mock.calls[0][0].data as Array<{

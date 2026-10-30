@@ -58,6 +58,7 @@ import {
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
+import { hasUsableWordMeaning } from '../lib/word-meaning-availability';
 import { speakEnglish } from './english-audio-controls';
 import { findTargetWordMatches } from '../lib/target-word-highlighting';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
@@ -2757,6 +2758,11 @@ function WordsPanel({
     );
   };
   const reviewCount = visibleDashboardWords.reviewWords.length;
+  const reviewCandidateWords = visibleDashboardWords.reviewWords.filter(hasUsableWordMeaning);
+  const reviewCandidateCount = reviewCandidateWords.length;
+  const missingReviewMeaningCount = reviewCount - reviewCandidateCount;
+  const newWordCandidates = visibleDashboardWords.newWords.filter(hasUsableWordMeaning);
+  const missingNewMeaningCount = visibleDashboardWords.newWords.length - newWordCandidates.length;
   const reviewWordsWithIds = useMemo(
     () =>
       visibleDashboardWords.reviewWords.filter(
@@ -2764,7 +2770,7 @@ function WordsPanel({
       ),
     [visibleDashboardWords.reviewWords],
   );
-  const reviewLimit = Math.min(reviewCount, MAX_DAILY_REVIEW_WORDS);
+  const reviewLimit = Math.min(reviewCandidateCount, MAX_DAILY_REVIEW_WORDS);
   const existingReviewCount =
     existingPlan?.words.filter((word) => word.source === 'REVIEW').length ?? 0;
   const existingNewWordCount =
@@ -2777,9 +2783,7 @@ function WordsPanel({
         : reviewLimit,
     existingPlan ? existingReviewCount : reviewLimit,
   );
-  const selectedNewWordCount = existingPlan
-    ? existingNewWordCount
-    : visibleDashboardWords.newWords.length;
+  const selectedNewWordCount = existingPlan ? existingNewWordCount : newWordCandidates.length;
   const totalWordCount = existingPlan
     ? existingPlan.wordCount
     : selectedReviewCount + selectedNewWordCount;
@@ -2806,7 +2810,7 @@ function WordsPanel({
                   reviewWordCount: 0,
                 }
               : {
-                  newWordCount: visibleDashboardWords.newWords.length,
+                  newWordCount: newWordCandidates.length,
                   reviewWordCount: selectedReviewCount,
                   mode,
                 },
@@ -2889,7 +2893,7 @@ function WordsPanel({
               (!existingPlan && mode !== 'individual' && !bookWordsReady) ||
               (!existingPlan &&
                 mode !== 'individual' &&
-                !visibleDashboardWords.newWords.length &&
+                !newWordCandidates.length &&
                 selectedReviewCount === 0)
             }
           >
@@ -2982,31 +2986,48 @@ function WordsPanel({
         </div>
       ) : mode !== 'individual' && reviewCount > 0 ? (
         <div className="review-session-control">
-          <label htmlFor="review-session-count">本次复习数量</label>
-          <input
-            id="review-session-count"
-            aria-label="本次复习数量"
-            type="range"
-            min={0}
-            max={reviewLimit}
-            step={1}
-            value={selectedReviewCount}
-            onChange={(event) =>
-              setReviewSelection({ scope: reviewScope, count: Number(event.target.value) })
-            }
-          />
-          <output htmlFor="review-session-count">
-            {selectedReviewCount} / {reviewCount} 个到期
-          </output>
+          {reviewCandidateCount > 0 ? (
+            <>
+              <label htmlFor="review-session-count">本次复习数量</label>
+              <input
+                id="review-session-count"
+                aria-label="本次复习数量"
+                type="range"
+                min={0}
+                max={reviewLimit}
+                step={1}
+                value={selectedReviewCount}
+                onChange={(event) =>
+                  setReviewSelection({ scope: reviewScope, count: Number(event.target.value) })
+                }
+              />
+              <output htmlFor="review-session-count">
+                {selectedReviewCount} / {reviewCandidateCount} 个可练；共 {reviewCount} 个到期
+              </output>
+            </>
+          ) : (
+            <strong>没有带可用释义的到期词候选</strong>
+          )}
           <p aria-live="polite">
-            {reviewCount > selectedReviewCount
-              ? `${reviewCount - selectedReviewCount} 个仍待复习，可留到下一次计划。`
-              : '本次会安排当前全部到期词。'}
+            {reviewCandidateCount > selectedReviewCount
+              ? `${reviewCandidateCount - selectedReviewCount} 个有可用释义的到期词留到下一次计划。`
+              : reviewCandidateCount > 0
+                ? '本次会安排当前全部有可用释义的到期词。'
+                : '当前到期词仍在列表和原排期中，不会因缺少释义而被移除或计作已复习。'}
+            {missingReviewMeaningCount > 0 &&
+              `另有 ${missingReviewMeaningCount} 个到期词缺少可用释义，不计入本次计划。`}
             {reviewCount > MAX_DAILY_REVIEW_WORDS &&
-              ` 每份计划最多安排 ${MAX_DAILY_REVIEW_WORDS} 个复习词。`}
+              ` 每份计划最多安排 ${MAX_DAILY_REVIEW_WORDS} 个有可用释义的复习词。`}
           </p>
         </div>
       ) : null}
+      {!existingPlan && mode !== 'individual' && missingNewMeaningCount > 0 && (
+        <p className="review-session-control" role="status">
+          当前展示的 {visibleDashboardWords.newWords.length} 个新词中，{newWordCandidates.length}{' '}
+          个有可用释义；另有 {missingNewMeaningCount}{' '}
+          个暂不进入计划候选，但仍保留在词表中，不会计作已学。
+        </p>
+      )}
       {bookWordsReady &&
         bookId &&
         reviewWordsWithIds.length > 0 &&
@@ -3015,6 +3036,7 @@ function WordsPanel({
             key={session.user.id}
             userId={session.user.id}
             words={reviewWordsWithIds}
+            onChooseBook={onChooseBook}
           />
         )}
       {message && <p className="book-message">{message}</p>}

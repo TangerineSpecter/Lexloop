@@ -274,9 +274,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           } as never,
           new MistakesService(prisma as never),
         );
-        await expect(study.createPlan(users[0].id, 1)).rejects.toThrow(
-          '当前没有可加入学习计划的单词',
-        );
+        await expect(study.createPlan(users[0].id, 1)).rejects.toThrow('没有带可用释义的单词');
         expect(
           await prisma.studyPlan.count({
             where: { userId: users[0].id, purpose: 'NORMAL' },

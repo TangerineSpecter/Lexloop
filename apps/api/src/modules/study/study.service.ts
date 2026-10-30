@@ -125,6 +125,33 @@ type StudyPlanWithItems = Prisma.StudyPlanGetPayload<{
   include: ReturnType<typeof studyPlanInclude>;
 }>;
 
+const usableBookWordMeaning = Prisma.sql`
+  NULLIF(
+    BTRIM(
+      REGEXP_REPLACE(
+        COALESCE(bw."contextMeaning", w."meaning"),
+        '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
+        '',
+        'i'
+      )
+    ),
+    ''
+  ) IS NOT NULL
+  AND LOWER(BTRIM(REGEXP_REPLACE(
+    COALESCE(bw."contextMeaning", w."meaning"),
+    '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
+    '',
+    'i'
+  ))) NOT IN ('无', '暂无释义')
+`;
+
+function hasUsableMeaning(raw: string | null | undefined) {
+  return lexicalFields(raw).meanings.some((line) => {
+    const value = line.text.trim();
+    return value.length > 0 && value !== '无' && value !== '暂无释义';
+  });
+}
+
 class StudyGroupCompletionAlreadyClaimed extends Error {}
 class StudyPlanGenerationSuperseded extends Error {}
 
@@ -197,7 +224,11 @@ export class StudyService {
             requestedReviewWordCount,
           );
       const ids = selection ? picked.orderedIds : shuffle(picked.orderedIds);
-      if (!ids.length) throw new BadRequestException('当前没有可加入学习计划的单词');
+      if (!ids.length) {
+        throw new BadRequestException(
+          '当前选择范围没有带可用释义的单词；未创建计划，词条和复习排期未更改。请补充释义、调整选词来源或选择其他词表。',
+        );
+      }
       const groups = buildGroups(ids, mode);
       const created = await tx.studyPlan.create({
         data: {
@@ -229,7 +260,7 @@ export class StudyService {
   }
 
   async generatePlan(userId: string, planId: string) {
-    const plan = await this.prisma.studyPlan.findFirst({
+    let plan = await this.prisma.studyPlan.findFirst({
       where: { id: planId, userId },
       include: {
         items: {
@@ -257,6 +288,34 @@ export class StudyService {
       },
     });
     if (!claim.count) return this.serializePlan(planId, userId);
+    const claimedPlan = await this.prisma.studyPlan.findFirst({
+      where: { id: planId, userId },
+      include: {
+        items: {
+          orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
+          include: { bookWord: { include: { word: true } } },
+        },
+      },
+    });
+    if (!claimedPlan) throw new NotFoundException('学习计划不存在');
+    plan = claimedPlan;
+    const missingMeaningItems = plan.items.filter(
+      (item) => !hasUsableMeaning(item.bookWord.contextMeaning ?? item.bookWord.word.meaning),
+    );
+    if (missingMeaningItems.length) {
+      const message =
+        `${missingMeaningItems.length} 个词目前没有可用释义，未生成练习内容；` +
+        '计划中的词条和复习排期未更改。补充释义后可重试，或创建其他计划。';
+      await this.prisma.studyPlan.updateMany({
+        where: { id: planId, userId, status: StudyPlanStatus.GENERATING, generationStartedAt },
+        data: {
+          status: StudyPlanStatus.FAILED,
+          generationStartedAt: null,
+          generationError: message,
+        },
+      });
+      return this.serializePlan(planId, userId);
+    }
     const grouped = plan.items.reduce((result, item) => {
       const current = result.get(item.groupIndex) ?? [];
       current.push(item);
@@ -1094,17 +1153,22 @@ async function selectDailyWords(
   requestedReviewWordCount?: number,
 ): Promise<PlanWordPick> {
   const [review, defaultBook] = await Promise.all([
-    tx.userWordProgress.findMany({
-      where: {
-        userId,
-        state: WordProgressState.REVIEWING,
-        nextReviewAt: { lte: new Date() },
-        bookWord: { word: { masteredBy: { none: { userId } } } },
-      },
-      orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }, { bookWordId: 'asc' }],
-      take: requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS,
-      select: { bookWordId: true },
-    }),
+    tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
+      SELECT progress."bookWordId" AS "bookWordId"
+      FROM "UserWordProgress" AS progress
+      JOIN "VocabularyBookWord" AS bw ON bw."id" = progress."bookWordId"
+      JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
+      WHERE progress."userId" = ${userId}
+        AND progress."state" = ${WordProgressState.REVIEWING}::"WordProgressState"
+        AND progress."nextReviewAt" <= ${new Date()}
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserMasteredWord" AS mastered
+          WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
+        )
+        AND ${usableBookWordMeaning}
+      ORDER BY progress."nextReviewAt" ASC, progress."lastReviewedAt" ASC, progress."bookWordId" ASC
+      LIMIT ${requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS}
+    `),
     tx.userVocabularyBook.findFirst({
       where: { userId, isDefault: true },
       select: { bookId: true },
@@ -1112,16 +1176,23 @@ async function selectDailyWords(
   ]);
   const reviewIds = review.map((item) => item.bookWordId);
   const newWords = defaultBook
-    ? await tx.vocabularyBookWord.findMany({
-        where: {
-          bookId: defaultBook.bookId,
-          progress: { none: { userId } },
-          word: { masteredBy: { none: { userId } } },
-        },
-        orderBy: { position: 'asc' },
-        take: newWordCount,
-        select: { id: true },
-      })
+    ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT bw."id" AS "id"
+        FROM "VocabularyBookWord" AS bw
+        JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
+        WHERE bw."bookId" = ${defaultBook.bookId}
+          AND NOT EXISTS (
+            SELECT 1 FROM "UserWordProgress" AS progress
+            WHERE progress."userId" = ${userId} AND progress."bookWordId" = bw."id"
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM "UserMasteredWord" AS mastered
+            WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
+          )
+          AND ${usableBookWordMeaning}
+        ORDER BY bw."position" ASC, bw."id" ASC
+        LIMIT ${newWordCount}
+      `)
     : [];
   const newIds = newWords.map((item) => item.id).filter((id) => !reviewIds.includes(id));
   return { orderedIds: [...reviewIds, ...newIds], reviewIds };
@@ -1134,18 +1205,39 @@ async function selectIndividualWords(
   count: number,
 ): Promise<PlanWordPick> {
   if (selection === 'mistakes') {
-    const signals = await tx.weaknessSignal.findMany({
-      where: {
-        userId,
-        status: WeaknessStatus.ACTIVE,
-        bookWord: { word: { masteredBy: { none: { userId } } } },
-      },
-      orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }, { bookWordId: 'asc' }],
-      select: { bookWordId: true },
-      take: 100,
-    });
-    const ids = [...new Set(signals.map((item) => item.bookWordId))].slice(0, count);
-    if (!ids.length) throw new BadRequestException('错题本里还没有可练习的待巩固词');
+    const signals = await tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
+      WITH ranked_signals AS (
+        SELECT
+          signal."bookWordId",
+          signal."wrongCount",
+          signal."lastWrongAt",
+          ROW_NUMBER() OVER (
+            PARTITION BY signal."bookWordId"
+            ORDER BY signal."wrongCount" DESC, signal."lastWrongAt" DESC, signal."questionType" ASC
+          ) AS word_rank
+        FROM "WeaknessSignal" AS signal
+        JOIN "VocabularyBookWord" AS bw ON bw."id" = signal."bookWordId"
+        JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
+        WHERE signal."userId" = ${userId}
+          AND signal."status" = ${WeaknessStatus.ACTIVE}::"WeaknessStatus"
+          AND NOT EXISTS (
+            SELECT 1 FROM "UserMasteredWord" AS mastered
+            WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
+          )
+          AND ${usableBookWordMeaning}
+      )
+      SELECT "bookWordId"
+      FROM ranked_signals
+      WHERE word_rank = 1
+      ORDER BY "wrongCount" DESC, "lastWrongAt" DESC, "bookWordId" ASC
+      LIMIT ${count}
+    `);
+    const ids = signals.map((item) => item.bookWordId);
+    if (!ids.length) {
+      throw new BadRequestException(
+        '错题来源当前没有带可用释义的待练习词；原错题和复习排期未更改，请补充释义或选择其他来源。',
+      );
+    }
     return { orderedIds: ids, reviewIds: ids };
   }
 
@@ -1157,18 +1249,29 @@ async function selectIndividualWords(
 
   let ids: string[] = [];
   if (selection === 'book') {
-    const rows = await tx.vocabularyBookWord.findMany({
-      where: {
-        bookId: defaultBook.bookId,
-        progress: { none: { userId } },
-        word: { masteredBy: { none: { userId } } },
-      },
-      orderBy: { position: 'asc' },
-      take: count,
-      select: { id: true },
-    });
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT bw."id" AS "id"
+      FROM "VocabularyBookWord" AS bw
+      JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
+      WHERE bw."bookId" = ${defaultBook.bookId}
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserWordProgress" AS progress
+          WHERE progress."userId" = ${userId} AND progress."bookWordId" = bw."id"
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserMasteredWord" AS mastered
+          WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
+        )
+        AND ${usableBookWordMeaning}
+      ORDER BY bw."position" ASC, bw."id" ASC
+      LIMIT ${count}
+    `);
     ids = rows.map((row) => row.id);
-    if (!ids.length) throw new BadRequestException('当前默认词书没有还没学过的词');
+    if (!ids.length) {
+      throw new BadRequestException(
+        '当前默认词书没有带可用释义的未学词；原词条和学习进度未更改，请补充释义或选择其他词表。',
+      );
+    }
     return { orderedIds: ids, reviewIds: [] };
   }
 
@@ -1178,6 +1281,7 @@ async function selectIndividualWords(
       FROM "VocabularyBookWord" bw
       JOIN "VocabularyWord" w ON w.id = bw."wordId"
       WHERE bw."bookId" = ${defaultBook.bookId}
+        AND ${usableBookWordMeaning}
         AND NOT EXISTS (
           SELECT 1 FROM "UserMasteredWord" m
           WHERE m."userId" = ${userId} AND m."wordId" = w.id
@@ -1194,6 +1298,7 @@ async function selectIndividualWords(
       LEFT JOIN "UserWordProgress" p
         ON p."bookWordId" = bw.id AND p."userId" = ${userId}
       WHERE bw."bookId" = ${defaultBook.bookId}
+        AND ${usableBookWordMeaning}
         AND NOT EXISTS (
           SELECT 1 FROM "UserMasteredWord" m
           WHERE m."userId" = ${userId} AND m."wordId" = w.id
@@ -1214,7 +1319,11 @@ async function selectIndividualWords(
     `);
     ids = rows.map((row) => row.id);
   }
-  if (!ids.length) throw new BadRequestException('当前默认词书没有可练习的词');
+  if (!ids.length) {
+    throw new BadRequestException(
+      '当前默认词书没有带可用释义的待练习词；原词条和学习进度未更改，请补充释义或选择其他来源。',
+    );
+  }
   const progressed = await tx.userWordProgress.findMany({
     where: { userId, bookWordId: { in: ids } },
     select: { bookWordId: true },

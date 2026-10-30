@@ -159,6 +159,21 @@
   background: #f7faff;
 }
 
+.noCandidates {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 2px dashed var(--border-color);
+  border-radius: 9px;
+  background: #f7faff;
+}
+
+.noCandidates p {
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .resumeCard strong {
   display: block;
   margin-bottom: 4px;
@@ -256,6 +271,15 @@
   .header,
   .sessionMeta {
     align-items: flex-start;
+  }
+
+  .header {
+    flex-wrap: wrap;
+  }
+
+  .dueCount {
+    flex: 0 1 auto;
+    white-space: normal;
   }
 
   .sessionMeta {

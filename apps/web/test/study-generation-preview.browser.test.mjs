@@ -281,7 +281,7 @@ test(
       );
       assert.equal(
         await evaluate(
-          'document.querySelector(".review-session-control p")?.textContent.includes("1 个仍待复习")',
+          'document.querySelector(".review-session-control p")?.textContent.includes("1 个有可用释义的到期词留到下一次计划")',
         ),
         true,
       );

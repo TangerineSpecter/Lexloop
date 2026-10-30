@@ -124,10 +124,13 @@ test(
           const makeDueWords = (userId, changed = false) => {
             const ids = Array.from({ length: userId === 'quick-user-a' ? 12 : 4 }, (_, index) => index + 1);
             if (changed && userId === 'quick-user-a') ids.reverse();
+            const missingMode = localStorage.getItem('fixture.quick-review-missing');
             return ids.map((number) => {
               const id = userId === 'quick-user-a' ? 'a-due-' + String(number).padStart(2, '0') : 'b-due-' + String(number).padStart(2, '0');
               const word = number === 1 && userId === 'quick-user-a' ? 'uncharacteristicallylongwordfornarrowlayout' : 'steady' + number;
-              return { id, word, part: 'adj.', meaning: ('稳定、持续的；释义示例 ' + number + '。').repeat(number === 1 ? 4 : 1), ukPhonetic: '/ˈstedi/' };
+              const missing = missingMode === 'all' || (missingMode === 'mixed' && [1, 3].includes(number));
+              const meaning = missing ? '暂无释义' : ('稳定、持续的；释义示例 ' + number + '。').repeat(number === 1 ? 4 : 1);
+              return { id, word, part: 'adj.', meaning, meanings: missing ? [] : [{ part: 'adj.', text: meaning }], ukPhonetic: '/ˈstedi/' };
             });
           };
           const nativeFetch = window.fetch;
@@ -226,7 +229,7 @@ test(
       );
       await until(
         firstTab,
-        'document.querySelector(".words-panel").innerText.includes("12 个到期词")',
+        'document.querySelector(".words-panel").innerText.includes("到期 12 · 可回想 12")',
         'due-word practice entry',
       );
       const desktopBounds = await firstTab.evaluate(`(() => {
@@ -435,7 +438,7 @@ test(
       await openWords(firstTab);
       await until(
         firstTab,
-        'document.querySelector(".words-panel").innerText.includes("4 个到期词")',
+        'document.querySelector(".words-panel").innerText.includes("到期 4 · 可回想 4")',
         'second account due words',
       );
       assert.equal(
@@ -487,7 +490,7 @@ test(
       await openWords(firstTab);
       await until(
         firstTab,
-        'document.querySelector(".words-panel").innerText.includes("当前到期词顺序已经变化")',
+        'document.querySelector(".words-panel").innerText.includes("当前可回想词候选已经变化")',
         'stale draft notice',
       );
       assert.equal(
@@ -547,7 +550,7 @@ test(
       );
       assert.match(
         await firstTab.evaluate('document.querySelector("[data-quick-review-done]").innerText'),
-        /12 个到期词保持原排期/,
+        /共有 12 个到期词/,
       );
       assert.match(
         await firstTab.evaluate('document.querySelector("[data-quick-review-done]").innerText'),
@@ -611,6 +614,125 @@ test(
         firstTab,
         'document.querySelector("[data-quick-review-active]")?.innerText.includes("释义示例 1")',
         'practice remains usable after draft storage fails',
+      );
+
+      await firstTab.evaluate(`(() => {
+        localStorage.removeItem('fixture.quick-review-order-a');
+        localStorage.setItem('lexloop.quick-review.v1.quick-user-a.due', JSON.stringify({
+          version: 1,
+          userId: 'quick-user-a',
+          wordIds: ['a-due-01'],
+          currentIndex: 0,
+          revealed: false,
+        }));
+        localStorage.setItem('fixture.quick-review-missing', 'mixed');
+      })()`);
+      await firstTab.send('Page.reload');
+      await until(
+        firstTab,
+        `document.querySelector('.sidebar-book strong')?.textContent.includes('练习者 A')`,
+        'reload with mixed missing-meaning due words',
+      );
+      await openWords(firstTab);
+      await until(
+        firstTab,
+        'document.querySelector("[data-quick-review]")?.innerText.includes("到期 12 · 可回想 10")',
+        'separate due total and usable recall candidates',
+      );
+      assert.match(
+        await firstTab.evaluate('document.querySelector("[data-quick-review]").innerText'),
+        /当前可回想词候选已经变化，上一份练习未结算，已清除旧进度/,
+      );
+      assert.equal(
+        await firstTab.evaluate(`localStorage.getItem('lexloop.quick-review.v1.quick-user-a.due')`),
+        null,
+        'a saved draft containing newly unavailable due cards is cleared with a visible notice',
+      );
+      assert.match(
+        await firstTab.evaluate('document.querySelector("[data-quick-review]").innerText'),
+        /2 个到期词暂无可用释义，未纳入本次候选/,
+      );
+      const formalReviewControl = await firstTab.evaluate(`(() => {
+        const input = document.querySelector('#review-session-count');
+        return {
+          max: input?.max,
+          text: input?.closest('.review-session-control')?.innerText ?? '',
+        };
+      })()`);
+      assert.equal(
+        formalReviewControl.max,
+        '10',
+        'formal review count must exclude two missing-meaning due words',
+      );
+      assert.match(formalReviewControl.text, /10 个可练；共 12 个到期/);
+      assert.match(formalReviewControl.text, /另有 2 个到期词缺少可用释义，不计入本次计划/);
+      assert.deepEqual(
+        await firstTab.evaluate(
+          `Array.from(document.querySelectorAll('[data-quick-review] input[type="radio"]')).map((input) => input.value)`,
+        ),
+        ['1', '3', '5', '10'],
+      );
+      await firstTab.evaluate(`(() => {
+        document.querySelector('input[type="radio"][value="1"]')?.click();
+        [...document.querySelectorAll('.words-panel button')].find((button) => button.textContent.includes('开始练习（1 题）'))?.click();
+      })()`);
+      await until(
+        firstTab,
+        'document.querySelector("[data-quick-review-active] h2")?.textContent === "steady2"',
+        'missing gloss item omitted without changing due order',
+      );
+      await firstTab.evaluate(`(() => {
+        [...document.querySelectorAll('[data-quick-review-active] button')].find((button) => button.textContent.includes('显示释义'))?.click();
+      })()`);
+      await until(
+        firstTab,
+        'document.querySelector("[data-quick-review-active]")?.innerText.includes("释义示例 2")',
+        'reveal the next usable meaning, not a placeholder',
+      );
+      await firstTab.evaluate(`(() => {
+        [...document.querySelectorAll('[data-quick-review-active] button')].find((button) => button.textContent.includes('结束本次练习'))?.click();
+      })()`);
+      await until(
+        firstTab,
+        'document.querySelector("[data-quick-review-done]")?.innerText.includes("暂无可用释义")',
+        'completion explicitly leaves missing meanings due',
+      );
+      const missingCompletion = await firstTab.evaluate(
+        'document.querySelector("[data-quick-review-done]").innerText',
+      );
+      assert.match(missingCompletion, /本次看完了 1 个有可用释义的词卡/);
+      assert.match(missingCompletion, /其中 2 个暂无可用释义，未纳入本次练习，仍保留原排期/);
+      assert.doesNotMatch(missingCompletion, /2 个词.*回想|2 个词.*完成/);
+
+      await firstTab.evaluate(`localStorage.setItem('fixture.quick-review-missing', 'all')`);
+      await firstTab.send('Page.reload');
+      await until(
+        firstTab,
+        `document.querySelector('.sidebar-book strong')?.textContent.includes('练习者 A')`,
+        'reload with no usable due glosses',
+      );
+      await openWords(firstTab);
+      await until(
+        firstTab,
+        'document.querySelector("[data-quick-review]")?.innerText.includes("当前到期词都缺少可用释义")',
+        'empty recall-candidate state',
+      );
+      const emptyFormalPlanState = await firstTab.evaluate(`(() => {
+        const control = document.querySelector('.review-session-control')?.innerText ?? '';
+        const createButton = document.querySelector('.words-panel button.create');
+        return { control, disabled: createButton?.disabled, text: createButton?.innerText ?? '' };
+      })()`);
+      assert.match(emptyFormalPlanState.control, /没有带可用释义的到期词候选/);
+      assert.match(emptyFormalPlanState.control, /原排期中，不会因缺少释义而被移除或计作已复习/);
+      assert.equal(emptyFormalPlanState.disabled, true);
+      assert.equal(emptyFormalPlanState.text, '创建学习计划');
+      await firstTab.evaluate(`(() => {
+        [...document.querySelectorAll('[data-quick-review] button')].find((button) => button.textContent.includes('选择其他词表'))?.click();
+      })()`);
+      await until(
+        firstTab,
+        'document.querySelector("[role=dialog][aria-modal=true]")',
+        'open the existing wordbook chooser as a recovery path',
       );
       assert.deepEqual(browserErrors, [], 'browser runtime errors occurred');
     } finally {

@@ -114,7 +114,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           select: { bookWordId: true, nextReviewAt: true, reviewCount: true, totalAttempts: true },
         });
         await expect(service.createPlan(users[0].id, 0, 'group', 0)).rejects.toThrow(
-          '当前没有可加入学习计划的单词',
+          '没有带可用释义的单词',
         );
         expect(await prisma.studyPlan.count({ where: { userId: users[0].id } })).toBe(0);
         const firstPlan = await service.createPlan(users[0].id, 0, 'group', 2);

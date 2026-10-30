@@ -8,12 +8,14 @@ import {
   saveQuickReviewDraft,
   type QuickReviewDraft,
 } from '../lib/quick-review-drafts';
+import { hasUsableWordMeaning } from '../lib/word-meaning-availability';
 
 export type QuickReviewWord = {
   id: string;
   word: string;
   part: string;
   meaning: string;
+  meanings?: Array<{ part: string; text: string }>;
   ukPhonetic?: string | null;
   usPhonetic?: string | null;
 };
@@ -21,6 +23,7 @@ export type QuickReviewWord = {
 type Props = {
   userId: string;
   words: QuickReviewWord[];
+  onChooseBook: () => void;
 };
 
 function countChoices(dueCount: number) {
@@ -35,10 +38,15 @@ function completedCount(draft: QuickReviewDraft) {
   return draft.currentIndex + (draft.revealed ? 1 : 0);
 }
 
-export function QuickReviewSession({ userId, words }: Props) {
-  const currentDueWordIds = useMemo(() => words.slice(0, 10).map((word) => word.id), [words]);
+export function QuickReviewSession({ userId, words, onChooseBook }: Props) {
+  const usableWords = useMemo(() => words.filter(hasUsableWordMeaning), [words]);
+  const missingMeaningCount = words.length - usableWords.length;
+  const currentDueWordIds = useMemo(
+    () => usableWords.slice(0, 10).map((word) => word.id),
+    [usableWords],
+  );
   const dueSignature = useMemo(() => JSON.stringify(currentDueWordIds), [currentDueWordIds]);
-  const choices = countChoices(words.length);
+  const choices = countChoices(usableWords.length);
   const countGroupId = useId();
   const [view, setView] = useState<'loading' | 'setup' | 'active' | 'complete'>('loading');
   const [selectedCount, setSelectedCount] = useState(3);
@@ -58,7 +66,7 @@ export function QuickReviewSession({ userId, words }: Props) {
     setStorageAvailable(restored.storageAvailable);
     setNotice(
       restored.stale
-        ? '当前到期词顺序已经变化，上一份练习未结算，已清除旧进度。'
+        ? '当前可回想词候选已经变化，上一份练习未结算，已清除旧进度。'
         : restored.storageAvailable
           ? ''
           : '浏览器本地存储不可用；本次仍可练习，但离开后可能无法恢复。',
@@ -93,7 +101,7 @@ export function QuickReviewSession({ userId, words }: Props) {
   };
 
   const start = () => {
-    const count = Math.min(selectedCountValue, words.length, 10);
+    const count = Math.min(selectedCountValue, usableWords.length, 10);
     if (!count) return;
     const next: QuickReviewDraft = {
       version: 1,
@@ -157,8 +165,10 @@ export function QuickReviewSession({ userId, words }: Props) {
           本次少量练习已看完
         </h2>
         <p>
-          你在揭晓释义前回想了 {completedCount(draft)} 个词。本地练习没有提交作答，当前仍有{' '}
-          {words.length} 个到期词保持原排期。
+          本次看完了 {completedCount(draft)} 个有可用释义的词卡。共有 {words.length} 个到期词；
+          {missingMeaningCount > 0
+            ? `其中 ${missingMeaningCount} 个暂无可用释义，未纳入本次练习，仍保留原排期。`
+            : '未选入本次练习的词仍保留原排期。'}
         </p>
         <p className={styles.boundary}>
           这只表示本次词卡已看完，不代表今日正式复习已完成；它不会更新学习历史、统计或 SRS。
@@ -249,11 +259,19 @@ export function QuickReviewSession({ userId, words }: Props) {
           <p className={styles.kicker}>自选练习 · 到期词</p>
           <h2 id={`${countGroupId}-title`}>少量回想练习</h2>
         </div>
-        <span className={styles.dueCount}>{words.length} 个到期词</span>
+        <span className={styles.dueCount}>
+          到期 {words.length} · 可回想 {usableWords.length}
+        </span>
       </header>
       <p className={styles.intro}>
-        按当前排期顺序选词，一题一个到期词。选题量，不估算分钟；不创建学习计划，也不生成新内容。
+        只从有可用释义的到期词中按当前排期顺序选题。选题量，不估算分钟；不创建学习计划，也不生成新内容。
       </p>
+      {missingMeaningCount > 0 && (
+        <p className={styles.notice} role="status">
+          {missingMeaningCount}{' '}
+          个到期词暂无可用释义，未纳入本次候选，也不会记作已复习；词条与原排期保留不变。
+        </p>
+      )}
       {notice && (
         <p className={styles.notice} role="status" aria-live="polite">
           {notice}
@@ -280,6 +298,15 @@ export function QuickReviewSession({ userId, words }: Props) {
               放弃本次练习
             </button>
           </div>
+        </div>
+      ) : usableWords.length === 0 ? (
+        <div className={styles.noCandidates}>
+          <p>
+            当前到期词都缺少可用释义，暂时无法回想。可切换到其他词表练习，或补充这些词的释义后再来；本练习没有更改它们的排期。
+          </p>
+          <button type="button" className={styles.primaryButton} onClick={onChooseBook}>
+            选择其他词表
+          </button>
         </div>
       ) : (
         <>
@@ -309,7 +336,7 @@ export function QuickReviewSession({ userId, words }: Props) {
             </div>
           </fieldset>
           <p className={styles.orderNote}>
-            题目按 API 返回的到期顺序取前 {selectedCountValue} 个。
+            题目按 API 返回的到期顺序，从有可用释义的词中取前 {selectedCountValue} 个。
           </p>
           <button
             ref={startButtonRef}
