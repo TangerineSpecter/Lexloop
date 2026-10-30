@@ -432,7 +432,17 @@ class DashboardChunkErrorBoundary extends Component<
 }
 
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
-  const [activeTab, setActiveTab] = useState<'words' | 'plan' | 'history'>('words');
+  const planCreateIntentRef = useRef(0);
+  const [activeTab, setActiveTabState] = useState<'words' | 'plan' | 'history'>('words');
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const setActiveTab = (nextTab: 'words' | 'plan' | 'history') => {
+    if (activeTabRef.current !== nextTab) {
+      planCreateIntentRef.current++;
+      activeTabRef.current = nextTab;
+    }
+    setActiveTabState(nextTab);
+  };
   const [plans, setPlans] = useState<LearningPlan[]>([]);
   const [plansOwnerId, setPlansOwnerId] = useState(session.user.id);
   const [plansLoadStatus, setPlansLoadStatus] = useState<StudyPlanListStatus>('loading');
@@ -440,9 +450,27 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
   const [previewOwnerId, setPreviewOwnerId] = useState(session.user.id);
   const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
-  const [lessonPlanId, setLessonPlanId] = useState<string | null>(null);
+  const [lessonPlanId, setLessonPlanIdState] = useState<string | null>(null);
+  const lessonPlanIdRef = useRef(lessonPlanId);
+  lessonPlanIdRef.current = lessonPlanId;
+  const setLessonPlanId = (nextPlanId: string | null) => {
+    if (lessonPlanIdRef.current !== nextPlanId) {
+      planCreateIntentRef.current++;
+      lessonPlanIdRef.current = nextPlanId;
+    }
+    setLessonPlanIdState(nextPlanId);
+  };
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [bookPickerOpen, setBookPickerOpen] = useState(false);
+  const [bookPickerOpen, setBookPickerOpenState] = useState(false);
+  const bookPickerOpenRef = useRef(bookPickerOpen);
+  bookPickerOpenRef.current = bookPickerOpen;
+  const setBookPickerOpen = (open: boolean) => {
+    if (bookPickerOpenRef.current !== open) {
+      planCreateIntentRef.current++;
+      bookPickerOpenRef.current = open;
+    }
+    setBookPickerOpenState(open);
+  };
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountMenuPortalContainer, setAccountMenuPortalContainer] = useState<HTMLElement | null>(
     null,
@@ -458,6 +486,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const setPage = (nextPage: DashboardPage) => {
     if (currentPageRef.current === nextPage) return;
     const previousPage = currentPageRef.current;
+    planCreateIntentRef.current++;
     currentPageRef.current = nextPage;
     setCurrentPage(nextPage);
     const state =
@@ -546,11 +575,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       ? currentBookState
       : { ownerId: session.user.id, status: 'loading' as const, book: null };
   const currentBook = visibleCurrentBookState.book;
+  const planCreateIntent = planCreateIntentRef.current;
   const planCreateContext = JSON.stringify([
     session.user.id,
     page,
     activeTab,
     currentBook?.id ?? null,
+    planCreateIntent,
   ]);
   const planCreateContextRef = useRef(planCreateContext);
   planCreateContextRef.current = planCreateContext;
@@ -563,7 +594,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const handleCreatedPlan = (plan: LearningPlan) => {
     const ownerId = session.user.id;
     if (currentUserIdRef.current !== ownerId) return;
-    if (planCreateContextRef.current === planCreateContext) {
+    if (
+      planCreateIntentRef.current === planCreateIntent &&
+      planCreateContextRef.current === planCreateContext
+    ) {
       openPlanPreview(plan);
     } else {
       setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
@@ -649,6 +683,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         ? 'system'
         : 'account',
     );
+    if (currentPageRef.current !== initialPage) planCreateIntentRef.current++;
     currentPageRef.current = initialPage;
     setCurrentPage(initialPage);
     window.history.replaceState(
@@ -670,6 +705,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         isDashboardPage(event.state?.lexloopDashboardPage)
           ? event.state.lexloopDashboardPage
           : 'study';
+      if (currentPageRef.current !== nextPage) planCreateIntentRef.current++;
       currentPageRef.current = nextPage;
       setCurrentPage(nextPage);
     };
@@ -719,6 +755,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
 
   const activateCurrentBook = (book: DefaultBook) => {
     defaultBookRequestRef.current++;
+    planCreateIntentRef.current++;
     setCurrentBookState({ ownerId: session.user.id, status: 'ready', book });
   };
 

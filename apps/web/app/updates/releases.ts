@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.96',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '迟到响应不再抢开预习',
+        entry: '首页 → 今日学习词汇 → 创建学习计划',
+        usage:
+          '离开创建页面后再返回，迟到的成功响应只会保存计划，不会自动打开预习；账号切换后也只恢复当前账号的计划。',
+      },
+    ],
+  },
+  {
     version: '1.27.95',
     date: '2026-10-30',
     items: [

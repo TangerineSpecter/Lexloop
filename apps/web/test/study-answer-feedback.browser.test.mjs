@@ -2235,16 +2235,45 @@ test(
       await until(
         '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "take"',
       );
+      await evaluate('document.querySelector(".switch-book").click()');
+      await until('document.querySelector(".book-drawer")');
+      await until(
+        '[...document.querySelectorAll(".book-choice")].some((card) => card.textContent.includes("Book B"))',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book B")).querySelector("button").click()',
+      );
+      await until('window.defaultBook?.id === "book-b"');
+      await until(
+        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
+      );
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
       );
       await until('document.querySelector(".plan-empty")');
       await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
+      await until(
+        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
+      );
+      await evaluate(
         'window.resolveStudyPlanCreate(Response.json(window.firstPlanGeneratingResponse))',
       );
-      await until('document.querySelector(".sequence-panel")?.innerText.includes("adapt")');
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
       assert.equal(await evaluate('window.firstPlanGenerationAttempts.length'), 0);
+      assert.equal(await evaluate('window.defaultBook?.id'), 'book-b');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".create").textContent.includes("打开当前学习计划")',
+        ),
+        true,
+        'returning to the original book and tab must not make the old request auto-open its preview',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+      );
+      await until('document.querySelector(".sequence-panel")?.innerText.includes("adapt")');
       assert.equal(
         await evaluate(
           'document.querySelector(".sequence-summary button").textContent.includes("继续生成题目")',
@@ -2255,27 +2284,7 @@ test(
         await evaluate('document.querySelector(".sequence-summary button").disabled'),
         false,
       );
-      await evaluate(
-        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
-      );
-      await until(
-        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "take"',
-      );
-      assert.equal(await evaluate('window.defaultBook?.id'), 'book-a');
-      assert.deepEqual(
-        await evaluate(
-          '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent)',
-        ),
-        ['take'],
-        'the delayed Book B plan response must not replace the newly selected Book A words',
-      );
-      assert.equal(
-        await evaluate(
-          'document.querySelector(".create").textContent.includes("打开当前学习计划")',
-        ),
-        true,
-      );
-      await evaluate('document.querySelector(".create").click()');
+      await evaluate('document.querySelector(".sequence-summary button").click()');
       await until(
         'document.querySelector(".plan-preview-layer") && window.firstPlanGenerationAttempts.length === 1',
       );

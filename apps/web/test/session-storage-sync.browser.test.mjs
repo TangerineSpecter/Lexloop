@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'an account change or logout in another tab hides the previous account page',
+  'account changes hide the previous page and isolate delayed study-plan recovery',
   { skip: !baseUrl, timeout: 60_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-session-sync-test-'));
@@ -97,11 +97,64 @@ test(
 
       const firstTab = await connect(firstTarget.webSocketDebuggerUrl);
       await firstTab.send('Page.addScriptToEvaluateOnNewDocument', {
-        source: `window.fetch = async (input) => {
+        source: `window.makeSessionStudyPlan = (userId, status = 'GENERATING') => {
+          const question = {
+            bookWordId: 'session-word-' + userId,
+            type: 'MEANING_RECOGNITION',
+            prompt: 'What does “adapt” mean here?',
+            options: ['适应', '拒绝'],
+          };
+          return {
+            id: 'session-plan-' + userId,
+            mode: 'group', purpose: 'normal', status, wordCount: 1, groupCount: 1,
+            completed: 0, blocksNewPlanCreation: true, createdAt: new Date().toISOString(),
+            words: [{
+              id: question.bookWordId, word: 'adapt', part: 'vt.', meaning: '适应',
+              source: 'NEW', groupIndex: 0, completed: false, nextReviewAt: null,
+              activeWeaknesses: [], question: status === 'ACTIVE' ? question : null,
+            }],
+            content: status === 'ACTIVE' ? { groups: [{
+              index: 0, title: 'A new routine', wordOccurrences: { adapt: 1 },
+              sentences: [{ english: 'People adapt to new routines.', chinese: '人们会适应新的日常安排。', simplified: '人们会适应新的安排。', grammar: 'adapt to 表示适应某种变化。' }],
+              questions: [question],
+            }] } : null,
+            summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
+          };
+        };
+        window.fetch = async (input, options = {}) => {
           const url = String(input);
-          if (url.includes('/api/v1/auth/me')) {
-            const session = JSON.parse(localStorage.getItem('lexloop.session') || 'null');
-            return Response.json({ id: session?.user?.id || 'missing-user' });
+          const path = new URL(url, location.href).pathname;
+          const method = options.method || 'GET';
+          const session = JSON.parse(localStorage.getItem('lexloop.session') || 'null');
+          const userId = session?.user?.id || 'missing-user';
+          if (path.endsWith('/auth/me')) return Response.json({ id: userId });
+          if (path.endsWith('/vocabulary/default')) {
+            return Response.json({ id: 'book-a', title: 'Book A', totalWords: 1 });
+          }
+          if (path.endsWith('/vocabulary/progress-summary')) {
+            return Response.json({ totalWords: 1, masteredWords: 0, progress: 0 });
+          }
+          if (path.includes('/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
+          if (path.includes('/vocabulary/dashboard-words')) {
+            return Response.json({ defaultNewWordCount: 1, reviewWords: [], newWords: [
+              { id: 'session-word-' + userId, word: 'adapt', part: 'vt.', meaning: '适应' },
+            ] });
+          }
+          if (path.endsWith('/study/plans') && method === 'GET') {
+            const plans = JSON.parse(localStorage.getItem('fixture.study-plans.' + userId) || '[]');
+            return Response.json(plans);
+          }
+          if (path.endsWith('/study/plans') && method === 'POST') {
+            const attempts = JSON.parse(localStorage.getItem('fixture.study-plan-create-attempts') || '[]');
+            attempts.push({ userId, body: JSON.parse(options.body || '{}') });
+            localStorage.setItem('fixture.study-plan-create-attempts', JSON.stringify(attempts));
+            localStorage.setItem('fixture.study-plan-create-pending.' + userId, JSON.stringify(window.makeSessionStudyPlan(userId)));
+            return new Promise((resolve) => { window.resolveStudyPlanCreate = resolve; });
+          }
+          if (path.endsWith('/study/plans/session-plan-' + userId + '/generate') && method === 'POST') {
+            const plan = window.makeSessionStudyPlan(userId, 'ACTIVE');
+            localStorage.setItem('fixture.study-plans.' + userId, JSON.stringify([plan]));
+            return Response.json(plan);
           }
           return new Response(JSON.stringify({ message: 'fixture response' }), {
             status: 404,
@@ -145,6 +198,25 @@ test(
       await untilFirstTab(
         '[...document.querySelectorAll(".sidebar-book strong")].some((item) => item.textContent.trim() === "学习者 A")',
         'first account page',
+      );
+      await untilFirstTab(
+        'document.querySelector(".create") && !document.querySelector(".create").disabled',
+        'first account study plan controls',
+      );
+      await firstTab.evaluate('document.querySelector(".create").click()');
+      await untilFirstTab(
+        'JSON.parse(localStorage.getItem("fixture.study-plan-create-attempts") || "[]").length === 1',
+        'the first account plan request to start',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".create").disabled'),
+        true,
+        'the pending create action should not allow a duplicate request',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+        'the first account waits for its create response before showing a preview',
       );
 
       const popupOpened = await firstTab.evaluate(
@@ -201,6 +273,125 @@ test(
         ),
         null,
         'switching accounts copied the previous account draft to the new account',
+      );
+
+      await untilFirstTab(
+        'document.querySelector(".create") && !document.querySelector(".create").disabled',
+        'the second account plan controls to finish loading',
+      );
+      assert.deepEqual(
+        await firstTab.evaluate(
+          "JSON.parse(localStorage.getItem('fixture.study-plans.sync-user-b') || '[]')",
+        ),
+        [],
+        'the second account must not load the first account plan',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+        'the previous account plan must never open as the second account preview',
+      );
+      await firstTab.evaluate(`localStorage.setItem(
+        'fixture.study-plan-create-outcome.sync-user-a.1', 'failed'
+      );`);
+
+      // Account changes reload the document, so its in-flight fetch callback
+      // cannot run. Model A's first create failing after that reload; it must
+      // leave no plan behind and allow a deliberate retry on return.
+      await secondTab.evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-token-a-returned',
+        user: { id: 'sync-user-a', email: 'a@example.invalid', displayName: '学习者 A', role: 'USER' }
+      }));`);
+      await untilFirstTab(
+        '[...document.querySelectorAll(".sidebar-book strong")].some((item) => item.textContent.trim() === "学习者 A") && document.querySelector(".create") && !document.querySelector(".create").disabled',
+        'the first account to recover after its failed request',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+        'the failed request must not show a stale preview on return',
+      );
+      assert.equal(
+        await firstTab.evaluate(
+          'document.querySelector(".book-message")?.textContent.includes("创建计划测试失败") ?? false',
+        ),
+        false,
+        'the failed request must not show a stale error after the account reload',
+      );
+      assert.deepEqual(
+        await firstTab.evaluate(
+          "JSON.parse(localStorage.getItem('fixture.study-plans.sync-user-a') || '[]')",
+        ),
+        [],
+        'the failed first attempt must not create a saved plan',
+      );
+      await firstTab.evaluate('document.querySelector(".create").click()');
+      await untilFirstTab(
+        'JSON.parse(localStorage.getItem("fixture.study-plan-create-attempts") || "[]").filter((item) => item.userId === "sync-user-a").length === 2',
+        'the first account retry to start',
+      );
+      assert.equal(await firstTab.evaluate('document.querySelector(".create").disabled'), true);
+
+      await secondTab.evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-token-b-returned',
+        user: { id: 'sync-user-b', email: 'b@example.invalid', displayName: '学习者 B', role: 'USER' }
+      }));`);
+      await untilFirstTab(
+        '[...document.querySelectorAll(".sidebar-book strong")].some((item) => item.textContent.trim() === "学习者 B") && document.querySelector(".create") && !document.querySelector(".create").disabled',
+        'the second account to return without A state',
+      );
+      assert.equal(
+        await firstTab.evaluate(
+          "localStorage.getItem('fixture.study-plan-create-outcome.sync-user-a.1')",
+        ),
+        'failed',
+        'the fixture should model the abandoned first-account request failing after the account switch',
+      );
+      assert.deepEqual(
+        await firstTab.evaluate(
+          "JSON.parse(localStorage.getItem('fixture.study-plans.sync-user-b') || '[]')",
+        ),
+        [],
+        'the second account must not load the first account plan',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+      );
+
+      // Persist the retried A plan only after B is active, as if the server
+      // completed the request late. B remains clean until A explicitly returns.
+      await firstTab.evaluate(`const pendingPlan = JSON.parse(localStorage.getItem('fixture.study-plan-create-pending.sync-user-a'));
+        localStorage.setItem('fixture.study-plan-create-outcome.sync-user-a.2', 'succeeded');
+        localStorage.setItem('fixture.study-plans.sync-user-a', JSON.stringify([pendingPlan]));`);
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+      );
+      assert.deepEqual(
+        await firstTab.evaluate(
+          "JSON.parse(localStorage.getItem('fixture.study-plans.sync-user-b') || '[]')",
+        ),
+        [],
+        'late completion for A must not add a plan to B',
+      );
+      await secondTab.evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
+        accessToken: 'fixture-token-a-final',
+        user: { id: 'sync-user-a', email: 'a@example.invalid', displayName: '学习者 A', role: 'USER' }
+      }));`);
+      await untilFirstTab(
+        '[...document.querySelectorAll(".sidebar-book strong")].some((item) => item.textContent.trim() === "学习者 A") && document.querySelector(".create")?.textContent.includes("打开当前学习计划")',
+        'the first account plan to recover after the late success',
+      );
+      assert.equal(
+        await firstTab.evaluate('document.querySelector(".plan-preview-layer") === null'),
+        true,
+        'a late successful create must not auto-open after the account switch',
+      );
+      await firstTab.evaluate('document.querySelector(".create").click()');
+      await untilFirstTab(
+        'document.querySelector(".plan-preview-layer")',
+        'the learner to explicitly reopen the recovered plan',
       );
 
       const activeDocumentId = await firstTab.evaluate('window.sessionSyncDocumentId');
