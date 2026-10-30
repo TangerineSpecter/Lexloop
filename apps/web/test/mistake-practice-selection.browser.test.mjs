@@ -96,11 +96,11 @@ test(
         );
       };
 
-      const weaknesses = (id, questionType) => ({
+      const weaknesses = (id, questionType, wrongCount = 2) => ({
         id,
         questionType,
         status: 'active',
-        wrongCount: 2,
+        wrongCount,
         consecutiveCorrect: 0,
         lastWrongAt: '2026-10-26T10:00:00.000Z',
       });
@@ -113,7 +113,7 @@ test(
           bookTitle: 'Test book',
           severity: 56,
           lastWrongAt: '2026-10-26T10:00:00.000Z',
-          weaknesses: [weaknesses('standard-signal', 'READING_COMPREHENSION')],
+          weaknesses: [weaknesses('standard-signal', 'READING_COMPREHENSION', 14)],
         },
         {
           bookWordId: 'output-word',
@@ -123,7 +123,7 @@ test(
           bookTitle: 'Test book',
           severity: 56,
           lastWrongAt: '2026-10-26T10:00:00.000Z',
-          weaknesses: [weaknesses('output-signal', 'OUTPUT')],
+          weaknesses: [weaknesses('output-signal', 'OUTPUT', 1)],
         },
         {
           bookWordId: 'confusion-word',
@@ -140,7 +140,7 @@ test(
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'mistake-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
+          if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'mistake-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
           window.dashboardRouteFrames = [];
           (() => {
             let frame = 0;
@@ -158,13 +158,21 @@ test(
           window.mistakePlanWrites = [];
           window.mistakeListRequests = [];
           window.mistakeDetailRequests = [];
+          window.addEventListener('beforeunload', () => {
+            if (typeof window.releaseDeferredMistakeDetail === 'function') {
+              localStorage.setItem('fixture.pending-mistake-detail-unloaded', 'yes');
+            }
+          });
           window.failOutputFilterOnce = true;
+          window.failOlderCursorOnce = true;
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
-            if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'mistake-user' });
+            const session = JSON.parse(localStorage.getItem('lexloop.session') || 'null');
+            const sessionUserId = session?.user?.id ?? 'mistake-user';
+            if (path.includes('/api/v1/auth/me')) return Response.json({ id: sessionUserId });
             if (path.includes('/api/v1/mistakes?')) {
               const query = new URL(path, location.origin).searchParams;
               const status = query.get('status');
@@ -192,19 +200,38 @@ test(
               if (new URL(location.href).searchParams.has('race') && status === 'resolved') {
                 return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'resolved-only', word: 'resolved-only' }], page: 1, total: 1, hasMore: false });
               }
+              if (sessionUserId === 'mistake-user-b') {
+                return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'account-b-word', word: 'B-only' }], page: 1, total: 1, hasMore: false });
+              }
+              if (questionType === 'OUTPUT') return Response.json({ items: [${JSON.stringify(items[1])}], page: 1, total: 1, hasMore: false });
               return Response.json({ items: ${JSON.stringify(items)}, page: 1, total: 3, hasMore: false });
             }
-            if (path.includes('/api/v1/mistakes/standard-signal?') && method === 'GET') {
+            if (path.includes('/api/v1/mistakes/') && method === 'GET') {
               const query = new URL(path, location.origin).searchParams;
+              const signalId = new URL(path, location.origin).pathname.split('/').pop();
               const attemptCursor = query.get('attemptCursor');
               const attemptDirection = query.get('attemptDirection');
               const newerPage = attemptDirection === 'newer';
               const secondPage = Boolean(attemptCursor && !newerPage);
-              window.mistakeDetailRequests.push({ attemptCursor, attemptDirection });
-              const attempts = !secondPage
-                ? Array.from({ length: 20 }, (_, index) => ({ id: 'saved-' + String(41 - index).padStart(2, '0'), isCorrect: index % 3 === 0, selectedAnswer: 'saved answer ' + index, createdAt: '2026-10-28T10:00:00.000Z', question: { prompt: 'Saved source question ' + index, options: ['A', 'B'], correctAnswers: ['A'], explanation: 'Saved explanation' } }))
-                : [{ id: 'saved-old-without-question', isCorrect: false, selectedAnswer: null, createdAt: '2026-10-20T10:00:00.000Z', question: null }, { id: 'saved-old-with-snapshot', isCorrect: true, selectedAnswer: 'B', createdAt: '2026-10-19T10:00:00.000Z', question: { prompt: 'Older saved source question', correctAnswers: ['B'] } }];
-              return Response.json({ ...${JSON.stringify(weaknesses('standard-signal', 'READING_COMPREHENSION'))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: !secondPage, attemptHasNewer: secondPage, olderAttemptCursor: !secondPage ? 'older-cursor' : null, newerAttemptCursor: secondPage ? 'newer-cursor' : null });
+              window.mistakeDetailRequests.push({ signalId, attemptCursor, attemptDirection });
+              const isOutput = signalId === 'output-signal';
+              const attempts = isOutput
+                ? [{ id: 'output-saved', isCorrect: false, selectedAnswer: 'a travel', createdAt: '2026-10-28T10:00:00.000Z', question: { prompt: 'Saved output prompt', correctAnswers: ['a journey'] } }]
+                : !secondPage
+                  ? Array.from({ length: 20 }, (_, index) => ({ id: 'saved-' + String(41 - index).padStart(2, '0'), isCorrect: index % 3 === 0, selectedAnswer: 'saved answer ' + index, createdAt: '2026-10-28T10:00:00.000Z', question: { prompt: 'Saved source question ' + index, options: ['A', 'B'], correctAnswers: ['A'], explanation: 'Saved explanation' } }))
+                  : [{ id: 'saved-old-without-question', isCorrect: false, selectedAnswer: null, createdAt: '2026-10-20T10:00:00.000Z', question: null }, { id: 'saved-correct-without-question', isCorrect: true, selectedAnswer: 'saved correct answer without a snapshot', createdAt: '2026-10-19T10:30:00.000Z', question: null }, { id: 'saved-old-with-snapshot', isCorrect: true, selectedAnswer: 'B', createdAt: '2026-10-19T10:00:00.000Z', question: { prompt: 'Older saved source question', correctAnswers: ['B'] } }];
+              const body = isOutput
+                ? { ...${JSON.stringify(weaknesses('output-signal', 'OUTPUT', 1))}, bookWordId: 'output-word', word: 'journey', part: 'n.', meaning: '旅程', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: false, attemptHasNewer: false, olderAttemptCursor: null, newerAttemptCursor: null }
+                : { ...${JSON.stringify(weaknesses('standard-signal', 'READING_COMPREHENSION', 14))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: !secondPage, attemptHasNewer: secondPage, olderAttemptCursor: !secondPage ? 'older-cursor' : null, newerAttemptCursor: secondPage ? 'newer-cursor' : null };
+              if (secondPage && window.failOlderCursorOnce) {
+                window.failOlderCursorOnce = false;
+                return Response.json({ message: '模拟关联作答分页失败' }, { status: 503 });
+              }
+              if (window.deferNextMistakeDetail) {
+                window.deferNextMistakeDetail = false;
+                return new Promise(resolve => { window.releaseDeferredMistakeDetail = () => resolve(Response.json(body)); });
+              }
+              return Response.json(body);
             }
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], remaining: 30, limit: 30, hasMore: false });
             if (path.endsWith('/api/v1/mistakes/practice-plans') && method === 'POST') {
@@ -229,6 +256,15 @@ test(
       });
       await until('document.querySelector("#mistakes-title")');
       await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-order-note").textContent'),
+        /较低的连对次数.*累计错答次数和最近错答时间/,
+      );
+      assert.equal(await evaluate('document.querySelector(".mistake-score")'), null);
+      assert.match(
+        await evaluate('document.querySelector(".mistake-signals button").textContent'),
+        /累计错答 14 次 · 连对 0\/2/,
+      );
       const directLinkFrames = await evaluate('window.dashboardRouteFrames');
       assert.ok(directLinkFrames.some((frame) => frame.page === 'mistakes'));
       assert.ok(
@@ -461,12 +497,37 @@ test(
       await until('document.querySelector(".mistake-detail-layer[role=dialog]")');
       await until('document.querySelectorAll(".mistake-attempt").length === 20');
       assert.match(
+        await evaluate('document.querySelector(".mistake-detail > header span").textContent'),
+        /此题型累计错答 14 次 · 连对 0\/2/,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".mistake-current-meaning-label").textContent'),
+        '当前词库释义',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistake-current-meaning-note").textContent'),
+        /可能已更新.*作答时保存的快照/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistake-attempt-heading").textContent'),
+        /当前题型.*最新记录在前.*时间按设备时区显示/,
+      );
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[0].textContent'),
+        /回答正确/,
+      );
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[1].textContent'),
+        /回答错误/,
+      );
+      assert.match(
         await evaluate('document.querySelector(".mistake-attempt").textContent'),
         /Saved source question 0/,
       );
       assert.deepEqual(
         JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[0])')),
         {
+          signalId: 'standard-signal',
           attemptCursor: null,
           attemptDirection: null,
         },
@@ -490,21 +551,53 @@ test(
       await evaluate(
         '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("更早")).click()',
       );
-      await until(
-        'document.querySelector(".mistake-attempt-pagination span")?.textContent.includes("第 2 页")',
+      await until('window.mistakeDetailRequests.length === 2');
+      await until('document.querySelector(".mistake-detail-message[role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelectorAll(".mistake-attempt").length'),
+        20,
+        'a failed page load should retain the current history page',
       );
-      await until('document.querySelectorAll(".mistake-attempt").length === 2');
       assert.match(
-        await evaluate('document.querySelector(".mistake-attempt").textContent'),
-        /题目内容不可用/,
-      );
-      assert.match(
-        await evaluate('document.querySelector(".mistake-attempt").textContent'),
-        /未记录/,
+        await evaluate('document.querySelector(".mistake-attempt-pagination span").textContent'),
+        /第 1 页/,
       );
       assert.deepEqual(
         JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[1])')),
         {
+          signalId: 'standard-signal',
+          attemptCursor: 'older-cursor',
+          attemptDirection: 'older',
+        },
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("更早")).click()',
+      );
+      await until('window.mistakeDetailRequests.length === 3');
+      await until(
+        'document.querySelector(".mistake-attempt-pagination span")?.textContent.includes("第 2 页")',
+      );
+      await until('document.querySelectorAll(".mistake-attempt").length === 3');
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[0].textContent'),
+        /题目内容不可用/,
+      );
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[0].textContent'),
+        /未记录/,
+      );
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[0].textContent'),
+        /回答错误/,
+      );
+      assert.match(
+        await evaluate('document.querySelectorAll(".mistake-attempt")[1].textContent'),
+        /回答正确.*题目内容不可用.*saved correct answer without a snapshot/s,
+      );
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[2])')),
+        {
+          signalId: 'standard-signal',
           attemptCursor: 'older-cursor',
           attemptDirection: 'older',
         },
@@ -517,14 +610,74 @@ test(
       );
       await until('document.querySelectorAll(".mistake-attempt").length === 20');
       assert.deepEqual(
-        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[2])')),
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[3])')),
         {
+          signalId: 'standard-signal',
           attemptCursor: 'newer-cursor',
           attemptDirection: 'newer',
         },
       );
       assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
 
+      await evaluate('window.deferNextMistakeDetail = true');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("更早")).click()',
+      );
+      await until('typeof window.releaseDeferredMistakeDetail === "function"');
+      await evaluate(
+        'document.querySelector(".mistake-detail header button[aria-label=关闭]").click()',
+      );
+      await until('!document.querySelector(".mistake-detail-layer[role=dialog]")');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("每日输出")).click()',
+      );
+      await until(
+        'document.querySelector(".mistake-detail-layer[role=dialog]")?.textContent.includes("journey")',
+      );
+      await evaluate('window.releaseDeferredMistakeDetail()');
+      await delay(100);
+      assert.match(
+        await evaluate('document.querySelector(".mistake-detail-layer[role=dialog]").textContent'),
+        /journey/,
+      );
+      assert.doesNotMatch(
+        await evaluate('document.querySelector(".mistake-detail-layer[role=dialog]").textContent'),
+        /Older saved source question/,
+      );
+      await evaluate(
+        'document.querySelector(".mistake-detail header button[aria-label=关闭]").click()',
+      );
+      await until('!document.querySelector(".mistake-detail-layer[role=dialog]")');
+
+      await evaluate('window.deferNextMistakeDetail = true');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("阅读理解")).click()',
+      );
+      await until('typeof window.releaseDeferredMistakeDetail === "function"');
+      await evaluate(
+        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), 'OUTPUT'); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
+      );
+      await until('document.querySelector(".mistakes-list")?.textContent.includes("journey")');
+      await evaluate('window.releaseDeferredMistakeDetail()');
+      await delay(100);
+      assert.equal(
+        await evaluate('document.querySelector(".mistake-detail-layer[role=dialog]")'),
+        null,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-list").textContent'),
+        /journey/,
+      );
+
+      await evaluate(
+        `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(document.querySelector('select[aria-label="按题型筛选"]'), ''); document.querySelector('select[aria-label="按题型筛选"]').dispatchEvent(new Event('change', { bubbles: true }));`,
+      );
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("阅读理解")).click()',
+      );
+      await until('document.querySelector(".mistake-detail-layer[role=dialog]")');
+      await until('document.querySelectorAll(".mistake-attempt").length === 20');
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
         height: 844,
@@ -555,6 +708,35 @@ test(
       );
       assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
       await send('Emulation.clearDeviceMetricsOverride');
+
+      await evaluate('window.deferNextMistakeDetail = true');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("每日输出")).click()',
+      );
+      await until('typeof window.releaseDeferredMistakeDetail === "function"');
+      const previousSession = JSON.parse(await evaluate('localStorage.getItem("lexloop.session")'));
+      await evaluate(`(() => {
+        const frame = document.createElement('iframe');
+        frame.hidden = true;
+        document.body.append(frame);
+        const nextSession = { accessToken: 'fixture-b', user: { id: 'mistake-user-b', email: 'b@example.invalid', displayName: '学习者 B', role: 'USER' } };
+        frame.contentWindow.localStorage.setItem('lexloop.session', JSON.stringify(nextSession));
+      })()`);
+      await until('document.querySelector(".mistakes-list")?.textContent.includes("B-only")');
+      assert.equal(
+        await evaluate('localStorage.getItem("fixture.pending-mistake-detail-unloaded")'),
+        'yes',
+        'account navigation should discard the pending detail request with the old page context',
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".mistake-detail-layer[role=dialog]")'),
+        null,
+      );
+      assert.doesNotMatch(
+        await evaluate('document.querySelector(".mistakes-page").textContent'),
+        /Saved source question/,
+      );
+      assert.equal(previousSession.user.id, 'mistake-user');
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

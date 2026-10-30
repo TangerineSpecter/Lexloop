@@ -116,7 +116,16 @@ describe('MistakesService.list', () => {
       pageSize: 1,
     });
     expect(prisma.weaknessSignal.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 1, take: 1 }),
+      expect.objectContaining({
+        skip: 1,
+        take: 1,
+        orderBy: [
+          { _min: { consecutiveCorrect: 'asc' } },
+          { _max: { wrongCount: 'desc' } },
+          { _max: { lastWrongAt: 'desc' } },
+          { bookWordId: 'asc' },
+        ],
+      }),
     );
     expect(prisma.weaknessSignal.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -124,6 +133,11 @@ describe('MistakesService.list', () => {
       }),
     );
     expect(result).toMatchObject({ total: 3, hasMore: true });
+    expect(result.items[0].weaknesses[0]).toMatchObject({
+      questionType: 'MEANING_RECOGNITION',
+      wrongCount: 2,
+      consecutiveCorrect: 0,
+    });
   });
 });
 

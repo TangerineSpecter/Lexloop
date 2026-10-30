@@ -33,7 +33,6 @@ type MistakeWord = {
   meaning: string;
   meanings?: MeaningLine[];
   bookTitle: string;
-  severity: number;
   lastWrongAt: string;
   weaknesses: Weakness[];
 };
@@ -353,6 +352,9 @@ export function MistakesPage({
           </button>
         )}
       </div>
+      <p className="mistakes-order-note">
+        当前筛选内先按该词各题型中较低的连对次数排序，再看较高的累计错答次数和最近错答时间；每个题型分别显示自己的记录。
+      </p>
       {message && result && (
         <p className="book-message" role="alert">
           {message}
@@ -444,17 +446,13 @@ export function MistakesPage({
                   <span>{meaningLabel(item)}</span>
                   <small>{item.bookTitle}</small>
                 </div>
-                <div className="mistake-score">
-                  <b>{item.severity}</b>
-                  <span>薄弱指数</span>
-                </div>
                 <div className="mistake-signals">
                   {item.weaknesses.map((weakness) => (
                     <button key={weakness.id} onClick={() => void openDetail(weakness.id)}>
                       <CircleAlert size={15} />
                       <strong>{labels[weakness.questionType] ?? weakness.questionType}</strong>
                       <span>
-                        错 {weakness.wrongCount} 次 · 连对 {weakness.consecutiveCorrect}/2
+                        累计错答 {weakness.wrongCount} 次 · 连对 {weakness.consecutiveCorrect}/2
                       </span>
                     </button>
                   ))}
@@ -506,7 +504,9 @@ export function MistakesPage({
               <div>
                 <p>{labels[detail.questionType] ?? detail.questionType}</p>
                 <h2>{detail.word}</h2>
-                <span>答对两次即可纠正 · 当前 {detail.consecutiveCorrect}/2</span>
+                <span>
+                  此题型累计错答 {detail.wrongCount} 次 · 连对 {detail.consecutiveCorrect}/2
+                </span>
               </div>
               <button onClick={closeDetail} aria-label="关闭">
                 <X size={20} />
@@ -515,6 +515,7 @@ export function MistakesPage({
             <div className="mistake-detail-grid">
               <main>
                 <p className="mistake-meaning">
+                  <span className="mistake-current-meaning-label">当前词库释义</span>
                   {(detail.meanings?.length ?? 0) > 1 ? (
                     meaningLabel(detail)
                   ) : (
@@ -523,6 +524,9 @@ export function MistakesPage({
                       {detail.meaning}
                     </>
                   )}
+                </p>
+                <p className="mistake-current-meaning-note">
+                  词库释义可能已更新；下方题目内容以作答时保存的快照为准。
                 </p>
                 {detail.status === 'active' && (
                   <button
@@ -533,8 +537,10 @@ export function MistakesPage({
                   </button>
                 )}
                 <div className="mistake-attempt-heading">
-                  <strong>关联作答</strong>
-                  <span>最新记录在前 · 每页最多 {detail.attemptPageSize} 条</span>
+                  <strong>关联作答 · 当前题型</strong>
+                  <span>
+                    最新记录在前 · 每页最多 {detail.attemptPageSize} 条 · 时间按设备时区显示
+                  </span>
                 </div>
                 {detailMessage && (
                   <p className="mistake-detail-message" role="alert">
