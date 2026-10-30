@@ -29,6 +29,7 @@ import type { NotebookPage } from '@lexloop/types';
 import { request, type Session, userFacingError } from '../lib/api';
 import { TravelDeferredFeedback } from './travel-deferred-feedback';
 import { DashboardBackButton } from './dashboard-back-button';
+import { DashboardPageLoading } from './dashboard-loading';
 import { TravelReportRehearsal } from './travel-report-rehearsal';
 import resumeStyles from './travel-session-resume.module.css';
 
@@ -1270,13 +1271,12 @@ function ReportView({
 
 function TravelLoading({ onBack }: { onBack: () => void }) {
   return (
-    <div className="travel-loading">
-      <button onClick={onBack}>
-        <ArrowLeft />
-      </button>
-      <LoaderCircle className="spin" />
-      <b>正在展开旅行手账…</b>
-    </div>
+    <DashboardPageLoading
+      page="travel"
+      title="场景口语"
+      label="正在读取场景口语…"
+      onBack={onBack}
+    />
   );
 }
 function PlusMark() {

@@ -46,6 +46,9 @@ test(
     const travelChunkPaths = dynamicChunkPaths(
       'components/dashboard.tsx -> ./travel-scenario-page',
     );
+    const systemSettingsChunkPaths = dynamicChunkPaths(
+      'components/dashboard.tsx -> ./system-settings',
+    );
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-report-transition-'));
     const browser = spawnChromium(
       process.env.LAB_BROWSER_EXECUTABLE ?? 'chromium',
@@ -413,7 +416,7 @@ test(
       );
       await evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
         accessToken: 'fixture-token',
-        user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'USER' }
+        user: { id: 'report-user-a', email: 'report@example.invalid', displayName: 'Report learner', role: 'ADMIN' }
       }))`);
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector(".progress-grid .metric-card")');
@@ -428,8 +431,9 @@ test(
       assert.ok(
         !historyChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
           !statisticsChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
-          !travelChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
-        'History, statistics and travel code should wait until the learner opens those pages',
+          !travelChunkPaths.some((file) => initiallyLoadedChunks.includes(file)) &&
+          !systemSettingsChunkPaths.some((file) => initiallyLoadedChunks.includes(file)),
+        'History, statistics, travel and system-settings code should wait until the learner opens those pages',
       );
 
       await send('Network.enable');
@@ -742,6 +746,77 @@ test(
         '[...document.querySelectorAll(".sidebar-nav .nav-item.nav-button")].find(button => button.textContent.includes("账户设置")).click()',
       );
       await until('document.querySelector(".settings-page h1")?.textContent.trim() === "设置"');
+      await send('Fetch.enable', {
+        patterns: systemSettingsChunkPaths.map((path) => ({
+          urlPattern: `${baseUrl}${path}`,
+          requestStage: 'Request',
+        })),
+      });
+      await clickElement('.settings-layout nav button:last-child');
+      const delayedSystemSettingsChunk = await waitForProtocolEvent(
+        'Fetch.requestPaused',
+        ({ request }) =>
+          systemSettingsChunkPaths.some((path) => new URL(request.url).pathname === path),
+      );
+      await until(
+        'document.querySelector(".settings-layout .dashboard-chunk-loading-card[role=status]")',
+      );
+      const settingsLoadingLayout = await evaluate(`(() => {
+        const card = document.querySelector('.settings-layout .dashboard-chunk-loading-card');
+        const rect = card?.getBoundingClientRect();
+        return {
+          label: card?.querySelector('p')?.textContent.trim() ?? null,
+          hasMark: Boolean(card?.querySelector('.learning-loading-mark')),
+          skeletons: card?.querySelectorAll('.dashboard-chunk-skeleton i').length ?? 0,
+          heading: document.querySelector('.settings-page h1')?.textContent.trim() ?? null,
+          selected: document.querySelector('.sidebar-nav .nav-item.nav-button.active span')?.textContent.trim() ?? null,
+          left: rect?.left ?? null,
+          right: rect?.right ?? null,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewport: innerWidth,
+        };
+      })()`);
+      assert.deepEqual(
+        {
+          label: settingsLoadingLayout.label,
+          hasMark: settingsLoadingLayout.hasMark,
+          skeletons: settingsLoadingLayout.skeletons,
+          heading: settingsLoadingLayout.heading,
+          selected: settingsLoadingLayout.selected,
+        },
+        {
+          label: '正在加载系统设置…',
+          hasMark: true,
+          skeletons: 3,
+          heading: '设置',
+          selected: '账户设置',
+        },
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileSettingsLoading = await evaluate(`(() => {
+        const rect = document.querySelector('.settings-layout .dashboard-chunk-loading-card')?.getBoundingClientRect();
+        return { left: rect?.left ?? null, right: rect?.right ?? null, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
+      })()`);
+      assert.ok(
+        mobileSettingsLoading.left >= 0 &&
+          mobileSettingsLoading.right <= 390 &&
+          mobileSettingsLoading.scrollWidth <= 390,
+        JSON.stringify(mobileSettingsLoading),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await send('Fetch.continueRequest', { requestId: delayedSystemSettingsChunk.requestId });
+      await send('Fetch.disable');
+      await until('document.querySelector(".system-settings")');
       await evaluate('window.navigationAuditFrames = []');
       await delay(180);
       const delayedStatisticsFrames = await evaluate('window.navigationAuditFrames');

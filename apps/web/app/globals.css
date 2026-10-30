@@ -10201,25 +10201,6 @@ button {
 .travel-report-page > footer svg {
   width: 16px;
 }
-.travel-loading {
-  min-height: 70dvh;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
-  color: var(--border-color);
-}
-.travel-loading > button {
-  position: absolute;
-  top: 90px;
-  left: 30px;
-  border: 0;
-  background: transparent;
-  color: var(--border-color);
-}
-.travel-loading svg {
-  width: 34px;
-}
 .spin {
   animation: travel-spin 0.8s linear infinite;
 }

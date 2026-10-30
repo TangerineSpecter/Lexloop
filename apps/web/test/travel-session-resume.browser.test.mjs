@@ -149,7 +149,7 @@ test(
             turns: initialTurns,
             pendingRetry: { clientMessageId: 'pending-message-123', content: 'Could you repeat the name?' },
           };
-          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [], completionCalls: [], latestReport: null, historyReads: [], historyCursors: [], historyReadFailuresRemaining: 0, historyDetailReads: [], reportHistory: { items: [], nextCursor: null }, reportHistoryOlder: { items: [], nextCursor: null }, olderReport: null };
+          window.travelResumeFixture = savedState ?? { activeA, turnCalls: [], activeReads: [], completionCalls: [], latestReport: null, historyReads: [], historyCursors: [], historyReadFailuresRemaining: 0, historyDetailReads: [], reportHistory: { items: [], nextCursor: null }, reportHistoryOlder: { items: [], nextCursor: null }, olderReport: null, holdProfile: false, pendingProfile: [] };
           const persistFixture = () => sessionStorage.setItem('travel-resume-fixture', JSON.stringify(window.travelResumeFixture));
           const currentUser = () => JSON.parse(localStorage.getItem('lexloop.session'));
           window.fetch = async (input, options = {}) => {
@@ -163,7 +163,10 @@ test(
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/study/plans')) return Response.json([]);
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
-            if (path.includes('/api/v1/proficiency/profile')) return Response.json({ overallLevel: 'A1', confidence: 'LOW', provisional: true, assessedAt: null, dimensions: { vocabulary: 0, grammar: 0, sentenceBuilding: 0, taskCompletion: 0, naturalness: 0, pronunciation: null, listening: null, fluency: null } });
+            if (path.includes('/api/v1/proficiency/profile')) {
+              if (window.travelResumeFixture.holdProfile) return new Promise(resolve => window.travelResumeFixture.pendingProfile.push(resolve));
+              return Response.json({ overallLevel: 'A1', confidence: 'LOW', provisional: true, assessedAt: null, dimensions: { vocabulary: 0, grammar: 0, sentenceBuilding: 0, taskCompletion: 0, naturalness: 0, pronunciation: null, listening: null, fluency: null } });
+            }
             if (path.includes('/api/v1/practice/today')) return Response.json({ id: 'daily-plan', totalMinutes: 15, items: [] });
             if (path.includes('/api/v1/scenarios')) return Response.json([scenario]);
             if (path.includes('/api/v1/vocabulary/notebook')) return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
@@ -268,17 +271,82 @@ test(
         `,
       });
 
-      const openTravel = async () => {
+      const clickTravel = async () => {
         await until(
           '(() => { const button = [...document.querySelectorAll("button")].find((item) => item.textContent.includes("场景口语")); if (!button) return false; button.click(); return true; })()',
         );
+      };
+      const openTravel = async () => {
+        await clickTravel();
         await until(
           'document.querySelector(".travel-session-resume") || document.body.innerText.includes("CHOOSE YOUR NEXT STOP")',
         );
       };
 
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
-      await openTravel();
+      await evaluate('window.travelResumeFixture.holdProfile = true');
+      await clickTravel();
+      await until(
+        'document.querySelector(".dashboard-chunk-loading-card p")?.textContent.includes("正在读取场景口语") && document.querySelector(".dashboard-chunk-loading .dashboard-return-button")',
+      );
+      const travelLoadingDesktop = await evaluate(`(() => ({
+        title: document.querySelector('.dashboard-chunk-loading h1')?.textContent.trim() ?? null,
+        label: document.querySelector('.dashboard-chunk-loading-card p')?.textContent.trim() ?? null,
+        mark: Boolean(document.querySelector('.dashboard-chunk-loading-card .learning-loading-mark')),
+        skeletons: document.querySelectorAll('.dashboard-chunk-loading-card .dashboard-chunk-skeleton i').length,
+        back: document.querySelector('.dashboard-chunk-loading .dashboard-return-button')?.textContent.trim() ?? null,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewport: innerWidth,
+      }))()`);
+      assert.deepEqual(
+        {
+          title: travelLoadingDesktop.title,
+          label: travelLoadingDesktop.label,
+          mark: travelLoadingDesktop.mark,
+          skeletons: travelLoadingDesktop.skeletons,
+          back: travelLoadingDesktop.back,
+        },
+        {
+          title: '场景口语',
+          label: '正在读取场景口语…',
+          mark: true,
+          skeletons: 3,
+          back: '返回学习进度',
+        },
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const travelLoadingMobile = await evaluate(`(() => {
+        const page = document.querySelector('.dashboard-chunk-loading');
+        const back = page?.querySelector('.dashboard-return-button').getBoundingClientRect();
+        const card = page?.querySelector('.dashboard-chunk-loading-card').getBoundingClientRect();
+        return { scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth, backLeft: back?.left ?? null, backRight: back?.right ?? null, cardLeft: card?.left ?? null, cardRight: card?.right ?? null };
+      })()`);
+      assert.ok(
+        travelLoadingMobile.scrollWidth <= 390 &&
+          travelLoadingMobile.backLeft >= 0 &&
+          travelLoadingMobile.backRight <= 390 &&
+          travelLoadingMobile.cardLeft >= 0 &&
+          travelLoadingMobile.cardRight <= 390,
+        JSON.stringify(travelLoadingMobile),
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
+      assert.equal(
+        await evaluate(`(() => {
+          const resolve = window.travelResumeFixture.pendingProfile.shift();
+          if (!resolve) return false;
+          window.travelResumeFixture.holdProfile = false;
+          resolve(Response.json({ overallLevel: 'A1', confidence: 'LOW', provisional: true, assessedAt: null, dimensions: { vocabulary: 0, grammar: 0, sentenceBuilding: 0, taskCompletion: 0, naturalness: 0, pronunciation: null, listening: null, fluency: null } }));
+          return true;
+        })()`),
+        true,
+        'the held profile request should be released before the travel resume flow continues',
+      );
+      await until('document.querySelector(".travel-session-resume")');
       assert.equal(await evaluate('Boolean(document.querySelector(".conversation-page"))'), false);
       assert.equal(
         await evaluate('document.querySelector(".travel-session-resume h2").textContent'),

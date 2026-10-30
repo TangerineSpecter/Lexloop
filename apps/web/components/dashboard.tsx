@@ -1,6 +1,10 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
-import { DashboardBootstrapLoading, LearningLoadingMark } from './dashboard-loading';
+import {
+  DashboardBootstrapLoading,
+  DashboardLoadingCard,
+  DashboardPageLoading,
+} from './dashboard-loading';
 import type { VocabularyArchivePage } from '@lexloop/types';
 
 import {
@@ -103,13 +107,7 @@ const StatisticsPage = dynamic(
 );
 const SystemSettings = dynamic(
   () => import('./system-settings').then((module) => module.SystemSettings),
-  {
-    loading: () => (
-      <div role="status" aria-live="polite">
-        正在加载系统设置…
-      </div>
-    ),
-  },
+  { loading: () => <DashboardLoadingCard label="正在加载系统设置…" announce /> },
 );
 const NotebookPage = dynamic(
   () => import('./learning-lab/notebook-page').then((module) => module.NotebookPage),
@@ -442,36 +440,6 @@ const newWords: Word[] = [
   { word: 'study', part: 'n.', meaning: '学习；研究｜书房；课题' },
   { word: 'understand', part: 'vt.', meaning: '理解；明白｜获悉；听说' },
 ];
-
-function DashboardPageLoading({
-  page,
-  title,
-}: {
-  page:
-    'travel' | 'mistakes' | 'history' | 'statistics' | 'notebook' | 'micro-stories' | 'practice';
-  title: string;
-}) {
-  return (
-    <div
-      className="study-content dashboard-chunk-loading"
-      data-dashboard-page={page}
-      aria-busy="true"
-      role="status"
-      aria-live="polite"
-    >
-      <h1>{title}</h1>
-      <div className="dashboard-chunk-loading-card">
-        <LearningLoadingMark className="dashboard-chunk-loading-mark" />
-        <p>正在打开栏目…</p>
-        <div className="dashboard-chunk-skeleton" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function isDashboardChunkLoadError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;

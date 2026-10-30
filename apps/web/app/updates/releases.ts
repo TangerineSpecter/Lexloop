@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.115',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '统一设置与场景口语的加载过渡',
+        entry: '侧栏 → 设置 → 系统设置 / 场景口语',
+        usage:
+          '系统设置延迟加载时保留当前页面标题与导航，并显示统一加载卡片；场景口语读取资料时使用栏目骨架和左侧返回按钮。未改变数据、请求或表单选择行为。',
+      },
+    ],
+  },
+  {
     version: '1.27.114',
     date: '2026-10-30',
     items: [
