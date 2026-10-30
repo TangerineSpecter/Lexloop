@@ -107,6 +107,11 @@ export function createReviewTemplate(dataset) {
       'Describe the source of these candidate outputs; the evaluator makes no model calls.',
     outputs: dataset.cases.map((testCase) => ({
       caseId: testCase.id,
+      english: testCase.english,
+      keyInformation: testCase.keyInformation,
+      referenceTranslation: testCase.referenceTranslation,
+      equivalentExamples: testCase.equivalentExamples,
+      meaningErrorExamples: testCase.meaningErrorExamples,
       translation: '',
       review: 'not_reviewed',
       reviewerNote: '',
@@ -156,6 +161,10 @@ export function createReport(dataset, outputs = null) {
     candidates: candidates.map((candidate) => ({
       caseId: candidate.caseId,
       english: casesById.get(candidate.caseId).english,
+      keyInformation: casesById.get(candidate.caseId).keyInformation,
+      referenceTranslation: casesById.get(candidate.caseId).referenceTranslation,
+      equivalentExamples: casesById.get(candidate.caseId).equivalentExamples,
+      meaningErrorExamples: casesById.get(candidate.caseId).meaningErrorExamples,
       translation: candidate.translation,
       review: candidate.review ?? 'not_reviewed',
       reviewerNote: candidate.reviewerNote ?? '',

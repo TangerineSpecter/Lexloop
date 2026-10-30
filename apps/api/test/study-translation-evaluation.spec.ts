@@ -70,6 +70,12 @@ describe('offline study translation evaluation', () => {
     expect(
       template.outputs.every((output: { review: string }) => output.review === 'not_reviewed'),
     ).toBe(true);
+    expect(template.outputs[0]).toMatchObject({
+      english: dataset.cases[0].english,
+      keyInformation: dataset.cases[0].keyInformation,
+      equivalentExamples: dataset.cases[0].equivalentExamples,
+      meaningErrorExamples: dataset.cases[0].meaningErrorExamples,
+    });
     expect(JSON.parse(result.stdout).status).toBe('NOT_EVALUATED');
   });
 
@@ -91,6 +97,10 @@ describe('offline study translation evaluation', () => {
     expect(report.status).toBe('NOT_EVALUATED');
     expect(report.candidates[0].translation).toBe(alternateTranslation);
     expect(report.candidates[0].review).toBe('not_reviewed');
+    expect(report.candidates[0].keyInformation).toEqual(dataset.cases[0].keyInformation);
+    expect(report.candidates[0].meaningErrorExamples).toEqual(
+      dataset.cases[0].meaningErrorExamples,
+    );
     expect(report.evaluation.exactReferenceMatchingUsed).toBe(false);
   });
 
