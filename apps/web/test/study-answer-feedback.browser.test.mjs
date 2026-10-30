@@ -480,6 +480,11 @@ test(
       await until('document.querySelector(".study-plan-load-notice.is-error")');
       await until("document.querySelector('.word-row strong')?.textContent === 'take'");
       assert.equal(await evaluate('window.studyPlansReadCount'), 1);
+      assert.equal(
+        await evaluate('document.querySelector(".book-selection-prompt") === null'),
+        true,
+        'a learner with an active plan should not see the new-user vocabulary prompt',
+      );
       assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
       assert.equal(
         await evaluate(
@@ -2060,6 +2065,45 @@ test(
         /词义识别.*连续答对 1\/2，还需答对 1 次/s,
       );
       assert.ok(await evaluate('document.querySelector(".settlement-mistakes-link") !== null'));
+      await until(
+        '[...document.querySelector(".group-settlement").getAnimations()].every((animation) => animation.playState === "finished")',
+      );
+      await capture('existing-learner-settlement-desktop.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until(
+        '!document.querySelector(".study-sidebar").classList.contains("is-open") && new DOMMatrixReadOnly(getComputedStyle(document.querySelector(".study-sidebar")).transform).m41 <= -219',
+      );
+      const settlementMobileLayout = await evaluate(`(() => {
+        const cards = [...document.querySelectorAll('.settlement-card')].map((card) => {
+          const rect = card.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, width: rect.width };
+        });
+        const action = document.querySelector('.settlement-mistakes-link').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, cards,
+          actionLeft: action.left, actionRight: action.right, actionWidth: action.width };
+      })()`);
+      assert.ok(
+        settlementMobileLayout.page <= settlementMobileLayout.viewport &&
+          settlementMobileLayout.cards.every(
+            ({ left, right }) => left >= 0 && right <= settlementMobileLayout.viewport,
+          ) &&
+          settlementMobileLayout.actionLeft >= 0 &&
+          settlementMobileLayout.actionRight <= settlementMobileLayout.viewport &&
+          settlementMobileLayout.actionWidth > 0,
+        JSON.stringify(settlementMobileLayout),
+      );
+      await capture('existing-learner-settlement-mobile.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate('document.querySelector(".settlement-mistakes-link").click()');
       await until('document.querySelector(".mistakes-page")');
       assert.equal(await evaluate('window.mistakeRequests.length'), 1);

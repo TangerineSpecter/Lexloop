@@ -16796,6 +16796,72 @@ button[data-tooltip]::after {
   color: rgba(8, 40, 119, 0.72);
   font-size: 12px;
 }
+.book-selection-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 28px;
+  border-bottom: 1px solid rgba(8, 40, 119, 0.2);
+  background: #fff8dc;
+  color: var(--border-color);
+}
+.book-selection-prompt > div {
+  min-width: 0;
+}
+.book-selection-prompt strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+.book-selection-prompt p {
+  margin: 4px 0 0;
+  color: rgba(8, 40, 119, 0.74);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.book-selection-prompt button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #315eb6;
+  box-shadow: 2px 2px 0 var(--border-color);
+  color: #fffefa;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.book-selection-prompt button:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--border-color);
+}
+.book-selection-prompt button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+@media (max-width: 680px) {
+  .book-selection-prompt {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+  .book-selection-prompt button {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .book-selection-prompt button,
+  .book-selection-prompt button:hover {
+    transform: none;
+    transition: none;
+  }
+}
 @media (max-width: 680px) {
   .review-session-control {
     grid-template-columns: 1fr auto;

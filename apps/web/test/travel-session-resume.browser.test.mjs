@@ -270,10 +270,7 @@ test(
 
       const openTravel = async () => {
         await until(
-          '[...document.querySelectorAll("button")].some(button => button.textContent.includes("场景口语"))',
-        );
-        await evaluate(
-          '[...document.querySelectorAll("button")].find(button => button.textContent.includes("场景口语")).click()',
+          '(() => { const button = [...document.querySelectorAll("button")].find((item) => item.textContent.includes("场景口语")); if (!button) return false; button.click(); return true; })()',
         );
         await until(
           'document.querySelector(".travel-session-resume") || document.body.innerText.includes("CHOOSE YOUR NEXT STOP")',

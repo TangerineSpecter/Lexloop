@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.94',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '无词表时可直接开始选择学习目标',
+        entry: '首页 → 今日学习词汇 → 选择词表开始',
+        usage:
+          '没有默认词表时，首页会说明先选词表的原因并直接打开选择器；选好后继续安排新词和到期复习，不改变已有学习记录或排期。',
+      },
+    ],
+  },
+  {
     version: '1.27.93',
     date: '2026-10-30',
     items: [

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { closeChromium, spawnChromium } from './browser-process.mjs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
+const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
   'dashboard keeps streak and progress summaries honest through loading, failure and retries',
@@ -89,6 +90,15 @@ test(
         }
         assert.fail(`Timed out waiting for ${expression}`);
       };
+      const capture = async (name) => {
+        if (!screenshotDir) return;
+        await mkdir(screenshotDir, { recursive: true });
+        const { data } = await send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: false,
+        });
+        await writeFile(join(screenshotDir, name), Buffer.from(data, 'base64'));
+      };
       const untilProgressRequestsSettle = async (expectedUserId) => {
         let previousCount = -1;
         let stableChecks = 0;
@@ -154,6 +164,7 @@ test(
           request.resolve(response);
         },
       };
+      window.bookPickerRequests = [];
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
@@ -173,6 +184,21 @@ test(
           }
           return Response.json(window.defaultBookFixture.book ?? null);
         }
+        if (path.includes('/api/v1/vocabulary/system')) {
+          window.bookPickerRequests.push('system');
+          return Response.json({
+            categories: [{ key: 'general', label: '通用', count: 1 }],
+            books: [{ id: 'starter-book', category: 'general', categoryLabel: '通用', title: '入门词表', publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
+          });
+        }
+        if (path.endsWith('/api/v1/vocabulary/learning')) {
+          window.bookPickerRequests.push('learning');
+          return Response.json([]);
+        }
+        if (path.endsWith('/api/v1/vocabulary/books/starter-book/start') && options.method === 'POST') {
+          window.defaultBookFixture.book = { id: 'starter-book', title: '入门词表', totalWords: 300 };
+          return Response.json(window.defaultBookFixture.book);
+        }
         if (path.includes('/api/v1/vocabulary/progress-summary')) {
           const userId = JSON.parse(localStorage.getItem('lexloop.session')).user.id;
           const index = window.progressFixture.requests.length;
@@ -184,11 +210,20 @@ test(
           ) {
             return new Promise((resolve) => window.progressFixture.resolvers.push({ index, resolve }));
           }
-          return Response.json(userId === 'user-b'
+          return Response.json(new URL(location.href).searchParams.has('new-user')
+            ? { totalWords: 0, masteredWords: 0, progress: 0 }
+            : userId === 'user-b'
             ? { totalWords: 10, masteredWords: 7, progress: 70 }
             : { totalWords: 10, masteredWords: 3, progress: 30 });
         }
-        if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 5, reviewWords: [], newWords: [] });
+        if (path.includes('/api/v1/vocabulary/dashboard-words'))
+          return Response.json({
+            defaultNewWordCount: 5,
+            reviewWords: [],
+            newWords: window.defaultBookFixture.book
+              ? [{ id: 'starter-word', word: 'begin', part: 'v.', meaning: '开始' }]
+              : [],
+          });
         if (path.includes('/api/v1/study/plans')) return Response.json([]);
         if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
         if (path.includes('/api/v1/')) throw new Error('Unexpected API request: ' + path);
@@ -197,11 +232,11 @@ test(
     `,
       });
 
-      await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await send('Page.navigate', { url: new URL('/dashboard?new-user=1', baseUrl).href });
       await until('document.querySelector(".streak-count b")?.textContent === "4"');
       await until('document.body.textContent.includes("今天还没有已完成的学习活动")');
       await until(
-        'document.querySelectorAll(".progress-grid .metric-card")[1]?.querySelector(".metric-front b")?.textContent === "3"',
+        'document.querySelectorAll(".progress-grid .metric-card")[1]?.querySelector(".metric-front b")?.textContent === "0"',
       );
       const bookMetric = 'document.querySelectorAll(".progress-grid .metric-card")[0]';
       await until(
@@ -219,8 +254,84 @@ test(
         await evaluate(
           'document.querySelectorAll(".progress-grid .metric-card")[1].querySelector(".metric-front small")?.textContent',
         ),
-        '学习进度 30.0%',
+        '学习进度 0.0%',
       );
+      await until('document.querySelector(".book-selection-prompt button")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".book-selection-prompt").innerText.replace(/\\s+/g, " ").trim()',
+        ),
+        '先选一个词表 选好想学的词汇目标后，就能安排今天的新词和到期复习。 选择词表开始',
+      );
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), true);
+      assert.equal(
+        await evaluate('document.querySelector(".create").textContent.includes("先选择词表")'),
+        true,
+      );
+      assert.equal(await evaluate('window.bookPickerRequests.length'), 0);
+      await capture('new-learner-no-book-desktop.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until(
+        '!document.querySelector(".study-sidebar").classList.contains("is-open") && new DOMMatrixReadOnly(getComputedStyle(document.querySelector(".study-sidebar")).transform).m41 <= -219',
+      );
+      await evaluate(
+        'document.querySelector(".book-selection-prompt").scrollIntoView({ block: "center" })',
+      );
+      const newLearnerPromptMobile = await evaluate(`(() => {
+        const prompt = document.querySelector('.book-selection-prompt').getBoundingClientRect();
+        const button = document.querySelector('.book-selection-prompt button').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          promptLeft: prompt.left, promptRight: prompt.right, buttonLeft: button.left, buttonRight: button.right,
+          buttonVisible: button.width > 0 && button.bottom <= innerHeight };
+      })()`);
+      assert.ok(
+        newLearnerPromptMobile.page <= newLearnerPromptMobile.viewport &&
+          newLearnerPromptMobile.promptLeft >= 0 &&
+          newLearnerPromptMobile.promptRight <= newLearnerPromptMobile.viewport &&
+          newLearnerPromptMobile.buttonLeft >= 0 &&
+          newLearnerPromptMobile.buttonRight <= newLearnerPromptMobile.viewport &&
+          newLearnerPromptMobile.buttonVisible,
+        JSON.stringify(newLearnerPromptMobile),
+      );
+      await capture('new-learner-no-book-mobile.png');
+      await evaluate('document.querySelector(".book-selection-prompt button").click()');
+      await until('document.querySelector(".book-drawer")');
+      assert.equal(
+        await evaluate('document.querySelector(".book-drawer").getAttribute("aria-label")'),
+        '选择词表',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".book-tabs button")].find((button) => button.textContent.includes("系统词表")).click()',
+      );
+      await until('document.querySelector(".book-choice")?.textContent.includes("入门词表")');
+      assert.deepEqual(await evaluate('window.bookPickerRequests'), ['system', 'learning']);
+      await evaluate('document.querySelector(".book-choice button").click()');
+      await until('window.defaultBookFixture.book?.id === "starter-book"');
+      await until('document.querySelector(".book-choice button.current")');
+      await evaluate('document.querySelector(".book-drawer header button").click()');
+      await until('document.querySelector(".book-drawer") === null');
+      await until('document.querySelector(".word-row strong")?.textContent === "begin"');
+      assert.equal(
+        await evaluate('document.querySelector(".book-selection-prompt") === null'),
+        true,
+      );
+      assert.equal(await evaluate('document.querySelector(".create").disabled'), false);
+      assert.deepEqual(await evaluate('window.bookPickerRequests'), [
+        'system',
+        'learning',
+        'system',
+      ]);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       assert.equal(
         await evaluate('document.querySelector(".streak-start-link")?.getAttribute("href")'),
         '/dashboard/micro-stories',

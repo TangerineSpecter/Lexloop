@@ -1147,6 +1147,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <WordsPanel
                 session={session}
                 bookId={currentBook?.id ?? null}
+                needsBookSelection={
+                  visibleCurrentBookState.status === 'ready' && currentBook === null
+                }
+                onChooseBook={() => setBookPickerOpen(true)}
                 onCreatePlan={openPlanPreview}
                 existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
                 onOpenExistingPlan={openPlanPreview}
@@ -2379,6 +2383,8 @@ function Metric({
 function WordsPanel({
   session,
   bookId,
+  needsBookSelection,
+  onChooseBook,
   onCreatePlan,
   existingPlan,
   onOpenExistingPlan,
@@ -2388,6 +2394,8 @@ function WordsPanel({
 }: {
   session: Session;
   bookId: string | null;
+  needsBookSelection: boolean;
+  onChooseBook: () => void;
   onCreatePlan: (plan: LearningPlan) => void;
   existingPlan: LearningPlan | null;
   onOpenExistingPlan: (plan: LearningPlan) => void;
@@ -2604,7 +2612,9 @@ function WordsPanel({
                   ? '打开并重试当前计划'
                   : existingPlan
                     ? '打开当前学习计划'
-                    : '创建学习计划'}
+                    : needsBookSelection
+                      ? '先选择词表'
+                      : '创建学习计划'}
           </button>
           <Tooltip label="模型设置">
             <button
@@ -2617,6 +2627,17 @@ function WordsPanel({
           </Tooltip>
         </div>
       </header>
+      {needsBookSelection && (
+        <div className="book-selection-prompt" role="group" aria-labelledby="book-selection-title">
+          <div>
+            <strong id="book-selection-title">先选一个词表</strong>
+            <p>选好想学的词汇目标后，就能安排今天的新词和到期复习。</p>
+          </div>
+          <button type="button" onClick={onChooseBook}>
+            选择词表开始
+          </button>
+        </div>
+      )}
       {mode === 'exam' && !existingPlan && (
         <p className="mode-note">
           应试语境使用本次复习词和新词，生成原创短文。题型侧重熟词僻义、固定搭配和同义替换，不引用真题原卷。
