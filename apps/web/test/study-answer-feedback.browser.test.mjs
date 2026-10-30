@@ -1210,6 +1210,51 @@ test(
       );
       assert.equal(await evaluate('window.readingRewriteRequests.length'), 4);
       assert.equal(await evaluate('window.readingWordUseRequests.length'), 4);
+      await evaluate(
+        `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
+      );
+      const lateRewrite = 'Good lighting helps people read comfortably.';
+      await evaluate(`(() => {
+        const input = document.querySelector('#sentence-rewrite-0-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(lateRewrite)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.failNextRewriteFeedback = true;
+        input.form.requestSubmit();
+      })()`);
+      await until('window.readingRewriteRequests.length === 5');
+      await evaluate(`${wordUseToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        true,
+      );
+      await evaluate(`window.readingRewriteResolvers.shift()(Response.json({
+        meaning: 'Fixture result for the submitted sentence.',
+        grammar: 'Fixture grammar note.',
+        naturalness: 'Fixture naturalness note.',
+        alternative: null,
+      }))`);
+      await until(
+        `document.querySelector("#sentence-rewrite-0 .sentence-rewrite-feedback blockquote")?.textContent === ${JSON.stringify(lateRewrite)}`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        true,
+        'rewrite feedback can finish while its panel is hidden, preserving current behavior',
+      );
+      await evaluate(
+        `document.querySelector('.sentence-tools button[aria-label="换种说法第 1 句"]').click()`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-rewrite-0-answer").value'),
+        lateRewrite,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-rewrite-0 .sentence-rewrite-feedback blockquote").textContent',
+        ),
+        lateRewrite,
+      );
+      assert.equal(await evaluate('window.readingRewriteRequests.length'), 5);
       const translationDetailToggle =
         'document.querySelector(\'.sentence-tools button[aria-label="翻译"]\')';
       await evaluate(`${translationDetailToggle}.click()`);

@@ -1,8 +1,9 @@
 'use client';
 
 import type { ReadingTranslationFeedback } from '@lexloop/types';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { request, type Session, userFacingError } from '../lib/api';
+import { useState, type FormEvent } from 'react';
+import type { Session } from '../lib/api';
+import { useFormativeFeedbackRequest } from './use-formative-feedback-request';
 
 export function ReadingSentenceTranslationPractice({
   id,
@@ -24,64 +25,28 @@ export function ReadingSentenceTranslationPractice({
   } | null>(null);
   const [referenceVisible, setReferenceVisible] = useState(false);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const activeRequest = useRef(0);
-  const controller = useRef<AbortController | null>(null);
-  const openRef = useRef(open);
-  openRef.current = open;
-
-  useEffect(() => {
-    if (!open && controller.current) {
-      activeRequest.current += 1;
-      controller.current.abort();
-      controller.current = null;
-      setSubmitting(false);
-    }
-  }, [open]);
-
-  useEffect(
-    () => () => {
-      activeRequest.current += 1;
-      controller.current?.abort();
-      controller.current = null;
-    },
-    [],
-  );
+  const { submitting, submit: submitFeedback } = useFormativeFeedbackRequest({
+    open,
+    cancelOnClose: true,
+    cancelOnUnmount: true,
+  });
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const answer = translation.trim();
-    if (!answer || submitting || controller.current) return;
-
-    const requestId = ++activeRequest.current;
-    const abortController = new AbortController();
-    controller.current = abortController;
-    setSubmitting(true);
+    if (!answer || submitting) return;
     setError('');
-    try {
-      const result = await request<ReadingTranslationFeedback>(
-        '/ai/reading-translation-feedback',
-        {
-          method: 'POST',
-          body: JSON.stringify({ sourceSentence, learnerTranslation: answer }),
-          signal: abortController.signal,
-        },
-        session.accessToken,
-      );
-      if (abortController.signal.aborted || activeRequest.current !== requestId || !openRef.current)
-        return;
-      setLastSubmission({ answer, feedback: result });
+    const result = await submitFeedback<ReadingTranslationFeedback>(
+      '/ai/reading-translation-feedback',
+      { sourceSentence, learnerTranslation: answer },
+      session.accessToken,
+      '翻译建议暂时不可用。',
+    );
+    if (result.status === 'success') {
+      setLastSubmission({ answer, feedback: result.feedback });
       setReferenceVisible(true);
-    } catch (cause) {
-      if (!abortController.signal.aborted && activeRequest.current === requestId) {
-        setError(userFacingError(cause, '翻译建议暂时不可用。'));
-      }
-    } finally {
-      if (activeRequest.current === requestId) {
-        controller.current = null;
-        setSubmitting(false);
-      }
     }
+    if (result.status === 'error') setError(result.message);
   };
 
   return (
