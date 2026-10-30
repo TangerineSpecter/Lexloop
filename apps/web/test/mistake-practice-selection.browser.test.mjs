@@ -113,7 +113,10 @@ test(
           bookTitle: 'Test book',
           severity: 56,
           lastWrongAt: '2026-10-26T10:00:00.000Z',
-          weaknesses: [weaknesses('standard-signal', 'READING_COMPREHENSION', 14)],
+          weaknesses: [
+            weaknesses('standard-signal', 'READING_COMPREHENSION', 14),
+            weaknesses('legacy-other-signal', 'OTHER', 1),
+          ],
         },
         {
           bookWordId: 'output-word',
@@ -215,6 +218,8 @@ test(
               const secondPage = Boolean(attemptCursor && !newerPage);
               window.mistakeDetailRequests.push({ signalId, attemptCursor, attemptDirection });
               const isOutput = signalId === 'output-signal';
+              const isConfusion = signalId === 'confusion-signal';
+              const isOther = signalId === 'legacy-other-signal';
               const attempts = isOutput
                 ? [{ id: 'output-saved', isCorrect: false, selectedAnswer: 'a travel', createdAt: '2026-10-28T10:00:00.000Z', question: { prompt: 'Saved output prompt', correctAnswers: ['a journey'] } }]
                 : !secondPage
@@ -222,7 +227,11 @@ test(
                   : [{ id: 'saved-old-without-question', isCorrect: false, selectedAnswer: null, createdAt: '2026-10-20T10:00:00.000Z', question: null }, { id: 'saved-correct-without-question', isCorrect: true, selectedAnswer: 'saved correct answer without a snapshot', createdAt: '2026-10-19T10:30:00.000Z', question: null }, { id: 'saved-old-with-snapshot', isCorrect: true, selectedAnswer: 'B', createdAt: '2026-10-19T10:00:00.000Z', question: { prompt: 'Older saved source question', correctAnswers: ['B'] } }];
               const body = isOutput
                 ? { ...${JSON.stringify(weaknesses('output-signal', 'OUTPUT', 1))}, bookWordId: 'output-word', word: 'journey', part: 'n.', meaning: '旅程', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: false, attemptHasNewer: false, olderAttemptCursor: null, newerAttemptCursor: null }
-                : { ...${JSON.stringify(weaknesses('standard-signal', 'READING_COMPREHENSION', 14))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: !secondPage, attemptHasNewer: secondPage, olderAttemptCursor: !secondPage ? 'older-cursor' : null, newerAttemptCursor: secondPage ? 'newer-cursor' : null };
+                : isConfusion
+                  ? { ...${JSON.stringify(weaknesses('confusion-signal', 'CONFUSION'))}, bookWordId: 'confusion-word', word: 'borrow', part: 'v.', meaning: '借入', bookTitle: 'Test book', attempts: [attempts[0]], attemptPageSize: 20, attemptHasOlder: false, attemptHasNewer: false, olderAttemptCursor: null, newerAttemptCursor: null }
+                  : isOther
+                    ? { ...${JSON.stringify(weaknesses('legacy-other-signal', 'OTHER', 1))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts: [], attemptPageSize: 20, attemptHasOlder: false, attemptHasNewer: false, olderAttemptCursor: null, newerAttemptCursor: null }
+                    : { ...${JSON.stringify(weaknesses('standard-signal', 'READING_COMPREHENSION', 14))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: !secondPage, attemptHasNewer: secondPage, olderAttemptCursor: !secondPage ? 'older-cursor' : null, newerAttemptCursor: secondPage ? 'newer-cursor' : null };
               if (secondPage && window.failOlderCursorOnce) {
                 window.failOlderCursorOnce = false;
                 return Response.json({ message: '模拟关联作答分页失败' }, { status: 503 });
@@ -513,6 +522,16 @@ test(
         /当前题型.*最新记录在前.*时间按设备时区显示/,
       );
       assert.match(
+        await evaluate('document.querySelector(".mistake-learning-direction").textContent'),
+        /这类题练什么.*按原题题干.*可从哪里再练.*同题型变式/s,
+      );
+      assert.match(
+        await evaluate(
+          'document.querySelector(".mistake-learning-direction").getAttribute("aria-label")',
+        ),
+        /阅读理解练习方向/,
+      );
+      assert.match(
         await evaluate('document.querySelectorAll(".mistake-attempt")[0].textContent'),
         /回答正确/,
       );
@@ -548,6 +567,38 @@ test(
       );
       assert.ok(detailDesktopBounds.headingRight <= detailDesktopBounds.right);
       assert.ok(detailDesktopBounds.scrollWidth <= detailDesktopBounds.viewport);
+      const directionDesktopBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const card = document.querySelector(".mistake-learning-direction").getBoundingClientRect(); const detail = document.querySelector(".mistake-detail").getBoundingClientRect(); return { left:card.left, right:card.right, detailLeft:detail.left, detailRight:detail.right, scrollWidth:document.documentElement.scrollWidth, viewport:innerWidth }; })())',
+        ),
+      );
+      assert.ok(directionDesktopBounds.left >= directionDesktopBounds.detailLeft);
+      assert.ok(directionDesktopBounds.right <= directionDesktopBounds.detailRight);
+      assert.ok(directionDesktopBounds.scrollWidth <= directionDesktopBounds.viewport);
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await evaluate(`(() => {
+        const original = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function(options) {
+          window.lastMistakeHistoryScroll = options;
+          return original.call(this, options);
+        };
+        document.querySelector('.mistake-learning-direction-actions button').click();
+      })()`);
+      assert.equal(
+        await evaluate('document.activeElement?.id'),
+        'mistake-attempt-history',
+        'the direction action should move keyboard focus to saved attempts',
+      );
+      assert.equal(
+        await evaluate('window.lastMistakeHistoryScroll?.behavior'),
+        'auto',
+        'the history jump should respect reduced-motion preference',
+      );
+      assert.equal(await evaluate('window.mistakeDetailRequests.length'), 1);
+      assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
+      await send('Emulation.setEmulatedMedia', { features: [] });
       await evaluate(
         '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("更早")).click()',
       );
@@ -644,6 +695,61 @@ test(
         await evaluate('document.querySelector(".mistake-detail-layer[role=dialog]").textContent'),
         /Older saved source question/,
       );
+      assert.match(
+        await evaluate('document.querySelector(".mistake-learning-direction").textContent'),
+        /每日输出.*不会自动带入/,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistake-learning-direction-actions button:last-child").textContent.trim()',
+        ),
+        '打开每日输出',
+      );
+      await evaluate(
+        'document.querySelector(".mistake-learning-direction-actions button:last-child").click()',
+      );
+      await until(
+        'location.pathname === "/dashboard/practice" && new URL(location.href).searchParams.get("tab") === "output"',
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("易混词辨析")).click()',
+      );
+      await until('document.querySelector(".mistake-detail-layer[role=dialog]")');
+      await until('document.querySelector(".mistake-learning-direction")');
+      assert.match(
+        await evaluate('document.querySelector(".mistake-learning-direction").textContent'),
+        /易混词.*不会自动带入/,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistake-learning-direction-actions button:last-child").textContent.trim()',
+        ),
+        '打开易混词训练',
+      );
+      await evaluate(
+        'document.querySelector(".mistake-learning-direction-actions button:last-child").click()',
+      );
+      await until(
+        'location.pathname === "/dashboard/practice" && new URL(location.href).searchParams.get("tab") === "confusion"',
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("OTHER")).click()',
+      );
+      await until('document.querySelector(".mistake-detail-layer[role=dialog]")');
+      await until('document.querySelector(".mistake-attempt-empty")');
+      assert.equal(
+        await evaluate('document.querySelector(".mistake-learning-direction")'),
+        null,
+        'an unknown legacy type must not receive an inferred learning direction',
+      );
       await evaluate(
         'document.querySelector(".mistake-detail header button[aria-label=关闭]").click()',
       );
@@ -694,6 +800,14 @@ test(
         detailMobileBounds.left >= 0 && detailMobileBounds.right <= detailMobileBounds.viewport,
       );
       assert.ok(detailMobileBounds.scrollWidth <= detailMobileBounds.viewport);
+      const directionMobileBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const card = document.querySelector(".mistake-learning-direction").getBoundingClientRect(); const detail = document.querySelector(".mistake-detail").getBoundingClientRect(); return { left:card.left, right:card.right, detailLeft:detail.left, detailRight:detail.right, scrollWidth:document.documentElement.scrollWidth, viewport:innerWidth }; })())',
+        ),
+      );
+      assert.ok(directionMobileBounds.left >= directionMobileBounds.detailLeft);
+      assert.ok(directionMobileBounds.right <= directionMobileBounds.detailRight);
+      assert.ok(directionMobileBounds.scrollWidth <= directionMobileBounds.viewport);
       await evaluate('document.querySelector(".mistake-detail-practice-button").click()');
       await until('!document.querySelector(".mistake-detail-layer[role=dialog]")');
       assert.equal(

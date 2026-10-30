@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.106',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '错题详情说明题型练习方向',
+        entry: '待巩固 → 题型详情 → 这类题练什么',
+        usage:
+          '按实际题型说明练习目标，并链接到已有作答或练习入口；每日输出和易混词仍按各自规则推荐，不推断个人能力、等级或掌握状态。',
+      },
+    ],
+  },
+  {
     version: '1.27.105',
     date: '2026-10-30',
     items: [

@@ -13,6 +13,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { partitionMistakePracticeSelection } from '../lib/mistake-practice-selection';
+import {
+  getMistakeLearningDirection,
+  MISTAKE_LEARNING_DIRECTIONS,
+} from '../lib/mistake-learning-directions';
 import type { LearningPlan } from './dashboard';
 import { TutorPanel } from './tutor-panel';
 
@@ -74,15 +78,9 @@ function meaningLabel(item: { part: string; meaning: string; meanings?: MeaningL
   return `${item.part} ${item.meaning}`.trim();
 }
 
-const labels: Record<string, string> = {
-  WORD_MNEMONIC: '单词助记',
-  MEANING_RECOGNITION: '词义识别',
-  WORD_MATCHING: '单词匹配',
-  SYNONYM_REPLACEMENT: '同义替换',
-  READING_COMPREHENSION: '阅读理解',
-  OUTPUT: '每日输出',
-  CONFUSION: '易混词辨析',
-};
+const labels: Record<string, string> = Object.fromEntries(
+  Object.entries(MISTAKE_LEARNING_DIRECTIONS).map(([type, direction]) => [type, direction.label]),
+);
 
 export function MistakesPage({
   session,
@@ -112,6 +110,7 @@ export function MistakesPage({
   const listAbort = useRef<AbortController | null>(null);
   const detailRequestId = useRef(0);
   const detailAbort = useRef<AbortController | null>(null);
+  const attemptHistoryHeadingRef = useRef<HTMLDivElement>(null);
 
   const prepareForListChange = () => {
     listRequestId.current += 1;
@@ -249,6 +248,15 @@ export function MistakesPage({
     setShowPracticeChoices(false);
     closeDetail();
   };
+  const focusAttemptHistory = () => {
+    const heading = attemptHistoryHeadingRef.current;
+    if (!heading) return;
+    heading.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+    heading.focus({ preventScroll: true });
+  };
   const changeStatus = async (weakness: Weakness, next: 'ACTIVE' | 'IGNORED') => {
     setMessage('');
     try {
@@ -265,6 +273,7 @@ export function MistakesPage({
     }
   };
   const selectedPractice = partitionMistakePracticeSelection(result?.items ?? [], selected);
+  const detailDirection = detail ? getMistakeLearningDirection(detail.questionType) : null;
   const hasSpecialPractice =
     selectedPractice.outputWordIds.length > 0 || selectedPractice.confusionWordIds.length > 0;
   const createPlanFor = async (bookWordIds: string[]) => {
@@ -536,7 +545,40 @@ export function MistakesPage({
                     仅选择此词，返回练习入口
                   </button>
                 )}
-                <div className="mistake-attempt-heading">
+                {detailDirection && (
+                  <section
+                    className="mistake-learning-direction"
+                    aria-label={`${detailDirection.label}练习方向`}
+                  >
+                    <div className="mistake-learning-direction-copy">
+                      <h3>这类题练什么</h3>
+                      <p>{detailDirection.focus}</p>
+                      <p>
+                        <strong>可从哪里再练：</strong> {detailDirection.nextStep}
+                      </p>
+                    </div>
+                    <div className="mistake-learning-direction-actions">
+                      <button type="button" onClick={focusAttemptHistory}>
+                        查看本题型作答
+                      </button>
+                      {detailDirection.route && (
+                        <button
+                          type="button"
+                          className="mistake-detail-practice-button"
+                          onClick={() => window.location.assign(detailDirection.route!.href)}
+                        >
+                          {detailDirection.route.label}
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                )}
+                <div
+                  className="mistake-attempt-heading"
+                  id="mistake-attempt-history"
+                  ref={attemptHistoryHeadingRef}
+                  tabIndex={-1}
+                >
                   <strong>关联作答 · 当前题型</strong>
                   <span>
                     最新记录在前 · 每页最多 {detail.attemptPageSize} 条 · 时间按设备时区显示

@@ -16590,6 +16590,68 @@ button[data-tooltip]::after {
   background: var(--gold);
   font-weight: 900;
 }
+.mistake-learning-direction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(176px, auto);
+  gap: 12px 18px;
+  align-items: start;
+  margin: 14px 0 6px;
+  padding: 14px;
+  border: 2px solid rgba(8, 40, 119, 0.24);
+  border-radius: 9px;
+  background: #eaf2ff;
+  color: var(--border-color);
+}
+.mistake-learning-direction-copy {
+  min-width: 0;
+}
+.mistake-learning-direction h3 {
+  margin: 0 0 6px;
+  color: var(--border-color);
+  font-size: 14px;
+}
+.mistake-learning-direction p {
+  margin: 0;
+  color: rgba(8, 40, 119, 0.8);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.mistake-learning-direction p + p {
+  margin-top: 7px;
+}
+.mistake-learning-direction-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.mistake-learning-direction-actions button {
+  min-height: 40px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff4b9;
+  padding: 8px 12px;
+  color: var(--border-color);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.mistake-learning-direction-actions .mistake-detail-practice-button {
+  margin: 0;
+  background: var(--gold);
+}
+.mistake-learning-direction-actions button:hover,
+.mistake-learning-direction-actions button:focus-visible {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--border-color);
+  outline: none;
+}
+.mistake-attempt-heading:focus {
+  outline: 3px solid var(--gold);
+  outline-offset: 4px;
+}
 .tutor-header {
   padding: 15px 17px !important;
 }
@@ -17104,6 +17166,14 @@ button[data-tooltip]::after {
   }
   .mistake-detail-grid {
     padding: 14px;
+  }
+  .mistake-learning-direction {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+  .mistake-learning-direction-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
   .mistake-detail .tutor-panel {
     height: 540px;
