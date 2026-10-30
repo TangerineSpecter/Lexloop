@@ -1390,8 +1390,28 @@ function buildChallenge(
   seed: string,
   focus: AdventurePracticeFocus,
 ): StoredChallenge {
-  const type = challengeTypeForFocus(focus, ordinal, phase);
+  const requestedType = challengeTypeForFocus(focus, ordinal, phase);
   const word = target.bookWord.word.text;
+  const needsOptions =
+    requestedType === AdventureChallengeType.CHOICE ||
+    requestedType === AdventureChallengeType.MATCHING;
+  const distractors: string[] = [];
+  if (needsOptions) {
+    const seen = new Set([normalize(word)]);
+    for (const item of all) {
+      if (item.id === target.id) continue;
+      const candidate = item.bookWord.word.text.trim();
+      const normalized = normalize(candidate);
+      if (!candidate || seen.has(normalized)) continue;
+      seen.add(normalized);
+      distractors.push(candidate);
+      if (distractors.length === 3) break;
+    }
+  }
+  // A recognition item needs at least one distinct wrong option. Keep the floor usable
+  // when a short or duplicate-heavy vocabulary book cannot provide one.
+  const type =
+    needsOptions && distractors.length === 0 ? AdventureChallengeType.SPELLING : requestedType;
   const meaning =
     target.bookWord.contextMeaning || stripPart(target.bookWord.word.meaning) || '暂无释义';
   const example = target.bookWord.sourceExample || `I can use ${word} in a sentence.`;
@@ -1408,10 +1428,6 @@ function buildChallenge(
     expected: [type === AdventureChallengeType.SENTENCE_ORDER ? example : word],
   };
   if (type === AdventureChallengeType.CHOICE || type === AdventureChallengeType.MATCHING) {
-    const distractors = all
-      .filter((item) => item.id !== target.id)
-      .map((item) => item.bookWord.word.text)
-      .slice(0, 3);
     return {
       ...base,
       prompt:

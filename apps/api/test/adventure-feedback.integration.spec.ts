@@ -91,6 +91,341 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       }
     }, 30_000);
 
+    it('matches challenge mixes to each route length and falls back when choices lack a distractor', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const fullBookSource = `adventure-route-mix-${fixtureId}`;
+      const shortBookSource = `adventure-route-fallback-${fixtureId}`;
+      const fullWords = Array.from({ length: 12 }, (_, index) => `${fullBookSource}-${index}`);
+      const shortWords = [`${shortBookSource}-only`];
+      const userIds: string[] = [];
+      const ai = { generateForUser: vi.fn() };
+      const service = new AdventureService(
+        prisma as never,
+        new MistakesService(prisma as never),
+        ai as never,
+      );
+
+      try {
+        const users = await Promise.all(
+          ['full', 'short'].map((suffix) =>
+            prisma.user.create({
+              data: {
+                email: `adventure-route-mix-${fixtureId}-${suffix}@example.invalid`,
+                passwordHash: 'isolated-test-fixture',
+              },
+              select: { id: true },
+            }),
+          ),
+        );
+        userIds.push(...users.map((user) => user.id));
+        const books = await Promise.all(
+          [
+            { user: users[0], source: fullBookSource, words: fullWords },
+            { user: users[1], source: shortBookSource, words: shortWords },
+          ].map(async ({ user, source, words }) => {
+            const book = await prisma.vocabularyBook.create({
+              data: {
+                sourceKey: source,
+                category: 'GENERAL',
+                title: 'Adventure route fixture',
+                sourcePath: 'test',
+                kind: 'SYSTEM',
+                bookWords: {
+                  create: words.map((normalized, position) => ({
+                    position,
+                    word: {
+                      create: {
+                        normalized,
+                        text: words.length === 1 ? 'calm' : `routeword${position}`,
+                        meaning: '路线测试词',
+                      },
+                    },
+                  })),
+                },
+              },
+              select: { id: true },
+            });
+            await prisma.userVocabularyBook.create({
+              data: { userId: user.id, bookId: book.id, isDefault: true },
+            });
+            await service.chooseClass(user.id, 'warrior');
+            return book;
+          }),
+        );
+
+        const focusSequences = {
+          BALANCED: ['CHOICE', 'SPELLING', 'SENTENCE_ORDER', 'MATCHING', 'FREE_RESPONSE'],
+          RECALL: ['SPELLING', 'SPELLING', 'CHOICE', 'SPELLING', 'SENTENCE_ORDER'],
+          CONTEXT: ['SENTENCE_ORDER', 'SENTENCE_ORDER', 'SPELLING', 'SENTENCE_ORDER', 'MATCHING'],
+        } as const;
+        const roomRoutes = {
+          5: ['COMBAT', 'ELITE', 'TREASURE'],
+          10: ['COMBAT', 'EVENT', 'ELITE', 'CAMP', 'COMBAT', 'TREASURE'],
+          15: [
+            'COMBAT',
+            'EVENT',
+            'COMBAT',
+            'TREASURE',
+            'ELITE',
+            'CAMP',
+            'COMBAT',
+            'ELITE',
+            'TREASURE',
+          ],
+        } as const;
+        const fullMap = await service.dungeons(users[0].id);
+        const fullFloor = fullMap.floors[0];
+        for (const focus of Object.keys(focusSequences) as Array<keyof typeof focusSequences>) {
+          for (const durationMinutes of [5, 10, 15] as const) {
+            const run = await service.startRun(users[0].id, fullFloor.id, durationMinutes, focus);
+            const rooms = await prisma.dungeonRoom.findMany({
+              where: { runId: run.id },
+              orderBy: { position: 'asc' },
+              select: { type: true, challenge: true },
+            });
+            const challengeTypes = rooms.map(
+              (room) => (room.challenge as unknown as { type: string }).type,
+            );
+            expect(run.roomCount).toBe(roomRoutes[durationMinutes].length);
+            expect(rooms.map((room) => room.type)).toEqual(roomRoutes[durationMinutes]);
+            expect(challengeTypes).toEqual(
+              Array.from(
+                { length: roomRoutes[durationMinutes].length },
+                (_, index) => focusSequences[focus][index % focusSequences[focus].length],
+              ),
+            );
+            if (focus === 'RECALL')
+              expect(challengeTypes.filter((type) => type === 'SPELLING').length).toBeGreaterThan(
+                challengeTypes.length / 2,
+              );
+            if (focus === 'CONTEXT')
+              expect(
+                challengeTypes.filter((type) => type === 'SENTENCE_ORDER').length,
+              ).toBeGreaterThan(challengeTypes.length / 2);
+            await prisma.dungeonRun.update({
+              where: { id: run.id },
+              data: { status: 'RETREATED', completedAt: new Date() },
+            });
+          }
+        }
+
+        const shortMap = await service.dungeons(users[1].id);
+        const shortRun = await service.startRun(users[1].id, shortMap.floors[0].id, 10, 'BALANCED');
+        const shortChallenges = await prisma.dungeonRoom.findMany({
+          where: { runId: shortRun.id },
+          orderBy: { position: 'asc' },
+          select: { challenge: true },
+        });
+        expect(
+          shortChallenges.map((room) => (room.challenge as unknown as { type: string }).type),
+        ).toEqual([
+          'SPELLING',
+          'SPELLING',
+          'SENTENCE_ORDER',
+          'SPELLING',
+          'FREE_RESPONSE',
+          'SPELLING',
+        ]);
+        for (const room of [shortChallenges[0], shortChallenges[3], shortChallenges[5]]) {
+          const challenge = room.challenge as unknown as { options?: string[]; type: string };
+          expect(challenge.type).toBe('SPELLING');
+          expect(challenge.options).toBeUndefined();
+        }
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+        expect(await prisma.battleAction.count({ where: { run: { userId: users[0].id } } })).toBe(
+          0,
+        );
+        expect(await prisma.wordReviewAttempt.count({ where: { userId: { in: userIds } } })).toBe(
+          0,
+        );
+      } finally {
+        if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+        await prisma.vocabularyBook.deleteMany({
+          where: { sourceKey: { in: [fullBookSource, shortBookSource] } },
+        });
+        await prisma.vocabularyWord.deleteMany({
+          where: { normalized: { in: [...fullWords, ...shortWords] } },
+        });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
+    it('completes and resumes a real three-room route with one-time SRS and reward settlement', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const sourceKey = `adventure-full-route-${fixtureId}`;
+      const normalized = Array.from({ length: 12 }, (_, index) => `${sourceKey}-${index}`);
+      let userId: string | undefined;
+      const ai = { generateForUser: vi.fn() };
+      const service = new AdventureService(
+        prisma as never,
+        new MistakesService(prisma as never),
+        ai as never,
+      );
+
+      try {
+        const user = await prisma.user.create({
+          data: {
+            email: `${sourceKey}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        userId = user.id;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure full route fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: normalized.map((value, position) => ({
+                position,
+                word: {
+                  create: {
+                    normalized: value,
+                    text: `recallword${position}`,
+                    meaning: '回想测试词',
+                  },
+                },
+              })),
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: user.id, bookId: book.id, isDefault: true },
+        });
+        await service.chooseClass(user.id, 'warrior');
+        const floor = (await service.dungeons(user.id)).floors[0];
+        let run = await service.startRun(user.id, floor.id, 5, 'RECALL');
+        expect(run).toMatchObject({ status: 'ACTIVE', practiceFocus: 'RECALL', roomCount: 3 });
+        expect(run.rooms.map((room) => room.type)).toEqual(['COMBAT', 'ELITE', 'TREASURE']);
+
+        const savedActionIds: string[] = [];
+        const observedChallenges: string[] = [];
+        for (let index = 0; run.status === 'ACTIVE' && index < 12; index += 1) {
+          const room = await prisma.dungeonRoom.findUniqueOrThrow({
+            where: { runId_position: { runId: run.id, position: run.currentRoom } },
+            select: { challenge: true },
+          });
+          const challenge = room.challenge as unknown as {
+            id: string;
+            type: string;
+            phase: string;
+            prompt: string;
+            expected: string[];
+          };
+          expect(challenge.type).not.toBe('FREE_RESPONSE');
+          observedChallenges.push(`${challenge.phase}:${challenge.type}`);
+          const clientActionId = `adventure-full-route-${fixtureId}-${index}`;
+          const response = await service.act(user.id, run.id, {
+            clientActionId,
+            answer: [challenge.expected[0]],
+            responseTimeMs: 900 + index,
+          });
+          expect(response.repeated).toBe(false);
+          savedActionIds.push(clientActionId);
+          run = response.run;
+
+          if (index === 0) {
+            const resumed = await service.activeRun(user.id);
+            expect(resumed).toMatchObject({
+              id: run.id,
+              status: 'ACTIVE',
+              practiceFocus: 'RECALL',
+              lastAction: { prompt: challenge.prompt, answer: [challenge.expected[0]] },
+            });
+            expect(resumed?.challenge).toBeTruthy();
+            run = resumed!;
+          }
+        }
+
+        expect(run.status).toBe('COMPLETED');
+        expect(observedChallenges).toEqual([
+          'ATTACK:SPELLING',
+          'ATTACK:SPELLING',
+          'BLOCK:SPELLING',
+          'ATTACK:CHOICE',
+          'ATTACK:CHOICE',
+        ]);
+        expect(savedActionIds).toHaveLength(5);
+        expect(await service.activeRun(user.id)).toBeNull();
+        const recovered = await service.recoverRun(user.id, run.id);
+        expect(recovered).toMatchObject({
+          id: run.id,
+          status: 'COMPLETED',
+          practiceFocus: 'RECALL',
+          experienceEarned: 72,
+          goldEarned: 32,
+          materialsEarned: 2,
+          lastAction: {
+            answer: [expect.any(String)],
+            feedback: { correct: true, provisional: false },
+          },
+        });
+        expect(recovered.challenge).toBeNull();
+
+        const persistedState = async () => ({
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),
+          correctAttempts: await prisma.wordReviewAttempt.count({
+            where: { userId: user.id, isCorrect: true },
+          }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { runId: run.id } }),
+          validRecall: await prisma.adventureLearningEvidence.count({
+            where: { runId: run.id, validRecall: true },
+          }),
+          events: await prisma.learningEvent.count({
+            where: { userId: user.id, type: 'ADVENTURE_BATTLE_ACTION' },
+          }),
+          progress: await prisma.userWordProgress.findMany({
+            where: { userId: user.id },
+            select: { reviewCount: true, totalAttempts: true, correctAttempts: true },
+          }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: user.id },
+            select: { experience: true, gold: true, materials: true },
+          }),
+        });
+        const afterCompletion = await persistedState();
+        expect(afterCompletion.actions).toBe(5);
+        expect(afterCompletion.attempts).toBe(5);
+        expect(afterCompletion.correctAttempts).toBe(5);
+        expect(afterCompletion.evidence).toBe(5);
+        expect(afterCompletion.validRecall).toBe(3);
+        expect(afterCompletion.events).toBe(5);
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.reviewCount, 0)).toBe(5);
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.totalAttempts, 0)).toBe(5);
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.correctAttempts, 0)).toBe(
+          5,
+        );
+        expect(afterCompletion.profile).toEqual({ experience: 72, gold: 32, materials: 2 });
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+
+        await service.recoverRun(user.id, run.id);
+        await service.recoverRun(user.id, run.id);
+        const duplicate = await service.act(user.id, run.id, {
+          clientActionId: savedActionIds.at(-1)!,
+          answer: ['a retry cannot replace the saved answer'],
+        });
+        expect(duplicate.repeated).toBe(true);
+        expect(duplicate.run.lastAction?.answer).toEqual(recovered.lastAction?.answer);
+        expect(await persistedState()).toEqual(afterCompletion);
+      } finally {
+        if (userId) await prisma.user.delete({ where: { id: userId } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
     it('hides previously cached mastery when its only evidence was provisional', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

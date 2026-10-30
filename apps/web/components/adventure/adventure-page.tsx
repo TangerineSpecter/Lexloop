@@ -1319,7 +1319,7 @@ function challengeTypeLabel(type?: string) {
         CHOICE: '识别',
         SPELLING: '拼写',
         SENTENCE_ORDER: '组句',
-        MATCHING: '搭配',
+        MATCHING: '词义匹配',
         FREE_RESPONSE: '自由表达',
       } as Record<string, string>
     )[type ?? ''] ?? '挑战'

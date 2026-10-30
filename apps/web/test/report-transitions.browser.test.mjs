@@ -1544,6 +1544,7 @@ test(
         savedDraftValue,
         'chunk retry must not clear local study drafts',
       );
+      await capture('dashboard-travel-1440.png');
 
       await evaluate(
         'window.dashboardSidebarReference = document.querySelector(".study-sidebar"); true',
