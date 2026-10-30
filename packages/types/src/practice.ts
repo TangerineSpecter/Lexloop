@@ -21,6 +21,10 @@ export type ReadingWordUseFeedback = {
   naturalness: string;
   alternative: string | null;
 };
+export type ReadingTranslationFeedback = {
+  meaning: string;
+  naturalness: string;
+};
 export type OutputSubmissionView = {
   id: string;
   clientRequestId: string;

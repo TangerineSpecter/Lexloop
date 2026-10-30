@@ -27,8 +27,10 @@ import { AiService, ChatCompletionRequest, OpenAiChatCompletionRequest } from '.
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import {
   parseReadingSentenceRewriteFeedback,
+  parseReadingTranslationFeedback,
   parseReadingWordUseFeedback,
   READING_SENTENCE_REWRITE_FEEDBACK_PROMPT,
+  READING_TRANSLATION_FEEDBACK_PROMPT,
   READING_WORD_USE_FEEDBACK_PROMPT,
 } from './formative-feedback';
 
@@ -43,6 +45,10 @@ export class ReadingWordUseDto {
   @IsString() @MinLength(1) @MaxLength(100) word!: string;
   @IsString() @MinLength(1) @MaxLength(500) meaning!: string;
   @IsString() @MinLength(1) @MaxLength(1200) learnerSentence!: string;
+}
+export class ReadingTranslationDto {
+  @IsString() @MinLength(1) @MaxLength(1200) sourceSentence!: string;
+  @IsString() @MinLength(1) @MaxLength(1200) learnerTranslation!: string;
 }
 
 /** OpenAI-compatible request fields are forwarded untouched to the configured Provider. */
@@ -187,6 +193,46 @@ export class AiController {
       return parseReadingWordUseFeedback(payload?.choices?.[0]?.message?.content);
     } catch {
       throw new BadGatewayException('模型暂时没有返回可用的造句建议，请稍后重试。');
+    }
+  }
+
+  @Post('reading-translation-feedback')
+  async readingTranslationFeedback(
+    @Body() dto: ReadingTranslationDto,
+    @Req() request: { user: { sub: string } },
+  ) {
+    if (!dto.sourceSentence.trim() || !dto.learnerTranslation.trim()) {
+      throw new BadRequestException('请先写下你对这句英文的理解。');
+    }
+    const response = await this.ai.selectedChatCompletions(
+      {
+        messages: [
+          {
+            role: 'system',
+            content: READING_TRANSLATION_FEEDBACK_PROMPT,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              sourceSentence: dto.sourceSentence.trim(),
+              learnerTranslation: dto.learnerTranslation.trim(),
+            }),
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 500,
+        response_format: { type: 'json_object' },
+      },
+      request.user.sub,
+      AbortSignal.timeout(30_000),
+    );
+    const payload = (await response.json().catch(() => null)) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    } | null;
+    try {
+      return parseReadingTranslationFeedback(payload?.choices?.[0]?.message?.content);
+    } catch {
+      throw new BadGatewayException('模型暂时没有返回可用的翻译建议，请稍后重试。');
     }
   }
 

@@ -17292,6 +17292,33 @@ button[data-tooltip]::after {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+.sentence-translation-reference-toggle {
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(8, 40, 119, 0.32);
+  border-radius: 7px;
+  background: #eaf2ff;
+  color: var(--border-color);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sentence-translation-reference-toggle:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 2px;
+}
+.sentence-translation-reference {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--gold);
+  background: #fff8d8;
+  color: var(--border-color);
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 680px) {
   .generated-sentences .sentence-rewrite-panel {
     padding: 12px;

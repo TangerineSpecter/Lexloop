@@ -3,12 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AiController,
   ReadingSentenceRewriteDto,
+  ReadingTranslationDto,
   ReadingWordUseDto,
 } from '../src/modules/ai/ai.controller';
 import {
   parseReadingSentenceRewriteFeedback,
+  parseReadingTranslationFeedback,
   parseReadingWordUseFeedback,
   READING_SENTENCE_REWRITE_FEEDBACK_PROMPT,
+  READING_TRANSLATION_FEEDBACK_PROMPT,
   READING_WORD_USE_FEEDBACK_PROMPT,
 } from '../src/modules/ai/formative-feedback';
 
@@ -398,6 +401,84 @@ describe('AiController reading word-use feedback', () => {
   });
 });
 
+describe('AiController reading translation feedback', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const input = {
+    sourceSentence: 'Good lighting makes a room look brighter.',
+    learnerTranslation: '好的照明会让房间显得更亮。',
+  };
+  const result = {
+    meaning: '译文保留了照明让房间显得更亮的因果关系。',
+    naturalness: '中文表达清楚自然。',
+  };
+
+  it('uses the authenticated learner selected model and returns unscored formative notes', async () => {
+    const selectedChatCompletions = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }),
+        ),
+      );
+    const controller = new AiController({ selectedChatCompletions } as never, {} as never);
+
+    expect(
+      await controller.readingTranslationFeedback(input, { user: { sub: 'learner-a' } }),
+    ).toEqual(result);
+    expect(selectedChatCompletions).toHaveBeenCalledOnce();
+    const [completion, userId, signal] = selectedChatCompletions.mock.calls[0];
+    expect(userId).toBe('learner-a');
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(completion).toMatchObject({
+      temperature: 0.2,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
+    });
+    expect(completion.messages[0].content).toContain('合理的意译');
+    expect(completion.messages[0].content).toContain('不得给分');
+    expect(JSON.parse(completion.messages[1].content)).toEqual(input);
+  });
+
+  it('does not send blank input to a model', async () => {
+    const selectedChatCompletions = vi.fn();
+    const controller = new AiController({ selectedChatCompletions } as never, {} as never);
+    await expect(
+      controller.readingTranslationFeedback(
+        { ...input, learnerTranslation: '  ' },
+        { user: { sub: 'learner-a' } },
+      ),
+    ).rejects.toMatchObject({ constructor: BadRequestException });
+    expect(selectedChatCompletions).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed provider output without exposing its raw text', async () => {
+    const selectedChatCompletions = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: 'private provider output' } }] }),
+        ),
+      );
+    const controller = new AiController({ selectedChatCompletions } as never, {} as never);
+    await expect(
+      controller.readingTranslationFeedback(input, { user: { sub: 'learner-a' } }),
+    ).rejects.toMatchObject({
+      constructor: BadGatewayException,
+      message: expect.stringContaining('没有返回可用的翻译建议'),
+    });
+  });
+
+  it('keeps only the two formative feedback fields', () => {
+    expect(
+      parseReadingTranslationFeedback(
+        JSON.stringify({ ...result, score: 98, cefr: 'C1', mastery: true }),
+      ),
+    ).toEqual(result);
+    expect(() => parseReadingTranslationFeedback(JSON.stringify({ meaning: '保留' }))).toThrow();
+  });
+});
+
 describe('formative feedback DTO validation', () => {
   it('rejects oversized, array and nested request values using the API validation pipe', async () => {
     const pipe = new ValidationPipe({ whitelist: true, transform: true });
@@ -457,5 +538,31 @@ describe('formative feedback DTO validation', () => {
         ReadingSentenceRewriteDto,
       ),
     ).resolves.toEqual({ sourceSentence: 'valid', learnerRewrite: 'valid' });
+
+    await expect(
+      transform(
+        { sourceSentence: 'x'.repeat(1201), learnerTranslation: '有效译文' },
+        ReadingTranslationDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        { sourceSentence: ['不是', '字符串'], learnerTranslation: '有效译文' },
+        ReadingTranslationDto,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      transform(
+        {
+          sourceSentence: 'Good lighting makes a room look brighter.',
+          learnerTranslation: '好的照明会让房间显得更亮。',
+          metadata: { score: 100 },
+        },
+        ReadingTranslationDto,
+      ),
+    ).resolves.toEqual({
+      sourceSentence: 'Good lighting makes a room look brighter.',
+      learnerTranslation: '好的照明会让房间显得更亮。',
+    });
   });
 });

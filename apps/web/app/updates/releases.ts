@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.91',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '分句阅读可先写中文理解再对照',
+        entry: '词表 → 分组阅读 → 展开分句阅读 → 先用中文理解',
+        usage:
+          '先写下自己的理解，再查看所选模型给出的形成性建议和材料中的一种参考译文；也可跳过输入直接对照，不评分、不写入作答或复习记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.90',
     date: '2026-10-29',
     items: [

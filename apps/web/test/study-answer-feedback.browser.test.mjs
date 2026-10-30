@@ -241,7 +241,7 @@ test(
               ],
               content: { groups: [
                 { index: 0, title: 'A bright morning', wordOccurrences: { bright: 1 },
-                  sentences: [{ english: 'Bright rooms are bright; brightness matters when rooms are brightly lit.', chinese: '明亮的房间里，明亮程度很重要。', simplified: '房间越明亮，越让人在意光线。', grammar: 'bright 修饰 rooms；brightness 是名词，brightly 是副词。' }],
+                sentences: [{ english: 'Bright rooms are bright; brightness matters when rooms are brightly lit.', chinese: '房间要明亮，充足的光线也很重要。', simplified: '房间越明亮，越让人在意光线。', grammar: 'bright 修饰 rooms；brightness 是名词，brightly 是副词。' }],
                   questions: [firstSubmitted ? questionAfterSubmit : questionBeforeSubmit] },
                 { index: 1, title: 'A helping hand', wordOccurrences: { help: 1 },
                   sentences: [{ english: 'They help people learn.', chinese: '他们帮助人们学习。', simplified: '他们帮助人们学习。', grammar: 'help 作谓语动词。' }],
@@ -297,6 +297,10 @@ test(
           window.readingWordUseRequests = [];
           window.readingWordUseResolvers = [];
           window.failNextWordUseFeedback = false;
+          window.readingTranslationRequests = [];
+          window.readingTranslationResolvers = [];
+          window.failNextTranslationFeedback = false;
+          window.holdNextTranslationFeedback = false;
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
@@ -437,6 +441,24 @@ test(
                 grammar: '主谓搭配正确。',
                 naturalness: '表达清楚自然。',
                 alternative: null,
+              });
+            }
+            if (path.endsWith('/api/v1/ai/reading-translation-feedback') && method === 'POST') {
+              window.readingTranslationRequests.push({
+                userId: JSON.parse(localStorage.getItem('lexloop.session')).user.id,
+                body: JSON.parse(options.body),
+              });
+              if (window.failNextTranslationFeedback) {
+                window.failNextTranslationFeedback = false;
+                return Response.json({ message: 'Fixture translation feedback unavailable' }, { status: 503 });
+              }
+              if (window.holdNextTranslationFeedback) {
+                window.holdNextTranslationFeedback = false;
+                return new Promise((resolve) => window.readingTranslationResolvers.push(resolve));
+              }
+              return Response.json({
+                meaning: '译文保留了照明让房间显得更亮的因果关系。',
+                naturalness: '中文表达清楚自然。',
               });
             }
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
@@ -1048,6 +1070,218 @@ test(
       );
       assert.equal(await evaluate('window.readingRewriteRequests.length'), 3);
       assert.equal(await evaluate('window.readingWordUseRequests.length'), 3);
+      const translationDetailToggle =
+        'document.querySelector(\'.sentence-tools button[aria-label="翻译"]\')';
+      await evaluate(`${translationDetailToggle}.click()`);
+      assert.equal(
+        await evaluate('Boolean(document.querySelector(".sentence-detail.is-translation"))'),
+        true,
+      );
+      const translationToggle =
+        'document.querySelector(\'.sentence-tools button[aria-label="先用中文理解第 1 句"]\')';
+      const translationPanel = 'document.querySelector("#sentence-translation-0")';
+      await evaluate(`${translationToggle}.click()`);
+      await until(`!${translationPanel}.hidden`);
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-detail.is-translation")'),
+        null,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sentence-rewrite-panel").hidden'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#reading-word-use-practice").hidden'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-answer").value'),
+        '',
+      );
+      assert.equal(await evaluate('window.readingTranslationRequests.length'), 0);
+      const translationReferenceToggle =
+        'document.querySelector("#sentence-translation-0 .sentence-translation-reference-toggle")';
+      await evaluate(`${translationReferenceToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-reference").textContent'),
+        '房间要明亮，充足的光线也很重要。',
+      );
+      await evaluate(`${translationReferenceToggle}.click()`);
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-reference")'),
+        null,
+      );
+      const translationAnswer = '良好的灯光让房间看起来更明亮。';
+      await evaluate(`(() => {
+        const input = document.querySelector('#sentence-translation-0-answer');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(translationAnswer)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      const translationSubmit =
+        'document.querySelector("#sentence-translation-0 button[type=submit]")';
+      assert.equal(await evaluate(`${translationSubmit}.disabled`), false);
+      await evaluate(`window.holdNextTranslationFeedback = true;
+        const form = document.querySelector('#sentence-translation-0-answer').form;
+        form.requestSubmit(); form.requestSubmit();`);
+      await until('window.readingTranslationRequests.length === 1');
+      await delay(50);
+      assert.deepEqual(await evaluate('window.readingTranslationRequests[0]'), {
+        userId: 'study-user',
+        body: {
+          sourceSentence:
+            'Bright rooms are bright; brightness matters when rooms are brightly lit.',
+          learnerTranslation: translationAnswer,
+        },
+      });
+      assert.equal(await evaluate(`${translationSubmit}.disabled`), true);
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-reference")'),
+        null,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")',
+        ),
+        null,
+      );
+      assert.equal(await evaluate('window.readingTranslationRequests.length'), 1);
+      await evaluate(`window.readingTranslationResolvers.shift()(Response.json({
+        meaning: '译文保留了房间光线带来明亮感的意思。',
+        naturalness: '中文表达自然。',
+      }))`);
+      await until('document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")');
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-reference").textContent'),
+        '房间要明亮，充足的光线也很重要。',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback").innerText.includes("得分")',
+        ),
+        false,
+      );
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        'document.querySelector("#sentence-translation-0").scrollIntoView({ block: "center" })',
+      );
+      await capture('reading-translation-1440.png');
+      const translationDesktop = await evaluate(`(() => {
+        const panel = document.querySelector('#sentence-translation-0').getBoundingClientRect();
+        const input = document.querySelector('#sentence-translation-0-answer').getBoundingClientRect();
+        const toolbar = document.querySelector('.sentence-tools').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, left: panel.left, right: panel.right, inputRight: input.right, toolbarLeft: toolbar.left, toolbarRight: toolbar.right };
+      })()`);
+      assert.ok(
+        translationDesktop.scrollWidth <= translationDesktop.viewport,
+        JSON.stringify(translationDesktop),
+      );
+      assert.ok(
+        translationDesktop.left >= 0 && translationDesktop.right <= translationDesktop.viewport,
+        JSON.stringify(translationDesktop),
+      );
+      assert.ok(
+        translationDesktop.inputRight <= translationDesktop.viewport,
+        JSON.stringify(translationDesktop),
+      );
+      assert.ok(
+        translationDesktop.toolbarLeft >= 0 &&
+          translationDesktop.toolbarRight <= translationDesktop.viewport,
+        JSON.stringify(translationDesktop),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 1');
+      const translationMobile = await evaluate(`(() => {
+        const panel = document.querySelector('#sentence-translation-0').getBoundingClientRect();
+        const input = document.querySelector('#sentence-translation-0-answer').getBoundingClientRect();
+        const toolbar = document.querySelector('.sentence-tools').getBoundingClientRect();
+        return { viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, left: panel.left, right: panel.right, inputRight: input.right, toolbarLeft: toolbar.left, toolbarRight: toolbar.right };
+      })()`);
+      assert.equal(translationMobile.viewport, 390);
+      assert.ok(translationMobile.scrollWidth <= 390, JSON.stringify(translationMobile));
+      assert.ok(
+        translationMobile.left >= 0 && translationMobile.right <= 391,
+        JSON.stringify(translationMobile),
+      );
+      assert.ok(translationMobile.inputRight <= 391, JSON.stringify(translationMobile));
+      assert.ok(
+        translationMobile.toolbarLeft >= 0 && translationMobile.toolbarRight <= 391,
+        JSON.stringify(translationMobile),
+      );
+      await evaluate(
+        'document.querySelector("#sentence-translation-0").scrollIntoView({ block: "center" })',
+      );
+      await capture('reading-translation-390.png');
+      await evaluate('document.querySelector("#sentence-translation-0-answer").focus()');
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate(
+          'document.activeElement === document.querySelector("#sentence-translation-0 button[type=submit]")',
+        ),
+        true,
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate(
+          'document.activeElement === document.querySelector("#sentence-translation-0 .sentence-translation-reference-toggle")',
+        ),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(`window.failNextTranslationFeedback = true;
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(document.querySelector('#sentence-translation-0-answer'), '光线好会让房间显得更亮。');
+        document.querySelector('#sentence-translation-0-answer').dispatchEvent(new Event('input', { bubbles: true }));
+        ${translationSubmit}.click()`);
+      await until('window.readingTranslationRequests.length === 2');
+      await until('document.querySelector("#sentence-translation-0 [role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-answer").value'),
+        '光线好会让房间显得更亮。',
+      );
+      await evaluate(`${translationSubmit}.click()`);
+      await until('window.readingTranslationRequests.length === 3');
+      await until('document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")');
+      assert.equal(await evaluate('window.studySubmissionAttempts.length'), 0);
+      assert.equal(await evaluate('window.studyPlanWrites.length'), 0);
+      await evaluate(`Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(document.querySelector('#sentence-translation-0-answer'), '先读懂，再自己翻译。');
+        document.querySelector('#sentence-translation-0-answer').dispatchEvent(new Event('input', { bubbles: true }));
+        window.holdNextTranslationFeedback = true; ${translationSubmit}.click()`);
+      await until('window.readingTranslationRequests.length === 4');
+      await evaluate(`${translationToggle}.click()`);
+      assert.equal(await evaluate(`${translationPanel}.hidden`), true);
+      await evaluate(
+        `window.readingTranslationResolvers.shift()(Response.json({ meaning: '迟到的结果', naturalness: '不应显示' }))`,
+      );
+      await delay(80);
+      await evaluate(`${translationToggle}.click()`);
+      await until(`!${translationPanel}.hidden`);
+      assert.equal(
+        await evaluate('document.querySelector("#sentence-translation-0-answer").value'),
+        '先读懂，再自己翻译。',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#sentence-translation-0 .sentence-rewrite-feedback")',
+        ),
+        null,
+      );
+      assert.equal(await evaluate('window.readingTranslationRequests.length'), 4);
       const wordUseMobile = await evaluate(`(() => {
         const panel = document.querySelector('.sentence-word-use-panel').getBoundingClientRect();
         const input = document.querySelector('#reading-word-use-practice-answer').getBoundingClientRect();

@@ -74,6 +74,7 @@ import {
 import { studyGroupCompletion } from '../lib/study-sequence';
 import { Tooltip } from './tooltip';
 import { ReadingModelDrawer } from './reading-model-drawer';
+import { ReadingSentenceTranslationPractice } from './reading-sentence-translation-practice';
 import { TutorPanel } from './tutor-panel';
 import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
@@ -4066,6 +4067,7 @@ function GeneratedReadingContent({
   const [fullDetail, setFullDetail] = useState<'none' | 'translation' | 'simplified'>('none');
   const [sentenceDetails, setSentenceDetails] = useState<Record<number, Detail | undefined>>({});
   const [rewriteSentenceIndex, setRewriteSentenceIndex] = useState<number | null>(null);
+  const [translationSentenceIndex, setTranslationSentenceIndex] = useState<number | null>(null);
   const [wordUseOpen, setWordUseOpen] = useState(false);
   const [speechNotice, setSpeechNotice] = useState('');
 
@@ -4116,6 +4118,7 @@ function GeneratedReadingContent({
             window.speechSynthesis?.cancel();
             setSpeechNotice('');
             setRewriteSentenceIndex(null);
+            setTranslationSentenceIndex(null);
             setSentenceMode((value) => !value);
           }}
         >
@@ -4209,10 +4212,28 @@ function GeneratedReadingContent({
                   data-tip="换种说法"
                   onClick={() => {
                     setWordUseOpen(false);
+                    setTranslationSentenceIndex(null);
                     setRewriteSentenceIndex((current) => (current === index ? null : index));
                   }}
                 >
                   <PenLine size={16} />
+                </button>
+                <button
+                  aria-label={`先用中文理解第 ${index + 1} 句`}
+                  aria-expanded={translationSentenceIndex === index}
+                  aria-controls={`sentence-translation-${index}`}
+                  data-tip="先用中文理解"
+                  onClick={() => {
+                    setWordUseOpen(false);
+                    setRewriteSentenceIndex(null);
+                    setSentenceDetails((current) => ({
+                      ...current,
+                      [index]: current[index] === 'translation' ? undefined : current[index],
+                    }));
+                    setTranslationSentenceIndex((current) => (current === index ? null : index));
+                  }}
+                >
+                  中
                 </button>
               </div>
             )}
@@ -4227,6 +4248,14 @@ function GeneratedReadingContent({
               id={`sentence-rewrite-${index}`}
               open={sentenceMode && rewriteSentenceIndex === index}
             />
+            <ReadingSentenceTranslationPractice
+              key={`${session.user.id}:${index}:${sentence.english}:${sentence.chinese}`}
+              id={`sentence-translation-${index}`}
+              open={sentenceMode && translationSentenceIndex === index}
+              session={session}
+              sourceSentence={sentence.english}
+              referenceTranslation={sentence.chinese}
+            />
           </article>
         ))}
       </div>
@@ -4238,6 +4267,7 @@ function GeneratedReadingContent({
           aria-controls="reading-word-use-practice"
           onClick={() => {
             setRewriteSentenceIndex(null);
+            setTranslationSentenceIndex(null);
             setWordUseOpen((open) => !open);
           }}
         >
