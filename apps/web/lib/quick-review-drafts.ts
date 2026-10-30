@@ -15,6 +15,9 @@ export type QuickReviewDraftRead = {
 };
 
 const DRAFT_FIELDS = ['currentIndex', 'revealed', 'userId', 'version', 'wordIds'];
+// A valid draft has at most ten word IDs of 100 characters each. Leave room for
+// JSON escaping and the account ID, while rejecting oversized obsolete/corrupt values.
+const MAX_DRAFT_STORAGE_LENGTH = 16_384;
 
 function browserStorage(): DraftStorage | undefined {
   try {
@@ -71,6 +74,15 @@ export function readQuickReviewDraft(
     return { draft: null, storageAvailable: false, stale: false };
   }
   if (raw === null) return { draft: null, storageAvailable: true, stale: false };
+
+  if (raw.length > MAX_DRAFT_STORAGE_LENGTH) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      return { draft: null, storageAvailable: false, stale: false };
+    }
+    return { draft: null, storageAvailable: true, stale: false };
+  }
 
   let value: unknown;
   try {

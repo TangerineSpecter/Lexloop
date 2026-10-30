@@ -105,6 +105,80 @@ test('missing selected due words and invalid progress states are discarded', () 
   assert.equal(storage.values.size, 0);
 });
 
+test('unsupported draft versions are removed only for the matching account', () => {
+  const storage = createStorage();
+  const userAKey = 'lexloop.quick-review.v1.user%2Ea.due';
+  const userBKey = 'lexloop.quick-review.v1.user%2Eb.due';
+  storage.setItem(
+    userAKey,
+    JSON.stringify({
+      version: 0,
+      userId: 'user.a',
+      wordIds: ['one'],
+      currentIndex: 0,
+      revealed: false,
+    }),
+  );
+  assert.equal(
+    saveQuickReviewDraft(
+      { version: 1, userId: 'user.b', wordIds: ['two'], currentIndex: 0, revealed: false },
+      storage,
+    ),
+    true,
+  );
+
+  assert.deepEqual(readQuickReviewDraft('user.a', ['one'], storage), {
+    draft: null,
+    storageAvailable: true,
+    stale: false,
+  });
+  assert.equal(storage.values.has(userAKey), false);
+  assert.deepEqual(readQuickReviewDraft('user.b', ['two'], storage).draft, {
+    version: 1,
+    userId: 'user.b',
+    wordIds: ['two'],
+    currentIndex: 0,
+    revealed: false,
+  });
+  assert.equal(storage.values.has(userBKey), true);
+});
+
+test('oversized legacy drafts are discarded before parsing and remain account-scoped', () => {
+  const storage = createStorage();
+  const userAKey = 'lexloop.quick-review.v1.user%2Ea.due';
+  const userBKey = 'lexloop.quick-review.v1.user%2Eb.due';
+  storage.setItem(
+    userAKey,
+    JSON.stringify({ version: 0, userId: 'user.a', payload: 'x'.repeat(20_000) }),
+  );
+  const userBDraft = {
+    version: 1,
+    userId: 'user.b',
+    wordIds: ['two'],
+    currentIndex: 0,
+    revealed: false,
+  };
+  saveQuickReviewDraft(userBDraft, storage);
+
+  const originalParse = JSON.parse;
+  let parseCalled = false;
+  JSON.parse = (...args) => {
+    parseCalled = true;
+    return originalParse(...args);
+  };
+  let result;
+  try {
+    result = readQuickReviewDraft('user.a', ['one'], storage);
+  } finally {
+    JSON.parse = originalParse;
+  }
+
+  assert.equal(parseCalled, false);
+  assert.deepEqual(result, { draft: null, storageAvailable: true, stale: false });
+  assert.equal(storage.values.has(userAKey), false);
+  assert.deepEqual(readQuickReviewDraft('user.b', ['two'], storage).draft, userBDraft);
+});
+
 test('corrupt and unavailable storage do not break the practice flow', () => {
   const storage = createStorage();
   const draft = {

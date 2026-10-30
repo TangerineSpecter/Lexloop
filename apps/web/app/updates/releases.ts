@@ -7,6 +7,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.107',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '超大旧回想草稿会跳过解析',
+        entry: '首页 → 单词列表 → 少量回想练习',
+        usage: '恢复时先限制本地草稿大小；损坏或超限内容只清理当前账号的草稿，不影响其他账号。',
+      },
+    ],
+  },
+  {
     version: '1.27.106',
     date: '2026-10-30',
     items: [
