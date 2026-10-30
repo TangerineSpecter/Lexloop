@@ -369,6 +369,11 @@ test(
               window.mistakeRequests.push({ method, url: path });
               return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
             }
+            const generationPath = '/api/v1/study/plans/first-plan-book-b/generate';
+            if (path.endsWith(generationPath) && method === 'POST' && window.firstPlanJourney) {
+              window.firstPlanGenerationAttempts.push('first-plan-book-b');
+              return Response.json(window.firstPlanActiveResponse);
+            }
             if (path.includes('/api/v1/study/plans/plan-1/groups/') && path.endsWith('/complete') && method === 'POST') {
               const groupIndex = Number(path.split('/groups/')[1].split('/')[0]);
               const body = JSON.parse(options.body);
@@ -387,6 +392,10 @@ test(
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
               window.studyPlanCreateAttempts.push(JSON.parse(options.body));
+              if (window.firstPlanJourney) {
+                window.studyPlanCreations.push(window.firstPlanGeneratingResponse);
+                return Response.json(window.firstPlanGeneratingResponse);
+              }
               if (window.studyPlanCreations.length) {
                 return Response.json(window.studyPlanCreations[0]);
               }
@@ -2128,6 +2137,110 @@ test(
       );
       assert.equal(await evaluate('window.studyPlansReadCount'), 1);
       assert.equal(await evaluate('window.studyPlanCreateAttempts.length'), 0);
+
+      // Walk a newly created plan all the way to its first question. The
+      // create response is GENERATING; the mocked generation response is
+      // fixture content, so this path never calls a real model.
+      await evaluate(`(() => {
+        const firstQuestion = {
+          bookWordId: 'book-b-word-1',
+          type: 'MEANING_RECOGNITION',
+          prompt: 'In the sentence, what does “adapt” mean?',
+          options: ['适应', '拒绝'],
+        };
+        const secondQuestion = {
+          bookWordId: 'book-b-word-2',
+          type: 'MEANING_RECOGNITION',
+          prompt: 'In the sentence, what does “consider” mean?',
+          options: ['考虑', '忽略'],
+        };
+        const plan = {
+          id: 'first-plan-book-b', mode: 'group', purpose: 'normal', status: 'GENERATING',
+          blocksNewPlanCreation: true, wordCount: 2, groupCount: 2, completed: 0,
+          createdAt: new Date().toISOString(), completedAt: null, generatedAt: null,
+          generationStartedAt: null, generationError: null, content: null,
+          words: [
+            { id: 'book-b-word-1', word: 'adapt', part: 'vt.', meaning: '适应', source: 'NEW', groupIndex: 0, completed: false, nextReviewAt: null, activeWeaknesses: [], question: null },
+            { id: 'book-b-word-2', word: 'consider', part: 'vt.', meaning: '考虑', source: 'NEW', groupIndex: 1, completed: false, nextReviewAt: null, activeWeaknesses: [], question: null },
+          ],
+          summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
+        };
+        window.firstPlanGeneratingResponse = plan;
+        window.firstPlanActiveResponse = {
+          ...plan,
+          status: 'ACTIVE',
+          generatedAt: new Date().toISOString(),
+          words: [
+            { ...plan.words[0], question: firstQuestion },
+            { ...plan.words[1], question: secondQuestion },
+          ],
+          content: { groups: [
+            { index: 0, title: 'A new routine', wordOccurrences: { adapt: 1 },
+              sentences: [{ english: 'People adapt to new routines.', chinese: '人们会适应新的日常安排。', simplified: '人们会适应新的安排。', grammar: 'adapt to 表示适应某种变化。' }],
+              questions: [firstQuestion] },
+            { index: 1, title: 'A careful choice', wordOccurrences: { consider: 1 },
+              sentences: [{ english: 'Please consider the options.', chinese: '请考虑这些选项。', simplified: '请想想这些选择。', grammar: 'consider 后可直接接名词。' }],
+              questions: [secondQuestion] },
+          ] },
+        };
+        window.firstPlanGenerationAttempts = [];
+        window.firstPlanJourney = true;
+      })()`);
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
+      if ((await evaluate('window.defaultBook?.id')) !== 'book-b') {
+        await evaluate('document.querySelector(".switch-book").click()');
+        await until('document.querySelector(".book-drawer")');
+        await until(
+          '[...document.querySelectorAll(".book-choice")].some((card) => card.textContent.includes("Book B"))',
+        );
+        await evaluate(
+          '[...document.querySelectorAll(".book-choice")].find((card) => card.textContent.includes("Book B")).querySelector("button").click()',
+        );
+      }
+      await until(
+        'document.querySelector(".words-load-error") || [...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
+      );
+      if (await evaluate('Boolean(document.querySelector(".words-load-error"))')) {
+        await evaluate('document.querySelector(".words-load-error button").click()');
+      }
+      await until(
+        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "adapt,consider"',
+      );
+      await until('!document.querySelector(".create").disabled');
+      await evaluate('document.querySelector(".create").click()');
+      await until('window.studyPlanCreateAttempts.length === 1');
+      assert.deepEqual(await evaluate('window.studyPlanCreateAttempts[0]'), {
+        newWordCount: 2,
+        reviewWordCount: 0,
+        mode: 'group',
+      });
+      await until(
+        'document.querySelector(".plan-preview-layer") && window.firstPlanGenerationAttempts.length === 1',
+      );
+      assert.deepEqual(await evaluate('window.firstPlanGenerationAttempts'), ['first-plan-book-b']);
+      await until(
+        'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("开始今天的挑战") && !document.querySelector(".plan-preview .start-challenge").disabled',
+      );
+      await evaluate('document.querySelector(".plan-preview .start-challenge").click()');
+      await until('document.querySelector(".lesson-page .answer-options button")');
+      assert.equal(
+        await evaluate('document.querySelector(".lesson-page").innerText.includes("adapt")'),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".lesson-page").innerText.includes("In the sentence, what does “adapt” mean?")',
+        ),
+        true,
+      );
+      assert.deepEqual(
+        await evaluate(
+          '[...document.querySelectorAll(".lesson-page .answer-options button")].map((button) => button.textContent.trim())',
+        ),
+        ['适应', '拒绝'],
+      );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);
