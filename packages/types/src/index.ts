@@ -203,8 +203,15 @@ export type AdventureHitGrade = 'PERFECT' | 'HIT' | 'GRAZE' | 'MISS';
 export type AdventureRoomType = 'COMBAT' | 'ELITE' | 'EVENT' | 'CAMP' | 'TREASURE' | 'BOSS';
 export type AdventureRunStatus = 'ACTIVE' | 'COMPLETED' | 'FAILED' | 'RETREATED';
 export type AdventurePracticeFocus = 'BALANCED' | 'RECALL' | 'CONTEXT';
+export type AdventureCombatPassiveKey = 'VANGUARD' | 'BURST' | 'STRIKER' | 'SUPPORT';
 export type EquipmentSlot = 'WEAPON' | 'ARMOR' | 'ACCESSORY';
 export type EquipmentRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+
+export interface AdventureCombatPassive {
+  key: AdventureCombatPassiveKey;
+  title: string;
+  description: string;
+}
 
 export interface AdventureClassNode {
   id: string;
@@ -217,6 +224,8 @@ export interface AdventureClassNode {
   parentId: string | null;
   available: boolean;
   current: boolean;
+  /** Present on current APIs; omitted by older clients and fixtures. */
+  combatPassive?: AdventureCombatPassive | null;
 }
 
 export interface AdventureSkill {
@@ -298,6 +307,7 @@ export interface DungeonLastAction {
     message: string;
     answer?: string;
     provisional?: boolean;
+    passiveTrigger?: string;
   };
 }
 
@@ -320,6 +330,9 @@ export interface DungeonRunState {
   durationMinutes: 5 | 10 | 15;
   /** Older saved runs omit this field and are interpreted as BALANCED. */
   practiceFocus?: AdventurePracticeFocus;
+  /** Null on legacy runs created before combat passives were snapshotted. */
+  combatPassive?: AdventureCombatPassive | null;
+  combatRulesVersion?: number;
   currentRoom: number;
   roomCount: number;
   playerHp: number;
@@ -347,7 +360,13 @@ export interface BattleResolution {
   grade: AdventureHitGrade;
   damageDealt: number;
   damageReceived: number;
-  feedback: { correct: boolean; message: string; answer?: string; provisional?: boolean };
+  feedback: {
+    correct: boolean;
+    message: string;
+    answer?: string;
+    provisional?: boolean;
+    passiveTrigger?: string;
+  };
   run: DungeonRunState;
   rewards?: { experience: number; gold: number; materials: number; item?: InventoryItem };
 }

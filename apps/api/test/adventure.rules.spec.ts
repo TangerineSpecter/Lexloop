@@ -9,9 +9,138 @@ import {
   hitGrade,
   incomingDamage,
   normalizePracticeFocus,
+  resolveCombatPassive,
 } from '../src/modules/adventure/adventure.rules';
+import { combatPassiveKeyForClassId } from '../src/modules/adventure/adventure.catalog';
 
 describe('adventure learning RPG rules', () => {
+  it('keeps the four class passives distinct and passes them down their class branches', () => {
+    expect([
+      combatPassiveKeyForClassId('class-warrior'),
+      combatPassiveKeyForClassId('class-mage'),
+      combatPassiveKeyForClassId('class-ranger'),
+      combatPassiveKeyForClassId('class-cleric'),
+    ]).toEqual(['VANGUARD', 'BURST', 'STRIKER', 'SUPPORT']);
+    expect(combatPassiveKeyForClassId('class-berserker')).toBe('VANGUARD');
+    expect(combatPassiveKeyForClassId('class-archmage')).toBe('BURST');
+    expect(combatPassiveKeyForClassId('unknown-class')).toBeNull();
+  });
+
+  it('applies the guard passive only to a successful block that still takes damage', () => {
+    const result = resolveCombatPassive({
+      passiveKey: 'VANGUARD',
+      phase: 'BLOCK',
+      challengeType: 'CHOICE',
+      score: 80,
+      provisional: false,
+      skillCost: 0,
+      previousCorrectStreak: 0,
+      supportHealUsed: false,
+      damageReceived: 7,
+      playerHpAfterDamage: 93,
+      playerMaxHp: 100,
+    });
+    expect(result).toMatchObject({ damageReduction: 4, trigger: '稳守：额外减伤 4 点。' });
+    expect(
+      resolveCombatPassive({
+        passiveKey: 'VANGUARD',
+        phase: 'BLOCK',
+        challengeType: 'CHOICE',
+        score: 100,
+        provisional: false,
+        skillCost: 0,
+        previousCorrectStreak: 0,
+        supportHealUsed: false,
+        damageReceived: 0,
+        playerHpAfterDamage: 100,
+        playerMaxHp: 100,
+      }).trigger,
+    ).toBeUndefined();
+    expect(
+      resolveCombatPassive({
+        passiveKey: 'VANGUARD',
+        phase: 'BLOCK',
+        challengeType: 'CHOICE',
+        score: 69,
+        provisional: false,
+        skillCost: 0,
+        previousCorrectStreak: 0,
+        supportHealUsed: false,
+        damageReceived: 18,
+        playerHpAfterDamage: 82,
+        playerMaxHp: 100,
+      }).damageReduction,
+    ).toBe(0);
+  });
+
+  it('rewards only a resource-consuming perfect mage skill, not ordinary or provisional hits', () => {
+    const resolve = (score: number, skillCost: number, provisional = false) =>
+      resolveCombatPassive({
+        passiveKey: 'BURST',
+        phase: 'ATTACK',
+        challengeType: 'SPELLING',
+        score,
+        provisional,
+        skillCost,
+        previousCorrectStreak: 0,
+        supportHealUsed: false,
+        damageReceived: 0,
+        playerHpAfterDamage: 100,
+        playerMaxHp: 100,
+      });
+    expect(resolve(100, 1).damageDealtBonus).toBe(6);
+    expect(resolve(90, 0).damageDealtBonus).toBe(0);
+    expect(resolve(89, 1).damageDealtBonus).toBe(0);
+    expect(resolve(100, 1, true).damageDealtBonus).toBe(0);
+  });
+
+  it('rewards an accurate ranger combo and resets its streak after an incorrect answer', () => {
+    const resolve = (score: number, previousCorrectStreak: number) =>
+      resolveCombatPassive({
+        passiveKey: 'STRIKER',
+        phase: 'ATTACK',
+        challengeType: 'MATCHING',
+        score,
+        provisional: false,
+        skillCost: 0,
+        previousCorrectStreak,
+        supportHealUsed: false,
+        damageReceived: 0,
+        playerHpAfterDamage: 100,
+        playerMaxHp: 100,
+      });
+    expect(resolve(70, 1)).toMatchObject({
+      damageDealtBonus: 6,
+      nextCorrectStreak: 2,
+    });
+    expect(resolve(100, 0).damageDealtBonus).toBe(0);
+    expect(resolve(69, 3).nextCorrectStreak).toBe(0);
+  });
+
+  it('heals the cleric only on a valid production answer, once per room and up to max HP', () => {
+    const resolve = (overrides: Partial<Parameters<typeof resolveCombatPassive>[0]> = {}) =>
+      resolveCombatPassive({
+        passiveKey: 'SUPPORT',
+        phase: 'ATTACK',
+        challengeType: 'SENTENCE_ORDER',
+        score: 100,
+        provisional: false,
+        skillCost: 0,
+        previousCorrectStreak: 0,
+        supportHealUsed: false,
+        damageReceived: 0,
+        playerHpAfterDamage: 97,
+        playerMaxHp: 100,
+        ...overrides,
+      });
+    expect(resolve()).toMatchObject({ healing: 3, supportHealUsed: true });
+    expect(resolve({ playerHpAfterDamage: 90 }).healing).toBe(4);
+    expect(resolve({ supportHealUsed: true }).healing).toBe(0);
+    expect(resolve({ challengeType: 'CHOICE' }).healing).toBe(0);
+    expect(resolve({ provisional: true }).healing).toBe(0);
+    expect(resolve({ playerHpAfterDamage: 100 }).healing).toBe(0);
+  });
+
   it('offers deterministic challenge mixes without changing legacy defaults', () => {
     const balanced = Array.from({ length: 5 }, (_, index) =>
       challengeTypeForFocus('BALANCED', index, 'ATTACK'),

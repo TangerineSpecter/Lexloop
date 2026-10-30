@@ -437,6 +437,12 @@ function ClassSelection({
               <small>ROLE 0{index + 1}</small>
               <h2>{item.name}</h2>
               <p>{item.description}</p>
+              {item.combatPassive && (
+                <div className={styles.passivePreview}>
+                  <strong>被动 · {item.combatPassive.title}</strong>
+                  <small>{item.combatPassive.description}</small>
+                </div>
+              )}
               <span>
                 选择职业 <ChevronRight />
               </span>
@@ -856,6 +862,12 @@ function BattlePage({
           )}
         </AnimatePresence>
       </section>
+      {run.combatPassive && (
+        <aside className={styles.combatPassiveBanner} aria-label="本局职业被动">
+          <strong>本局被动 · {run.combatPassive.title}</strong>
+          <span>{run.combatPassive.description}</span>
+        </aside>
+      )}
       <AnimatePresence>{ui.loot && <LootDrop item={ui.loot} />}</AnimatePresence>
       {run.loot.length > 0 && !ui.loot && (
         <div className={styles.lootSatchel}>
@@ -912,6 +924,9 @@ function BattlePage({
                 ? ` 参考：${previousFeedback.answer}`
                 : ''}
             </p>
+            {previousFeedback.passiveTrigger && (
+              <p className={styles.passiveTrigger}>{previousFeedback.passiveTrigger}</p>
+            )}
             {previousFeedback.provisional && (
               <small>
                 临时结果只检查目标词完整拼写和句长，无法确认语法、搭配或语义；本次不会计为正确复习或掌握证据。
@@ -1249,6 +1264,12 @@ function CharacterSheet({
         </div>
         <span>{profile.skillPoints} 个技能点</span>
       </header>
+      {profile.currentClass?.combatPassive && (
+        <p className={styles.currentPassive}>
+          <strong>当前被动 · {profile.currentClass.combatPassive.title}</strong>
+          <span>{profile.currentClass.combatPassive.description}</span>
+        </p>
+      )}
       {choices.length > 0 && (
         <div className={styles.advancement}>
           <h3>转职道路已经出现</h3>
@@ -1256,6 +1277,11 @@ function CharacterSheet({
             <button disabled={busy} key={item.id} onClick={() => onAdvance(item.key)}>
               <strong>{item.name}</strong>
               <small>{item.description}</small>
+              {item.combatPassive && (
+                <small>
+                  沿用被动 · {item.combatPassive.title}：{item.combatPassive.description}
+                </small>
+              )}
               <ChevronRight />
             </button>
           ))}

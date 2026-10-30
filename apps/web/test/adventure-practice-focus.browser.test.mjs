@@ -100,6 +100,7 @@ test(
           runStatus: window.focusFixture?.run?.status ?? null,
           currentRoom: window.focusFixture?.run?.currentRoom ?? null,
           actionCount: window.focusFixture?.actions?.length ?? null,
+          bodyText: document.body.innerText.slice(0, 1200),
           orderMarkup: document.querySelector('[class*=challengeCard] [class*=order]')?.outerHTML.slice(0, 1600) ?? null,
           browserErrors: window.focusFixture?.errors ?? [],
         })`).catch((error) => ({ diagnosticError: String(error) }));
@@ -211,11 +212,28 @@ test(
           window.releasePendingActionResponse = null;
           window.failNextActionBeforeSave = false;
           const floor = { id: 'floor-focus', floorNumber: 1, title: '词义回廊', cefrLevel: 'A1', targetCount: 12, exploration: 0, mastery: 0, bossUnlocked: false, completed: false, locked: false };
+          const passives = {
+            warrior: { key: 'VANGUARD', title: '稳守', description: '答对格挡且仍会受伤时，额外减免最多 4 点伤害。' },
+            mage: { key: 'BURST', title: '精准施法', description: '消耗至少 1 点资源发动技能并完美命中，额外造成 6 点战斗伤害。' },
+            ranger: { key: 'STRIKER', title: '连续出击', description: '同房间连续答对后，本次答对攻击额外造成 6 点战斗伤害；答错会重置连击。' },
+            cleric: { key: 'SUPPORT', title: '温和疗愈', description: '生产类题目有效答对时，每个房间最多恢复 4 点生命。' },
+          };
+          const availableClasses = [
+            ['warrior', '战士', 'VANGUARD', '用稳定命中积累护盾与反击。'],
+            ['mage', '法师', 'BURST', '消耗专注强化精准回答的爆发。'],
+            ['ranger', '游侠', 'STRIKER', '连续正确时获得暴击与额外探索。'],
+            ['cleric', '牧师', 'SUPPORT', '通过清晰表达恢复生命并维持增益。'],
+          ].map(([key, name, combatRole, description]) => ({
+            id: 'class-' + key, key, name, combatRole, description, tier: 0, requiredLevel: 1,
+            parentId: null, available: true, current: false, combatPassive: passives[key],
+          }));
+          const selectedClassKey = window.focusFixture.selectedClassKey ?? null;
+          for (const item of availableClasses) item.current = item.key === selectedClassKey;
           const profile = {
             id: 'profile-focus', level: 1, experience: 0, experienceToNextLevel: 100, gold: 0, materials: 0,
             skillPoints: 1, highestFloor: 0, soundEnabled: false,
-            currentClass: { id: 'class-warrior', key: 'warrior', name: '战士', description: '', combatRole: 'VANGUARD', tier: 0, requiredLevel: 1, parentId: null, available: true, current: true },
-            availableClasses: [], skills: [],
+            currentClass: availableClasses.find(item => item.key === selectedClassKey) ?? null,
+            availableClasses, skills: [],
           };
           const roomTypes = ['COMBAT', 'EVENT', 'ELITE', 'CAMP', 'COMBAT', 'TREASURE'];
           const targetWords = ['patient', 'steady', 'calm', 'bright', 'quiet', 'gentle'];
@@ -261,6 +279,7 @@ test(
           };
           const makeRun = body => ({
             id: 'run-focus', status: 'ACTIVE', durationMinutes: body.durationMinutes,
+            combatRulesVersion: 1, combatPassive: profile.currentClass?.combatPassive ?? null,
             practiceFocus: body.practiceFocus, currentRoom: 0, roomCount: 6,
             playerHp: 100, playerMaxHp: 100, resource: 3,
             experienceEarned: 0, goldEarned: 0, materialsEarned: 0, floor,
@@ -279,6 +298,14 @@ test(
             const path = new URL(String(input), location.href).pathname;
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'learner-focus' });
             if (path.endsWith('/adventure/profile')) return Response.json(profile);
+            if (path.endsWith('/adventure/profile/class') && options.method === 'POST') {
+              const selected = JSON.parse(options.body).classKey;
+              window.focusFixture.selectedClassKey = selected;
+              persistFocusFixture();
+              profile.currentClass = availableClasses.find(item => item.key === selected);
+              profile.availableClasses = availableClasses.map(item => ({ ...item, current: item.key === selected }));
+              return Response.json(profile);
+            }
             if (path.endsWith('/adventure/dungeons')) return Response.json({ book: { id: 'book-focus', title: '练习路线测试词书' }, floors: [floor] });
             if (path.endsWith('/adventure/runs/active'))
               return Response.json(window.focusFixture.run?.status === 'ACTIVE' ? window.focusFixture.run : null);
@@ -311,6 +338,10 @@ test(
               const expected = expectedAnswers[index];
               const submitted = challenge.type === 'SENTENCE_ORDER' ? body.answer.join(' ') : body.answer[0];
               const correct = submitted === expected;
+              const passiveTrigger = correct && challenge.phase === 'ATTACK' && body.skillId && current.combatPassive?.key === 'BURST'
+                ? '精准施法：技能完美命中，额外造成 6 点战斗伤害。'
+                : undefined;
+              const damageDealt = correct ? 40 + (passiveTrigger ? 6 : 0) : 0;
               window.focusFixture.actions.push({
                 answer: body.answer, challengeType: challenge.type, clientActionId: body.clientActionId,
                 correct, practiceFocus: current.practiceFocus, phase: challenge.phase, skillId: body.skillId ?? null,
@@ -319,11 +350,11 @@ test(
               next.lastAction = {
                 challengeType: challenge.type, phase: challenge.phase, prompt: challenge.prompt,
                 answer: body.answer, score: correct ? 100 : 0, grade: correct ? 'PERFECT' : 'MISS',
-                damageDealt: correct ? 40 : 0, damageReceived: 0,
-                feedback: { correct, message: correct ? '表达命中，攻击生效。' : '答案与本题不一致。', answer: expected, provisional: false },
+                damageDealt, damageReceived: 0,
+                feedback: { correct, message: correct ? '表达命中，攻击生效。' : '答案与本题不一致。', answer: expected, provisional: false, ...(passiveTrigger ? { passiveTrigger } : {}) },
               };
               if (challenge.phase === 'ATTACK') {
-                next.rooms[step.room].enemyHp = Math.max(0, next.rooms[step.room].enemyHp - (correct ? 40 : 0));
+                next.rooms[step.room].enemyHp = Math.max(0, next.rooms[step.room].enemyHp - damageDealt);
               }
               if (correct && step.clearsRoom) {
                 next.rooms[step.room].status = 'CLEARED';
@@ -345,7 +376,7 @@ test(
               persistFocusFixture();
               const response = Response.json({
                 repeated: false, score: correct ? 100 : 0,
-                grade: correct ? 'PERFECT' : 'MISS', damageDealt: correct ? 40 : 0,
+                grade: correct ? 'PERFECT' : 'MISS', damageDealt,
                 damageReceived: 0, feedback: next.lastAction.feedback, run: next,
               });
               if (window.holdNextActionResponse) {
@@ -360,6 +391,48 @@ test(
         `,
       });
       await send('Page.navigate', { url: new URL('/dashboard/adventure', baseUrl).href });
+      await until('document.querySelectorAll("[class*=classGrid] button").length === 4');
+      const classCards = await evaluate(
+        "(() => [...document.querySelectorAll('[class*=classGrid] button')].map(card => ({ title: card.querySelector('h2')?.textContent.trim(), passive: card.querySelector('[class*=passivePreview]')?.innerText.trim(), right: card.getBoundingClientRect().right })))()",
+      );
+      assert.deepEqual(
+        classCards.map((card) => card.title),
+        ['战士', '法师', '游侠', '牧师'],
+      );
+      assert.deepEqual(
+        classCards.map((card) => card.passive?.match(/被动 · ([^\n]+)/)?.[1]),
+        ['稳守', '精准施法', '连续出击', '温和疗愈'],
+      );
+      assert.ok(classCards.every((card) => card.right <= 1440));
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const mobileClassLayout = await evaluate(
+        "(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, cards: [...document.querySelectorAll('[class*=classGrid] button')].map(card => { const box = card.getBoundingClientRect(); const passive = card.querySelector('[class*=passivePreview]').getBoundingClientRect(); return { left: box.left, right: box.right, passiveLeft: passive.left, passiveRight: passive.right }; }) }))()",
+      );
+      assert.equal(mobileClassLayout.document, 390, JSON.stringify(mobileClassLayout));
+      assert.ok(
+        mobileClassLayout.cards.every(
+          (card) =>
+            card.left >= 0 &&
+            card.right <= 390 &&
+            card.passiveLeft >= card.left &&
+            card.passiveRight <= card.right,
+        ),
+        JSON.stringify(mobileClassLayout),
+      );
+      await clickSelector('[class*=classGrid] button:nth-child(2)');
+      await until('document.querySelector("[class*=floorTrail] button")');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await until('document.querySelector("[class*=floorTrail] button")');
       const returnBounds = await evaluate(`(() => {
         const button = document.querySelector('[class*=topbar] .dashboard-return-button');
@@ -452,12 +525,29 @@ test(
       await clickSelector('[class*=routeDurations] button:nth-child(2)');
       await until('window.focusFixture.startBody?.practiceFocus === "CONTEXT"');
       await until('document.body.innerText.includes("本局：语境组句")');
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
       assert.deepEqual(await evaluate('window.focusFixture.startBody'), {
         floorId: 'floor-focus',
         durationMinutes: 10,
         practiceFocus: 'CONTEXT',
       });
       assert.equal(await evaluate('window.focusFixture.run.roomCount'), 6);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[class*=combatPassiveBanner]")?.innerText.includes("精准施法")',
+        ),
+        true,
+        'battle screen should explain the snapshotted class passive',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[class*=combatPassiveBanner]")?.getClientRects().length > 0',
+        ),
+        true,
+        'passive explanation should remain visible with reduced motion enabled',
+      );
       assert.equal(await evaluate('document.documentElement.scrollWidth <= 390'), true);
       await until(
         'Array.from(document.getAnimations()).every(animation => animation.playState !== "running" && !animation.pending || animation.effect?.getComputedTiming().iterations === Infinity)',
@@ -605,6 +695,17 @@ test(
             'retry must reuse the same answer, skill, and idempotency key after an uncertain response',
           );
           assert.equal(await evaluate('window.focusFixture.actions[1].skillId'), 'skill-focus');
+        }
+        if (index === 0) {
+          await until(
+            'document.querySelector("[class*=passiveTrigger]")?.textContent.includes("精准施法")',
+          );
+          assert.equal(
+            await evaluate(
+              'window.focusFixture.run.lastAction.feedback.passiveTrigger.includes("额外造成 6 点")',
+            ),
+            true,
+          );
         }
         if (index === 3)
           await until(

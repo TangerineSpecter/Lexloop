@@ -21,13 +21,27 @@ import {
   WordProgressState,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import type { AdventurePracticeFocus, DungeonMistakeReviewItem } from '@lexloop/types';
+import type {
+  AdventureCombatPassiveKey,
+  AdventurePracticeFocus,
+  DungeonMistakeReviewItem,
+} from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule } from '../study/review-scheduling';
 import { lockUserWordProgress } from '../study/user-word-progress-lock';
-import { CLASS_NODES, ENEMIES, EQUIPMENT, FLOOR_TITLES, SKILLS } from './adventure.catalog';
+import {
+  CLASS_NODES,
+  COMBAT_PASSIVE_RULES_VERSION,
+  ENEMIES,
+  EQUIPMENT,
+  FLOOR_TITLES,
+  SKILLS,
+  combatPassiveForClassId,
+  combatPassiveForKey,
+  combatPassiveKeyForClassId,
+} from './adventure.catalog';
 import {
   aggregateMastery,
   attackDamage,
@@ -39,6 +53,7 @@ import {
   incomingDamage,
   challengeTypeForFocus,
   normalizePracticeFocus,
+  resolveCombatPassive,
 } from './adventure.rules';
 
 type StoredChallenge = {
@@ -244,7 +259,14 @@ export class AdventureService {
           roomCount: roomTypes.length,
           playerHp: maxHp,
           playerMaxHp: maxHp,
-          snapshot: json({ version: 2, classId: profile.currentClassId, stats, practiceFocus }),
+          snapshot: json({
+            version: 3,
+            classId: profile.currentClassId,
+            stats,
+            practiceFocus,
+            combatRulesVersion: COMBAT_PASSIVE_RULES_VERSION,
+            combatPassiveKey: combatPassiveKeyForClassId(profile.currentClassId),
+          }),
         },
       });
       for (let index = 0; index < roomTypes.length; index += 1) {
@@ -315,6 +337,10 @@ export class AdventureService {
     if (input.skillId && !skill) throw new BadRequestException('技能未解锁或不属于当前职业');
     const snapshot = record(run.snapshot);
     const stats = numericRecord(snapshot.stats);
+    const passiveKey: AdventureCombatPassiveKey | null =
+      Number(snapshot.combatRulesVersion) === COMBAT_PASSIVE_RULES_VERSION
+        ? (combatPassiveForKey(snapshot.combatPassiveKey)?.key ?? null)
+        : null;
     const skillEffect = numericRecord(skill?.effect);
     const cost = challenge.phase === AdventureActionPhase.ATTACK ? (skill?.cost ?? 0) : 0;
     if (cost > run.resource) throw new BadRequestException('职业资源不足');
@@ -346,7 +372,16 @@ export class AdventureService {
         hits: 0,
         productionFailed: false,
         ...record(currentRoom.state),
-      } as { attackCount: number; hits: number; productionFailed: boolean };
+      } as {
+        attackCount: number;
+        hits: number;
+        productionFailed: boolean;
+        passiveCorrectStreak?: number;
+        supportPassiveHealed?: boolean;
+      };
+      const previousCorrectStreak = Math.max(0, Number(state.passiveCorrectStreak) || 0);
+      const supportHealUsed = state.supportPassiveHealed === true;
+      let passiveTrigger: string | undefined;
       let damageDealt = 0;
       let damageReceived = 0;
       let nextHp = current.playerHp;
@@ -363,6 +398,27 @@ export class AdventureService {
           grading.score,
           (stats.attackMultiplier ?? 1) * (skillEffect.damageMultiplier ?? 1),
         );
+        if (passiveKey) {
+          const passive = resolveCombatPassive({
+            passiveKey,
+            phase: 'ATTACK',
+            challengeType: challenge.type,
+            score: grading.score,
+            provisional: grading.provisional,
+            skillCost: cost,
+            previousCorrectStreak,
+            supportHealUsed,
+            damageReceived: 0,
+            playerHpAfterDamage: current.playerHp,
+            playerMaxHp: current.playerMaxHp,
+          });
+          damageDealt += passive.damageDealtBonus;
+          nextHp = Math.min(current.playerMaxHp, current.playerHp + passive.healing);
+          passiveTrigger = passive.trigger;
+          if (passiveKey === 'STRIKER') state.passiveCorrectStreak = passive.nextCorrectStreak;
+          if (passiveKey === 'SUPPORT' && passive.supportHealUsed)
+            state.supportPassiveHealed = true;
+        }
         nextEnemyHp = Math.max(0, nextEnemyHp - damageDealt);
         if (
           currentRoom.type === AdventureRoomType.BOSS &&
@@ -384,7 +440,31 @@ export class AdventureService {
           currentRoom.type,
           (stats.blockBonus ?? 0) + (skillEffect.blockBonus ?? 0),
         );
-        nextHp = Math.max(0, current.playerHp - damageReceived);
+        if (passiveKey) {
+          const hpAfterDamage = Math.max(0, current.playerHp - damageReceived);
+          const passive = resolveCombatPassive({
+            passiveKey,
+            phase: 'BLOCK',
+            challengeType: challenge.type,
+            score: grading.score,
+            provisional: grading.provisional,
+            skillCost: cost,
+            previousCorrectStreak,
+            supportHealUsed,
+            damageReceived,
+            playerHpAfterDamage: hpAfterDamage,
+            playerMaxHp: current.playerMaxHp,
+          });
+          damageReceived = Math.max(0, damageReceived - passive.damageReduction);
+          nextHp = Math.min(
+            current.playerMaxHp,
+            Math.max(0, current.playerHp - damageReceived) + passive.healing,
+          );
+          passiveTrigger = passive.trigger;
+          if (passiveKey === 'STRIKER') state.passiveCorrectStreak = passive.nextCorrectStreak;
+          if (passiveKey === 'SUPPORT' && passive.supportHealUsed)
+            state.supportPassiveHealed = true;
+        } else nextHp = Math.max(0, current.playerHp - damageReceived);
         if (nextHp === 0) runStatus = AdventureRunStatus.FAILED;
       }
       const feedback = {
@@ -393,6 +473,7 @@ export class AdventureService {
         answer: grading.answer,
         provisional: grading.provisional,
         unjudgeable: grading.unjudgeable,
+        ...(passiveTrigger ? { passiveTrigger } : {}),
         prompt: challenge.prompt,
         word: challenge.word,
         meaning: challenge.meaning,
@@ -822,7 +903,7 @@ export class AdventureService {
     available: boolean,
     current: boolean,
   ) {
-    return { ...node, available, current };
+    return { ...node, available, current, combatPassive: combatPassiveForClassId(node.id) };
   }
 
   private async classLineage(classId: string) {
@@ -1218,6 +1299,13 @@ export class AdventureService {
       status: run.status,
       durationMinutes: run.durationMinutes,
       practiceFocus: normalizePracticeFocus(record(run.snapshot).practiceFocus),
+      combatPassive:
+        Number(record(run.snapshot).combatRulesVersion) === COMBAT_PASSIVE_RULES_VERSION
+          ? combatPassiveForKey(record(run.snapshot).combatPassiveKey)
+          : null,
+      ...(typeof record(run.snapshot).combatRulesVersion === 'number'
+        ? { combatRulesVersion: record(run.snapshot).combatRulesVersion }
+        : {}),
       currentRoom: run.currentRoom,
       roomCount: run.roomCount,
       playerHp: run.playerHp,
@@ -1269,6 +1357,9 @@ export class AdventureService {
                 ...(typeof feedbackAnswer === 'string' ? { answer: feedbackAnswer } : {}),
                 ...(typeof savedFeedback.provisional === 'boolean'
                   ? { provisional: savedFeedback.provisional }
+                  : {}),
+                ...(typeof savedFeedback.passiveTrigger === 'string'
+                  ? { passiveTrigger: savedFeedback.passiveTrigger }
                   : {}),
               },
             };

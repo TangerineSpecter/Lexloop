@@ -5,7 +5,7 @@ import {
   AdventureHitGrade,
   AdventureRoomType,
 } from '@prisma/client';
-import type { AdventurePracticeFocus } from '@lexloop/types';
+import type { AdventureCombatPassiveKey, AdventurePracticeFocus } from '@lexloop/types';
 
 const CHALLENGE_SEQUENCES: Record<AdventurePracticeFocus, AdventureChallengeType[]> = {
   BALANCED: [
@@ -121,6 +121,75 @@ export function incomingDamage(score: number, roomType: AdventureRoomType, block
           ? 0.25
           : 0;
   return Math.max(0, Math.round(base * (1 - Math.min(1, reduction + blockBonus))));
+}
+
+export function resolveCombatPassive(input: {
+  passiveKey: AdventureCombatPassiveKey;
+  phase: string;
+  challengeType: string;
+  score: number;
+  provisional: boolean;
+  skillCost: number;
+  previousCorrectStreak: number;
+  supportHealUsed: boolean;
+  damageReceived: number;
+  playerHpAfterDamage: number;
+  playerMaxHp: number;
+}) {
+  const validCorrect = input.score >= 70 && !input.provisional;
+  const previousCorrectStreak = Math.max(0, Math.floor(input.previousCorrectStreak));
+  let damageDealtBonus = 0;
+  let damageReduction = 0;
+  let healing = 0;
+  let supportHealUsed = input.supportHealUsed;
+  let trigger: string | undefined;
+
+  if (
+    input.passiveKey === 'VANGUARD' &&
+    input.phase === 'BLOCK' &&
+    validCorrect &&
+    input.damageReceived > 0
+  ) {
+    damageReduction = Math.min(4, Math.max(0, input.damageReceived));
+    if (damageReduction > 0) trigger = `稳守：额外减伤 ${damageReduction} 点。`;
+  } else if (
+    input.passiveKey === 'BURST' &&
+    input.phase === 'ATTACK' &&
+    validCorrect &&
+    hitGrade(input.score) === AdventureHitGrade.PERFECT &&
+    input.skillCost > 0
+  ) {
+    damageDealtBonus = 6;
+    trigger = '精准施法：技能完美命中，额外造成 6 点战斗伤害。';
+  } else if (
+    input.passiveKey === 'STRIKER' &&
+    input.phase === 'ATTACK' &&
+    validCorrect &&
+    previousCorrectStreak > 0
+  ) {
+    damageDealtBonus = 6;
+    trigger = '连续出击：连续答对，额外造成 6 点战斗伤害。';
+  } else if (
+    input.passiveKey === 'SUPPORT' &&
+    validCorrect &&
+    (input.challengeType === AdventureChallengeType.SENTENCE_ORDER ||
+      input.challengeType === AdventureChallengeType.FREE_RESPONSE) &&
+    !input.supportHealUsed &&
+    input.playerHpAfterDamage < input.playerMaxHp
+  ) {
+    healing = Math.min(4, input.playerMaxHp - Math.max(0, input.playerHpAfterDamage));
+    supportHealUsed = healing > 0;
+    if (healing > 0) trigger = `温和疗愈：恢复 ${healing} 点生命（本房间一次）。`;
+  }
+
+  return {
+    damageDealtBonus,
+    damageReduction,
+    healing,
+    supportHealUsed,
+    nextCorrectStreak: validCorrect ? previousCorrectStreak + 1 : 0,
+    trigger,
+  };
 }
 
 export function evidenceKind(type: string): AdventureEvidenceKind {

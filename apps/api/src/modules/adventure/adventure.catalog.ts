@@ -1,4 +1,30 @@
 import { EquipmentRarity, EquipmentSlot, SkillTarget } from '@prisma/client';
+import type { AdventureCombatPassive, AdventureCombatPassiveKey } from '@lexloop/types';
+
+export const COMBAT_PASSIVE_RULES_VERSION = 1;
+
+export const COMBAT_PASSIVES: Record<AdventureCombatPassiveKey, AdventureCombatPassive> = {
+  VANGUARD: {
+    key: 'VANGUARD',
+    title: '稳守',
+    description: '答对格挡且仍会受伤时，额外减免最多 4 点伤害。',
+  },
+  BURST: {
+    key: 'BURST',
+    title: '精准施法',
+    description: '消耗至少 1 点资源发动技能并完美命中，额外造成 6 点战斗伤害。',
+  },
+  STRIKER: {
+    key: 'STRIKER',
+    title: '连续出击',
+    description: '同房间连续答对后，本次答对攻击额外造成 6 点战斗伤害；答错会重置连击。',
+  },
+  SUPPORT: {
+    key: 'SUPPORT',
+    title: '温和疗愈',
+    description: '生产类题目有效答对时，每个房间最多恢复 4 点生命。',
+  },
+};
 
 export type ClassSeed = {
   id: string;
@@ -113,6 +139,36 @@ function advancedClass(key: string, name: string, parent: string, order: number)
 }
 
 export const CLASS_NODES = [...base, ...branches, ...advanced];
+const classNodeById = new Map(CLASS_NODES.map((node) => [node.id, node]));
+
+const basePassiveByClassId: Record<string, AdventureCombatPassiveKey> = {
+  'class-warrior': 'VANGUARD',
+  'class-mage': 'BURST',
+  'class-ranger': 'STRIKER',
+  'class-cleric': 'SUPPORT',
+};
+
+export function combatPassiveKeyForClassId(classId: string | null | undefined) {
+  const visited = new Set<string>();
+  let current = classId ? classNodeById.get(classId) : undefined;
+  while (current && !visited.has(current.id)) {
+    const passiveKey = basePassiveByClassId[current.id];
+    if (passiveKey) return passiveKey;
+    visited.add(current.id);
+    current = current.parentId ? classNodeById.get(current.parentId) : undefined;
+  }
+  return null;
+}
+
+export function combatPassiveForKey(value: unknown): AdventureCombatPassive | null {
+  return typeof value === 'string' && Object.hasOwn(COMBAT_PASSIVES, value)
+    ? COMBAT_PASSIVES[value as AdventureCombatPassiveKey]
+    : null;
+}
+
+export function combatPassiveForClassId(classId: string | null | undefined) {
+  return combatPassiveForKey(combatPassiveKeyForClassId(classId));
+}
 
 const skillNames = [
   ['基础技', '答对后提高本次伤害。', { damageMultiplier: 1.15 }],
