@@ -76,6 +76,7 @@ import { ReadingModelDrawer } from './reading-model-drawer';
 import { ReadingSentenceRewritePractice } from './reading-sentence-rewrite-practice';
 import { ReadingSentenceTranslationPractice } from './reading-sentence-translation-practice';
 import { ReadingWordUsePractice } from './reading-word-use-practice';
+import { SystemMissingMeanings } from './system-missing-meanings';
 import { TutorPanel } from './tutor-panel';
 import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
@@ -248,6 +249,7 @@ type VocabularyBookCard = {
   title: string;
   publisher: string | null;
   grade: string | null;
+  isSystemBook?: boolean;
   totalWords: number;
   missingMeaningCount?: number | null;
   learnedWords: number;
@@ -1951,6 +1953,8 @@ function BookPicker({
   const learningRequestRef = useRef(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const missingMeaningsOpenerIdRef = useRef<string | null>(null);
+  const [missingMeaningsBook, setMissingMeaningsBook] = useState<VocabularyBookCard | null>(null);
   const normalizedCatalogSearch = normalizeBookSearchText(catalogSearch);
   const searchableBooks = useMemo(
     () =>
@@ -1972,6 +1976,23 @@ function BookPicker({
     [catalog.books, normalizedCatalogSearch, searchableBooks],
   );
   const selectedCategoryLabel = catalog.categories.find((item) => item.key === category)?.label;
+  const inspectMissingMeanings = (book: VocabularyBookCard) => {
+    missingMeaningsOpenerIdRef.current = book.id;
+    setMissingMeaningsBook(book);
+  };
+  const returnToBookList = () => {
+    setMissingMeaningsBook(null);
+  };
+  useEffect(() => {
+    if (missingMeaningsBook) return;
+    const bookId = missingMeaningsOpenerIdRef.current;
+    if (!bookId) return;
+    const returnTarget = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLButtonElement>('[data-missing-meanings-book-id]') ??
+        [],
+    ).find((button) => button.dataset.missingMeaningsBookId === bookId);
+    returnTarget?.focus({ preventScroll: true });
+  }, [missingMeaningsBook]);
   const load = async (selectedCategory?: string) => {
     const catalogRequest = ++catalogRequestRef.current;
     const learningRequest = ++learningRequestRef.current;
@@ -2138,23 +2159,32 @@ function BookPicker({
           <X size={23} />
         </button>
       </header>
-      <div className="book-tabs">
-        <button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>
-          学习中（{learningStatus === 'ready' ? learning.length : '…'}）
-        </button>
-        <button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>
-          我的词表
-        </button>
-        <button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>
-          系统词表（
-          {catalogStatus === 'ready'
-            ? catalog.categories.reduce((sum, item) => sum + item.count, 0)
-            : '…'}
-          ）
-        </button>
-      </div>
+      {!missingMeaningsBook && (
+        <div className="book-tabs">
+          <button className={tab === 'learning' ? 'active' : ''} onClick={() => setTab('learning')}>
+            学习中（{learningStatus === 'ready' ? learning.length : '…'}）
+          </button>
+          <button className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>
+            我的词表
+          </button>
+          <button className={tab === 'system' ? 'active' : ''} onClick={() => setTab('system')}>
+            系统词表（
+            {catalogStatus === 'ready'
+              ? catalog.categories.reduce((sum, item) => sum + item.count, 0)
+              : '…'}
+            ）
+          </button>
+        </div>
+      )}
       {message && <p className="book-message">{message}</p>}
-      {tab === 'learning' && (
+      {missingMeaningsBook ? (
+        <SystemMissingMeanings
+          key={missingMeaningsBook.id}
+          accessToken={session.accessToken}
+          book={missingMeaningsBook}
+          onBack={returnToBookList}
+        />
+      ) : tab === 'learning' ? (
         <BookCards
           cards={learning}
           busyId={busyId}
@@ -2163,15 +2193,14 @@ function BookPicker({
           onRetry={() => void load()}
           showProgress
           onActivate={(book) => activate(book, 'continue')}
+          onInspectMissingMeanings={inspectMissingMeanings}
         />
-      )}
-      {tab === 'mine' && (
+      ) : tab === 'mine' ? (
         <div className="book-empty">
           <strong>我的词表</strong>
           <p>自建词表功能即将开放</p>
         </div>
-      )}
-      {tab === 'system' && (
+      ) : tab === 'system' ? (
         <div className="book-system">
           <h3>系统词表</h3>
           <p>按学习阶段与目标选择，无需额外筛选教材版本。</p>
@@ -2246,10 +2275,11 @@ function BookPicker({
               error={catalogError}
               onRetry={() => void loadCatalog(category)}
               onActivate={(book) => activate(book, 'start')}
+              onInspectMissingMeanings={inspectMissingMeanings}
             />
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2262,6 +2292,7 @@ function BookCards({
   onRetry,
   showProgress = false,
   onActivate,
+  onInspectMissingMeanings,
 }: {
   cards: VocabularyBookCard[];
   busyId: string | null;
@@ -2270,6 +2301,7 @@ function BookCards({
   onRetry?: () => void;
   showProgress?: boolean;
   onActivate: (book: VocabularyBookCard) => void;
+  onInspectMissingMeanings?: (book: VocabularyBookCard) => void;
 }) {
   if (status === 'loading')
     return (
@@ -2318,7 +2350,8 @@ function BookCards({
                   <b>{book.totalWords}</b> 词
                 </span>
               </div>
-              {!showProgress && (
+              {(!showProgress ||
+                (book.isSystemBook === true && (book.missingMeaningCount ?? 0) > 0)) && (
                 <p
                   className={`book-choice-meaning-status ${book.missingMeaningCount ? 'has-missing' : ''}`}
                   data-missing-meaning-status
@@ -2326,6 +2359,20 @@ function BookCards({
                   {vocabularyBookMeaningStatus(book)}
                 </p>
               )}
+              {book.isSystemBook === true &&
+                typeof book.missingMeaningCount === 'number' &&
+                book.missingMeaningCount > 0 &&
+                onInspectMissingMeanings && (
+                  <button
+                    className="book-missing-meanings-link"
+                    type="button"
+                    data-missing-meanings-book-id={book.id}
+                    aria-label={`定位 ${book.missingMeaningCount} 个缺释义词：${book.title}`}
+                    onClick={() => onInspectMissingMeanings(book)}
+                  >
+                    定位 {book.missingMeaningCount} 个缺释义词
+                  </button>
+                )}
               {showProgress && (
                 <div className="book-choice-learning-meta">
                   <span>

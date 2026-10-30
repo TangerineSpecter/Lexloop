@@ -44,7 +44,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         userId = learner.id;
 
         const sourceRows = [
-          { key: 'valid-global', text: 'steady', meaning: '稳定的', contextMeaning: null },
+          {
+            key: 'valid-global',
+            text: 'steady',
+            meaning: 'n. 无\nadj. 稳定的',
+            contextMeaning: null,
+          },
           { key: 'missing-null', text: 'unmapped', meaning: null, contextMeaning: null },
           {
             key: 'missing-context',
@@ -53,7 +58,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             contextMeaning: '  ',
           },
           { key: 'valid-context', text: 'local', meaning: null, contextMeaning: 'adj. 仅词表释义' },
-          { key: 'placeholder', text: 'placeholder', meaning: 'n. 暂无释义', contextMeaning: null },
+          {
+            key: 'placeholder',
+            text: 'placeholder',
+            meaning: 'n. 无\nadj. 暂无释义',
+            contextMeaning: null,
+          },
         ] as const;
         const book = await prisma.vocabularyBook.create({
           data: {
@@ -133,7 +143,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
         const dashboard = new VocabularyService(prisma as never);
         const dashboardWords = await dashboard.getDashboardWords(learner.id, '5');
+        const learningBooks = await dashboard.listLearningBooks(learner.id);
         expect(dashboardWords.reviewWords).toHaveLength(3);
+        expect(learningBooks).toHaveLength(1);
+        expect(learningBooks[0]).toMatchObject({ isSystemBook: false, missingMeaningCount: null });
         expect(
           dashboardWords.reviewWords.find((word) => word.word === 'contextless'),
         ).toMatchObject({ meaning: '暂无释义', meanings: [] });

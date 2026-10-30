@@ -47,6 +47,18 @@ function archivePageOptions(pageSize?: string, cursor?: string) {
   return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
 }
 
+function missingMeaningPageOptions(pageSize?: string, cursor?: string) {
+  const parsedSize =
+    pageSize === undefined ? 50 : /^(?:[1-9]\d*)$/.test(pageSize) ? Number(pageSize) : NaN;
+  if (!Number.isInteger(parsedSize) || parsedSize < 1 || parsedSize > 100) {
+    throw new BadRequestException('每页缺释义词数量必须是 1 到 100 的整数');
+  }
+  if (cursor !== undefined && (cursor.length === 0 || cursor.length > 512)) {
+    throw new BadRequestException('缺释义词列表游标无效，请返回后重新加载');
+  }
+  return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
+}
+
 class UpdateNewWordCountDto {
   @IsInt() @Min(5) @Max(40) defaultNewWordCount!: number;
 }
@@ -96,6 +108,18 @@ export class VocabularyController {
     @Query('category') category?: string,
   ) {
     return this.vocabulary.listSystemBooks(request.user.sub, category);
+  }
+  @Get('system/:bookId/missing-meanings') missingMeanings(
+    @Param('bookId') bookId: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const options = missingMeaningPageOptions(pageSize, cursor);
+    return this.vocabulary.listMissingMeaningSystemBookWords(
+      bookId,
+      options.pageSize,
+      options.cursor,
+    );
   }
   @Get('learning') learning(@Req() request: AuthenticatedRequest) {
     return this.vocabulary.listLearningBooks(request.user.sub);

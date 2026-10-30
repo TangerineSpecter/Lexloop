@@ -205,11 +205,15 @@ test(
         holdNextSystem: 0,
         failNextSystem: 0,
         failLearning: false,
+        includePersonalBook: false,
         bookTitle: '2026 年新课标初中英语日常交流与主题阅读综合词汇训练词表',
         learningBooks: [],
         categories: [{ key: 'general', label: '通用', count: 1 }],
         catalogBooks: [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: '2026 年新课标初中英语日常交流与主题阅读综合词汇训练词表', publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
         systemQueries: [],
+        missingMeaningRequests: [],
+        failMissingFirstPage: 0,
+        failMissingNextPage: 0,
         resolvers: [],
         releaseAll() {
           this.hold = false;
@@ -220,6 +224,31 @@ test(
       const nativeFetch = window.fetch;
       window.fetch = async (url, options = {}) => {
         const path = String(url);
+        if (path.includes('/api/v1/vocabulary/system/') && path.includes('/missing-meanings')) {
+          const url = new URL(path, location.href);
+          const bookId = url.pathname.split('/').at(-2);
+          const cursor = url.searchParams.get('cursor');
+          window.bookPickerFixture.missingMeaningRequests.push({ bookId, cursor });
+          if (!cursor && window.bookPickerFixture.failMissingFirstPage > 0) {
+            window.bookPickerFixture.failMissingFirstPage -= 1;
+            return Response.json({ message: '缺释义词列表暂时不可用' }, { status: 503 });
+          }
+          if (cursor && window.bookPickerFixture.failMissingNextPage > 0) {
+            window.bookPickerFixture.failMissingNextPage -= 1;
+            return Response.json({ message: '下一页暂时不可用' }, { status: 503 });
+          }
+          return Response.json({
+            book: { id: bookId, title: 'CET-4 高频词汇训练' },
+            items: cursor
+              ? [{ position: 17, word: 'overridden' }]
+              : [
+                  { position: 2, word: 'unmapped' },
+                  { position: 8, word: 'a-very-long-untranslated-expression-that-wraps-on-mobile' },
+                ],
+            hasMore: !cursor,
+            nextCursor: cursor ? null : 'fixture-next-page',
+          });
+        }
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
         if (path.includes('/api/v1/reports/streak')) {
           window.streakFixture.requests.push({ method: options.method ?? 'GET', url: path });
@@ -260,7 +289,26 @@ test(
             return new Promise((resolve) => window.bookPickerFixture.resolvers.push({ resolve, body: [] }));
           }
           if (window.bookPickerFixture.failLearning) return Response.json({ message: '学习词表暂时不可用' }, { status: 503 });
-          return Response.json(window.bookPickerFixture.learningBooks);
+          const books = window.bookPickerFixture.includePersonalBook
+            ? [
+                ...window.bookPickerFixture.learningBooks,
+                {
+                  id: 'personal-fixture',
+                  category: 'general',
+                  categoryLabel: '个人词汇',
+                  title: '个人生词本',
+                  publisher: null,
+                  grade: null,
+                  totalWords: 2,
+                  missingMeaningCount: 1,
+                  isSystemBook: false,
+                  learnedWords: 0,
+                  isLearning: true,
+                  isDefault: false,
+                },
+              ]
+            : window.bookPickerFixture.learningBooks;
+          return Response.json(books);
         }
         const startPrefix = '/api/v1/vocabulary/books/';
         const startBookId = path.includes(startPrefix) && path.endsWith('/start')
@@ -950,6 +998,7 @@ test(
           publisher: isTarget ? 'Lexloop Press' : '示例教材 ' + (index % 12 + 1),
           grade: isTarget ? '大学英语四级' : '初中 ' + (index % 3 + 1) + ' 年级',
           totalWords: isEmptyBook ? 0 : 120,
+          isSystemBook: true,
           ...(!isLegacyResponse
             ? { missingMeaningCount: isEmptyBook ? 0 : isTarget ? 17 : index % 2 }
             : {}),
@@ -958,6 +1007,7 @@ test(
           isDefault: false,
         };
       });`);
+      await evaluate('window.bookPickerFixture.includePersonalBook = true');
       await evaluate('document.querySelector(".book-selection-prompt button").focus()');
       await pressKey('Enter', 'Enter', 13);
       await until('document.querySelector(".book-drawer")');
@@ -976,7 +1026,7 @@ test(
         return {
           target: status('CET-4 高频词汇训练'),
           targetWords: card('CET-4 高频词汇训练')?.querySelector('.book-choice-count')?.textContent.trim(),
-          targetCanStart: !card('CET-4 高频词汇训练')?.querySelector('button')?.disabled,
+          targetCanStart: !card('CET-4 高频词汇训练')?.querySelector(':scope > button')?.disabled,
           empty: status('空词书（无关联词条）'),
           legacy: status('旧版接口词书（统计未知）'),
         };
@@ -1043,7 +1093,9 @@ test(
         `600-book local filter: ${localSearchElapsedMs.toFixed(1)} ms to filtered paint in this browser run`,
       );
       assert.equal(
-        await evaluate('document.querySelector(".book-choice button").getAttribute("aria-label")'),
+        await evaluate(
+          'document.querySelector(".book-choice > button").getAttribute("aria-label")',
+        ),
         '开始学习：CET-4 高频词汇训练',
       );
 
@@ -1179,7 +1231,7 @@ test(
       const completenessLayoutMobile = await evaluate(`(() => {
         const card = document.querySelector('.book-choice');
         const status = card?.querySelector('[data-missing-meaning-status]');
-        const button = card?.querySelector('button');
+        const button = card?.querySelector(':scope > button');
         const cardBox = card?.getBoundingClientRect();
         const statusBox = status?.getBoundingClientRect();
         const buttonBox = button?.getBoundingClientRect();
@@ -1231,6 +1283,11 @@ test(
       assert.equal(
         await evaluate('document.activeElement.getAttribute("aria-label")'),
         '清除词表搜索',
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '定位 17 个缺释义词：CET-4 高频词汇训练',
       );
       await pressKey('Tab', 'Tab', 9);
       assert.equal(
@@ -1305,6 +1362,104 @@ test(
         0,
       );
       assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), '');
+
+      await evaluate(
+        '[...document.querySelectorAll(".book-tabs button")].find(button => button.textContent.includes("学习中")).click()',
+      );
+      await until('document.querySelector(".book-choice [data-missing-meaning-status]")');
+      assert.deepEqual(
+        await evaluate(`(() => {
+          const personal = [...document.querySelectorAll('.book-choice')].find(card =>
+            card.querySelector('strong')?.textContent === '个人生词本');
+          return {
+            action: personal?.querySelector('.book-missing-meanings-link') ?? null,
+            status: personal?.querySelector('[data-missing-meaning-status]') ?? null,
+          };
+        })()`),
+        { action: null, status: null },
+        'personal words do not use system-only missing-gloss counts or endpoint',
+      );
+      const requestsBeforeMissingList = await evaluate('window.bookPickerRequests.length');
+      await evaluate(`window.bookPickerFixture.failMissingFirstPage = 1;
+        const link = [...document.querySelectorAll('.book-missing-meanings-link')].find(button =>
+          button.getAttribute('aria-label') === '定位 17 个缺释义词：CET-4 高频词汇训练');
+        if (!link) throw new Error('The learning book has no missing-meaning locator');
+        link.focus();`);
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.querySelector(".book-missing-meanings [role=alert]")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".book-missing-meanings").textContent.includes("当前没有返回缺释义词")',
+        ),
+        false,
+        'a failed request is not presented as an empty list',
+      );
+      assert.equal(await evaluate('window.bookPickerRequests.length'), requestsBeforeMissingList);
+      await evaluate(
+        'document.querySelector(".book-missing-meanings [role=alert] button").click()',
+      );
+      await until('document.querySelector(".book-missing-list li")');
+      assert.equal(await evaluate('document.activeElement.id'), 'book-missing-meanings-title');
+      assert.deepEqual(
+        await evaluate(`({
+        words: [...document.querySelectorAll('.book-missing-list li span')].map(item => item.textContent),
+        count: document.querySelector('.book-missing-count')?.textContent.trim(),
+        requestCount: window.bookPickerFixture.missingMeaningRequests.length,
+      })`),
+        {
+          words: ['unmapped', 'a-very-long-untranslated-expression-that-wraps-on-mobile'],
+          count: '17 条',
+          requestCount: 2,
+        },
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('innerWidth === 390');
+      const missingListLayout = await evaluate(`(() => {
+        const panel = document.querySelector('.book-missing-meanings').getBoundingClientRect();
+        const list = document.querySelector('.book-missing-list').getBoundingClientRect();
+        const row = document.querySelector('.book-missing-list li:last-child').getBoundingClientRect();
+        return { viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
+          panelLeft: panel.left, panelRight: panel.right, listRight: list.right,
+          rowRight: row.right, wordWraps: document.querySelector('.book-missing-list li:last-child span').getBoundingClientRect().height > 20 };
+      })()`);
+      assert.ok(
+        missingListLayout.viewport === 390 &&
+          missingListLayout.pageWidth <= 390 &&
+          missingListLayout.panelLeft >= 0 &&
+          missingListLayout.panelRight <= 390 &&
+          missingListLayout.listRight <= 390 &&
+          missingListLayout.rowRight <= 390 &&
+          missingListLayout.wordWraps,
+        JSON.stringify(missingListLayout),
+      );
+      await evaluate('window.bookPickerFixture.failMissingNextPage = 1');
+      await evaluate('document.querySelector(".book-missing-more").click()');
+      await until('document.querySelector(".book-missing-more-error")');
+      assert.equal(await evaluate('document.querySelectorAll(".book-missing-list li").length'), 2);
+      await evaluate('document.querySelector(".book-missing-more-error button").click()');
+      await until('document.querySelectorAll(".book-missing-list li").length === 3');
+      assert.deepEqual(
+        await evaluate('window.bookPickerFixture.missingMeaningRequests.map(item => item.cursor)'),
+        [null, null, 'fixture-next-page', 'fixture-next-page'],
+      );
+      await evaluate('document.querySelector(".book-missing-back").click()');
+      await until('document.querySelector(".book-choice")');
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '定位 17 个缺释义词：CET-4 高频词汇训练',
+        'return from read-only details restores focus to the invoking book action',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await pressKey('Escape', 'Escape', 27);
       await until('document.querySelector(".book-drawer") === null');
       await send('Emulation.setEmulatedMedia', { features: [] });

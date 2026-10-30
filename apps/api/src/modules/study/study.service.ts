@@ -125,24 +125,30 @@ type StudyPlanWithItems = Prisma.StudyPlanGetPayload<{
   include: ReturnType<typeof studyPlanInclude>;
 }>;
 
-const usableBookWordMeaning = Prisma.sql`
-  NULLIF(
-    BTRIM(
-      REGEXP_REPLACE(
-        COALESCE(bw."contextMeaning", w."meaning"),
-        '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
-        '',
-        'i'
-      )
+const usableMeaningLine = Prisma.sql`
+  REGEXP_REPLACE(
+    REGEXP_REPLACE(
+      meaning_line.value,
+      '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
+      '',
+      'i'
     ),
-    ''
-  ) IS NOT NULL
-  AND LOWER(BTRIM(REGEXP_REPLACE(
-    COALESCE(bw."contextMeaning", w."meaning"),
-    '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
+    '^[[:space:]]+|[[:space:]]+$',
     '',
-    'i'
-  ))) NOT IN ('无', '暂无释义')
+    'g'
+  )
+`;
+
+const usableBookWordMeaning = Prisma.sql`
+  EXISTS (
+    SELECT 1
+    FROM unnest(string_to_array(
+      REPLACE(COALESCE(bw."contextMeaning", w."meaning"), E'\\r', ''),
+      E'\\n'
+    )) AS meaning_line(value)
+    WHERE NULLIF(${usableMeaningLine}, '') IS NOT NULL
+      AND LOWER(${usableMeaningLine}) NOT IN ('无', '暂无释义')
+  )
 `;
 
 function hasUsableMeaning(raw: string | null | undefined) {

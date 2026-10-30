@@ -78,6 +78,65 @@ function decodeArchiveCursor(
   return { kind: expectedKind, userId: expectedUserId, id: cursor.id, occurredAt };
 }
 
+type MissingMeaningCursor = { bookId: string; position: number };
+
+function encodeMissingMeaningCursor(bookId: string, position: number) {
+  return Buffer.from(JSON.stringify({ bookId, position })).toString('base64url');
+}
+
+function decodeMissingMeaningCursor(value: string, expectedBookId: string): MissingMeaningCursor {
+  const invalid = () => new BadRequestException('缺释义词列表游标无效，请返回后重新加载');
+  if (!value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  let decoded: unknown;
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    if (Buffer.from(raw).toString('base64url') !== value) throw invalid();
+    decoded = JSON.parse(raw);
+  } catch {
+    throw invalid();
+  }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw invalid();
+  const cursor = decoded as Record<string, unknown>;
+  if (
+    cursor.bookId !== expectedBookId ||
+    typeof cursor.position !== 'number' ||
+    !Number.isSafeInteger(cursor.position)
+  ) {
+    throw invalid();
+  }
+  return { bookId: expectedBookId, position: cursor.position };
+}
+
+const normalizedMeaningLine = Prisma.sql`
+  REGEXP_REPLACE(
+    REGEXP_REPLACE(
+      meaning_line.value,
+      '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
+      '',
+      'i'
+    ),
+    '^[[:space:]]+|[[:space:]]+$',
+    '',
+    'g'
+  )
+`;
+
+const hasUsableMeaningLine = Prisma.sql`
+  NULLIF(${normalizedMeaningLine}, '') IS NOT NULL
+  AND LOWER(${normalizedMeaningLine}) NOT IN ('无', '暂无释义')
+`;
+
+const missingBookWordMeaning = Prisma.sql`
+  NOT EXISTS (
+    SELECT 1
+    FROM unnest(string_to_array(
+      REPLACE(COALESCE(book_word."contextMeaning", word."meaning"), E'\\r', ''),
+      E'\\n'
+    )) AS meaning_line(value)
+    WHERE ${hasUsableMeaningLine}
+  )
+`;
+
 @Injectable()
 export class VocabularyService {
   constructor(private readonly prisma: PrismaService) {}
@@ -122,23 +181,10 @@ export class VocabularyService {
               book_word."bookId",
               COUNT(*)::bigint AS "totalWords",
               COUNT(*) FILTER (
-                WHERE
-                  effective_meaning.value IS NULL
-                  OR effective_meaning.value IN ('', '无')
+                WHERE ${missingBookWordMeaning}
               )::bigint AS "missingMeaningCount"
             FROM "VocabularyBookWord" AS book_word
             JOIN "VocabularyWord" AS word ON word."id" = book_word."wordId"
-            CROSS JOIN LATERAL (
-              SELECT REGEXP_REPLACE(
-                CASE
-                  WHEN book_word."contextMeaning" IS NULL THEN word."meaning"
-                  ELSE book_word."contextMeaning"
-                END,
-                '^[[:space:]]+|[[:space:]]+$',
-                '',
-                'g'
-              ) AS value
-            ) AS effective_meaning
             WHERE book_word."bookId" IN (${Prisma.join(books.map((book) => book.id))})
             GROUP BY book_word."bookId"
           `,
@@ -167,6 +213,7 @@ export class VocabularyService {
         title: book.title,
         publisher: book.publisher,
         grade: book.grade,
+        isSystemBook: true,
         totalWords: bookWordCountsById.get(book.id)?.totalWords ?? 0,
         missingMeaningCount: bookWordCountsById.get(book.id)?.missingMeaningCount ?? 0,
         learnedWords: 0,
@@ -182,20 +229,83 @@ export class VocabularyService {
       orderBy: [{ isDefault: 'desc' }, { lastStudiedAt: 'desc' }],
       include: { book: { include: { _count: { select: { bookWords: true } } } } },
     });
-    return books.map((item) => ({
-      id: item.book.id,
-      category: item.book.category,
-      categoryLabel: categoryLabels[item.book.category],
-      title: item.book.title,
-      publisher: item.book.publisher,
-      grade: item.book.grade,
-      totalWords: item.book._count.bookWords,
-      learnedWords: 0,
-      isLearning: true,
-      isDefault: item.isDefault,
-      startedAt: item.startedAt,
-      lastStudiedAt: item.lastStudiedAt,
-    }));
+    const missingMeaningCounts = await this.countMissingMeaningWords(
+      books
+        .filter(({ book }) => book.kind === VocabularyBookKind.SYSTEM)
+        .map(({ book }) => book.id),
+    );
+    return books.map((item) => {
+      const isSystemBook = item.book.kind === VocabularyBookKind.SYSTEM;
+      return {
+        id: item.book.id,
+        category: item.book.category,
+        categoryLabel: categoryLabels[item.book.category],
+        title: item.book.title,
+        publisher: item.book.publisher,
+        grade: item.book.grade,
+        isSystemBook,
+        totalWords: item.book._count.bookWords,
+        missingMeaningCount: isSystemBook ? (missingMeaningCounts.get(item.book.id) ?? 0) : null,
+        learnedWords: 0,
+        isLearning: true,
+        isDefault: item.isDefault,
+        startedAt: item.startedAt,
+        lastStudiedAt: item.lastStudiedAt,
+      };
+    });
+  }
+
+  async listMissingMeaningSystemBookWords(bookId: string, pageSize: number, cursor?: string) {
+    const book = await this.prisma.vocabularyBook.findFirst({
+      where: { id: bookId, isActive: true, kind: VocabularyBookKind.SYSTEM, ownerId: null },
+      select: { id: true, title: true },
+    });
+    if (!book) throw new NotFoundException('系统词书不存在或暂不可用');
+
+    const decoded = cursor ? decodeMissingMeaningCursor(cursor, book.id) : undefined;
+    const cursorFilter = decoded
+      ? Prisma.sql`AND book_word."position" > ${decoded.position}`
+      : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; position: number; word: string }>>(
+      Prisma.sql`
+        SELECT book_word."id", book_word."position", word."text" AS "word"
+        FROM "VocabularyBookWord" AS book_word
+        JOIN "VocabularyWord" AS word ON word."id" = book_word."wordId"
+        WHERE book_word."bookId" = ${book.id}
+          AND ${missingBookWordMeaning}
+          ${cursorFilter}
+        ORDER BY book_word."position" ASC, book_word."id" ASC
+        LIMIT ${pageSize + 1}
+      `,
+    );
+    const hasMore = rows.length > pageSize;
+    const items = rows.slice(0, pageSize);
+    const last = items.at(-1);
+    return {
+      book,
+      items: items.map(({ position, word }) => ({ position, word })),
+      hasMore,
+      nextCursor: hasMore && last ? encodeMissingMeaningCursor(book.id, last.position) : null,
+    };
+  }
+
+  private async countMissingMeaningWords(bookIds: string[]) {
+    if (!bookIds.length) return new Map<string, number>();
+    const rows = await this.prisma.$queryRaw<
+      Array<{ bookId: string; missingMeaningCount: bigint }>
+    >(
+      Prisma.sql`
+        SELECT book_word."bookId", COUNT(*)::bigint AS "missingMeaningCount"
+        FROM "VocabularyBookWord" AS book_word
+        JOIN "VocabularyWord" AS word ON word."id" = book_word."wordId"
+        WHERE book_word."bookId" IN (${Prisma.join(bookIds)})
+          AND ${missingBookWordMeaning}
+        GROUP BY book_word."bookId"
+      `,
+    );
+    return new Map(
+      rows.map(({ bookId, missingMeaningCount }) => [bookId, Number(missingMeaningCount)]),
+    );
   }
 
   async getDefaultBook(userId: string) {

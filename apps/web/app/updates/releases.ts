@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.105',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '可只读定位词书中的缺释义词',
+        entry: '首页 → 切换词汇表 → 系统词表 / 学习中 → 定位缺释义词',
+        usage:
+          '分页查看当前词书中缺少可用释义的词面和顺序；清单不修改共享词典或学习记录，系统释义仍需维护者按已核实的来源修订。',
+      },
+    ],
+  },
+  {
     version: '1.27.104',
     date: '2026-10-30',
     items: [

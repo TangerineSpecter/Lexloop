@@ -6220,6 +6220,164 @@ button {
   padding-left: 7px;
   border-left: 3px solid var(--coral);
 }
+.book-choice button.book-missing-meanings-link {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  max-width: 100%;
+  margin-top: 7px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--teal);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: none;
+}
+.book-choice button.book-missing-meanings-link:hover {
+  transform: none;
+  background: transparent;
+  color: var(--border-color);
+  text-decoration: underline;
+  box-shadow: none;
+}
+.book-missing-meanings {
+  max-width: 1120px;
+  margin: 24px auto 0;
+  padding: 24px;
+  border: 3px solid var(--border-color);
+  border-radius: 12px;
+  background: #fffefa;
+  box-shadow: 4px 4px 0 var(--border-color);
+}
+.book-missing-back,
+.book-missing-more,
+.book-missing-more-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--border-color);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+.book-missing-back:hover,
+.book-missing-more:hover,
+.book-missing-more-error button:hover {
+  background: #eaf2ff;
+}
+.book-missing-back:focus-visible,
+.book-missing-more:focus-visible,
+.book-missing-more-error button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+.book-missing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 22px;
+}
+.book-missing-heading h3 {
+  margin: 0;
+  color: var(--border-color);
+  font-size: 24px;
+  font-weight: 900;
+}
+.book-missing-heading p {
+  max-width: 900px;
+  margin: 6px 0 0;
+  color: rgba(8, 40, 119, 0.78);
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.book-missing-count {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--gold);
+  font-size: 13px;
+  font-weight: 900;
+}
+.book-missing-note,
+.book-missing-progress {
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.book-missing-note {
+  margin: 12px 0 20px;
+}
+.book-missing-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.book-missing-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(8, 40, 119, 0.45);
+  border-radius: 7px;
+  background: #eaf2ff;
+}
+.book-missing-list li span {
+  min-width: 0;
+  color: var(--border-color);
+  font-size: 15px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.book-missing-list li small {
+  flex: 0 0 auto;
+  color: rgba(8, 40, 119, 0.72);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.book-missing-progress {
+  margin: 14px 0;
+}
+.book-missing-state {
+  margin-top: 16px;
+  padding: 28px 20px;
+}
+.book-missing-more-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #ffedda;
+  color: var(--border-color);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.book-missing-more:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
 .book-choice-learning-meta {
   display: flex;
   justify-content: space-between;
@@ -8059,6 +8217,38 @@ button {
   }
   .book-choice button {
     padding: 9px 6px;
+  }
+  .book-choice button.book-missing-meanings-link {
+    padding: 4px 0;
+  }
+  .book-missing-meanings {
+    padding: 17px 14px;
+  }
+  .book-missing-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .book-missing-heading h3 {
+    font-size: 21px;
+  }
+  .book-missing-heading p {
+    font-size: 13px;
+  }
+  .book-missing-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .book-missing-list li {
+    display: block;
+    padding: 9px;
+  }
+  .book-missing-list li small {
+    display: block;
+    margin-top: 4px;
+  }
+  .book-missing-more-error {
+    align-items: stretch;
+    flex-direction: column;
   }
   .settings-page {
     width: calc(100% - 32px);

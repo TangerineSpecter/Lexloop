@@ -21,7 +21,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ...Array.from({ length: 110 }, (_, index) => `catalog-${fixtureId}-bulk-${index}`),
       ];
       const normalizedWords = [
-        ...Array.from({ length: 8 }, (_, index) => `catalog-${fixtureId}-edge-${index}`),
+        ...Array.from({ length: 9 }, (_, index) => `catalog-${fixtureId}-edge-${index}`),
         ...Array.from({ length: 100 }, (_, index) => `catalog-${fixtureId}-bulk-word-${index}`),
       ];
       const systemFixtureKeys = sourceKeys.filter((sourceKey) => !sourceKey.endsWith('-personal'));
@@ -98,8 +98,15 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             ukPhonetic: null,
             usPhonetic: null,
           },
+          {
+            normalized: normalizedWords[8],
+            text: 'prefixed-placeholder',
+            meaning: 'n. 无\nadj. 暂无释义',
+            ukPhonetic: null,
+            usPhonetic: null,
+          },
           ...Array.from({ length: 100 }, (_, index) => ({
-            normalized: normalizedWords[index + 8],
+            normalized: normalizedWords[index + 9],
             text: `bulk-${index}`,
             meaning: index < 20 ? null : `测试释义${index}`,
             ukPhonetic: index < 20 ? null : `uk-${index}`,
@@ -137,7 +144,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const associations = [];
         const mainBookId = bookIds.get(sourceKeys[0])!;
         const startedBookId = bookIds.get(sourceKeys[2])!;
-        for (let index = 0; index < 8; index += 1) {
+        for (let index = 0; index < 9; index += 1) {
           associations.push({
             bookId: mainBookId,
             wordId: wordIds.get(normalizedWords[index])!,
@@ -157,7 +164,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           for (let wordIndex = 0; wordIndex < 100; wordIndex += 1) {
             associations.push({
               bookId,
-              wordId: wordIds.get(normalizedWords[wordIndex + 8])!,
+              wordId: wordIds.get(normalizedWords[wordIndex + 9])!,
               position: wordIndex,
             });
           }
@@ -193,6 +200,56 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         prisma.$on('query', (event) => queries.push(event.query));
         const service = new VocabularyService(prisma as never);
 
+        const firstPageQueryStart = queries.length;
+        const firstMissingPage = await service.listMissingMeaningSystemBookWords(mainBookId, 3);
+        expect(queries.length - firstPageQueryStart).toBe(2);
+        expect(firstMissingPage.book).toEqual({ id: mainBookId, title: '内容统计边界词书' });
+        expect(firstMissingPage.items).toEqual([
+          { position: 1, word: 'missing' },
+          { position: 3, word: 'blank' },
+          { position: 4, word: 'placeholder' },
+        ]);
+        expect(firstMissingPage.hasMore).toBe(true);
+        expect(firstMissingPage.nextCursor).toBeTruthy();
+
+        const secondMissingPage = await service.listMissingMeaningSystemBookWords(
+          mainBookId,
+          3,
+          firstMissingPage.nextCursor!,
+        );
+        expect(secondMissingPage.items).toEqual([
+          { position: 5, word: 'overridden' },
+          { position: 6, word: 'empty-context' },
+          { position: 7, word: 'whitespace-only' },
+        ]);
+        expect(secondMissingPage.hasMore).toBe(true);
+        const lastMissingPage = await service.listMissingMeaningSystemBookWords(
+          mainBookId,
+          3,
+          secondMissingPage.nextCursor!,
+        );
+        expect(lastMissingPage.items).toEqual([{ position: 8, word: 'prefixed-placeholder' }]);
+        expect(lastMissingPage.hasMore).toBe(false);
+        expect(lastMissingPage.nextCursor).toBeNull();
+        await expect(
+          service.listMissingMeaningSystemBookWords(startedBookId, 3, firstMissingPage.nextCursor!),
+        ).rejects.toThrow('缺释义词列表游标无效');
+        await expect(service.listMissingMeaningSystemBookWords(personalBookId!, 3)).rejects.toThrow(
+          '系统词书不存在',
+        );
+
+        const learningBooksBefore = await prisma.userWordProgress.count({
+          where: { userId: users[0].id },
+        });
+        const startedBooks = await service.listLearningBooks(users[0].id);
+        expect(startedBooks.find((book) => book.id === startedBookId)).toMatchObject({
+          isSystemBook: true,
+          missingMeaningCount: 1,
+        });
+        expect(await prisma.userWordProgress.count({ where: { userId: users[0].id } })).toBe(
+          learningBooksBefore,
+        );
+
         const queryStart = queries.length;
         const startedAt = performance.now();
         const otherUserCatalog = await service.listSystemBooks(users[1].id);
@@ -206,11 +263,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ).toHaveLength(113);
 
         const main = otherUserCatalog.books.find((book) => book.id === mainBookId);
-        expect(main).toMatchObject({ totalWords: 8, missingMeaningCount: 6 });
+        expect(main).toMatchObject({
+          isSystemBook: true,
+          totalWords: 9,
+          missingMeaningCount: 7,
+        });
         const empty = otherUserCatalog.books.find((book) => book.id === bookIds.get(sourceKeys[1]));
         expect(empty).toMatchObject({ totalWords: 0, missingMeaningCount: 0 });
         const started = otherUserCatalog.books.find((book) => book.id === startedBookId);
-        expect(started).toMatchObject({ totalWords: 1, missingMeaningCount: 1 });
+        expect(started).toMatchObject({
+          isSystemBook: true,
+          totalWords: 1,
+          missingMeaningCount: 1,
+        });
         expect(
           otherUserCatalog.books.some(
             (book) => book.id === personalBookId || book.title.includes('私有词书'),
@@ -221,7 +286,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
         expect(benchmark).toMatchObject({ totalWords: 100, missingMeaningCount: 20 });
         console.info(
-          `system vocabulary catalog: 113 books/11,009 associations, ${catalogQueries} database queries in ${durationMs.toFixed(1)} ms`,
+          `system vocabulary catalog: 113 books/11,010 associations, ${catalogQueries} database queries in ${durationMs.toFixed(1)} ms`,
         );
 
         const startedUserQueryStart = queries.length;
@@ -234,8 +299,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ).toHaveLength(112);
         expect(startedUserCatalog.books.some((book) => book.id === startedBookId)).toBe(false);
         expect(startedUserCatalog.books.find((book) => book.id === mainBookId)).toMatchObject({
-          totalWords: 8,
-          missingMeaningCount: 6,
+          totalWords: 9,
+          missingMeaningCount: 7,
           isLearning: false,
           isDefault: false,
         });
