@@ -140,7 +140,10 @@ test(
             rooms: [{ id: 'room-a', position: 0, type: 'COMBAT', status: 'CLEARED', enemyName: '漏墨史莱姆', enemyHp: 0, enemyMaxHp: 34 }],
             loot: [], challenge: null,
             lastAction: { challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“稳定的”对应的英文', answer: ['steady'], score: 100, grade: 'PERFECT', damageDealt: 40, damageReceived: 0, feedback: { correct: true, message: '表达命中，攻击生效。', answer: 'steady', provisional: false } },
-            mistakeReview: [{ id: 'saved-miss-a', challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“平静的”对应的英文', answer: ['steady'], referenceAnswer: 'calm', word: 'calm', meaning: '平静的', feedback: '这次没有命中，留意提示后再召回。' }],
+            mistakeReview: [
+              { id: 'saved-miss-a', challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“平静的”对应的英文', answer: ['steady'], referenceAnswer: 'calm', reviewOutcome: 'BELOW_THRESHOLD', word: 'calm', meaning: '平静的', feedback: '这次没有命中，留意提示后再召回。' },
+              { id: 'saved-match-a', challengeType: 'MATCHING', phase: 'BLOCK', prompt: '分别匹配这两个词义', answer: ['patient', 'steady'], referenceAnswer: 'patient：平静的；steady：稳定的', reviewOutcome: 'UNJUDGEABLE' },
+            ],
             unavailableMistakeReviewCount: 0,
             availableSkills: [], canRetreat: false,
           };
@@ -286,14 +289,26 @@ test(
       await until('document.body.innerText.includes("探索完成！")');
       assert.equal(await evaluate('document.body.innerText.includes("+18 EXP")'), true);
       assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 3);
-      assert.equal(await evaluate('document.body.innerText.includes("回想本局错题 · 1")'), true);
+      assert.equal(
+        await evaluate('document.body.innerText.includes("复盘本局未通过题目 · 2")'),
+        true,
+      );
       assert.equal(await evaluate('document.body.innerText.includes("calm")'), false);
       await evaluate(
-        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("回想本局错题")).click()',
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("复盘本局未通过题目")).click()',
       );
-      await until('document.body.innerText.includes("先回忆题目和自己的回答")');
+      await until('document.body.innerText.includes("先回想题目和自己的回答")');
       assert.equal(await evaluate('document.body.innerText.includes("你的回答")'), true);
       assert.equal(await evaluate('document.body.innerText.includes("steady")'), true);
+      assert.equal(await evaluate('document.body.innerText.includes("未达到本题通过标准")'), true);
+      assert.equal(await evaluate('document.body.innerText.includes("本次无法判断")'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll("#adventure-mistake-review article")[1].querySelectorAll("p")[1].querySelector("span").textContent',
+        ),
+        'patient · steady',
+        'multiple saved answer parts should remain visually separated',
+      );
       assert.equal(
         await evaluate('document.querySelector("#adventure-mistake-review details").open'),
         false,

@@ -392,7 +392,10 @@ export class AdventureService {
         message: grading.message,
         answer: grading.answer,
         provisional: grading.provisional,
+        unjudgeable: grading.unjudgeable,
         prompt: challenge.prompt,
+        word: challenge.word,
+        meaning: challenge.meaning,
         challengeId: challenge.id,
       };
       const action = await tx.battleAction.create({
@@ -882,6 +885,7 @@ export class AdventureService {
           message: '回答太短，没有形成可验证的句子。',
           answer: challenge.expected[0],
           provisional: false,
+          unjudgeable: true,
         };
       try {
         const prompt = `评估英语学习者的单句回答。只评估是否正确使用目标词、句子是否完整清楚，不评估发音。目标词：${challenge.word}\n任务：${challenge.prompt}\n回答：${text}\n只返回 JSON：{"score":0-100,"message":"一句中文反馈"}`;
@@ -898,9 +902,13 @@ export class AdventureService {
           message: parsed.message,
           answer: challenge.expected[0],
           provisional: false,
+          unjudgeable: false,
         };
       } catch {
-        return gradeProvisionalFreeResponse(text, challenge.word, challenge.expected[0]);
+        return {
+          ...gradeProvisionalFreeResponse(text, challenge.word, challenge.expected[0]),
+          unjudgeable: true,
+        };
       }
     }
     const actual =
@@ -913,6 +921,7 @@ export class AdventureService {
       message: correct ? '表达命中，攻击生效。' : '这次没有命中，留意提示后再召回。',
       answer: challenge.expected[0],
       provisional: false,
+      unjudgeable: false,
     };
   }
 
@@ -1166,30 +1175,13 @@ export class AdventureService {
           phase: true,
           answer: true,
           feedback: true,
-          room: { select: { challenge: true } },
         },
       });
       for (const action of mistakes) {
         const feedback = record(action.feedback);
-        if (feedback.provisional === true) continue;
-        const roomChallenge = record(action.room.challenge);
-        const snapshotMatchesAction =
-          feedback.challengeId === roomChallenge.id &&
-          roomChallenge.type === action.challengeType &&
-          roomChallenge.phase === action.phase;
-        const challenge = snapshotMatchesAction ? roomChallenge : {};
-        const prompt =
-          (typeof feedback.prompt === 'string' && feedback.prompt) ||
-          (typeof challenge.prompt === 'string' && challenge.prompt) ||
-          null;
+        const prompt = typeof feedback.prompt === 'string' ? feedback.prompt : null;
         const savedAnswer = feedback.answer;
-        const expected = challenge.expected;
-        const referenceAnswer =
-          typeof savedAnswer === 'string'
-            ? savedAnswer
-            : Array.isArray(expected) && typeof expected[0] === 'string'
-              ? expected[0]
-              : null;
+        const referenceAnswer = typeof savedAnswer === 'string' ? savedAnswer : null;
         if (!prompt || !referenceAnswer) {
           unavailableMistakeReviewCount += 1;
           continue;
@@ -1204,8 +1196,14 @@ export class AdventureService {
           prompt,
           answer: learnerAnswer,
           referenceAnswer,
-          ...(typeof challenge.word === 'string' ? { word: challenge.word } : {}),
-          ...(typeof challenge.meaning === 'string' ? { meaning: challenge.meaning } : {}),
+          reviewOutcome:
+            feedback.unjudgeable === true || feedback.provisional === true
+              ? 'UNJUDGEABLE'
+              : typeof feedback.unjudgeable === 'boolean'
+                ? 'BELOW_THRESHOLD'
+                : 'LEGACY_UNKNOWN',
+          ...(typeof feedback.word === 'string' ? { word: feedback.word } : {}),
+          ...(typeof feedback.meaning === 'string' ? { meaning: feedback.meaning } : {}),
           ...(typeof feedback.message === 'string' ? { feedback: feedback.message } : {}),
         });
       }

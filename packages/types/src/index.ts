@@ -308,6 +308,7 @@ export interface DungeonMistakeReviewItem {
   prompt: string;
   answer: string[];
   referenceAnswer: string;
+  reviewOutcome: 'BELOW_THRESHOLD' | 'UNJUDGEABLE' | 'LEGACY_UNKNOWN';
   word?: string;
   meaning?: string;
   feedback?: string;

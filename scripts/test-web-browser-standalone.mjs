@@ -3,7 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,6 +14,71 @@ const defaultWebDir = resolve(rootDir, 'apps/web');
 let activeCommand;
 let activeServer;
 let interruptedBy;
+
+export function classifyBrowserProcess(comm) {
+  if (comm.startsWith('chromium-subre')) return 'subreaper';
+  if (comm.startsWith('chrome_crashpa') || comm.startsWith('chromium_crash')) return 'crashpad';
+  if (comm === 'chromium') return 'chromium';
+  return null;
+}
+
+export async function collectBrowserProcessSnapshot() {
+  const host = hostname();
+  if (process.platform !== 'linux') return { supported: false, host, bootId: null, counts: null };
+
+  let bootId = null;
+  try {
+    bootId = (await readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
+  } catch {
+    return { supported: false, host, bootId: null, counts: null };
+  }
+
+  const counts = Object.fromEntries(
+    ['chromium', 'crashpad', 'subreaper'].map((name) => [
+      name,
+      { total: 0, active: 0, zombies: 0 },
+    ]),
+  );
+  for (const entry of await readdir('/proc', { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+    try {
+      const [comm, stat] = await Promise.all([
+        readFile(`/proc/${entry.name}/comm`, 'utf8'),
+        readFile(`/proc/${entry.name}/stat`, 'utf8'),
+      ]);
+      const category = classifyBrowserProcess(comm.trim());
+      if (!category) continue;
+      const state = stat
+        .slice(stat.lastIndexOf(')') + 1)
+        .trim()
+        .split(/\s+/)[0];
+      const count = counts[category];
+      count.total += 1;
+      if (state === 'Z') count.zombies += 1;
+      else count.active += 1;
+    } catch {
+      // A short-lived process may exit between listing /proc and reading its files.
+    }
+  }
+  return { supported: true, host, bootId, counts };
+}
+
+function describeBrowserProcessSnapshot(label, snapshot) {
+  if (!snapshot.supported)
+    return `${label} browser process baseline: unavailable on this executor.`;
+  const format = ({ total, active, zombies }) =>
+    `${total} total, ${active} active, ${zombies} zombies`;
+  return `${label} browser process baseline [${snapshot.host}, boot ${snapshot.bootId}]: chromium ${format(snapshot.counts.chromium)}; crashpad ${format(snapshot.counts.crashpad)}; subreaper ${format(snapshot.counts.subreaper)}.`;
+}
+
+function describeBrowserProcessDelta(before, after) {
+  if (!before.supported || !after.supported)
+    return 'Browser process baseline comparison unavailable; at least one snapshot is unavailable.';
+  if (before.host !== after.host || before.bootId !== after.bootId)
+    return 'Browser process baseline comparison skipped because the executor identity changed.';
+  const delta = (name, key) => after.counts[name][key] - before.counts[name][key];
+  return `Browser process delta [same executor]: chromium ${delta('chromium', 'total')} total/${delta('chromium', 'zombies')} zombies; crashpad ${delta('crashpad', 'total')}/${delta('crashpad', 'zombies')}; subreaper ${delta('subreaper', 'total')}/${delta('subreaper', 'zombies')}.`;
+}
 
 function signalProcessGroup(child, signal) {
   if (!child?.pid) return;
@@ -360,6 +425,8 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}`;
   const subreaper = await prepareChromiumSubreaper();
   if (subreaper) console.log('Linux Chromium 子进程回收器已就绪。');
+  const processBaseline = await collectBrowserProcessSnapshot();
+  console.log(describeBrowserProcessSnapshot('Before', processBaseline));
   const server = spawn(process.execPath, [prepared.serverPath], {
     cwd: standaloneDir,
     env: { ...process.env, HOSTNAME: '127.0.0.1', PORT: String(port) },
@@ -389,9 +456,18 @@ async function main() {
       label: 'standalone 浏览器回归',
     });
   } finally {
-    await stopServer(server);
-    if (activeServer === server) activeServer = undefined;
-    if (subreaper) await rm(subreaper.directory, { recursive: true, force: true });
+    try {
+      await stopServer(server);
+    } finally {
+      if (activeServer === server) activeServer = undefined;
+      try {
+        if (subreaper) await rm(subreaper.directory, { recursive: true, force: true });
+      } finally {
+        const processAfter = await collectBrowserProcessSnapshot();
+        console.log(describeBrowserProcessSnapshot('After', processAfter));
+        console.log(describeBrowserProcessDelta(processBaseline, processAfter));
+      }
+    }
   }
 }
 

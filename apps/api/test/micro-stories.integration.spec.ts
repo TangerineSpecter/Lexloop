@@ -58,9 +58,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
 
         await service.interpret(users[0].id, 'bus-02', '汤姆说自己上班会迟到。');
+        await new Promise<void>((resolve) => setImmediate(resolve));
         const queryStart = queries.length;
         const currentStarted = performance.now();
         const revealedCurrent = await service.current(users[0].id);
+        await new Promise<void>((resolve) => setImmediate(resolve));
         const currentDurationMs = performance.now() - currentStarted;
         const currentQueries = queries.length - queryStart;
         const currentResponseBytes = Buffer.byteLength(JSON.stringify(revealedCurrent));

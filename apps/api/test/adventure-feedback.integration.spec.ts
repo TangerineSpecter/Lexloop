@@ -752,7 +752,15 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         };
         const terminal = await service.recoverRun(user.id, run.id);
-        expect(terminal.mistakeReview).toEqual([]);
+        expect(terminal.mistakeReview).toMatchObject([
+          {
+            challengeType: 'FREE_RESPONSE',
+            prompt: '用 patient 写一个完整句子',
+            answer: ['We can use patient words in context.'],
+            referenceAnswer: 'I can be patient.',
+            reviewOutcome: 'UNJUDGEABLE',
+          },
+        ]);
         expect(terminal.unavailableMistakeReviewCount).toBe(0);
         expect({
           actions: await prisma.battleAction.count({ where: { runId: run.id } }),
@@ -1094,6 +1102,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               prompt: firstChallenge.prompt,
               answer: [wrongAnswer],
               referenceAnswer: correctAnswer,
+              reviewOutcome: 'BELOW_THRESHOLD',
             },
           ],
           unavailableMistakeReviewCount: 0,
@@ -1172,7 +1181,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       }
     }, 30_000);
 
-    it('only falls back to a room question snapshot when it still matches the terminal action', async () => {
+    it('keeps unjudgeable answers distinct and never reconstructs a changed question from its room', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
       });
@@ -1245,6 +1254,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           select: { challenge: true },
         });
         const blockChallenge = blockRoom.challenge as unknown as {
+          id: string;
           type: string;
           phase: string;
           prompt: string;
@@ -1252,11 +1262,44 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           word: string;
           meaning: string;
         };
+        const unjudgeableChallenge = {
+          ...blockChallenge,
+          type: 'FREE_RESPONSE',
+          prompt: '用 patient 写一个完整句子',
+          expected: ['I can wait patiently.'],
+        };
+        expect(unjudgeableChallenge.id).toBe(blockChallenge.id);
+        await prisma.dungeonRoom.update({
+          where: { id: room.id },
+          data: { challenge: unjudgeableChallenge as Prisma.InputJsonValue },
+        });
         const failed = await service.act(user.id, run.id, {
           clientActionId: `block-${fixtureId}`,
-          answer: ['also-wrong'],
+          answer: ['no'],
         });
         expect(failed.run.status).toBe('FAILED');
+        expect(failed.score).toBe(0);
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+
+        const savedBeforeQuestionChange = await service.recoverRun(user.id, run.id);
+        expect(savedBeforeQuestionChange.mistakeReview).toMatchObject([
+          {
+            phase: 'ATTACK',
+            answer: ['definitely-wrong'],
+            reviewOutcome: 'BELOW_THRESHOLD',
+          },
+          {
+            challengeType: 'FREE_RESPONSE',
+            phase: 'BLOCK',
+            prompt: unjudgeableChallenge.prompt,
+            answer: ['no'],
+            referenceAnswer: unjudgeableChallenge.expected[0],
+            word: unjudgeableChallenge.word,
+            meaning: unjudgeableChallenge.meaning,
+            reviewOutcome: 'UNJUDGEABLE',
+          },
+        ]);
+        expect(savedBeforeQuestionChange.unavailableMistakeReviewCount).toBe(0);
 
         const terminalAction = await prisma.battleAction.findUniqueOrThrow({
           where: {
@@ -1270,6 +1313,20 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         >;
         delete legacyFeedback.prompt;
         delete legacyFeedback.answer;
+        delete legacyFeedback.word;
+        delete legacyFeedback.meaning;
+        await prisma.dungeonRoom.update({
+          where: { id: room.id },
+          data: {
+            challenge: {
+              ...unjudgeableChallenge,
+              prompt: '更新后的题干：用 calm 造句',
+              expected: ['I feel calm now.'],
+              word: 'calm',
+              meaning: '平静的',
+            } as Prisma.InputJsonValue,
+          },
+        });
         await prisma.battleAction.update({
           where: { id: terminalAction.id },
           data: {
@@ -1297,19 +1354,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             challengeType: 'SPELLING',
             phase: 'ATTACK',
             answer: ['definitely-wrong'],
-            referenceAnswer: expect.any(String),
-          },
-          {
-            challengeType: blockChallenge.type,
-            phase: 'BLOCK',
-            prompt: blockChallenge.prompt,
-            answer: ['also-wrong'],
-            referenceAnswer: blockChallenge.expected[0],
-            word: blockChallenge.word,
-            meaning: blockChallenge.meaning,
+            reviewOutcome: 'BELOW_THRESHOLD',
           },
         ]);
-        expect(recovered.unavailableMistakeReviewCount).toBe(0);
+        expect(recovered.unavailableMistakeReviewCount).toBe(1);
+        expect(JSON.stringify(recovered.mistakeReview)).not.toContain('更新后的题干');
+        expect(JSON.stringify(recovered.mistakeReview)).not.toContain('I feel calm now.');
+        expect(JSON.stringify(recovered.mistakeReview)).not.toContain('平静的');
         expect({
           actions: await prisma.battleAction.count({ where: { runId: run.id } }),
           attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),

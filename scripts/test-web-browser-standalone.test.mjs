@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { prepareStandalone, verifyDashboardCodeSplits } from './test-web-browser-standalone.mjs';
+import {
+  classifyBrowserProcess,
+  prepareStandalone,
+  verifyDashboardCodeSplits,
+} from './test-web-browser-standalone.mjs';
 
 async function fixture(t) {
   const webDir = await mkdtemp(join(tmpdir(), 'lexloop-standalone-prepare-'));
@@ -75,6 +79,13 @@ async function createDashboardBuild(webDir, { preloadStatistics = false } = {}) 
   );
   await writeFile(join(buildDir, 'react-loadable-manifest.json'), JSON.stringify(dynamicManifest));
 }
+
+test('classifies truncated Chromium, crashpad, and subreaper process names separately', () => {
+  assert.equal(classifyBrowserProcess('chromium'), 'chromium');
+  assert.equal(classifyBrowserProcess('chrome_crashpad'), 'crashpad');
+  assert.equal(classifyBrowserProcess('chromium-subrea'), 'subreaper');
+  assert.equal(classifyBrowserProcess('node'), null);
+});
 
 test('prepares static assets at the standalone server path and copies optional public files', async (t) => {
   const webDir = await fixture(t);

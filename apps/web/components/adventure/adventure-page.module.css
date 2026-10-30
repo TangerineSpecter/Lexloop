@@ -1632,6 +1632,16 @@
   flex: 0 0 auto;
   color: var(--blue);
 }
+.mistakeReviewOutcome {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #fff4b9;
+  font-weight: 800;
+}
 .mistakeReviewPrompt,
 .mistakeReviewAnswer {
   margin: 10px 0 0;

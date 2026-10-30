@@ -7,6 +7,7 @@ import type {
   BattleResolution,
   DailyQuest,
   DungeonFloorSummary,
+  DungeonMistakeReviewItem,
   DungeonMap,
   DungeonRunState,
   EquipmentSlot,
@@ -1146,9 +1147,11 @@ function RunResult({ run, onDone }: { run: DungeonRunState; onDone: () => void }
               aria-controls="adventure-mistake-review"
               onClick={() => setReviewOpen((open) => !open)}
             >
-              {reviewOpen ? '收起本局错题' : `回想本局错题 · ${run.mistakeReview?.length}`}
+              {reviewOpen ? '收起本局复盘' : `复盘本局未通过题目 · ${run.mistakeReview?.length}`}
             </button>
-            <p>先回忆题目和自己的回答，再自愿展开参考答案；复盘不重复结算奖励或复习记录。</p>
+            <p>
+              先回想题目和自己的回答，再自愿展开参考答案；列表会区分未达标准、无法判断与旧记录状态未知。复盘不重复结算奖励或复习记录。
+            </p>
             <div
               className={styles.mistakeReviewList}
               id="adventure-mistake-review"
@@ -1162,10 +1165,16 @@ function RunResult({ run, onDone }: { run: DungeonRunState; onDone: () => void }
                     </strong>
                     <span>{item.phase === 'BLOCK' ? '格挡题' : '攻击题'}</span>
                   </header>
+                  <small className={styles.mistakeReviewOutcome}>
+                    {mistakeReviewOutcomeLabel(item.reviewOutcome)}
+                  </small>
                   <p className={styles.mistakeReviewPrompt}>{item.prompt}</p>
                   <p className={styles.mistakeReviewAnswer}>
                     <strong>你的回答</strong>
-                    <span>{item.answer.join(' ') || '（未记录文字回答）'}</span>
+                    <span>
+                      {item.answer.join(item.challengeType === 'SENTENCE_ORDER' ? ' ' : ' · ') ||
+                        '（未记录文字回答）'}
+                    </span>
                   </p>
                   <details>
                     <summary>先想一遍，再看参考答案</summary>
@@ -1382,6 +1391,15 @@ function challengeTypeLabel(type?: string) {
         FREE_RESPONSE: '自由表达',
       } as Record<string, string>
     )[type ?? ''] ?? '挑战'
+  );
+}
+function mistakeReviewOutcomeLabel(outcome: DungeonMistakeReviewItem['reviewOutcome']) {
+  return (
+    {
+      BELOW_THRESHOLD: '未达到本题通过标准',
+      UNJUDGEABLE: '本次无法判断',
+      LEGACY_UNKNOWN: '旧记录未保存判断状态',
+    }[outcome] ?? '本次无法判断'
   );
 }
 function statLabel(key: string) {
