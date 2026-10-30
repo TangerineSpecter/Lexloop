@@ -33,6 +33,7 @@ import {
   PenLine,
   Play,
   Plus,
+  Search,
   Send,
   Settings2,
   Sparkles,
@@ -52,6 +53,7 @@ import {
   Component,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -1905,6 +1907,10 @@ function AccountMenu({
   );
 }
 
+function normalizeBookSearchText(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+}
+
 function BookPicker({
   session,
   onClose,
@@ -1924,10 +1930,32 @@ function BookPicker({
   const [learningStatus, setLearningStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [catalogError, setCatalogError] = useState('');
   const [learningError, setLearningError] = useState('');
+  const [catalogSearch, setCatalogSearch] = useState('');
   const catalogRequestRef = useRef(0);
   const learningRequestRef = useRef(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const normalizedCatalogSearch = normalizeBookSearchText(catalogSearch);
+  const searchableBooks = useMemo(
+    () =>
+      catalog.books.map((book) => ({
+        book,
+        text: normalizeBookSearchText(
+          [book.title, book.categoryLabel, book.publisher, book.grade].filter(Boolean).join(' '),
+        ),
+      })),
+    [catalog.books],
+  );
+  const filteredCatalogBooks = useMemo(
+    () =>
+      normalizedCatalogSearch
+        ? searchableBooks
+            .filter((item) => item.text.includes(normalizedCatalogSearch))
+            .map((item) => item.book)
+        : catalog.books,
+    [catalog.books, normalizedCatalogSearch, searchableBooks],
+  );
+  const selectedCategoryLabel = catalog.categories.find((item) => item.key === category)?.label;
   const load = async (selectedCategory?: string) => {
     const catalogRequest = ++catalogRequestRef.current;
     const learningRequest = ++learningRequestRef.current;
@@ -2149,14 +2177,61 @@ function BookPicker({
               </button>
             ))}
           </div>
-          <BookCards
-            cards={catalog.books}
-            busyId={busyId}
-            status={catalogStatus}
-            error={catalogError}
-            onRetry={() => void loadCatalog(category)}
-            onActivate={(book) => activate(book, 'start')}
-          />
+          <div className="book-search" role="search" aria-label="搜索系统词表">
+            <label htmlFor="book-catalog-search">
+              <Search size={18} aria-hidden="true" />
+              <span>搜索已加载词表</span>
+            </label>
+            <div className="book-search-control">
+              <input
+                id="book-catalog-search"
+                type="search"
+                value={catalogSearch}
+                onChange={(event) => setCatalogSearch(event.target.value)}
+                placeholder="名称、分类、教材或年级"
+                aria-describedby="book-catalog-search-scope"
+              />
+              {catalogSearch && (
+                <button
+                  type="button"
+                  aria-label="清除词表搜索"
+                  onClick={() => setCatalogSearch('')}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            <p id="book-catalog-search-scope">
+              {category && selectedCategoryLabel
+                ? `仅搜索当前分类「${selectedCategoryLabel}」中已加载的词表。`
+                : '搜索当前已加载的全部系统词表。'}
+            </p>
+          </div>
+          {catalogStatus === 'ready' && (
+            <p className="book-search-summary" role="status" aria-live="polite">
+              {category && selectedCategoryLabel ? `分类「${selectedCategoryLabel}」 · ` : ''}
+              已加载 {catalog.books.length} 本
+              {normalizedCatalogSearch ? `，匹配 ${filteredCatalogBooks.length} 本` : ''}
+            </p>
+          )}
+          {catalogStatus === 'ready' && normalizedCatalogSearch && !filteredCatalogBooks.length ? (
+            <div className="book-empty book-search-empty" role="status">
+              <strong>没有找到匹配的词表</strong>
+              <p>可以清除搜索，或切换词表分类后再试。</p>
+              <button type="button" onClick={() => setCatalogSearch('')}>
+                清除搜索
+              </button>
+            </div>
+          ) : (
+            <BookCards
+              cards={filteredCatalogBooks}
+              busyId={busyId}
+              status={catalogStatus}
+              error={catalogError}
+              onRetry={() => void loadCatalog(category)}
+              onActivate={(book) => activate(book, 'start')}
+            />
+          )}
         </div>
       )}
     </div>

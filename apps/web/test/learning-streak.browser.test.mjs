@@ -10,8 +10,8 @@ const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
-  'dashboard keeps streak and progress summaries honest through loading, failure and retries',
-  { skip: !baseUrl, timeout: 30_000 },
+  'dashboard summaries and the vocabulary picker recover accurately from loading, failure and retries',
+  { skip: !baseUrl, timeout: 60_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-streak-test-'));
     const browser = spawnChromium(
@@ -34,6 +34,7 @@ test(
     });
     let socket;
     const waiting = new Map();
+    const runtimeErrors = [];
     let sequence = 0;
     try {
       let port;
@@ -57,6 +58,13 @@ test(
       });
       socket.addEventListener('message', (event) => {
         const result = JSON.parse(event.data);
+        if (result.method === 'Runtime.exceptionThrown') {
+          runtimeErrors.push(
+            result.params.exceptionDetails?.exception?.description ??
+              result.params.exceptionDetails?.text ??
+              'Runtime exception',
+          );
+        }
         if (!result.id) return;
         const pending = waiting.get(result.id);
         if (!pending) return;
@@ -88,7 +96,16 @@ test(
           }
           await delay(100);
         }
-        assert.fail(`Timed out waiting for ${expression}`);
+        const pageState = await evaluate(`({ href: location.href, title: document.title,
+          body: document.body?.innerText?.slice(0, 600), readyState: document.readyState,
+          session: localStorage.getItem('lexloop.session'), fixture: typeof window.bookPickerFixture,
+          streak: window.streakFixture,
+          search: document.querySelector('#book-catalog-search')?.value,
+          summary: document.querySelector('.book-search-summary')?.textContent,
+          choices: document.querySelectorAll('.book-choice').length })`).catch(() => null);
+        assert.fail(
+          `Timed out waiting for ${expression}; page=${JSON.stringify(pageState)}; runtimeErrors=${JSON.stringify(runtimeErrors)}`,
+        );
       };
       const pressKey = async (key, code, windowsVirtualKeyCode, modifiers = 0) => {
         await send('Input.dispatchKeyEvent', {
@@ -143,6 +160,7 @@ test(
           `Progress requests did not settle: ${JSON.stringify(await evaluate(`({ requests: window.progressFixture.requests, pending: window.progressFixture.resolvers.map(({ index }) => index) })`))}`,
         );
       };
+      await send('Runtime.enable');
       await send('Page.enable');
       await send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Shanghai' });
       await send('Emulation.setDeviceMetricsOverride', {
@@ -184,12 +202,18 @@ test(
       window.bookPickerRequests = [];
       window.bookPickerFixture = {
         hold: new URL(location.href).searchParams.has('book-picker-loading'),
+        holdNextSystem: 0,
+        failNextSystem: 0,
         failLearning: false,
         bookTitle: '2026 年新课标初中英语日常交流与主题阅读综合词汇训练词表',
         learningBooks: [],
+        categories: [{ key: 'general', label: '通用', count: 1 }],
+        catalogBooks: [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: '2026 年新课标初中英语日常交流与主题阅读综合词汇训练词表', publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
+        systemQueries: [],
         resolvers: [],
         releaseAll() {
           this.hold = false;
+          this.holdNextSystem = 0;
           for (const item of this.resolvers.splice(0)) item.resolve(Response.json(item.body));
         },
       };
@@ -214,11 +238,18 @@ test(
         }
         if (path.includes('/api/v1/vocabulary/system')) {
           window.bookPickerRequests.push('system');
+          const category = new URL(path, location.href).searchParams.get('category');
+          window.bookPickerFixture.systemQueries.push(category);
           const body = {
-            categories: [{ key: 'general', label: '通用', count: 1 }],
-            books: [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: window.bookPickerFixture.bookTitle, publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: false, isDefault: false }],
+            categories: window.bookPickerFixture.categories,
+            books: window.bookPickerFixture.catalogBooks.filter((book) => !category || book.category === category),
           };
-          if (window.bookPickerFixture.hold) {
+          if (window.bookPickerFixture.failNextSystem > 0) {
+            window.bookPickerFixture.failNextSystem -= 1;
+            return Response.json({ message: '系统词表暂时不可用' }, { status: 503 });
+          }
+          if (window.bookPickerFixture.hold || window.bookPickerFixture.holdNextSystem > 0) {
+            if (!window.bookPickerFixture.hold) window.bookPickerFixture.holdNextSystem -= 1;
             return new Promise((resolve) => window.bookPickerFixture.resolvers.push({ resolve, body }));
           }
           return Response.json(body);
@@ -231,9 +262,15 @@ test(
           if (window.bookPickerFixture.failLearning) return Response.json({ message: '学习词表暂时不可用' }, { status: 503 });
           return Response.json(window.bookPickerFixture.learningBooks);
         }
-        if (path.endsWith('/api/v1/vocabulary/books/starter-book/start') && options.method === 'POST') {
-          window.defaultBookFixture.book = { id: 'starter-book', title: window.bookPickerFixture.bookTitle, totalWords: 300 };
-          window.bookPickerFixture.learningBooks = [{ id: 'starter-book', category: 'general', categoryLabel: '初中英语与日常交流综合学习', title: window.bookPickerFixture.bookTitle, publisher: null, grade: null, totalWords: 300, learnedWords: 0, isLearning: true, isDefault: true }];
+        const startPrefix = '/api/v1/vocabulary/books/';
+        const startBookId = path.includes(startPrefix) && path.endsWith('/start')
+          ? path.slice(path.lastIndexOf(startPrefix) + startPrefix.length, -'/start'.length)
+          : null;
+        if (startBookId && options.method === 'POST') {
+          const selected = window.bookPickerFixture.catalogBooks.find((book) => book.id === startBookId);
+          if (!selected) return Response.json({ message: '词表不存在' }, { status: 404 });
+          window.defaultBookFixture.book = { id: selected.id, title: selected.title, totalWords: selected.totalWords };
+          window.bookPickerFixture.learningBooks = [{ ...selected, learnedWords: 0, isLearning: true, isDefault: true }];
           return Response.json(window.defaultBookFixture.book);
         }
         if (path.includes('/api/v1/vocabulary/progress-summary')) {
@@ -478,12 +515,17 @@ test(
       assert.equal(await evaluate('document.activeElement.getAttribute("role")'), 'tab');
       assert.equal(await evaluate('document.activeElement.textContent.includes("通用")'), true);
       await pressKey('Tab', 'Tab', 9);
+      assert.equal(await evaluate('document.activeElement.id'), 'book-catalog-search');
+      await pressKey('Tab', 'Tab', 9);
       assert.equal(
         await evaluate('document.activeElement.getAttribute("aria-label")'),
         `开始学习：${await evaluate('window.bookPickerFixture.bookTitle')}`,
       );
       await pressKey('Tab', 'Tab', 9, 8);
+      assert.equal(await evaluate('document.activeElement.id'), 'book-catalog-search');
+      await pressKey('Tab', 'Tab', 9, 8);
       assert.equal(await evaluate('document.activeElement.textContent.includes("通用")'), true);
+      await pressKey('Tab', 'Tab', 9);
       await pressKey('Tab', 'Tab', 9);
       await pressKey('Tab', 'Tab', 9);
       assert.equal(
@@ -876,6 +918,304 @@ test(
         await evaluate(`${progressCard}.querySelector(".metric-front small")?.textContent`),
         '学习进度 70.0%',
       );
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await send('Page.navigate', { url: new URL('/dashboard?new-user=1', baseUrl).href });
+      await until('document.querySelector(".book-selection-prompt button")');
+      await evaluate(`window.bookPickerFixture.categories = [
+        { key: 'general', label: '通用', count: 300 },
+        { key: 'exam', label: '应试词汇', count: 300 },
+      ];
+      window.bookPickerFixture.catalogBooks = Array.from({ length: 600 }, (_, index) => {
+        const isTarget = index === 599;
+        const category = index < 300 ? 'general' : 'exam';
+        return {
+          id: isTarget ? 'search-target' : 'fixture-book-' + index,
+          category,
+          categoryLabel: category === 'general' ? '通用交流' : '应试词汇',
+          title: isTarget ? 'CET-4 高频词汇训练' : '词汇练习 ' + (index + 1),
+          publisher: isTarget ? 'Lexloop Press' : '示例教材 ' + (index % 12 + 1),
+          grade: isTarget ? '大学英语四级' : '初中 ' + (index % 3 + 1) + ' 年级',
+          totalWords: 120,
+          learnedWords: 0,
+          isLearning: false,
+          isDefault: false,
+        };
+      });`);
+      await evaluate('document.querySelector(".book-selection-prompt button").focus()');
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.querySelector(".book-drawer")');
+      await evaluate(
+        '[...document.querySelectorAll(".book-tabs button")].find(button => button.textContent.includes("系统词表")).click()',
+      );
+      await until('document.querySelector("#book-catalog-search")');
+      await until(
+        'document.querySelectorAll(".book-category-tabs [role=tab]").length === 2 && document.querySelectorAll(".book-choice").length === 600',
+      );
+      assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), '');
+      const searchLayoutDesktop = await evaluate(`(() => {
+        const drawer = document.querySelector('.book-drawer').getBoundingClientRect();
+        const input = document.querySelector('#book-catalog-search').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          drawerLeft: drawer.left, drawerRight: drawer.right, inputLeft: input.left, inputRight: input.right };
+      })()`);
+      assert.ok(
+        searchLayoutDesktop.viewport === 1440 &&
+          searchLayoutDesktop.page <= 1440 &&
+          searchLayoutDesktop.drawerLeft >= 0 &&
+          searchLayoutDesktop.drawerRight <= 1440 &&
+          searchLayoutDesktop.inputLeft >= 0 &&
+          searchLayoutDesktop.inputRight <= 1440,
+        JSON.stringify(searchLayoutDesktop),
+      );
+
+      const setCatalogQuery = async (query) => {
+        await evaluate(`(() => {
+          const input = document.querySelector('#book-catalog-search');
+          if (input.value) {
+            const clear = document.querySelector('[aria-label="清除词表搜索"]');
+            if (!clear) throw new Error('A non-empty search has no clear control');
+            clear.click();
+          }
+          input.focus();
+          return input.value;
+        })()`);
+        await send('Input.insertText', { text: query });
+        await until(
+          `document.querySelector("#book-catalog-search")?.value === ${JSON.stringify(query)}`,
+        );
+      };
+      const requestsBeforeSearch = await evaluate('window.bookPickerRequests.length');
+      const searchStartedAt = await evaluate('performance.now()');
+      await setCatalogQuery('  ＣＥＴ－４   高频词汇  ');
+      await until(
+        'document.querySelectorAll(".book-choice").length === 1 && document.querySelector(".book-choice strong")?.textContent === "CET-4 高频词汇训练"',
+      );
+      await evaluate(
+        'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+      );
+      const localSearchElapsedMs = await evaluate(`performance.now() - ${searchStartedAt}`);
+      assert.ok(
+        localSearchElapsedMs < 1000,
+        `600-book local search took ${localSearchElapsedMs.toFixed(1)}ms`,
+      );
+      assert.equal(
+        await evaluate('window.bookPickerRequests.length'),
+        requestsBeforeSearch,
+        'typing a search only filters the already loaded catalog',
+      );
+      console.log(
+        `600-book local filter: ${localSearchElapsedMs.toFixed(1)} ms to filtered paint in this browser run`,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".book-choice button").getAttribute("aria-label")'),
+        '开始学习：CET-4 高频词汇训练',
+      );
+
+      for (const { query, expectedCount } of [
+        { query: 'lexloop press', expectedCount: 1 },
+        { query: '大学英语四级', expectedCount: 1 },
+        { query: '应试词汇', expectedCount: 300 },
+      ]) {
+        await setCatalogQuery(query);
+        await until(`document.querySelectorAll(".book-choice").length === ${expectedCount}`);
+        assert.equal(
+          await evaluate(
+            '[...document.querySelectorAll(".book-choice")].some(card => card.querySelector("strong")?.textContent === "CET-4 高频词汇训练")',
+          ),
+          true,
+          `search should include publisher, grade and category fields (${query})`,
+        );
+      }
+      await setCatalogQuery('不存在的词表 xyz');
+      await until('document.querySelector(".book-search-empty")');
+      assert.equal(await evaluate('document.querySelectorAll(".book-choice").length'), 0);
+      assert.equal(
+        await evaluate('document.querySelector(".book-search-empty [role=alert]")'),
+        null,
+      );
+      assert.equal(await evaluate('window.bookPickerRequests.length'), requestsBeforeSearch);
+      await evaluate('document.querySelector(".book-search-empty button").click()');
+      await until('document.querySelectorAll(".book-choice").length === 600');
+
+      await setCatalogQuery('CET-4');
+      await until('document.querySelectorAll(".book-choice").length === 1');
+      await evaluate(`window.bookPickerFixture.failNextSystem = 1;
+        [...document.querySelectorAll('.book-category-tabs [role=tab]')].find(button => button.textContent.includes('通用')).click();`);
+      await until('document.querySelector(".book-drawer [role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelector(".book-search-empty")'),
+        null,
+        'a catalog error must not be presented as an authoritative no-match result',
+      );
+      assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), 'CET-4');
+      await evaluate('document.querySelector(".book-drawer [role=alert] button").click()');
+      await until('document.querySelector(".book-search-empty")');
+      assert.equal(await evaluate('window.bookPickerFixture.systemQueries.at(-1)'), 'general');
+      assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), 'CET-4');
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#book-catalog-search-scope").textContent.includes("当前分类「通用」")',
+        ),
+        true,
+      );
+      await evaluate(
+        'document.querySelector(".book-search-control button[aria-label=清除词表搜索]").click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 300');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".book-search-summary").textContent.includes("分类「通用」")',
+        ),
+        true,
+      );
+
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('innerWidth === 390');
+      await setCatalogQuery('CET-4');
+      await until('document.querySelector(".book-search-empty")');
+      const searchLayoutMobile = await evaluate(`(() => {
+        const drawer = document.querySelector('.book-drawer').getBoundingClientRect();
+        const search = document.querySelector('.book-search').getBoundingClientRect();
+        const input = document.querySelector('#book-catalog-search').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          drawerLeft: drawer.left, drawerRight: drawer.right, searchLeft: search.left,
+          searchRight: search.right, inputLeft: input.left, inputRight: input.right,
+          reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+          animation: getComputedStyle(document.querySelector('.book-drawer')).animationName };
+      })()`);
+      assert.ok(
+        searchLayoutMobile.viewport === 390 &&
+          searchLayoutMobile.page <= 390 &&
+          searchLayoutMobile.drawerLeft >= 0 &&
+          searchLayoutMobile.drawerRight <= 390 &&
+          searchLayoutMobile.searchLeft >= 0 &&
+          searchLayoutMobile.searchRight <= 390 &&
+          searchLayoutMobile.inputLeft >= 0 &&
+          searchLayoutMobile.inputRight <= 390 &&
+          searchLayoutMobile.reducedMotion &&
+          searchLayoutMobile.animation === 'none',
+        JSON.stringify(searchLayoutMobile),
+      );
+      await capture('vocabulary-search-mobile.png');
+      await evaluate(
+        'document.querySelector(".book-search-control button[aria-label=清除词表搜索]").click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 300');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const requestsBeforeAllCategories = await evaluate('window.bookPickerRequests.length');
+      await evaluate(
+        'document.querySelector(".book-category-tabs [role=tab][aria-selected=true]").click()',
+      );
+      await until('document.querySelectorAll(".book-choice").length === 600');
+      assert.equal(
+        await evaluate('window.bookPickerRequests.length'),
+        requestsBeforeAllCategories + 1,
+      );
+      assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), '');
+      await evaluate('document.querySelector("#book-catalog-search").focus()');
+      await setCatalogQuery('CET-4');
+      await until('document.querySelectorAll(".book-choice").length === 1');
+      await capture('vocabulary-search-desktop.png');
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '清除词表搜索',
+      );
+      await pressKey('Tab', 'Tab', 9);
+      assert.equal(
+        await evaluate('document.activeElement.getAttribute("aria-label")'),
+        '开始学习：CET-4 高频词汇训练',
+      );
+      const requestsBeforeActivation = await evaluate('window.bookPickerRequests.length');
+      await pressKey('Enter', 'Enter', 13);
+      await until('window.defaultBookFixture.book?.id === "search-target"');
+      await until('document.querySelector(".book-choice button.current")');
+      assert.equal(
+        await evaluate('window.bookPickerRequests.length'),
+        requestsBeforeActivation + 1,
+        'only the existing explicit activation flow refreshes the system catalog',
+      );
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector(".book-drawer") === null');
+      const focusAfterSearchActivation = await evaluate(`(() => ({
+        tag: document.activeElement?.tagName,
+        className: document.activeElement?.className,
+        label: document.activeElement?.getAttribute('aria-label'),
+        text: document.activeElement?.textContent?.trim(),
+        visible: Boolean(document.activeElement?.getClientRects().length),
+        selectedTab: document.querySelector('.learning-tabs [role=tab][aria-selected=true]')?.textContent.trim(),
+        promptExists: Boolean(document.querySelector('.book-selection-prompt button')),
+        selectedTabFocused: document.activeElement.matches('.learning-tabs [role=tab][aria-selected=true]'),
+      }))()`);
+      assert.ok(
+        focusAfterSearchActivation.visible && focusAfterSearchActivation.selectedTabFocused,
+        `after activation removes the original opener, closing returns focus to the selected learning tab: ${JSON.stringify(focusAfterSearchActivation)}`,
+      );
+      await evaluate('document.querySelector(".switch-book").click()');
+      await until('document.querySelector(".book-drawer")');
+      await evaluate(
+        '[...document.querySelectorAll(".book-tabs button")].find(button => button.textContent.includes("系统词表")).click()',
+      );
+      await until('document.querySelector("#book-catalog-search")');
+      await until(
+        'document.querySelectorAll(".book-category-tabs [role=tab]").length === 2 && document.querySelectorAll(".book-choice").length === 600',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#book-catalog-search").value'),
+        '',
+        'closing and reopening resets local search state',
+      );
+
+      await evaluate(`window.bookPickerFixture.holdNextSystem = 1;
+        [...document.querySelectorAll('.book-category-tabs [role=tab]')].find(button => button.textContent.includes('通用')).click();`);
+      await until('window.bookPickerFixture.resolvers.length === 1');
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector(".book-drawer") === null');
+      await evaluate('document.querySelector(".switch-book").click()');
+      await until('document.querySelector(".book-drawer")');
+      await evaluate(
+        '[...document.querySelectorAll(".book-tabs button")].find(button => button.textContent.includes("系统词表")).click()',
+      );
+      await until('document.querySelector("#book-catalog-search")');
+      await until(
+        'document.querySelectorAll(".book-category-tabs [role=tab]").length === 2 && document.querySelectorAll(".book-choice").length === 600',
+      );
+      await evaluate('window.bookPickerFixture.releaseAll()');
+      await delay(100);
+      assert.equal(
+        await evaluate('document.querySelectorAll(".book-choice").length'),
+        600,
+        'a category response that finishes after close cannot replace the reopened catalog',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll(".book-category-tabs [role=tab][aria-selected=true]").length',
+        ),
+        0,
+      );
+      assert.equal(await evaluate('document.querySelector("#book-catalog-search").value'), '');
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector(".book-drawer") === null');
+      await send('Emulation.setEmulatedMedia', { features: [] });
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

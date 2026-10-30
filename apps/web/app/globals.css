@@ -6370,6 +6370,107 @@ button {
   background: var(--gold);
   box-shadow: 3px 3px 0 var(--border-color);
 }
+.book-search {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 720px);
+  margin: 22px 0 0;
+}
+.book-search > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--border-color);
+  font-size: 14px;
+  font-weight: 900;
+}
+.book-search-control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 10px 0 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: #fffefa;
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+.book-search-control:focus-within {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+.book-search-control input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 7px 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--border-color);
+  font: inherit;
+  font-size: 16px;
+}
+.book-search-control input::placeholder {
+  color: #66748d;
+  opacity: 1;
+}
+.book-search-control input::-webkit-search-cancel-button {
+  display: none;
+}
+.book-search-control button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  cursor: pointer;
+}
+.book-search-control button:focus-visible,
+.book-search-empty button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+.book-search > p {
+  margin: 0;
+  color: #506482;
+  font-size: 13px;
+  font-weight: 700;
+}
+.book-search-summary {
+  margin: 14px 0 -10px;
+  color: #506482;
+  font-size: 14px;
+  font-weight: 800;
+}
+.book-search-empty {
+  width: min(100%, 720px);
+  min-height: 190px;
+  margin-top: 22px;
+  padding: 26px;
+}
+.book-search-empty strong {
+  font-size: 22px;
+}
+.book-search-empty p {
+  margin: 8px 0 18px;
+  font-size: 15px;
+}
+.book-search-empty button {
+  min-height: 42px;
+  padding: 7px 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--gold);
+  color: var(--border-color);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
 .book-message {
   margin: 20px 0 -12px;
   color: #b43c21;
