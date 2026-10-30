@@ -60,6 +60,12 @@ type MistakeDetail = Weakness & {
     createdAt: string;
     question: Question | null;
   }>;
+  attemptPage: number;
+  attemptPageSize: number;
+  attemptHasOlder: boolean;
+  attemptHasNewer: boolean;
+  olderAttemptCursor: string | null;
+  newerAttemptCursor: string | null;
 };
 function meaningLabel(item: { part: string; meaning: string; meanings?: MeaningLine[] }) {
   if ((item.meanings?.length ?? 0) > 1)
@@ -96,6 +102,8 @@ export function MistakesPage({
   const [result, setResult] = useState<ListResponse | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailMessage, setDetailMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [message, setMessage] = useState('');
@@ -116,6 +124,8 @@ export function MistakesPage({
     setResult(null);
     setSelected([]);
     setDetail(null);
+    setDetailLoading(false);
+    setDetailMessage('');
     setShowPracticeChoices(false);
     setMessage('');
     setLoading(true);
@@ -134,6 +144,8 @@ export function MistakesPage({
     detailAbort.current?.abort();
     detailAbort.current = null;
     setDetail(null);
+    setDetailLoading(false);
+    setDetailMessage('');
     setShowPracticeChoices(false);
     try {
       const query = new URLSearchParams({ status, page: String(page), pageSize: '20' });
@@ -171,37 +183,72 @@ export function MistakesPage({
     };
   }, [load, revision]);
 
+  const closeDetail = useCallback(() => {
+    detailRequestId.current += 1;
+    detailAbort.current?.abort();
+    detailAbort.current = null;
+    setDetail(null);
+    setDetailLoading(false);
+    setDetailMessage('');
+  }, []);
+
   useEffect(() => {
     if (!detail) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !event.defaultPrevented) {
         event.preventDefault();
-        setDetail(null);
+        closeDetail();
       }
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [detail]);
+  }, [closeDetail, detail]);
 
-  const openDetail = async (id: string) => {
+  const openDetail = async (
+    id: string,
+    attemptPage = 1,
+    cursor?: string | null,
+    direction: 'older' | 'newer' = 'older',
+  ) => {
     const requestId = ++detailRequestId.current;
     detailAbort.current?.abort();
     const abort = new AbortController();
     detailAbort.current = abort;
+    setDetailLoading(true);
+    setDetailMessage('');
     try {
-      const response = await request<MistakeDetail>(
-        `/mistakes/${id}`,
+      const query = new URLSearchParams();
+      if (cursor) {
+        query.set('attemptCursor', cursor);
+        query.set('attemptDirection', direction);
+      }
+      const response = await request<Omit<MistakeDetail, 'attemptPage'>>(
+        `/mistakes/${id}?${query}`,
         { signal: abort.signal },
         session.accessToken,
       );
-      if (requestId === detailRequestId.current) setDetail(response);
+      if (requestId === detailRequestId.current) {
+        setDetail({ ...response, attemptPage });
+        setMessage('');
+      }
     } catch (error) {
-      if (requestId === detailRequestId.current)
-        setMessage(error instanceof Error ? error.message : '错题详情加载失败');
+      if (requestId === detailRequestId.current) {
+        const text = error instanceof Error ? error.message : '错题详情加载失败';
+        if (detail?.id === id) setDetailMessage(text);
+        else setMessage(text);
+      }
     } finally {
-      if (requestId === detailRequestId.current && detailAbort.current === abort)
+      if (requestId === detailRequestId.current && detailAbort.current === abort) {
         detailAbort.current = null;
+        setDetailLoading(false);
+      }
     }
+  };
+  const selectDetailForPractice = () => {
+    if (!detail || detail.status !== 'active') return;
+    setSelected([detail.bookWordId]);
+    setShowPracticeChoices(false);
+    closeDetail();
   };
   const changeStatus = async (weakness: Weakness, next: 'ACTIVE' | 'IGNORED') => {
     setMessage('');
@@ -451,7 +498,7 @@ export function MistakesPage({
         >
           <button
             className="mistake-detail-scrim"
-            onClick={() => setDetail(null)}
+            onClick={closeDetail}
             aria-label="关闭错题详情"
           />
           <section className="mistake-detail">
@@ -461,7 +508,7 @@ export function MistakesPage({
                 <h2>{detail.word}</h2>
                 <span>答对两次即可纠正 · 当前 {detail.consecutiveCorrect}/2</span>
               </div>
-              <button onClick={() => setDetail(null)} aria-label="关闭">
+              <button onClick={closeDetail} aria-label="关闭">
                 <X size={20} />
               </button>
             </header>
@@ -477,6 +524,28 @@ export function MistakesPage({
                     </>
                   )}
                 </p>
+                {detail.status === 'active' && (
+                  <button
+                    className="mistake-detail-practice-button"
+                    onClick={selectDetailForPractice}
+                  >
+                    仅选择此词，返回练习入口
+                  </button>
+                )}
+                <div className="mistake-attempt-heading">
+                  <strong>关联作答</strong>
+                  <span>最新记录在前 · 每页最多 {detail.attemptPageSize} 条</span>
+                </div>
+                {detailMessage && (
+                  <p className="mistake-detail-message" role="alert">
+                    {detailMessage}
+                  </p>
+                )}
+                {detail.attempts.length === 0 ? (
+                  <p className="mistake-attempt-empty" role="status">
+                    这条薄弱记录仍在，但当前没有可读取的关联作答记录。
+                  </p>
+                ) : null}
                 {detail.attempts.map((attempt) => (
                   <article
                     className={`mistake-attempt ${attempt.isCorrect ? 'is-correct' : 'is-wrong'}`}
@@ -539,6 +608,39 @@ export function MistakesPage({
                     </p>
                   </article>
                 ))}
+                {(detail.attemptHasNewer || detail.attemptHasOlder) && (
+                  <nav className="mistake-attempt-pagination" aria-label="关联作答分页">
+                    <button
+                      disabled={detailLoading || !detail.attemptHasNewer}
+                      onClick={() =>
+                        void openDetail(
+                          detail.id,
+                          detail.attemptPage - 1,
+                          detail.newerAttemptCursor,
+                          'newer',
+                        )
+                      }
+                    >
+                      较新的记录
+                    </button>
+                    <span>
+                      第 {detail.attemptPage} 页{detailLoading ? ' · 正在读取…' : ''}
+                    </span>
+                    <button
+                      disabled={detailLoading || !detail.attemptHasOlder}
+                      onClick={() =>
+                        void openDetail(
+                          detail.id,
+                          detail.attemptPage + 1,
+                          detail.olderAttemptCursor,
+                          'older',
+                        )
+                      }
+                    >
+                      更早的记录
+                    </button>
+                  </nav>
+                )}
                 {detail.status !== 'resolved' && (
                   <button
                     className="mistake-status-button"

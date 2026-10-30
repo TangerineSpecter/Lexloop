@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'mixed mistake selections offer distinct practice paths without dropping ordinary words',
+  'mistakes preserve distinct practice paths and page linked history without writes',
   { skip: !baseUrl, timeout: 60_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-mistake-practice-test-'));
@@ -157,6 +157,7 @@ test(
           })();
           window.mistakePlanWrites = [];
           window.mistakeListRequests = [];
+          window.mistakeDetailRequests = [];
           window.failOutputFilterOnce = true;
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
@@ -193,6 +194,19 @@ test(
               }
               return Response.json({ items: ${JSON.stringify(items)}, page: 1, total: 3, hasMore: false });
             }
+            if (path.includes('/api/v1/mistakes/standard-signal?') && method === 'GET') {
+              const query = new URL(path, location.origin).searchParams;
+              const attemptCursor = query.get('attemptCursor');
+              const attemptDirection = query.get('attemptDirection');
+              const newerPage = attemptDirection === 'newer';
+              const secondPage = Boolean(attemptCursor && !newerPage);
+              window.mistakeDetailRequests.push({ attemptCursor, attemptDirection });
+              const attempts = !secondPage
+                ? Array.from({ length: 20 }, (_, index) => ({ id: 'saved-' + String(41 - index).padStart(2, '0'), isCorrect: index % 3 === 0, selectedAnswer: 'saved answer ' + index, createdAt: '2026-10-28T10:00:00.000Z', question: { prompt: 'Saved source question ' + index, options: ['A', 'B'], correctAnswers: ['A'], explanation: 'Saved explanation' } }))
+                : [{ id: 'saved-old-without-question', isCorrect: false, selectedAnswer: null, createdAt: '2026-10-20T10:00:00.000Z', question: null }, { id: 'saved-old-with-snapshot', isCorrect: true, selectedAnswer: 'B', createdAt: '2026-10-19T10:00:00.000Z', question: { prompt: 'Older saved source question', correctAnswers: ['B'] } }];
+              return Response.json({ ...${JSON.stringify(weaknesses('standard-signal', 'READING_COMPREHENSION'))}, bookWordId: 'standard-word', word: 'careful', part: 'adj.', meaning: '仔细的', bookTitle: 'Test book', attempts, attemptPageSize: 20, attemptHasOlder: !secondPage, attemptHasNewer: secondPage, olderAttemptCursor: !secondPage ? 'older-cursor' : null, newerAttemptCursor: secondPage ? 'newer-cursor' : null });
+            }
+            if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], remaining: 30, limit: 30, hasMore: false });
             if (path.endsWith('/api/v1/mistakes/practice-plans') && method === 'POST') {
               const selection = JSON.parse(options.body);
               window.mistakePlanWrites.push(selection);
@@ -435,6 +449,112 @@ test(
         await evaluate('window.mistakeListRequests.filter((item) => item.activeRace).length'),
         3,
       );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes', baseUrl).href,
+      });
+      await until('document.querySelector("#mistakes-title")');
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-signals button")].find((button) => button.textContent.includes("阅读理解")).click()',
+      );
+      await until('document.querySelector(".mistake-detail-layer[role=dialog]")');
+      await until('document.querySelectorAll(".mistake-attempt").length === 20');
+      assert.match(
+        await evaluate('document.querySelector(".mistake-attempt").textContent'),
+        /Saved source question 0/,
+      );
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[0])')),
+        {
+          attemptCursor: null,
+          attemptDirection: null,
+        },
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const detailDesktopBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const d = document.querySelector(".mistake-detail").getBoundingClientRect(); const n = document.querySelector(".mistake-attempt-heading").getBoundingClientRect(); return { left:d.left, right:d.right, headingRight:n.right, viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(
+        detailDesktopBounds.left >= 0 && detailDesktopBounds.right <= detailDesktopBounds.viewport,
+      );
+      assert.ok(detailDesktopBounds.headingRight <= detailDesktopBounds.right);
+      assert.ok(detailDesktopBounds.scrollWidth <= detailDesktopBounds.viewport);
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("更早")).click()',
+      );
+      await until(
+        'document.querySelector(".mistake-attempt-pagination span")?.textContent.includes("第 2 页")',
+      );
+      await until('document.querySelectorAll(".mistake-attempt").length === 2');
+      assert.match(
+        await evaluate('document.querySelector(".mistake-attempt").textContent'),
+        /题目内容不可用/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistake-attempt").textContent'),
+        /未记录/,
+      );
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[1])')),
+        {
+          attemptCursor: 'older-cursor',
+          attemptDirection: 'older',
+        },
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".mistake-attempt-pagination button")].find((button) => button.textContent.includes("较新")).click()',
+      );
+      await until(
+        'document.querySelector(".mistake-attempt-pagination span")?.textContent.includes("第 1 页")',
+      );
+      await until('document.querySelectorAll(".mistake-attempt").length === 20');
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeDetailRequests[2])')),
+        {
+          attemptCursor: 'newer-cursor',
+          attemptDirection: 'newer',
+        },
+      );
+      assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const detailMobileBounds = JSON.parse(
+        await evaluate(
+          'JSON.stringify((() => { const d = document.querySelector(".mistake-detail").getBoundingClientRect(); return { left:d.left, right:d.right, viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth }; })())',
+        ),
+      );
+      assert.ok(
+        detailMobileBounds.left >= 0 && detailMobileBounds.right <= detailMobileBounds.viewport,
+      );
+      assert.ok(detailMobileBounds.scrollWidth <= detailMobileBounds.viewport);
+      await evaluate('document.querySelector(".mistake-detail-practice-button").click()');
+      await until('!document.querySelector(".mistake-detail-layer[role=dialog]")');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].find((button) => button.getAttribute("aria-label") === "取消选择 careful") !== undefined',
+        ),
+        true,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+      );
+      assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
+      await send('Emulation.clearDeviceMetricsOverride');
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

@@ -23,6 +23,85 @@ type ListQuery = {
   pageSize?: number;
 };
 export const MISTAKE_CORRECTION_STREAK = 2;
+const MISTAKE_ATTEMPT_PAGE_SIZE = 20;
+type MistakeAttemptCursor = {
+  userId: string;
+  weaknessId: string;
+  id: string;
+  createdAt: Date;
+  anchor: { id: string; createdAt: Date };
+};
+
+function encodeMistakeAttemptCursor(
+  userId: string,
+  weaknessId: string,
+  attempt: { id: string; createdAt: Date },
+  anchor: { id: string; createdAt: Date },
+) {
+  return Buffer.from(
+    JSON.stringify({
+      userId,
+      weaknessId,
+      id: attempt.id,
+      createdAt: attempt.createdAt.toISOString(),
+      anchor: { id: anchor.id, createdAt: anchor.createdAt.toISOString() },
+    }),
+  ).toString('base64url');
+}
+
+function decodeMistakeAttemptCursor(
+  value: string,
+  userId: string,
+  weaknessId: string,
+): MistakeAttemptCursor {
+  const invalid = () => new BadRequestException('关联作答分页游标无效，请重新打开错题详情');
+  if (!value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    if (Buffer.from(raw).toString('base64url') !== value) throw invalid();
+    const decoded: unknown = JSON.parse(raw);
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw invalid();
+    const cursor = decoded as Record<string, unknown>;
+    if (
+      cursor.userId !== userId ||
+      cursor.weaknessId !== weaknessId ||
+      typeof cursor.id !== 'string' ||
+      cursor.id.length < 1 ||
+      cursor.id.length > 128 ||
+      typeof cursor.createdAt !== 'string' ||
+      !cursor.anchor ||
+      typeof cursor.anchor !== 'object' ||
+      Array.isArray(cursor.anchor)
+    )
+      throw invalid();
+    const createdAt = new Date(cursor.createdAt);
+    if (Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== cursor.createdAt)
+      throw invalid();
+    const anchor = cursor.anchor as Record<string, unknown>;
+    if (
+      typeof anchor.id !== 'string' ||
+      anchor.id.length < 1 ||
+      anchor.id.length > 128 ||
+      typeof anchor.createdAt !== 'string'
+    )
+      throw invalid();
+    const anchorCreatedAt = new Date(anchor.createdAt);
+    if (
+      Number.isNaN(anchorCreatedAt.getTime()) ||
+      anchorCreatedAt.toISOString() !== anchor.createdAt
+    )
+      throw invalid();
+    return {
+      userId,
+      weaknessId,
+      id: cursor.id,
+      createdAt,
+      anchor: { id: anchor.id, createdAt: anchorCreatedAt },
+    };
+  } catch {
+    throw invalid();
+  }
+}
 
 @Injectable()
 export class MistakesService {
@@ -154,24 +233,91 @@ export class MistakesService {
     };
   }
 
-  async detail(userId: string, id: string) {
+  async detail(
+    userId: string,
+    id: string,
+    encodedAttemptCursor?: string,
+    requestedAttemptDirection: 'older' | 'newer' = 'older',
+  ) {
     const signal = await this.prisma.weaknessSignal.findFirst({
       where: { id, userId },
       include: { bookWord: { include: { word: true, book: true } } },
     });
     if (!signal) throw new NotFoundException('薄弱项不存在');
+    const cursor = encodedAttemptCursor
+      ? decodeMistakeAttemptCursor(encodedAttemptCursor, userId, signal.id)
+      : null;
+    const direction = cursor ? requestedAttemptDirection : 'older';
+    const cursorWhere: Prisma.WordReviewAttemptWhereInput = cursor
+      ? direction === 'older'
+        ? {
+            OR: [
+              { createdAt: { lt: cursor.createdAt } },
+              { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+            ],
+          }
+        : {
+            AND: [
+              {
+                OR: [
+                  { createdAt: { gt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                ],
+              },
+              {
+                OR: [
+                  { createdAt: { lt: cursor.anchor.createdAt } },
+                  {
+                    createdAt: cursor.anchor.createdAt,
+                    id: { lte: cursor.anchor.id },
+                  },
+                ],
+              },
+            ],
+          }
+      : {};
     const attempts = await this.prisma.wordReviewAttempt.findMany({
-      where: { userId, bookWordId: signal.bookWordId, questionType: signal.questionType },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+      where: {
+        userId,
+        bookWordId: signal.bookWordId,
+        questionType: signal.questionType,
+        ...cursorWhere,
+      },
+      orderBy:
+        direction === 'older'
+          ? [{ createdAt: 'desc' }, { id: 'desc' }]
+          : [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: MISTAKE_ATTEMPT_PAGE_SIZE + 1,
       include: { item: true },
     });
+    const hasMoreInDirection = attempts.length > MISTAKE_ATTEMPT_PAGE_SIZE;
+    const pageAttempts = attempts.slice(0, MISTAKE_ATTEMPT_PAGE_SIZE);
+    if (direction === 'newer') pageAttempts.reverse();
+    const attemptHasOlder =
+      pageAttempts.length > 0 && (direction === 'older' ? hasMoreInDirection : Boolean(cursor));
+    const attemptHasNewer =
+      pageAttempts.length > 0 && (direction === 'newer' ? hasMoreInDirection : Boolean(cursor));
+    const anchor = cursor?.anchor ?? pageAttempts[0];
+    const olderAttemptCursor =
+      attemptHasOlder && pageAttempts.length
+        ? encodeMistakeAttemptCursor(userId, signal.id, pageAttempts[pageAttempts.length - 1], {
+            id: anchor.id,
+            createdAt: anchor.createdAt,
+          })
+        : null;
+    const newerAttemptCursor =
+      attemptHasNewer && pageAttempts.length
+        ? encodeMistakeAttemptCursor(userId, signal.id, pageAttempts[0], {
+            id: anchor.id,
+            createdAt: anchor.createdAt,
+          })
+        : null;
     return {
       ...this.serializeSignal(signal),
       bookWordId: signal.bookWordId,
       ...presentLexicalWord(signal.bookWord.word, signal.bookWord.contextMeaning),
       bookTitle: signal.bookWord.book.title,
-      attempts: attempts.map((attempt) => {
+      attempts: pageAttempts.map((attempt) => {
         const saved =
           attempt.selectedAnswer &&
           typeof attempt.selectedAnswer === 'object' &&
@@ -187,6 +333,11 @@ export class MistakesService {
           question: attempt.item?.question ?? saved?.question ?? null,
         };
       }),
+      attemptPageSize: MISTAKE_ATTEMPT_PAGE_SIZE,
+      attemptHasOlder,
+      attemptHasNewer,
+      olderAttemptCursor,
+      newerAttemptCursor,
     };
   }
 

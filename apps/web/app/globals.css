@@ -16336,6 +16336,60 @@ button[data-tooltip]::after {
   height: 100%;
   min-height: 0;
 }
+.mistake-attempt-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 16px;
+  color: var(--border-color);
+}
+.mistake-attempt-heading span {
+  color: rgba(8, 40, 119, 0.68);
+  font-size: 12px;
+}
+.mistake-attempt-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--border-color);
+  font-size: 13px;
+  font-weight: 800;
+}
+.mistake-attempt-pagination button,
+.mistake-detail-practice-button {
+  min-height: 40px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff4b9;
+  padding: 8px 12px;
+  color: var(--border-color);
+  font: inherit;
+}
+.mistake-attempt-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.mistake-attempt-empty,
+.mistake-detail-message {
+  margin: 12px 0;
+  padding: 12px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  line-height: 1.5;
+}
+.mistake-detail-message {
+  background: #fff0eb;
+}
+.mistake-detail-practice-button {
+  margin-top: 14px;
+  background: var(--gold);
+  font-weight: 900;
+}
 .tutor-header {
   padding: 15px 17px !important;
 }

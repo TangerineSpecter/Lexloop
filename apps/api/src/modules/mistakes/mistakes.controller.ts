@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,6 +21,10 @@ class MistakeQueryDto {
   @IsOptional() @IsString() questionType?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize?: number;
+}
+class MistakeDetailQueryDto {
+  @IsOptional() @IsString() @MaxLength(512) attemptCursor?: string;
+  @IsOptional() @IsIn(['older', 'newer']) attemptDirection?: 'older' | 'newer';
 }
 class StatusDto {
   @IsIn(['ACTIVE', 'IGNORED']) status!: 'ACTIVE' | 'IGNORED';
@@ -35,8 +40,13 @@ export class MistakesController {
   @Get() list(@Req() request: AuthenticatedRequest, @Query() query: MistakeQueryDto) {
     return this.mistakes.list(request.user.sub, query);
   }
-  @Get(':id') detail(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
-    return this.mistakes.detail(request.user.sub, id);
+  @Get(':id')
+  detail(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Query() query: MistakeDetailQueryDto,
+  ) {
+    return this.mistakes.detail(request.user.sub, id, query.attemptCursor, query.attemptDirection);
   }
   @Patch(':id/status') setStatus(
     @Req() request: AuthenticatedRequest,
