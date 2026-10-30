@@ -1098,6 +1098,7 @@ function LootDrop({ item }: { item: InventoryItem }) {
 }
 function RunResult({ run, onDone }: { run: DungeonRunState; onDone: () => void }) {
   const success = run.status === 'COMPLETED' || run.status === 'RETREATED';
+  const [reviewOpen, setReviewOpen] = useState(false);
   return (
     <main className={styles.resultPage}>
       <motion.div initial={{ scale: 0.8, rotate: -2 }} animate={{ scale: 1, rotate: 0 }}>
@@ -1135,6 +1136,64 @@ function RunResult({ run, onDone }: { run: DungeonRunState; onDone: () => void }
               </article>
             ))}
           </div>
+        )}
+        {(run.mistakeReview?.length ?? 0) > 0 && (
+          <div className={styles.mistakeReview}>
+            <button
+              type="button"
+              className={styles.mistakeReviewToggle}
+              aria-expanded={reviewOpen}
+              aria-controls="adventure-mistake-review"
+              onClick={() => setReviewOpen((open) => !open)}
+            >
+              {reviewOpen ? '收起本局错题' : `回想本局错题 · ${run.mistakeReview?.length}`}
+            </button>
+            <p>先回忆题目和自己的回答，再自愿展开参考答案；复盘不重复结算奖励或复习记录。</p>
+            <div
+              className={styles.mistakeReviewList}
+              id="adventure-mistake-review"
+              hidden={!reviewOpen}
+            >
+              {run.mistakeReview?.map((item, index) => (
+                <article key={item.id}>
+                  <header>
+                    <strong>
+                      第 {index + 1} 题 · {challengeTypeLabel(item.challengeType)}
+                    </strong>
+                    <span>{item.phase === 'BLOCK' ? '格挡题' : '攻击题'}</span>
+                  </header>
+                  <p className={styles.mistakeReviewPrompt}>{item.prompt}</p>
+                  <p className={styles.mistakeReviewAnswer}>
+                    <strong>你的回答</strong>
+                    <span>{item.answer.join(' ') || '（未记录文字回答）'}</span>
+                  </p>
+                  <details>
+                    <summary>先想一遍，再看参考答案</summary>
+                    <div>
+                      <p>
+                        <strong>参考答案</strong>
+                        <span>{item.referenceAnswer}</span>
+                      </p>
+                      {item.word && item.meaning && (
+                        <p>
+                          <strong>词义提示</strong>
+                          <span>
+                            {item.word}：{item.meaning}
+                          </span>
+                        </p>
+                      )}
+                      {item.feedback && <small>当时反馈：{item.feedback}</small>}
+                    </div>
+                  </details>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+        {(run.unavailableMistakeReviewCount ?? 0) > 0 && (
+          <p className={styles.mistakeReviewUnavailable} role="status">
+            另有 {run.unavailableMistakeReviewCount} 条旧记录缺少完整题目快照，本次没有猜写内容。
+          </p>
         )}
         <button onClick={onDone}>返回地牢地图</button>
       </motion.div>

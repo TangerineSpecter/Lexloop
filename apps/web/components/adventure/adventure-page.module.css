@@ -1586,6 +1586,114 @@
   font-size: 9px;
   opacity: 0.65;
 }
+.mistakeReview {
+  margin: 22px 0;
+  text-align: left;
+}
+.resultPage .mistakeReviewToggle {
+  width: 100%;
+  min-height: 46px;
+  padding: 9px 12px;
+  color: var(--ink);
+  background: #eaf2ff;
+  box-shadow: 3px 3px 0 var(--ink);
+  text-align: left;
+}
+.mistakeReview > p {
+  margin: 10px 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0.78;
+}
+.mistakeReviewList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.mistakeReviewList[hidden] {
+  display: none;
+}
+.mistakeReviewList article {
+  min-width: 0;
+  padding: 14px;
+  border: 2px dashed var(--ink);
+  border-radius: 9px;
+  background: #fffaf0;
+  text-align: left;
+}
+.mistakeReviewList article > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.mistakeReviewList article > header span {
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+.mistakeReviewPrompt,
+.mistakeReviewAnswer {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.mistakeReviewAnswer strong,
+.mistakeReviewAnswer span,
+.mistakeReviewList details p strong,
+.mistakeReviewList details p span {
+  display: block;
+}
+.mistakeReviewAnswer strong,
+.mistakeReviewList details p strong {
+  margin-bottom: 3px;
+  color: var(--blue);
+  font-size: 12px;
+}
+.mistakeReviewList details {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgb(8 40 119 / 22%);
+}
+.mistakeReviewList details summary {
+  width: fit-content;
+  color: var(--blue);
+  cursor: pointer;
+  font-weight: 900;
+}
+.mistakeReviewList details summary:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+.mistakeReviewList details > div {
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+}
+.mistakeReviewList details p {
+  margin: 8px 0;
+  line-height: 1.55;
+}
+.mistakeReviewList details small {
+  display: block;
+  padding-top: 7px;
+  border-top: 1px solid rgb(8 40 119 / 16%);
+  line-height: 1.5;
+}
+.mistakeReviewList > p {
+  margin: 0;
+  padding: 10px;
+  border-left: 4px solid var(--coral);
+  background: #fff4b9;
+  line-height: 1.5;
+}
+.mistakeReviewUnavailable {
+  margin: 12px 0;
+  padding: 10px;
+  border-left: 4px solid var(--coral);
+  background: #fff4b9;
+  line-height: 1.5;
+  text-align: left;
+}
 .resultPage button {
   min-height: 50px;
   padding: 0 24px;

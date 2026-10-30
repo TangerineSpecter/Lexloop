@@ -110,6 +110,12 @@ test(
 
       await send('Page.enable');
       await send('Runtime.enable');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           if (!localStorage.getItem('lexloop.session')) {
@@ -134,6 +140,8 @@ test(
             rooms: [{ id: 'room-a', position: 0, type: 'COMBAT', status: 'CLEARED', enemyName: '漏墨史莱姆', enemyHp: 0, enemyMaxHp: 34 }],
             loot: [], challenge: null,
             lastAction: { challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“稳定的”对应的英文', answer: ['steady'], score: 100, grade: 'PERFECT', damageDealt: 40, damageReceived: 0, feedback: { correct: true, message: '表达命中，攻击生效。', answer: 'steady', provisional: false } },
+            mistakeReview: [{ id: 'saved-miss-a', challengeType: 'CHOICE', phase: 'ATTACK', prompt: '选择“平静的”对应的英文', answer: ['steady'], referenceAnswer: 'calm', word: 'calm', meaning: '平静的', feedback: '这次没有命中，留意提示后再召回。' }],
+            unavailableMistakeReviewCount: 0,
             availableSkills: [], canRetreat: false,
           };
           const floor = { id: 'floor-a', floorNumber: 1, title: '墨迹入口', cefrLevel: 'A1', targetCount: 2, exploration: 50, mastery: 0, bossUnlocked: false, completed: false, locked: false };
@@ -278,10 +286,103 @@ test(
       await until('document.body.innerText.includes("探索完成！")');
       assert.equal(await evaluate('document.body.innerText.includes("+18 EXP")'), true);
       assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 3);
+      assert.equal(await evaluate('document.body.innerText.includes("回想本局错题 · 1")'), true);
+      assert.equal(await evaluate('document.body.innerText.includes("calm")'), false);
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("回想本局错题")).click()',
+      );
+      await until('document.body.innerText.includes("先回忆题目和自己的回答")');
+      assert.equal(await evaluate('document.body.innerText.includes("你的回答")'), true);
+      assert.equal(await evaluate('document.body.innerText.includes("steady")'), true);
+      assert.equal(
+        await evaluate('document.querySelector("#adventure-mistake-review details").open'),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#adventure-mistake-review details > div").checkVisibility()',
+        ),
+        false,
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("calm")'), false);
+      await evaluate('document.querySelector("#adventure-mistake-review summary").focus()');
+      assert.equal(
+        await evaluate(
+          'document.activeElement === document.querySelector("#adventure-mistake-review summary")',
+        ),
+        true,
+        'the answer disclosure summary must receive keyboard focus',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('document.querySelector("#adventure-mistake-review details").open');
+      assert.equal(await evaluate('document.body.innerText.includes("参考答案")'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#adventure-mistake-review details > div").checkVisibility()',
+        ),
+        true,
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("calm")'), true);
+      const desktopReview = await evaluate(`(() => {
+        const card = document.querySelector('#adventure-mistake-review article');
+        const summary = document.querySelector('#adventure-mistake-review summary');
+        return {
+          viewport: innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          cardWidth: card?.getBoundingClientRect().width ?? 0,
+          summaryWidth: summary?.getBoundingClientRect().width ?? 0
+        };
+      })()`);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const narrowReview = await evaluate(`(() => ({
+        viewport: innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        cardWidth: document.querySelector('#adventure-mistake-review article')?.getBoundingClientRect().width ?? 0,
+        summaryWidth: document.querySelector('#adventure-mistake-review summary')?.getBoundingClientRect().width ?? 0
+      }))()`);
+      assert.equal(narrowReview.viewport, 390);
+      assert.ok(narrowReview.documentWidth <= narrowReview.viewport, JSON.stringify(narrowReview));
+      assert.ok(narrowReview.cardWidth > 0 && narrowReview.cardWidth <= narrowReview.viewport);
+      assert.ok(
+        narrowReview.summaryWidth > 0 && narrowReview.summaryWidth <= narrowReview.viewport,
+      );
+      assert.equal(desktopReview.viewport, 1440);
+      assert.ok(
+        desktopReview.documentWidth <= desktopReview.viewport,
+        JSON.stringify(desktopReview),
+      );
+      assert.ok(desktopReview.cardWidth > 0 && desktopReview.cardWidth <= desktopReview.viewport);
+      assert.ok(
+        desktopReview.summaryWidth > 0 && desktopReview.summaryWidth <= desktopReview.viewport,
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
 
       await reload();
       await until('document.body.innerText.includes("探索完成！")');
       assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 4);
+      assert.equal(
+        await evaluate('document.querySelector("#adventure-mistake-review")?.hidden'),
+        true,
+      );
+      assert.equal(await evaluate('document.body.innerText.includes("calm")'), false);
 
       await evaluate(`localStorage.setItem('lexloop.session', JSON.stringify({
         accessToken: 'fixture-b', user: { id: 'learner-b', email: 'learner-b@example.invalid', displayName: 'Learner B', role: 'USER' },

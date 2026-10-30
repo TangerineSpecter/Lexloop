@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { AdventureService } from '../src/modules/adventure/adventure.service';
@@ -734,6 +734,38 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         ).toEqual({ isCorrect: true });
         expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+
+        await prisma.dungeonRun.update({
+          where: { id: run.id },
+          data: { status: 'RETREATED', completedAt: new Date() },
+        });
+        const beforeRead = {
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { runId: run.id } }),
+          events: await prisma.learningEvent.count({
+            where: { userId: user.id, type: 'ADVENTURE_BATTLE_ACTION' },
+          }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: user.id },
+            select: { experience: true, gold: true },
+          }),
+        };
+        const terminal = await service.recoverRun(user.id, run.id);
+        expect(terminal.mistakeReview).toEqual([]);
+        expect(terminal.unavailableMistakeReviewCount).toBe(0);
+        expect({
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { runId: run.id } }),
+          events: await prisma.learningEvent.count({
+            where: { userId: user.id, type: 'ADVENTURE_BATTLE_ACTION' },
+          }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: user.id },
+            select: { experience: true, gold: true },
+          }),
+        }).toEqual(beforeRead);
       } finally {
         if (userId) await prisma.user.delete({ where: { id: userId } });
         await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
@@ -988,14 +1020,60 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const map = await service.dungeons(owner.id);
         const run = await service.startRun(owner.id, map.floors[0].id, 5);
         expect(run.challenge?.type).toBe('CHOICE');
-        const actionId = `action-${fixtureId}-terminal`;
-        const answer = run.challenge!.options!.find((option) => option === 'steady')!;
+        const firstRoom = await prisma.dungeonRoom.findUniqueOrThrow({
+          where: { runId_position: { runId: run.id, position: 0 } },
+          select: { id: true, challenge: true },
+        });
+        const firstChallenge = firstRoom.challenge as unknown as {
+          prompt: string;
+          expected: string[];
+          options: string[];
+          word: string;
+          meaning: string;
+        };
+        const correctAnswer = firstChallenge.expected[0];
+        const wrongAnswer = firstChallenge.options.find((option) => option !== correctAnswer)!;
 
         await prisma.dungeonRoom.deleteMany({ where: { runId: run.id, position: { gt: 0 } } });
         await prisma.dungeonRun.update({ where: { id: run.id }, data: { roomCount: 1 } });
 
+        const wrongActionId = `action-${fixtureId}-wrong`;
+        const wrongResponse = await service.act(owner.id, run.id, {
+          clientActionId: wrongActionId,
+          answer: [wrongAnswer],
+        });
+        expect(wrongResponse.score).toBeLessThan(70);
+        expect(wrongResponse.run.status).toBe('ACTIVE');
+        expect(wrongResponse.run.challenge?.phase).toBe('BLOCK');
+        expect(wrongResponse.run.mistakeReview).toBeUndefined();
+
+        const blockSnapshot = await prisma.dungeonRoom.findUniqueOrThrow({
+          where: { id: firstRoom.id },
+          select: { challenge: true },
+        });
+        const blockAnswer = (blockSnapshot.challenge as unknown as { expected: string[] })
+          .expected[0];
+        const block = await service.act(owner.id, run.id, {
+          clientActionId: `action-${fixtureId}-block`,
+          answer: [blockAnswer],
+        });
+        expect(block.run.status).toBe('ACTIVE');
+        expect(block.run.challenge?.phase).toBe('ATTACK');
+
+        const finalSnapshot = await prisma.dungeonRoom.findUniqueOrThrow({
+          where: { id: firstRoom.id },
+          select: { challenge: true },
+        });
+        const finalChallenge = finalSnapshot.challenge as unknown as {
+          prompt: string;
+          expected: string[];
+        };
+        const actionId = `action-${fixtureId}-terminal`;
         // The committed response is intentionally ignored to simulate a client disconnect.
-        await service.act(owner.id, run.id, { clientActionId: actionId, answer: [answer] });
+        await service.act(owner.id, run.id, {
+          clientActionId: actionId,
+          answer: [finalChallenge.expected[0]],
+        });
         expect(await service.activeRun(owner.id)).toBeNull();
         const recovered = await service.recoverRun(owner.id, run.id);
         expect(recovered).toMatchObject({
@@ -1005,16 +1083,29 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           experienceEarned: 18,
           goldEarned: 8,
           lastAction: {
-            prompt: run.challenge!.prompt,
-            answer: [answer],
-            feedback: { correct: true, answer: 'steady' },
+            prompt: finalChallenge.prompt,
+            answer: [finalChallenge.expected[0]],
+            feedback: { correct: true, answer: finalChallenge.expected[0] },
           },
+          mistakeReview: [
+            {
+              challengeType: 'CHOICE',
+              phase: 'ATTACK',
+              prompt: firstChallenge.prompt,
+              answer: [wrongAnswer],
+              referenceAnswer: correctAnswer,
+            },
+          ],
+          unavailableMistakeReviewCount: 0,
         });
         expect(recovered.challenge).toBeNull();
 
         const persistedState = async () => ({
           actions: await prisma.battleAction.count({ where: { runId: run.id } }),
           attempts: await prisma.wordReviewAttempt.count({ where: { userId: owner.id } }),
+          correctAttempts: await prisma.wordReviewAttempt.count({
+            where: { userId: owner.id, isCorrect: true },
+          }),
           evidence: await prisma.adventureLearningEvidence.count({ where: { userId: owner.id } }),
           events: await prisma.learningEvent.count({
             where: { userId: owner.id, type: 'ADVENTURE_BATTLE_ACTION' },
@@ -1029,11 +1120,17 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         });
         const afterCompletion = await persistedState();
-        expect(afterCompletion.actions).toBe(1);
-        expect(afterCompletion.attempts).toBe(1);
-        expect(afterCompletion.evidence).toBe(1);
-        expect(afterCompletion.events).toBe(1);
+        expect(afterCompletion.actions).toBe(3);
+        expect(afterCompletion.attempts).toBe(3);
+        expect(afterCompletion.correctAttempts).toBe(2);
+        expect(afterCompletion.evidence).toBe(3);
+        expect(afterCompletion.events).toBe(3);
         expect(afterCompletion.profile).toEqual({ experience: 18, gold: 8 });
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.reviewCount, 0)).toBe(3);
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.totalAttempts, 0)).toBe(3);
+        expect(afterCompletion.progress.reduce((sum, item) => sum + item.correctAttempts, 0)).toBe(
+          2,
+        );
 
         await service.recoverRun(owner.id, run.id);
         await service.recoverRun(owner.id, run.id);
@@ -1044,11 +1141,191 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         });
         expect(duplicate.repeated).toBe(true);
         expect(duplicate.run.status).toBe('COMPLETED');
-        expect(duplicate.run.lastAction?.answer).toEqual([answer]);
+        expect(duplicate.run.lastAction?.answer).toEqual([finalChallenge.expected[0]]);
+        expect(await persistedState()).toEqual(afterCompletion);
+
+        const incorrectAction = await prisma.battleAction.findFirstOrThrow({
+          where: { runId: run.id, score: { lt: 70 } },
+          select: { id: true, roomId: true, feedback: true },
+        });
+        const legacyFeedback = JSON.parse(JSON.stringify(incorrectAction.feedback)) as Record<
+          string,
+          unknown
+        >;
+        delete legacyFeedback.prompt;
+        delete legacyFeedback.answer;
+        delete legacyFeedback.challengeId;
+        await prisma.battleAction.update({
+          where: { id: incorrectAction.id },
+          data: { feedback: legacyFeedback as Prisma.InputJsonValue },
+        });
+        const unavailableOlderSnapshot = await service.recoverRun(owner.id, run.id);
+        expect(unavailableOlderSnapshot.mistakeReview).toEqual([]);
+        expect(unavailableOlderSnapshot.unavailableMistakeReviewCount).toBe(1);
         expect(await persistedState()).toEqual(afterCompletion);
         expect(ai.generateForUser).not.toHaveBeenCalled();
       } finally {
         if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+        await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
+        await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
+        await prisma.$disconnect();
+      }
+    }, 30_000);
+
+    it('only falls back to a room question snapshot when it still matches the terminal action', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const sourceKey = `adventure-terminal-snapshot-${fixtureId}`;
+      const normalized = [`${sourceKey}-patient`, `${sourceKey}-calm`];
+      const ai = { generateForUser: vi.fn() };
+      const service = new AdventureService(
+        prisma as never,
+        new MistakesService(prisma as never),
+        ai as never,
+      );
+      let userId: string | undefined;
+
+      try {
+        const user = await prisma.user.create({
+          data: {
+            email: `${sourceKey}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          },
+          select: { id: true },
+        });
+        userId = user.id;
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey,
+            category: 'GENERAL',
+            title: 'Adventure terminal snapshot fixture',
+            sourcePath: 'test',
+            kind: 'SYSTEM',
+            bookWords: {
+              create: normalized.map((word, position) => ({
+                position,
+                word: {
+                  create: {
+                    normalized: word,
+                    text: position === 0 ? 'patient' : 'calm',
+                    meaning: position === 0 ? '有耐心的' : '平静的',
+                  },
+                },
+              })),
+            },
+          },
+          select: { id: true },
+        });
+        await prisma.userVocabularyBook.create({
+          data: { userId: user.id, bookId: book.id, isDefault: true },
+        });
+        await service.chooseClass(user.id, 'warrior');
+        const floor = (await service.dungeons(user.id)).floors[0];
+        const run = await service.startRun(user.id, floor.id, 5, 'RECALL');
+        expect(run.challenge?.type).toBe('SPELLING');
+        const room = await prisma.dungeonRoom.findUniqueOrThrow({
+          where: { runId_position: { runId: run.id, position: 0 } },
+          select: { id: true },
+        });
+        await prisma.dungeonRoom.deleteMany({ where: { runId: run.id, position: { gt: 0 } } });
+        await prisma.dungeonRun.update({
+          where: { id: run.id },
+          data: { roomCount: 1, playerHp: 1 },
+        });
+
+        const attack = await service.act(user.id, run.id, {
+          clientActionId: `attack-${fixtureId}`,
+          answer: ['definitely-wrong'],
+        });
+        expect(attack.run.status).toBe('ACTIVE');
+        const blockRoom = await prisma.dungeonRoom.findUniqueOrThrow({
+          where: { id: room.id },
+          select: { challenge: true },
+        });
+        const blockChallenge = blockRoom.challenge as unknown as {
+          type: string;
+          phase: string;
+          prompt: string;
+          expected: string[];
+          word: string;
+          meaning: string;
+        };
+        const failed = await service.act(user.id, run.id, {
+          clientActionId: `block-${fixtureId}`,
+          answer: ['also-wrong'],
+        });
+        expect(failed.run.status).toBe('FAILED');
+
+        const terminalAction = await prisma.battleAction.findUniqueOrThrow({
+          where: {
+            runId_clientActionId: { runId: run.id, clientActionId: `block-${fixtureId}` },
+          },
+          select: { id: true, feedback: true },
+        });
+        const legacyFeedback = JSON.parse(JSON.stringify(terminalAction.feedback)) as Record<
+          string,
+          unknown
+        >;
+        delete legacyFeedback.prompt;
+        delete legacyFeedback.answer;
+        await prisma.battleAction.update({
+          where: { id: terminalAction.id },
+          data: {
+            feedback: legacyFeedback as Prisma.InputJsonValue,
+            createdAt: new Date(Date.now() + 1_000),
+          },
+        });
+
+        const beforeRead = {
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { runId: run.id } }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: user.id },
+            select: { experience: true, gold: true, materials: true },
+          }),
+          progress: await prisma.userWordProgress.findMany({
+            where: { userId: user.id },
+            select: { reviewCount: true, totalAttempts: true, correctAttempts: true },
+          }),
+        };
+        const recovered = await service.recoverRun(user.id, run.id);
+        expect(recovered.mistakeReview).toMatchObject([
+          {
+            challengeType: 'SPELLING',
+            phase: 'ATTACK',
+            answer: ['definitely-wrong'],
+            referenceAnswer: expect.any(String),
+          },
+          {
+            challengeType: blockChallenge.type,
+            phase: 'BLOCK',
+            prompt: blockChallenge.prompt,
+            answer: ['also-wrong'],
+            referenceAnswer: blockChallenge.expected[0],
+            word: blockChallenge.word,
+            meaning: blockChallenge.meaning,
+          },
+        ]);
+        expect(recovered.unavailableMistakeReviewCount).toBe(0);
+        expect({
+          actions: await prisma.battleAction.count({ where: { runId: run.id } }),
+          attempts: await prisma.wordReviewAttempt.count({ where: { userId: user.id } }),
+          evidence: await prisma.adventureLearningEvidence.count({ where: { runId: run.id } }),
+          profile: await prisma.adventureProfile.findUniqueOrThrow({
+            where: { userId: user.id },
+            select: { experience: true, gold: true, materials: true },
+          }),
+          progress: await prisma.userWordProgress.findMany({
+            where: { userId: user.id },
+            select: { reviewCount: true, totalAttempts: true, correctAttempts: true },
+          }),
+        }).toEqual(beforeRead);
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+      } finally {
+        if (userId) await prisma.user.delete({ where: { id: userId } });
         await prisma.vocabularyBook.deleteMany({ where: { sourceKey } });
         await prisma.vocabularyWord.deleteMany({ where: { normalized: { in: normalized } } });
         await prisma.$disconnect();

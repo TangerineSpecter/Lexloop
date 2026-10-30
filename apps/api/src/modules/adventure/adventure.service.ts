@@ -21,7 +21,7 @@ import {
   WordProgressState,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import type { AdventurePracticeFocus } from '@lexloop/types';
+import type { AdventurePracticeFocus, DungeonMistakeReviewItem } from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { MistakesService } from '../mistakes/mistakes.service';
@@ -393,6 +393,7 @@ export class AdventureService {
         answer: grading.answer,
         provisional: grading.provisional,
         prompt: challenge.prompt,
+        challengeId: challenge.id,
       };
       const action = await tx.battleAction.create({
         data: {
@@ -1153,6 +1154,62 @@ export class AdventureService {
       },
     });
     if (!run) throw new NotFoundException('探索不存在');
+    const mistakeReview: DungeonMistakeReviewItem[] = [];
+    let unavailableMistakeReviewCount = 0;
+    if (run.status !== AdventureRunStatus.ACTIVE) {
+      const mistakes = await this.prisma.battleAction.findMany({
+        where: { runId, score: { lt: 70 } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          challengeType: true,
+          phase: true,
+          answer: true,
+          feedback: true,
+          room: { select: { challenge: true } },
+        },
+      });
+      for (const action of mistakes) {
+        const feedback = record(action.feedback);
+        if (feedback.provisional === true) continue;
+        const roomChallenge = record(action.room.challenge);
+        const snapshotMatchesAction =
+          feedback.challengeId === roomChallenge.id &&
+          roomChallenge.type === action.challengeType &&
+          roomChallenge.phase === action.phase;
+        const challenge = snapshotMatchesAction ? roomChallenge : {};
+        const prompt =
+          (typeof feedback.prompt === 'string' && feedback.prompt) ||
+          (typeof challenge.prompt === 'string' && challenge.prompt) ||
+          null;
+        const savedAnswer = feedback.answer;
+        const expected = challenge.expected;
+        const referenceAnswer =
+          typeof savedAnswer === 'string'
+            ? savedAnswer
+            : Array.isArray(expected) && typeof expected[0] === 'string'
+              ? expected[0]
+              : null;
+        if (!prompt || !referenceAnswer) {
+          unavailableMistakeReviewCount += 1;
+          continue;
+        }
+        const learnerAnswer = Array.isArray(action.answer)
+          ? action.answer.filter((item): item is string => typeof item === 'string')
+          : [];
+        mistakeReview.push({
+          id: action.id,
+          challengeType: action.challengeType,
+          phase: action.phase,
+          prompt,
+          answer: learnerAnswer,
+          referenceAnswer,
+          ...(typeof challenge.word === 'string' ? { word: challenge.word } : {}),
+          ...(typeof challenge.meaning === 'string' ? { meaning: challenge.meaning } : {}),
+          ...(typeof feedback.message === 'string' ? { feedback: feedback.message } : {}),
+        });
+      }
+    }
     const current = run.rooms.find((item) => item.position === run.currentRoom);
     const profile = await this.prisma.adventureProfile.findUniqueOrThrow({
       where: { userId },
@@ -1219,6 +1276,9 @@ export class AdventureService {
             };
           })()
         : null,
+      ...(run.status !== AdventureRunStatus.ACTIVE
+        ? { mistakeReview, unavailableMistakeReviewCount }
+        : {}),
       availableSkills: profile.skills
         .filter((item) => item.skill.sortOrder <= 4)
         .map((item) => ({

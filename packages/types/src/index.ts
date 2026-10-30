@@ -301,6 +301,18 @@ export interface DungeonLastAction {
   };
 }
 
+export interface DungeonMistakeReviewItem {
+  id: string;
+  challengeType: AdventureChallengeType;
+  phase: 'ATTACK' | 'BLOCK';
+  prompt: string;
+  answer: string[];
+  referenceAnswer: string;
+  word?: string;
+  meaning?: string;
+  feedback?: string;
+}
+
 export interface DungeonRunState {
   id: string;
   status: AdventureRunStatus;
@@ -320,6 +332,10 @@ export interface DungeonRunState {
   loot: InventoryItem[];
   challenge: BattleChallenge | null;
   lastAction: DungeonLastAction | null;
+  /** Available only after the run ends; reading it never changes learning records. */
+  mistakeReview?: DungeonMistakeReviewItem[];
+  /** Older actions without their original prompt/answer snapshot are not reconstructed. */
+  unavailableMistakeReviewCount?: number;
   availableSkills: AdventureSkill[];
   canRetreat: boolean;
 }
