@@ -205,7 +205,11 @@ test(
           }));
           const fixtureKey = 'adventure-focus-e2e';
           window.focusFixture = JSON.parse(sessionStorage.getItem(fixtureKey) || '{"startBody":null,"run":null,"actions":[],"recoveries":0}');
+          window.focusFixture.requests ??= [];
           const persistFocusFixture = () => sessionStorage.setItem(fixtureKey, JSON.stringify(window.focusFixture));
+          window.holdNextActionResponse = false;
+          window.releasePendingActionResponse = null;
+          window.failNextActionBeforeSave = false;
           const floor = { id: 'floor-focus', floorNumber: 1, title: '词义回廊', cefrLevel: 'A1', targetCount: 12, exploration: 0, mastery: 0, bossUnlocked: false, completed: false, locked: false };
           const profile = {
             id: 'profile-focus', level: 1, experience: 0, experienceToNextLevel: 100, gold: 0, materials: 0,
@@ -268,7 +272,7 @@ test(
               enemyMaxHp: [34, 34, 62, 28, 34, 34][position],
             })),
             loot: [], challenge: makeChallenge(0), lastAction: null,
-            availableSkills: [], canRetreat: false,
+            availableSkills: [{ id: 'skill-focus', key: 'warrior-1', name: '战士·基础技', description: '答对后提高本次伤害。', target: 'ENEMY', cost: 1, requiredLevel: 1, unlocked: true }], canRetreat: false,
           });
           const nativeFetch = window.fetch;
           window.fetch = async (input, options = {}) => {
@@ -293,6 +297,12 @@ test(
             }
             if (path.endsWith('/adventure/runs/run-focus/actions') && options.method === 'POST') {
               const body = JSON.parse(options.body);
+              window.focusFixture.requests.push({ answer: body.answer, clientActionId: body.clientActionId, skillId: body.skillId ?? null });
+              persistFocusFixture();
+              if (window.failNextActionBeforeSave) {
+                window.failNextActionBeforeSave = false;
+                return Response.json({ message: '测试模拟的暂时失败' }, { status: 503 });
+              }
               const index = window.focusFixture.actions.length;
               const current = window.focusFixture.run;
               const step = actionSteps[index];
@@ -303,7 +313,7 @@ test(
               const correct = submitted === expected;
               window.focusFixture.actions.push({
                 answer: body.answer, challengeType: challenge.type, clientActionId: body.clientActionId,
-                correct, practiceFocus: current.practiceFocus, phase: challenge.phase,
+                correct, practiceFocus: current.practiceFocus, phase: challenge.phase, skillId: body.skillId ?? null,
               });
               const next = JSON.parse(JSON.stringify(current));
               next.lastAction = {
@@ -333,11 +343,17 @@ test(
               }
               window.focusFixture.run = next;
               persistFocusFixture();
-              return Response.json({
+              const response = Response.json({
                 repeated: false, score: correct ? 100 : 0,
                 grade: correct ? 'PERFECT' : 'MISS', damageDealt: correct ? 40 : 0,
                 damageReceived: 0, feedback: next.lastAction.feedback, run: next,
               });
+              if (window.holdNextActionResponse) {
+                window.holdNextActionResponse = false;
+                await new Promise(resolve => { window.releasePendingActionResponse = resolve; });
+                window.releasePendingActionResponse = null;
+              }
+              return response;
             }
             return nativeFetch(input, options);
           };
@@ -520,13 +536,76 @@ test(
           );
           await clickText('[class*=challengeCard] [class*=options] button', expectedAnswer);
         }
+        if (index < 2)
+          await evaluate(
+            '[...document.querySelectorAll("[class*=skillBar] button")].find(button => button.textContent.includes("基础技")).click()',
+          );
+        if (index === 0) await evaluate('window.holdNextActionResponse = true');
+        if (index === 1) await evaluate('window.failNextActionBeforeSave = true');
         await clickSelector('[class*=challengeCard] button[class*=strike]');
+        if (index === 0) {
+          await until('typeof window.releasePendingActionResponse === "function"');
+          const pending = await evaluate(`(() => {
+            const form = document.querySelector('[class*=challengeCard]');
+            const answerControls = [...form.querySelectorAll('[class*=order] button, [class*=options] button, input')];
+            const skillControls = [...form.querySelectorAll('[class*=skillBar] button')];
+            return {
+              ariaBusy: form.getAttribute('aria-busy'),
+              answerLocked: answerControls.length > 0 && answerControls.every(button => button.disabled),
+              skillsLocked: skillControls.length > 0 && skillControls.every(button => button.disabled),
+              submitDisabled: form.querySelector('[class*=strike]').disabled,
+              selectedSkill: form.querySelector('[class*=skillBar] button[class*=selected]')?.textContent.trim(),
+              sentAnswer: window.focusFixture.actions[0].answer.join(' '),
+              sentSkill: window.focusFixture.actions[0].skillId,
+            };
+          })()`);
+          assert.deepEqual(pending, {
+            ariaBusy: 'true',
+            answerLocked: true,
+            skillsLocked: true,
+            submitDisabled: true,
+            selectedSkill: '基础技1 点专注',
+            sentAnswer: expectedAnswer,
+            sentSkill: 'skill-focus',
+          });
+          await evaluate('window.releasePendingActionResponse()');
+        }
+        if (index === 1) {
+          await until(
+            'document.querySelector("[class*=strike]")?.textContent.includes("重试本次结算")',
+          );
+          const failed = await evaluate(`(() => {
+            const form = document.querySelector('[class*=challengeCard]');
+            const controls = [...form.querySelectorAll('[class*=order] button, [class*=options] button, input, [class*=skillBar] button')];
+            return {
+              controlsLocked: controls.length > 0 && controls.every(button => button.disabled),
+              submitDisabled: form.querySelector('[class*=strike]').disabled,
+              answer: window.focusFixture.requests[1].answer.join(' '),
+              committedActions: window.focusFixture.actions.length,
+            };
+          })()`);
+          assert.deepEqual(failed, {
+            controlsLocked: true,
+            submitDisabled: false,
+            answer: expectedAnswer,
+            committedActions: 1,
+          });
+          await clickSelector('[class*=challengeCard] button[class*=strike]');
+        }
         await until(`window.focusFixture.actions.length === ${index + 1}`);
         assert.equal(
           await evaluate(`window.focusFixture.actions[${index}].correct`),
           true,
           `fixture should receive the correct ${challengeType} answer: ${JSON.stringify(await evaluate(`window.focusFixture.actions[${index}]`))}; expected ${JSON.stringify(expectedAnswer)}`,
         );
+        if (index === 1) {
+          assert.deepEqual(
+            await evaluate('[window.focusFixture.requests[1], window.focusFixture.requests[2]]'),
+            await evaluate('[window.focusFixture.requests[1], window.focusFixture.requests[1]]'),
+            'retry must reuse the same answer, skill, and idempotency key after an uncertain response',
+          );
+          assert.equal(await evaluate('window.focusFixture.actions[1].skillId'), 'skill-focus');
+        }
         if (index === 3)
           await until(
             'document.querySelector("[class*=previousFeedback] strong")?.textContent.includes("词义匹配")',

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.112',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '地下词环等待或重试时锁定本次作答',
+        entry: '学习进度 → 地下词环 → 战斗题目 → 发动攻击 / 格挡攻击',
+        usage:
+          '服务器处理或结果未确定时，题目和技能保持为本次实际提交内容。失败后可用同一答案与技能重试，避免看到的选择和服务器结算不一致。',
+      },
+    ],
+  },
+  {
     version: '1.27.111',
     date: '2026-10-30',
     items: [

@@ -1376,6 +1376,12 @@
   box-shadow: 3px 3px 0 var(--yellow);
   transform: translate(-1px, -1px);
 }
+.challengeCard > input:disabled,
+.options button:disabled,
+.skillBar > button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .options {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1391,9 +1397,9 @@
   background: var(--paper);
   font-weight: 800;
 }
-.options button:hover,
+.options button:hover:not(:disabled),
 .options button.selected,
-.order button:hover {
+.order button:hover:not(:disabled) {
   background: #eaf2ff;
   box-shadow: 2px 2px 0 var(--ink);
 }

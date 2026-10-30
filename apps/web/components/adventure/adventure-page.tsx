@@ -720,6 +720,8 @@ function BattlePage({
   const [error, setError] = useState('');
   const pendingAction = useRef<{ challengeId: string; actionId: string } | null>(null);
   const challenge = run.challenge;
+  const actionPending = Boolean(challenge && pendingAction.current?.challengeId === challenge.id);
+  const controlsDisabled = ui.busy || actionPending;
   const currentRoom = run.rooms.find((item) => item.position === run.currentRoom);
   const previousFeedback = ui.feedback ?? run.lastAction?.feedback ?? null;
   const startedAt = useMemo(() => Date.now(), [challenge?.id]);
@@ -864,7 +866,7 @@ function BattlePage({
           </span>
         </div>
       )}
-      <form className={styles.challengeCard} onSubmit={submit}>
+      <form className={styles.challengeCard} onSubmit={submit} aria-busy={ui.busy}>
         <header>
           <span>
             {challenge?.phase === 'BLOCK' ? <Shield /> : <Swords />}
@@ -877,6 +879,7 @@ function BattlePage({
           <ChallengeInput
             challenge={challenge}
             answer={ui.answer}
+            disabled={controlsDisabled}
             onAnswer={(value) => dispatch({ type: 'answer', value })}
           />
         )}
@@ -885,6 +888,7 @@ function BattlePage({
             skills={run.availableSkills}
             resource={run.resource}
             selected={ui.selectedSkill}
+            disabled={controlsDisabled}
             onSelect={(value) => dispatch({ type: 'skill', value })}
           />
         )}{' '}
@@ -920,6 +924,8 @@ function BattlePage({
             <>
               <LoaderCircle className={styles.spin} /> 正在判定
             </>
+          ) : actionPending ? (
+            '重试本次结算'
           ) : challenge?.phase === 'BLOCK' ? (
             <>
               <Shield /> 格挡攻击
@@ -934,6 +940,7 @@ function BattlePage({
       {run.canRetreat && (
         <button
           className={styles.retreat}
+          disabled={controlsDisabled}
           onClick={async () => {
             try {
               const next = await request<DungeonRunState>(
@@ -957,10 +964,12 @@ function BattlePage({
 function ChallengeInput({
   challenge,
   answer,
+  disabled,
   onAnswer,
 }: {
   challenge: NonNullable<DungeonRunState['challenge']>;
   answer: string[];
+  disabled: boolean;
   onAnswer: (value: string[]) => void;
 }) {
   if (challenge.options)
@@ -969,6 +978,7 @@ function ChallengeInput({
         {challenge.options.map((option) => (
           <button
             type="button"
+            disabled={disabled}
             className={answer[0] === option ? styles.selected : ''}
             key={option}
             onClick={() => onAnswer([option])}
@@ -985,6 +995,7 @@ function ChallengeInput({
           {answer.map((token, index) => (
             <button
               type="button"
+              disabled={disabled}
               key={`${token}-${index}`}
               onClick={() => onAnswer(answer.filter((_, position) => position !== index))}
             >
@@ -998,8 +1009,9 @@ function ChallengeInput({
             <button
               type="button"
               disabled={
+                disabled ||
                 answer.filter((item) => item === token).length >=
-                challenge.tokens!.filter((item) => item === token).length
+                  challenge.tokens!.filter((item) => item === token).length
               }
               key={`${token}-${index}`}
               onClick={() => onAnswer([...answer, token])}
@@ -1013,6 +1025,7 @@ function ChallengeInput({
   return (
     <input
       autoFocus
+      disabled={disabled}
       value={answer[0] ?? ''}
       placeholder={challenge.inputPlaceholder}
       onChange={(event) => onAnswer(event.target.value ? [event.target.value] : [])}
@@ -1024,17 +1037,20 @@ function SkillBar({
   skills,
   resource,
   selected,
+  disabled,
   onSelect,
 }: {
   skills: AdventureSkill[];
   resource: number;
   selected: string | null;
+  disabled: boolean;
   onSelect: (value: string | null) => void;
 }) {
   return (
     <div className={styles.skillBar}>
       <button
         type="button"
+        disabled={disabled}
         className={!selected ? styles.selected : ''}
         onClick={() => onSelect(null)}
       >
@@ -1047,7 +1063,7 @@ function SkillBar({
       {skills.slice(0, 4).map((skill) => (
         <button
           type="button"
-          disabled={skill.cost > resource}
+          disabled={disabled || skill.cost > resource}
           className={selected === skill.id ? styles.selected : ''}
           key={skill.id}
           onClick={() => onSelect(skill.id)}
