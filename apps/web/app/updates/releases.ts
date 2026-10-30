@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.99',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '可按题数开始少量到期词回想',
+        entry: '首页 → 单词列表 → 少量回想练习',
+        usage:
+          '从当前到期顺序中选 1、3、5 或最多 10 个词，先回想再看释义；草稿按账号而非默认词表隔离，到期队列顺序一致时可从本机恢复。它不创建计划、不提交作答、不改变今日复习状态或 SRS 排期。',
+      },
+    ],
+  },
+  {
     version: '1.27.98',
     date: '2026-10-30',
     items: [

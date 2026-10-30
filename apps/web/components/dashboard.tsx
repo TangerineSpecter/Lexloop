@@ -81,6 +81,7 @@ import { TutorPanel } from './tutor-panel';
 import { UpdatesLink } from './updates-link';
 import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
 import { PracticeEntries } from './practice/practice-entries';
+import { QuickReviewSession } from './quick-review-session';
 
 const TravelScenarioPage = dynamic(
   () => import('./travel-scenario-page').then((module) => module.TravelScenarioPage),
@@ -2734,6 +2735,13 @@ function WordsPanel({
     );
   };
   const reviewCount = visibleDashboardWords.reviewWords.length;
+  const reviewWordsWithIds = useMemo(
+    () =>
+      visibleDashboardWords.reviewWords.filter(
+        (word): word is Word & { id: string } => typeof word.id === 'string' && word.id.length > 0,
+      ),
+    [visibleDashboardWords.reviewWords],
+  );
   const reviewLimit = Math.min(reviewCount, MAX_DAILY_REVIEW_WORDS);
   const existingReviewCount =
     existingPlan?.words.filter((word) => word.source === 'REVIEW').length ?? 0;
@@ -2977,6 +2985,16 @@ function WordsPanel({
           </p>
         </div>
       ) : null}
+      {bookWordsReady &&
+        bookId &&
+        reviewWordsWithIds.length > 0 &&
+        reviewWordsWithIds.length === reviewCount && (
+          <QuickReviewSession
+            key={session.user.id}
+            userId={session.user.id}
+            words={reviewWordsWithIds}
+          />
+        )}
       {message && <p className="book-message">{message}</p>}
       {wordsLoadStatus === 'loading' && (
         <p className="book-message" role="status">

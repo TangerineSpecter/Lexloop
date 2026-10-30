@@ -1,0 +1,278 @@
+.panel {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 22px;
+  padding: 18px 20px;
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--border-color);
+  box-shadow: 3px 3px 0 var(--border-color);
+}
+
+.panel h2,
+.panel p {
+  margin: 0;
+}
+
+.header,
+.sessionMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.header h2 {
+  margin-top: 4px;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.kicker,
+.wordLabel {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.dueCount {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--gold);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.intro,
+.orderNote,
+.boundary {
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.countFieldset {
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.countFieldset legend {
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.countChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.countChoices label {
+  position: relative;
+  display: inline-flex;
+  min-width: 72px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--soft);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.countChoices input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--teal);
+}
+
+.countChoices label:focus-within {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.selectedCount {
+  background: #eaf2ff !important;
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.primaryButton {
+  justify-self: start;
+  background: var(--teal);
+  color: var(--soft);
+  box-shadow: 2px 2px 0 var(--gold);
+}
+
+.secondaryButton {
+  background: var(--soft);
+  color: var(--border-color);
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.notice {
+  padding: 8px 10px;
+  border-left: 4px solid var(--coral);
+  background: #fff4e9;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.resumeCard {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 2px dashed var(--border-color);
+  border-radius: 9px;
+  background: #f7faff;
+}
+
+.resumeCard strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.resumeCard p {
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.sessionMeta strong {
+  font-size: 16px;
+}
+
+.sessionMeta span {
+  flex: 0 1 auto;
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.prompt {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.question {
+  display: grid;
+  gap: 9px;
+  min-height: 170px;
+  align-content: center;
+  padding: 18px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: #fffefa;
+}
+
+.wordLabel {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.question h2 {
+  overflow-wrap: anywhere;
+  font-size: clamp(25px, 4vw, 34px);
+  line-height: 1.2;
+}
+
+.question h2:focus {
+  outline: 3px solid var(--gold);
+  outline-offset: 5px;
+}
+
+.phonetic {
+  color: rgba(8, 40, 119, 0.72);
+  font-size: 14px;
+}
+
+.hiddenMeaning {
+  color: rgba(8, 40, 119, 0.68);
+  font-size: 14px;
+}
+
+.meaning {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--gold);
+  background: #fff8d9;
+}
+
+.meaning span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.meaning strong {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+
+@media (max-width: 680px) {
+  .panel {
+    padding: 15px 14px;
+  }
+
+  .header,
+  .sessionMeta {
+    align-items: flex-start;
+  }
+
+  .sessionMeta {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .sessionMeta span {
+    text-align: left;
+  }
+
+  .question {
+    min-height: 155px;
+    padding: 14px;
+  }
+
+  .actions > button {
+    flex: 1 1 auto;
+  }
+}
