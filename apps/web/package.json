@@ -1,6 +1,6 @@
 {
   "name": "@lexloop/web",
-  "version": "1.27.94",
+  "version": "1.27.95",
   "private": true,
   "scripts": {
     "dev": "next dev -p 52100",

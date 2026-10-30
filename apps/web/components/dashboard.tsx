@@ -546,11 +546,28 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       ? currentBookState
       : { ownerId: session.user.id, status: 'loading' as const, book: null };
   const currentBook = visibleCurrentBookState.book;
+  const planCreateContext = JSON.stringify([
+    session.user.id,
+    page,
+    activeTab,
+    currentBook?.id ?? null,
+  ]);
+  const planCreateContextRef = useRef(planCreateContext);
+  planCreateContextRef.current = planCreateContext;
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
   const openPlanPreview = (plan: LearningPlan) => {
     setPreviewOwnerId(session.user.id);
     setPreviewPlan(plan);
+  };
+  const handleCreatedPlan = (plan: LearningPlan) => {
+    const ownerId = session.user.id;
+    if (currentUserIdRef.current !== ownerId) return;
+    if (planCreateContextRef.current === planCreateContext) {
+      openPlanPreview(plan);
+    } else {
+      setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
+    }
   };
   const retryPlanLoad = () => {
     setPlansLoadStatus('loading');
@@ -1151,7 +1168,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   visibleCurrentBookState.status === 'ready' && currentBook === null
                 }
                 onChooseBook={() => setBookPickerOpen(true)}
-                onCreatePlan={openPlanPreview}
+                onCreatePlan={handleCreatedPlan}
                 existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
                 onOpenExistingPlan={openPlanPreview}
                 onOpenReadingSettings={() => setReadingSettingsOpen(true)}
@@ -1166,7 +1183,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                     (plan) => plan.status === 'ACTIVE' || plan.status === 'GENERATING',
                   ) ?? null
                 }
-                onContinue={(id) => setLessonPlanId(id)}
+                onContinue={(id) => {
+                  const plan = visiblePlans.find((item) => item.id === id);
+                  if (plan?.status === 'GENERATING') openPlanPreview(plan);
+                  else setLessonPlanId(id);
+                }}
               />
             )}
             {activeTab === 'history' && visiblePlansStatus === 'ready' && (
@@ -3351,10 +3372,13 @@ function PlanPanel({
           <i>
             <em style={{ width: `${progress}%` }} />
           </i>
-          <button onClick={() => onContinue(plan.id)} disabled={plan.status !== 'ACTIVE'}>
+          <button
+            onClick={() => onContinue(plan.id)}
+            disabled={plan.status !== 'ACTIVE' && plan.status !== 'GENERATING'}
+          >
             {plan.status === 'GENERATING' ? <Sparkles size={18} /> : <BookOpen size={18} />}
             {plan.status === 'GENERATING'
-              ? '题目生成中'
+              ? '继续生成题目'
               : plan.completed === plan.wordCount
                 ? '已完成'
                 : '继续学习'}

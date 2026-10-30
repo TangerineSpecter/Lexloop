@@ -2236,10 +2236,30 @@ test(
         '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "take"',
       );
       await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+      );
+      await until('document.querySelector(".plan-empty")');
+      await evaluate(
         'window.resolveStudyPlanCreate(Response.json(window.firstPlanGeneratingResponse))',
       );
+      await until('document.querySelector(".sequence-panel")?.innerText.includes("adapt")');
+      assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
+      assert.equal(await evaluate('window.firstPlanGenerationAttempts.length'), 0);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".sequence-summary button").textContent.includes("继续生成题目")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".sequence-summary button").disabled'),
+        false,
+      );
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
+      );
       await until(
-        'document.querySelector(".plan-preview-layer") && window.firstPlanGenerationAttempts.length === 1',
+        '[...document.querySelectorAll(".word-row strong")].map((node) => node.textContent).join(",") === "take"',
       );
       assert.equal(await evaluate('window.defaultBook?.id'), 'book-a');
       assert.deepEqual(
@@ -2250,9 +2270,19 @@ test(
         'the delayed Book B plan response must not replace the newly selected Book A words',
       );
       assert.equal(
+        await evaluate(
+          'document.querySelector(".create").textContent.includes("打开当前学习计划")',
+        ),
+        true,
+      );
+      await evaluate('document.querySelector(".create").click()');
+      await until(
+        'document.querySelector(".plan-preview-layer") && window.firstPlanGenerationAttempts.length === 1',
+      );
+      assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong")?.textContent'),
         'adapt',
-        'the already-created Book B plan remains available for recovery',
+        'the already-created Book B plan remains available when the learner returns',
       );
       assert.deepEqual(await evaluate('window.firstPlanGenerationAttempts'), ['first-plan-book-b']);
       await until(

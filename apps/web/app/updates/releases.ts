@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.95',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '离开创建页后可继续生成计划',
+        entry: '首页 → 今日学习词汇 → 当前学习序列',
+        usage:
+          '创建请求等待期间切换页面，迟到响应不会抢回当前界面；计划仍归当前账号，可从学习序列打开继续生成。',
+      },
+    ],
+  },
+  {
     version: '1.27.94',
     date: '2026-10-30',
     items: [
