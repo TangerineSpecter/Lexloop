@@ -24,6 +24,12 @@ function runEvaluator(args: string[] = []) {
   return result;
 }
 
+function getAmbiguousCase() {
+  const testCase = dataset.cases.find((item) => item.dimension === 'ambiguity');
+  if (!testCase) throw new Error('Ambiguity case is missing from the offline fixture.');
+  return testCase;
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -33,7 +39,15 @@ afterEach(() => {
 describe('offline study translation evaluation', () => {
   it('covers the requested meaning dimensions with explicit counterexamples', () => {
     expect(new Set(dataset.cases.map((testCase) => testCase.dimension))).toEqual(
-      new Set(['negation', 'tense_and_order', 'agent', 'quantity', 'causal_relation', 'condition']),
+      new Set([
+        'negation',
+        'tense_and_order',
+        'agent',
+        'quantity',
+        'causal_relation',
+        'condition',
+        'ambiguity',
+      ]),
     );
     for (const testCase of dataset.cases) {
       expect(testCase.keyInformation.length, `${testCase.id} key information`).toBeGreaterThan(0);
@@ -47,6 +61,9 @@ describe('offline study translation evaluation', () => {
       ).toBeGreaterThan(0);
     }
     expect(dataset.provenance).toMatch(/not independently human-reviewed/i);
+    const ambiguousCase = getAmbiguousCase();
+    expect(ambiguousCase?.referenceNote).toMatch(/not the only reading/i);
+    expect(ambiguousCase?.equivalentExamples).toHaveLength(1);
   });
 
   it('reports no supplied outputs as not evaluated, not as a pass', () => {
@@ -102,6 +119,33 @@ describe('offline study translation evaluation', () => {
       dataset.cases[0].meaningErrorExamples,
     );
     expect(report.evaluation.exactReferenceMatchingUsed).toBe(false);
+  });
+
+  it('keeps both readings visible when a source sentence is ambiguous', () => {
+    const directory = createTemporaryDirectory();
+    const outputsPath = join(directory, 'outputs.json');
+    const ambiguousCase = getAmbiguousCase();
+    writeFileSync(
+      outputsPath,
+      JSON.stringify({
+        sourceDescription: 'Synthetic test candidate; not a model result.',
+        outputs: [
+          {
+            caseId: ambiguousCase.id,
+            translation: ambiguousCase.equivalentExamples[0],
+          },
+        ],
+      }),
+    );
+
+    const result = runEvaluator(['--outputs', outputsPath]);
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.status).toBe('NOT_EVALUATED');
+    expect(report.candidates[0].referenceNote).toMatch(/not the only reading/i);
+    expect(report.candidates[0].keyInformation).toContain(
+      'The sentence alone does not choose between those two readings.',
+    );
   });
 
   it('records supplied annotations without presenting them as verified accuracy', () => {

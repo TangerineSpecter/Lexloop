@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.93',
+    date: '2026-10-30',
+    items: [
+      {
+        title: '翻译反馈说明原句歧义',
+        entry: '词表 → 分组阅读 → 分句阅读 → 先用中文理解',
+        usage:
+          '当英文原句存在多种合理读法或上下文不足时，反馈应说明不确定处，不把一种译法说成唯一答案。',
+      },
+    ],
+  },
+  {
     version: '1.27.92',
     date: '2026-10-30',
     items: [

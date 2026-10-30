@@ -436,6 +436,8 @@ describe('AiController reading translation feedback', () => {
       response_format: { type: 'json_object' },
     });
     expect(completion.messages[0].content).toContain('合理的意译');
+    expect(completion.messages[0].content).toContain('明确说明歧义或不确定处');
+    expect(completion.messages[0].content).toContain('不要把其中一种读法说成唯一正确答案');
     expect(completion.messages[0].content).toContain('不得给分');
     expect(JSON.parse(completion.messages[1].content)).toEqual(input);
   });

@@ -102,6 +102,25 @@
           "changedInformation": ["Turns a conditional possibility into a past factual result."]
         }
       ]
+    },
+    {
+      "id": "ambiguity-telescope-attachment",
+      "dimension": "ambiguity",
+      "english": "She saw the man with the telescope.",
+      "keyInformation": [
+        "She saw the man.",
+        "With the telescope can describe the instrument she used or the man who had the telescope.",
+        "The sentence alone does not choose between those two readings."
+      ],
+      "referenceTranslation": "她用望远镜看到了那名男子。",
+      "referenceNote": "This is one plausible reading, not the only reading supported by the English sentence.",
+      "equivalentExamples": ["她看到了那名拿着望远镜的男子。"],
+      "meaningErrorExamples": [
+        {
+          "translation": "那名男子用望远镜看到了她。",
+          "changedInformation": ["Reverses who saw whom under either plausible reading."]
+        }
+      ]
     }
   ]
 }

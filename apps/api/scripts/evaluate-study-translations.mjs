@@ -13,6 +13,7 @@ const allowedDimensions = new Set([
   'quantity',
   'causal_relation',
   'condition',
+  'ambiguity',
 ]);
 const allowedReviews = new Set([
   'not_reviewed',
@@ -45,6 +46,9 @@ export function validateDataset(dataset) {
     }
     requireNonEmptyString(testCase.english, `${prefix} English source`);
     requireNonEmptyString(testCase.referenceTranslation, `${prefix} reference translation`);
+    if (testCase.referenceNote !== undefined) {
+      requireNonEmptyString(testCase.referenceNote, `${prefix} referenceNote`);
+    }
     for (const field of ['keyInformation', 'equivalentExamples', 'meaningErrorExamples']) {
       if (!Array.isArray(testCase[field]) || testCase[field].length === 0) {
         throw new Error(`${prefix} ${field} must be a non-empty array.`);
@@ -110,6 +114,7 @@ export function createReviewTemplate(dataset) {
       english: testCase.english,
       keyInformation: testCase.keyInformation,
       referenceTranslation: testCase.referenceTranslation,
+      ...(testCase.referenceNote ? { referenceNote: testCase.referenceNote } : {}),
       equivalentExamples: testCase.equivalentExamples,
       meaningErrorExamples: testCase.meaningErrorExamples,
       translation: '',
@@ -163,6 +168,9 @@ export function createReport(dataset, outputs = null) {
       english: casesById.get(candidate.caseId).english,
       keyInformation: casesById.get(candidate.caseId).keyInformation,
       referenceTranslation: casesById.get(candidate.caseId).referenceTranslation,
+      ...(casesById.get(candidate.caseId).referenceNote
+        ? { referenceNote: casesById.get(candidate.caseId).referenceNote }
+        : {}),
       equivalentExamples: casesById.get(candidate.caseId).equivalentExamples,
       meaningErrorExamples: casesById.get(candidate.caseId).meaningErrorExamples,
       translation: candidate.translation,
