@@ -2,6 +2,7 @@ import type { CareerStatistics } from '@lexloop/types';
 import { BadGatewayException } from '@nestjs/common';
 import { ProfileConfidence } from '@prisma/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildWeekGlance } from '../src/modules/reports/week-glance';
 import {
   assessmentIsProvisional,
   careerInsights,
@@ -75,6 +76,14 @@ describe('learning career reporting rules', () => {
       currentStreak: 3,
       todayActive: true,
       goal: { kind: 'activity', target: 1, progress: 1, met: true },
+      week: buildWeekGlance({
+        today: '2026-10-26',
+        activeDates: new Set(['2026-10-24', '2026-10-25', '2026-10-26']),
+        attempts: [
+          { date: '2026-10-24', bookWordId: '2026-10-24T09:00:00.000Z', source: null },
+          { date: '2026-10-26', bookWordId: '2026-10-26T09:00:00.000Z', source: null },
+        ],
+      }),
     });
     expect(prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.userId).toBe('user');
     expect(prisma.scenarioSession.findMany.mock.calls[0][0].where.userId).toBe('user');
@@ -95,6 +104,14 @@ describe('learning career reporting rules', () => {
       currentStreak: 2,
       todayActive: false,
       goal: { kind: 'activity', target: 1, progress: 0, met: false },
+      week: buildWeekGlance({
+        today: '2026-10-26',
+        activeDates: new Set(['2026-10-24', '2026-10-25']),
+        attempts: [
+          { date: '2026-10-25', bookWordId: '2026-10-25T09:00:00.000Z', source: null },
+          { date: '2026-10-25', bookWordId: '2026-10-25T10:00:00.000Z', source: null },
+        ],
+      }),
     });
   });
 
@@ -111,6 +128,11 @@ describe('learning career reporting rules', () => {
       currentStreak: 2,
       todayActive: true,
       goal: { kind: 'activity', target: 1, progress: 1, met: true },
+      week: buildWeekGlance({
+        today: '2026-10-27',
+        activeDates: new Set(['2026-10-26', '2026-10-27']),
+        attempts: [{ date: '2026-10-26', bookWordId: '2026-10-25T16:01:00.000Z', source: null }],
+      }),
     });
     expect(prisma.$queryRaw.mock.calls[0].slice(1)).toContain('Asia/Shanghai');
   });
@@ -124,6 +146,11 @@ describe('learning career reporting rules', () => {
       currentStreak: 0,
       todayActive: false,
       goal: { kind: 'activity', target: 1, progress: 0, met: false },
+      week: buildWeekGlance({
+        today: '2026-10-26',
+        activeDates: new Set(),
+        attempts: [],
+      }),
     });
     await expect(service.streak('user', 'not-a-time-zone')).rejects.toThrow('Invalid time zone');
   });

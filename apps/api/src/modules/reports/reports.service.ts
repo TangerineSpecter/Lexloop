@@ -24,6 +24,7 @@ import type {
 } from '@lexloop/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { buildWeekGlance } from './week-glance';
 
 const DAY = 86_400_000;
 const LEVELS = [CefrLevel.A1, CefrLevel.A2, CefrLevel.B1, CefrLevel.B2, CefrLevel.C1];
@@ -769,7 +770,7 @@ export class ReportsService {
     const [attempts, scenarios, assessments, practiceDates, user] = await Promise.all([
       this.prisma.wordReviewAttempt.findMany({
         where: { userId, createdAt: { gte: since } },
-        select: { createdAt: true, bookWordId: true },
+        select: { createdAt: true, bookWordId: true, item: { select: { source: true } } },
       }),
       this.prisma.scenarioSession.findMany({
         where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: since } },
@@ -819,10 +820,21 @@ export class ReportsService {
     const target = kind === 'reviews' ? normalizeReviewTarget(user?.dailyGoalTarget) : 1;
     const progress = kind === 'reviews' ? Math.min(todayReviewCount, target) : todayActive ? 1 : 0;
     const met = kind === 'reviews' ? todayReviewCount >= target : todayActive;
+    const sourceOf = (source: string | null | undefined) =>
+      source === 'NEW' || source === 'REVIEW' ? source : null;
     return {
       currentStreak: streak,
       todayActive,
       goal: { kind, target, progress, met },
+      week: buildWeekGlance({
+        today,
+        activeDates: days,
+        attempts: attempts.map((item) => ({
+          date: getDateKey(item.createdAt),
+          bookWordId: item.bookWordId,
+          source: sourceOf(item.item?.source),
+        })),
+      }),
     };
   }
   private practiceDays(userId: string, start: Date, end: Date, timeZone: string) {

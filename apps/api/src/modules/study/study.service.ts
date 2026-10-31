@@ -110,7 +110,7 @@ const studyPlanInclude = (userId: string) =>
         bookWord: {
           include: {
             word: true,
-            progress: { where: { userId }, select: { nextReviewAt: true } },
+            progress: { where: { userId }, select: { nextReviewAt: true, lastIntervalDays: true } },
             weaknesses: {
               where: { userId, status: WeaknessStatus.ACTIVE },
               select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
@@ -177,6 +177,7 @@ export class StudyService {
     requestedMode: RequestedMode = 'group',
     requestedReviewWordCount?: number,
     selection?: IndividualWordSelection,
+    skipReviewWordIds?: string[],
   ) {
     const mode = modeMap[requestedMode];
     if (!mode) throw new BadRequestException('不支持的学习模式');
@@ -222,13 +223,16 @@ export class StudyService {
         where: { id: userId },
         select: { defaultNewWordCount: true },
       });
+      const skipIds =
+        !selection || selection === 'due' ? sanitizeSkipReviewIds(skipReviewWordIds) : [];
       const picked = selection
-        ? await selectIndividualWords(tx, userId, selection, requestedNewWordCount ?? 10)
+        ? await selectIndividualWords(tx, userId, selection, requestedNewWordCount ?? 10, skipIds)
         : await selectDailyWords(
             tx,
             userId,
             requestedNewWordCount ?? user.defaultNewWordCount,
             requestedReviewWordCount,
+            skipIds,
           );
       const ids = selection ? picked.orderedIds : shuffle(picked.orderedIds);
       if (!ids.length) {
@@ -615,8 +619,11 @@ export class StudyService {
       answers.every((answer) => items.some((item) => item.bookWordId === answer.bookWordId));
     if (!answersMatchGroup) throw new BadRequestException('答题结果包含不属于当前分组的单词');
 
+    const previousIntervals = new Map<string, number>();
+    let committed = false;
     try {
       await this.prisma.$transaction(async (tx) => {
+        previousIntervals.clear();
         const completedAt = new Date();
         const claimed = await tx.studyPlanItem.updateMany({
           where: {
@@ -643,6 +650,7 @@ export class StudyService {
           const progress = await tx.userWordProgress.findUniqueOrThrow({
             where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },
           });
+          previousIntervals.set(item.bookWordId, progress.lastIntervalDays);
           await tx.wordReviewAttempt.create({
             data: {
               userId,
@@ -676,10 +684,20 @@ export class StudyService {
           });
         }
       });
+      committed = true;
     } catch (error) {
       if (!(error instanceof StudyGroupCompletionAlreadyClaimed)) throw error;
     }
-    return this.serializePlan(planId, userId);
+    const plan = await this.serializePlan(planId, userId);
+    if (!committed) return plan;
+    return {
+      ...plan,
+      words: plan.words.map((word) =>
+        previousIntervals.has(word.id)
+          ? { ...word, previousIntervalDays: previousIntervals.get(word.id) }
+          : word,
+      ),
+    };
   }
 
   private schedule(
@@ -744,6 +762,9 @@ export class StudyService {
         ? { selectedAnswer: item.attempts[0]!.selectedAnswer as string[] }
         : {}),
       nextReviewAt: item.completedAt ? (item.bookWord.progress[0]?.nextReviewAt ?? null) : null,
+      lastIntervalDays: item.completedAt
+        ? (item.bookWord.progress[0]?.lastIntervalDays ?? null)
+        : null,
       activeWeaknesses: item.completedAt
         ? item.bookWord.weaknesses.map((signal) => ({
             ...signal,
@@ -1153,11 +1174,29 @@ function escapeRegExp(value: string) {
 
 type PlanWordPick = { orderedIds: string[]; reviewIds: string[] };
 
+function sanitizeSkipReviewIds(ids: string[] | undefined) {
+  if (!ids?.length) return [];
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+    if (next.length >= 40) break;
+  }
+  return next;
+}
+
+function skippedReviewClause(ids: string[]) {
+  return ids.length ? Prisma.sql`AND progress."bookWordId" NOT IN (${Prisma.join(ids)})` : Prisma.empty;
+}
+
 async function selectDailyWords(
   tx: Prisma.TransactionClient,
   userId: string,
   newWordCount: number,
   requestedReviewWordCount?: number,
+  skipReviewWordIds: string[] = [],
 ): Promise<PlanWordPick> {
   const [review, defaultBook] = await Promise.all([
     tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
@@ -1173,6 +1212,7 @@ async function selectDailyWords(
           WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
         )
         AND ${usableBookWordMeaning}
+        ${skippedReviewClause(skipReviewWordIds)}
       ORDER BY progress."nextReviewAt" ASC, progress."lastReviewedAt" ASC, progress."bookWordId" ASC
       LIMIT ${requestedReviewWordCount ?? MAX_DAILY_REVIEW_WORDS}
     `),
@@ -1210,6 +1250,7 @@ async function selectIndividualWords(
   userId: string,
   selection: IndividualWordSelection,
   count: number,
+  skipReviewWordIds: string[] = [],
 ): Promise<PlanWordPick> {
   if (selection === 'due') {
     const limit = Math.min(count, DUE_DRILL_WORD_LIMIT);
@@ -1226,6 +1267,7 @@ async function selectIndividualWords(
           WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
         )
         AND ${usableBookWordMeaning}
+        ${skippedReviewClause(skipReviewWordIds)}
       ORDER BY progress."nextReviewAt" ASC, progress."lastReviewedAt" ASC, progress."bookWordId" ASC
       LIMIT ${limit}
     `);

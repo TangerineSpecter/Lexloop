@@ -60,11 +60,17 @@ export function parseDailyGoal(value: unknown): DailyGoalProgress | null {
 
 export function dailyGoalStatusText(goal: DailyGoalProgress) {
   if (goal.kind === 'activity') {
-    return goal.met ? '今日目标：完成 1 次学习 · 已完成' : '今日目标：完成 1 次学习 · 还差 1 次';
+    return goal.met ? '今日目标：完成 1 次学习，已经完成' : '今日目标：完成 1 次学习，还差 1 次';
   }
+  const remaining = Math.max(0, goal.target - goal.progress);
   return goal.met
-    ? `今日目标：复习 ${goal.target} 个词 · 已完成 ${goal.progress}/${goal.target}`
-    : `今日目标：复习 ${goal.target} 个词 · ${goal.progress}/${goal.target}`;
+    ? `今日目标：复习 ${goal.target} 个词，已经完成`
+    : `今日目标：复习 ${goal.target} 个词，还差 ${remaining} 个`;
+}
+
+export function dailyGoalProgressPercent(goal: DailyGoalProgress) {
+  if (goal.target <= 0) return 0;
+  return Math.min(100, Math.round((goal.progress / goal.target) * 100));
 }
 
 export function goalOptionValue(goal: DailyGoalProgress) {

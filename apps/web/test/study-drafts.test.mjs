@@ -5,6 +5,7 @@ import {
   clearStudyDraftIfMatches,
   readStudyDraftSnapshot,
   saveStudyDraft,
+  studyDraftAnswerCount,
 } from '../lib/study-drafts.ts';
 
 function createStorage() {
@@ -172,5 +173,16 @@ test('a snapshot is retained when its saved answers no longer match the submitte
   assert.deepEqual(
     readStudyDraftSnapshot('user', 'plan', 0, questions, storage).answers['word-1'],
     { selected: ['暗的'], confirmed: true },
+  );
+});
+
+test('counts saved answers only for the same questions', () => {
+  const storage = createStorage();
+  assert.equal(studyDraftAnswerCount('user', 'plan', 0, questions, storage), 0);
+  saveStudyDraft('user', 'plan', 0, questions, answers, storage);
+  assert.equal(studyDraftAnswerCount('user', 'plan', 0, questions, storage), 2);
+  assert.equal(
+    studyDraftAnswerCount('user', 'plan', 0, [{ ...questions[0], prompt: 'changed' }], storage),
+    0,
   );
 });

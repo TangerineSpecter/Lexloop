@@ -6,10 +6,13 @@ import {
   StudyPlanStatus,
   VocabularyBookKind,
   VocabularyCategory,
+  WeaknessStatus,
   WordProgressState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildDuePreview } from './due-preview';
 import { presentLexicalWord } from './lexical';
+import { countDistinctUsableWeakWords } from './weak-focus-count';
 
 const categoryLabels: Record<VocabularyCategory, string> = {
   PRIMARY: '小学',
@@ -957,7 +960,7 @@ export class VocabularyService {
     return { success: true };
   }
 
-  async getDashboardWords(userId: string, requestedNewWordCount?: string) {
+  async getDashboardWords(userId: string, requestedNewWordCount?: string, timeZone?: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { defaultNewWordCount: true },
@@ -966,12 +969,13 @@ export class VocabularyService {
     const newWordCount = Number.isInteger(parsedCount)
       ? Math.min(100, Math.max(1, parsedCount))
       : user.defaultNewWordCount;
-    const [reviewProgresses, defaultBook] = await Promise.all([
+    const now = new Date();
+    const [reviewProgresses, defaultBook, dueRows, weakRows] = await Promise.all([
       this.prisma.userWordProgress.findMany({
         where: {
           userId,
           state: WordProgressState.REVIEWING,
-          nextReviewAt: { lte: new Date() },
+          nextReviewAt: { lte: now },
           bookWord: { word: { masteredBy: { none: { userId } } } },
         },
         orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }],
@@ -980,6 +984,26 @@ export class VocabularyService {
       this.prisma.userVocabularyBook.findFirst({
         where: { userId, isDefault: true },
         select: { bookId: true },
+      }),
+      this.prisma.userWordProgress.findMany({
+        where: {
+          userId,
+          state: WordProgressState.REVIEWING,
+          nextReviewAt: { not: null },
+          bookWord: { word: { masteredBy: { none: { userId } } } },
+        },
+        select: { nextReviewAt: true },
+      }),
+      this.prisma.weaknessSignal.findMany({
+        where: {
+          userId,
+          status: WeaknessStatus.ACTIVE,
+          bookWord: { word: { masteredBy: { none: { userId } } } },
+        },
+        select: {
+          bookWordId: true,
+          bookWord: { select: { contextMeaning: true, word: { select: { meaning: true } } } },
+        },
       }),
     ]);
     const newBookWords = defaultBook
@@ -1003,6 +1027,18 @@ export class VocabularyService {
         lastIntervalDays: progress.lastIntervalDays,
       })),
       newWords: newBookWords.map((bookWord) => this.toDashboardWord(bookWord)),
+      duePreview: buildDuePreview({
+        dueAt: dueRows.map((row) => row.nextReviewAt),
+        now,
+        timeZone,
+      }),
+      weakFocusCount: countDistinctUsableWeakWords(
+        weakRows.map((row) => ({
+          bookWordId: row.bookWordId,
+          meaning: row.bookWord.word.meaning,
+          contextMeaning: row.bookWord.contextMeaning,
+        })),
+      ),
     };
   }
 
