@@ -148,7 +148,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         const select = async (
           userId: string,
-          source: 'book' | 'mistakes' | 'random' | 'frequent',
+          source: 'book' | 'mistakes' | 'random' | 'frequent' | 'due',
           count = 20,
         ) => {
           const plan = await service.createPlan(userId, count, 'individual', 0, source);
@@ -193,6 +193,16 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(frequentPlan.words.map((item) => item.id)).toEqual([gamma.id, beta.id, delta.id]);
         expect(frequentPlan.words.map((item) => item.source)).toEqual(['REVIEW', 'REVIEW', 'NEW']);
         await removePlan(frequentPlan.id);
+
+        await prisma.userWordProgress.update({
+          where: { userId_bookWordId: { userId: learner.id, bookWordId: beta.id } },
+          data: { state: 'REVIEWING', nextReviewAt: new Date('2020-01-01T00:00:00.000Z') },
+        });
+        const duePlan = await select(learner.id, 'due', 20);
+        expect(duePlan.words.map((item) => item.id)).toEqual([beta.id]);
+        expect(duePlan.words.every((item) => item.source === 'REVIEW')).toBe(true);
+        await removePlan(duePlan.id);
+        await expect(select(otherLearner.id, 'due', 10)).rejects.toThrow('到期词');
 
         expect(selectedProvider).not.toHaveBeenCalled();
         expect(ai.generateForUser).not.toHaveBeenCalled();

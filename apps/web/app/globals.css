@@ -3925,6 +3925,70 @@ button {
   outline: 3px solid #fffefa;
   outline-offset: 3px;
 }
+.streak-goal,
+.streak-goal-done,
+.streak-goal-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.streak-goal-done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+.streak-goal-done button,
+.streak-goal-setting select,
+.quick-drill-row button,
+.retest-actions button {
+  font: inherit;
+}
+.streak-goal-done button {
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--gold);
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.streak-goal-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.streak-goal-setting select {
+  flex: 1 1 8rem;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 800;
+}
+.streak-goal-error {
+  color: #fff4b9;
+  font-weight: 800;
+}
+.streak-goal-setting select:focus-visible,
+.streak-goal-done button:focus-visible,
+.quick-drill-row button:focus-visible,
+.retest-actions button:focus-visible {
+  outline: 3px solid var(--border-color);
+  outline-offset: 2px;
+}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -4421,6 +4485,43 @@ button {
 .word-source-bar {
   color: var(--border-color);
 }
+.quick-drill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 28px 0;
+}
+.quick-drill-row button {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  color: var(--border-color);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.quick-drill-row button:hover:not(:disabled) {
+  background: #fff4b9;
+}
+.quick-drill-row button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.quick-drill-row p {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
 .mode-note {
   margin: 0;
   padding: 14px 28px 0;
@@ -4614,6 +4715,15 @@ button {
   color: var(--border-color);
   font-size: 22px;
   font-weight: 800;
+}
+.word-due-reason {
+  display: block;
+  margin-top: 6px;
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  opacity: 0.75;
 }
 .word-copy p,
 .meaning-lines p {
@@ -10401,6 +10511,66 @@ button {
 }
 .statistics-page > .dashboard-return-button:first-child {
   margin-bottom: 18px;
+}
+.statistics-daily-goal,
+.settlement-follow-up,
+.lesson-quick-drill-note {
+  margin: 8px 0 0;
+  color: var(--border-color);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.retest-page {
+  width: min(760px, calc(100% - 48px));
+  margin: 24px auto 48px;
+  display: grid;
+  gap: 16px;
+  color: var(--border-color);
+}
+.retest-page h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+}
+.retest-page header p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.retest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.retest-actions button {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 3px solid var(--border-color);
+  background: #fffefa;
+  color: var(--border-color);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.retest-actions button.primary {
+  background: var(--teal);
+  color: #fff;
+}
+.retest-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (max-width: 680px) {
+  .retest-page {
+    width: calc(100% - 32px);
+    margin-top: 16px;
+  }
+  .quick-drill-row {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
 .statistics-heading {
   display: flex;

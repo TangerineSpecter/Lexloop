@@ -71,7 +71,11 @@ describe('learning career reporting rules', () => {
       scenarioDates: ['2026-10-25T09:00:00.000Z'],
     });
 
-    await expect(service.streak('user')).resolves.toEqual({ currentStreak: 3, todayActive: true });
+    await expect(service.streak('user')).resolves.toEqual({
+      currentStreak: 3,
+      todayActive: true,
+      goal: { kind: 'activity', target: 1, progress: 1, met: true },
+    });
     expect(prisma.wordReviewAttempt.findMany.mock.calls[0][0].where.userId).toBe('user');
     expect(prisma.scenarioSession.findMany.mock.calls[0][0].where.userId).toBe('user');
     expect(prisma.assessmentAttempt.findMany.mock.calls[0][0].where.userId).toBe('user');
@@ -87,7 +91,11 @@ describe('learning career reporting rules', () => {
       practiceDates: ['2026-10-25'],
     });
 
-    await expect(service.streak('user')).resolves.toEqual({ currentStreak: 2, todayActive: false });
+    await expect(service.streak('user')).resolves.toEqual({
+      currentStreak: 2,
+      todayActive: false,
+      goal: { kind: 'activity', target: 1, progress: 0, met: false },
+    });
   });
 
   it('uses the learner time zone at the local day boundary across UTC midnight', async () => {
@@ -102,6 +110,7 @@ describe('learning career reporting rules', () => {
     await expect(service.streak('user', 'Asia/Shanghai')).resolves.toEqual({
       currentStreak: 2,
       todayActive: true,
+      goal: { kind: 'activity', target: 1, progress: 1, met: true },
     });
     expect(prisma.$queryRaw.mock.calls[0].slice(1)).toContain('Asia/Shanghai');
   });
@@ -111,8 +120,57 @@ describe('learning career reporting rules', () => {
     vi.setSystemTime(new Date('2026-10-26T12:00:00.000Z'));
     const { service } = streakService();
 
-    await expect(service.streak('user')).resolves.toEqual({ currentStreak: 0, todayActive: false });
+    await expect(service.streak('user')).resolves.toEqual({
+      currentStreak: 0,
+      todayActive: false,
+      goal: { kind: 'activity', target: 1, progress: 0, met: false },
+    });
     await expect(service.streak('user', 'not-a-time-zone')).rejects.toThrow('Invalid time zone');
+  });
+
+  it('counts unique review words toward a review goal without treating a scenario as a review', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-26T16:30:00.000Z'));
+    const { service } = streakService({
+      goal: { dailyGoalKind: 'REVIEWS', dailyGoalTarget: 5 },
+      scenarioDates: ['2026-10-26T16:00:00.000Z'],
+      attemptDates: [
+        { createdAt: '2026-10-26T16:00:00.000Z', bookWordId: 'alpha' },
+        { createdAt: '2026-10-26T16:10:00.000Z', bookWordId: 'alpha' },
+        { createdAt: '2026-10-26T15:30:00.000Z', bookWordId: 'yesterday-in-shanghai' },
+      ],
+    });
+
+    await expect(service.streak('user', 'Asia/Shanghai')).resolves.toMatchObject({
+      todayActive: true,
+      goal: { kind: 'reviews', target: 5, progress: 1, met: false },
+    });
+    await expect(service.streak('user', 'UTC')).resolves.toMatchObject({
+      goal: { kind: 'reviews', target: 5, progress: 2, met: false },
+    });
+  });
+
+  it('saves a review goal and reports it from the same streak evidence', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-26T12:00:00.000Z'));
+    const { service, prisma } = streakService({
+      attemptDates: [
+        { createdAt: '2026-10-26T09:00:00.000Z', bookWordId: 'one' },
+        { createdAt: '2026-10-26T10:00:00.000Z', bookWordId: 'two' },
+      ],
+    });
+
+    await expect(service.updateDailyGoal('user', 'reviews', 7)).rejects.toThrow(
+      '复习目标只能是 5、10 或 15 个词',
+    );
+    await expect(service.updateDailyGoal('user', 'reviews', 10, 'UTC')).resolves.toMatchObject({
+      todayActive: true,
+      goal: { kind: 'reviews', target: 10, progress: 2, met: false },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user' },
+      data: { dailyGoalKind: 'REVIEWS', dailyGoalTarget: 10 },
+    });
   });
 });
 
@@ -235,17 +293,30 @@ function streakService({
   scenarioDates = [],
   assessmentDates = [],
   practiceDates = [],
+  goal = { dailyGoalKind: 'ACTIVITY', dailyGoalTarget: 1 },
 }: {
-  attemptDates?: string[];
+  attemptDates?: Array<string | { createdAt: string; bookWordId: string }>;
   scenarioDates?: string[];
   assessmentDates?: string[];
   practiceDates?: string[];
+  goal?: { dailyGoalKind: string; dailyGoalTarget: number };
 } = {}) {
+  const user = { ...goal };
   const prisma = {
+    user: {
+      findUnique: vi.fn(async () => user),
+      update: vi.fn(async ({ data }: { data: typeof user }) => Object.assign(user, data)),
+    },
     wordReviewAttempt: {
       findMany: vi
         .fn()
-        .mockResolvedValue(attemptDates.map((createdAt) => ({ createdAt: new Date(createdAt) }))),
+        .mockResolvedValue(
+          attemptDates.map((attempt) =>
+            typeof attempt === 'string'
+              ? { createdAt: new Date(attempt), bookWordId: attempt }
+              : { createdAt: new Date(attempt.createdAt), bookWordId: attempt.bookWordId },
+          ),
+        ),
     },
     scenarioSession: {
       findMany: vi
@@ -296,6 +367,9 @@ function periodStatisticsService() {
     { bookWordId: 'two', isCorrect: false, createdAt: now, responseTimeMs: 1100 },
   ];
   const prisma = {
+    user: {
+      findUnique: vi.fn().mockResolvedValue({ dailyGoalKind: 'ACTIVITY', dailyGoalTarget: 1 }),
+    },
     wordReviewAttempt: {
       findMany: vi.fn(
         ({

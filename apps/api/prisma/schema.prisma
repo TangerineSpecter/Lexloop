@@ -86,6 +86,11 @@ enum StudyPlanItemSource {
   REVIEW
 }
 
+enum DailyGoalKind {
+  ACTIVITY
+  REVIEWS
+}
+
 enum CefrLevel {
   A1
   A2
@@ -255,6 +260,8 @@ model User {
   aiCalls        AiCallAudit[]
   selectedAiModelId String?
   defaultNewWordCount Int @default(10)
+  dailyGoalKind DailyGoalKind @default(ACTIVITY)
+  dailyGoalTarget Int @default(1)
   learningRecordsVersion Int @default(0)
   selectedAiModel AiModelConfig? @relation("UserSelectedAiModel", fields: [selectedAiModelId], references: [id], onDelete: SetNull)
   vocabularyBooks UserVocabularyBook[]
