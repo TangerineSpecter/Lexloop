@@ -3985,6 +3985,7 @@ button {
 .streak-goal-setting select:focus-visible,
 .streak-goal-done button:focus-visible,
 .quick-drill-row button:focus-visible,
+.session-recap button:focus-visible,
 .retest-actions button:focus-visible {
   outline: 3px solid var(--border-color);
   outline-offset: 2px;
@@ -4521,6 +4522,109 @@ button {
   font-size: 12px;
   font-weight: 700;
   line-height: 1.45;
+}
+.due-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 28px 0;
+  color: var(--border-color);
+}
+.due-preview > p,
+.review-queue-note {
+  margin: 0;
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.due-preview > p {
+  flex: 1 1 100%;
+}
+.due-preview > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.due-preview span {
+  display: grid;
+  justify-items: center;
+  flex: 1 1 4.5rem;
+  max-width: 7rem;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+  box-sizing: border-box;
+}
+.due-preview small {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+.due-preview b {
+  font-size: 18px;
+  line-height: 1.2;
+}
+.review-queue-note {
+  margin: 12px 28px 0;
+}
+.session-recap {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--border-color);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.session-recap header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.session-recap strong {
+  min-width: 0;
+}
+.session-recap button {
+  flex: 0 0 auto;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--gold);
+  color: var(--border-color);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.session-recap p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 680px) {
+  .quick-drill-row,
+  .due-preview {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .review-queue-note {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
 }
 .mode-note {
   margin: 0;
@@ -10520,6 +10624,7 @@ button {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .retest-page {
   width: min(760px, calc(100% - 48px));

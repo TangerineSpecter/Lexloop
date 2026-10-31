@@ -189,8 +189,9 @@ export class VocabularyController {
   @Get('dashboard-words') dashboardWords(
     @Req() request: AuthenticatedRequest,
     @Query('newWordCount') newWordCount?: string,
+    @Query('timeZone') timeZone?: string,
   ) {
-    return this.vocabulary.getDashboardWords(request.user.sub, newWordCount);
+    return this.vocabulary.getDashboardWords(request.user.sub, newWordCount, timeZone);
   }
   @Patch('dashboard-settings') updateDashboardSettings(
     @Req() request: AuthenticatedRequest,
