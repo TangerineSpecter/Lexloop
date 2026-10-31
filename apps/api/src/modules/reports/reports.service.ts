@@ -4,6 +4,7 @@ import {
   AiCallStatus,
   AssessmentItemType,
   CefrLevel,
+  DailyGoalKind,
   Prisma,
   ProfileConfidence,
   ProfileSnapshotSource,
@@ -170,11 +171,13 @@ export class ReportsService {
     const responseTimes = attempts
       .map((item) => item.responseTimeMs)
       .filter((value): value is number => value != null);
+    const streak = await this.streakSummary(userId, timeZone);
     return {
       activeDays,
       activity,
       chart,
-      currentStreak: await this.currentStreak(userId, timeZone),
+      currentStreak: streak.currentStreak,
+      dailyGoal: streak.goal,
       learnedWords: progresses.filter((item) => item.firstLearnedAt).length,
       masteredWords: mastered,
       newWords: progresses.filter(
@@ -209,6 +212,25 @@ export class ReportsService {
 
   async streak(userId: string, timeZone = 'UTC') {
     return this.streakSummary(userId, timeZone);
+  }
+
+  async updateDailyGoal(
+    userId: string,
+    kind: 'activity' | 'reviews',
+    target: number | undefined,
+    timeZone = 'UTC',
+  ) {
+    if (kind === 'reviews' && target !== 5 && target !== 10 && target !== 15) {
+      throw new BadRequestException('复习目标只能是 5、10 或 15 个词');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        dailyGoalKind: kind === 'reviews' ? DailyGoalKind.REVIEWS : DailyGoalKind.ACTIVITY,
+        dailyGoalTarget: kind === 'reviews' ? target! : 1,
+      },
+    });
+    return this.streak(userId, timeZone);
   }
 
   async history(
@@ -733,10 +755,6 @@ export class ReportsService {
       await this.prisma.languageProfileSnapshot.createMany({ data: rows, skipDuplicates: true });
   }
 
-  private async currentStreak(userId: string, timeZone: string) {
-    return (await this.streakSummary(userId, timeZone)).currentStreak;
-  }
-
   private async streakSummary(userId: string, requestedTimeZone: string) {
     const timeZone = validateTimeZone(requestedTimeZone);
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -748,10 +766,10 @@ export class ReportsService {
     const getDateKey = (date: Date) => dateKeyInTimeZone(formatter, date);
     const now = new Date();
     const since = new Date(now.getTime() - 367 * DAY);
-    const [attempts, scenarios, assessments, practiceDates] = await Promise.all([
+    const [attempts, scenarios, assessments, practiceDates, user] = await Promise.all([
       this.prisma.wordReviewAttempt.findMany({
         where: { userId, createdAt: { gte: since } },
-        select: { createdAt: true },
+        select: { createdAt: true, bookWordId: true },
       }),
       this.prisma.scenarioSession.findMany({
         where: { userId, status: ScenarioSessionStatus.COMPLETED, completedAt: { gte: since } },
@@ -768,6 +786,10 @@ export class ReportsService {
           AND "type" IN ('OUTPUT_COMPLETED', 'CONFUSION_COMPLETED', 'READING_COMPLETED', 'GRAMMAR_COMPLETED', 'MICRO_STORY_COMPLETED')
         GROUP BY 1
       `,
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { dailyGoalKind: true, dailyGoalTarget: true },
+      }),
     ]);
     const eventDates = [
       ...attempts.map((item) => item.createdAt),
@@ -787,7 +809,21 @@ export class ReportsService {
       streak++;
       cursor.setUTCDate(cursor.getUTCDate() - 1);
     }
-    return { currentStreak: streak, todayActive };
+    const todayReviewCount = new Set(
+      attempts
+        .filter((item) => getDateKey(item.createdAt) === today)
+        .map((item) => item.bookWordId || item.createdAt.toISOString()),
+    ).size;
+    const kind: 'activity' | 'reviews' =
+      user?.dailyGoalKind === DailyGoalKind.REVIEWS ? 'reviews' : 'activity';
+    const target = kind === 'reviews' ? normalizeReviewTarget(user?.dailyGoalTarget) : 1;
+    const progress = kind === 'reviews' ? Math.min(todayReviewCount, target) : todayActive ? 1 : 0;
+    const met = kind === 'reviews' ? todayReviewCount >= target : todayActive;
+    return {
+      currentStreak: streak,
+      todayActive,
+      goal: { kind, target, progress, met },
+    };
   }
   private practiceDays(userId: string, start: Date, end: Date, timeZone: string) {
     return this.prisma.$queryRaw<Array<{ dateKey: string; count: number }>>`
@@ -797,6 +833,10 @@ export class ReportsService {
       GROUP BY 1
     `;
   }
+}
+
+function normalizeReviewTarget(value: number | null | undefined) {
+  return value === 5 || value === 10 || value === 15 ? value : 10;
 }
 
 function isActiveDay(day: {

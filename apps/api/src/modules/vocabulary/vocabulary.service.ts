@@ -890,6 +890,7 @@ export class VocabularyService {
         reviewCount: progress.reviewCount,
         lastReviewedAt: progress.lastReviewedAt,
         nextReviewAt: progress.nextReviewAt,
+        lastIntervalDays: progress.lastIntervalDays,
         bookTitle: progress.bookWord.book.title,
       };
     });
@@ -995,7 +996,12 @@ export class VocabularyService {
       : [];
     return {
       defaultNewWordCount: user.defaultNewWordCount,
-      reviewWords: reviewProgresses.map((progress) => this.toDashboardWord(progress.bookWord)),
+      reviewWords: reviewProgresses.map((progress) => ({
+        ...this.toDashboardWord(progress.bookWord),
+        lastReviewedAt: progress.lastReviewedAt,
+        nextReviewAt: progress.nextReviewAt,
+        lastIntervalDays: progress.lastIntervalDays,
+      })),
       newWords: newBookWords.map((bookWord) => this.toDashboardWord(bookWord)),
     };
   }

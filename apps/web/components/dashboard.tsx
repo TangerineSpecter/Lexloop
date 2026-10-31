@@ -63,7 +63,25 @@ import {
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
+import {
+  dailyGoalStatusText,
+  goalCelebrationDecision,
+  goalOptionValue,
+  localDateKey,
+  parseDailyGoal,
+  parseGoalOption,
+  readDailyGoalVisit,
+  writeDailyGoalVisit,
+  type DailyGoalProgress,
+} from '../lib/daily-goal';
+import {
+  QUICK_DRILL_WORD_COUNT,
+  readQuickDrillPlanId,
+  rememberQuickDrill,
+} from '../lib/quick-drill';
+import { reviewDueReason } from '../lib/review-due-reason';
 import { hasUsableWordMeaning } from '../lib/word-meaning-availability';
+import { wrongRetestPlan } from '../lib/wrong-item-retest';
 import { speakEnglish } from './english-audio-controls';
 import { findTargetWordMatches } from '../lib/target-word-highlighting';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
@@ -163,7 +181,9 @@ type Word = {
   completed?: boolean;
   result?: boolean;
   savedContext?: { scenario: string | null; example: string };
+  lastReviewedAt?: string | null;
   nextReviewAt?: string | null;
+  lastIntervalDays?: number | null;
   activeWeaknesses?: Array<{
     questionType: string;
     wrongCount: number;
@@ -290,6 +310,7 @@ type LearningWord = Omit<Word, 'state'> & {
   reviewCount: number;
   lastReviewedAt: string | null;
   nextReviewAt: string | null;
+  lastIntervalDays?: number | null;
   bookTitle: string;
 };
 const VOCABULARY_ARCHIVE_PAGE_SIZE = 50;
@@ -1843,25 +1864,38 @@ function LearningWordsPage({ session, onBack }: { session: Session; onBack: () =
             <span>上次复习</span>
             <span>下次复习</span>
           </header>
-          {words.map((word) => (
-            <article key={word.id}>
-              <div>
-                <strong>{word.word}</strong>
-                <PhoneticLine word={word} />
-                <MeaningLines word={word} />
-                <small>{word.bookTitle}</small>
-              </div>
-              <span
-                className={`learning-state ${word.state === 'REVIEWING' ? 'is-reviewing' : ''}`}
-              >
-                {word.state === 'REVIEWING' ? '复习中' : '学习中'}
-                <em>{word.reinforcement}</em>
-              </span>
-              <b>{word.accuracy}%</b>
-              <time>{date(word.lastReviewedAt)}</time>
-              <time>{date(word.nextReviewAt)}</time>
-            </article>
-          ))}
+          {words.map((word) => {
+            const dueReason =
+              word.state === 'REVIEWING'
+                ? reviewDueReason({
+                    now: new Date(),
+                    lastReviewedAt: word.lastReviewedAt,
+                    nextReviewAt: word.nextReviewAt,
+                    lastIntervalDays: word.lastIntervalDays,
+                    timeZone: browserTimeZone(),
+                  })
+                : null;
+            return (
+              <article key={word.id}>
+                <div>
+                  <strong>{word.word}</strong>
+                  <PhoneticLine word={word} />
+                  <MeaningLines word={word} />
+                  <small>{word.bookTitle}</small>
+                  {dueReason && <small className="word-due-reason">{dueReason}</small>}
+                </div>
+                <span
+                  className={`learning-state ${word.state === 'REVIEWING' ? 'is-reviewing' : ''}`}
+                >
+                  {word.state === 'REVIEWING' ? '复习中' : '学习中'}
+                  <em>{word.reinforcement}</em>
+                </span>
+                <b>{word.accuracy}%</b>
+                <time>{date(word.lastReviewedAt)}</time>
+                <time>{date(word.nextReviewAt)}</time>
+              </article>
+            );
+          })}
         </div>
       )}
       {archiveQuery.data && (archiveQuery.hasNextPage || archiveQuery.isFetchNextPageError) && (
@@ -1924,11 +1958,18 @@ function WordArchiveLoadState({
   );
 }
 
-type LearningStreakSummary = { currentStreak: number; todayActive: boolean };
+type LearningStreakSummary = {
+  currentStreak: number;
+  todayActive: boolean;
+  goal?: DailyGoalProgress;
+};
 
 function StreakCard({ session }: { session: Session }) {
   const [summary, setSummary] = useState<LearningStreakSummary | null>(null);
   const [failed, setFailed] = useState(false);
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [goalError, setGoalError] = useState('');
+  const [celebration, setCelebration] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1938,8 +1979,9 @@ function StreakCard({ session }: { session: Session }) {
       session.accessToken,
     )
       .then((result) => {
-        if (!isLearningStreakSummary(result)) throw new Error('Invalid learning streak response');
-        if (active) setSummary(result);
+        const summary = normalizeLearningStreakSummary(result);
+        if (!summary) throw new Error('Invalid learning streak response');
+        if (active) setSummary(summary);
       })
       .catch(() => {
         if (active) setFailed(true);
@@ -1948,6 +1990,54 @@ function StreakCard({ session }: { session: Session }) {
       active = false;
     };
   }, [session.accessToken]);
+
+  useEffect(() => {
+    if (!summary?.goal) return;
+    const storage = goalVisitStorage();
+    if (!storage) return;
+    const decision = goalCelebrationDecision(
+      readDailyGoalVisit(storage, session.user.id),
+      localDateKey(browserTimeZone()),
+      summary.goal.met,
+    );
+    writeDailyGoalVisit(storage, session.user.id, decision.next);
+    if (decision.show) setCelebration(true);
+  }, [session.user.id, summary]);
+
+  const saveGoal = async (value: string) => {
+    const next = parseGoalOption(value);
+    if (!next || savingGoal) return;
+    setSavingGoal(true);
+    setGoalError('');
+    try {
+      const result = await request<LearningStreakSummary>(
+        `/reports/daily-goal?timeZone=${encodeURIComponent(browserTimeZone())}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ kind: next.kind, target: next.target }),
+        },
+        session.accessToken,
+      );
+      const normalized = normalizeLearningStreakSummary(result);
+      if (!normalized) throw new Error('今日目标保存后的学习记录无效');
+      setSummary(normalized);
+    } catch (error) {
+      setGoalError(error instanceof Error ? error.message : '今日目标保存失败，请重试。');
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const dismissCelebration = () => {
+    setCelebration(false);
+    const storage = goalVisitStorage();
+    if (!storage || !summary?.goal) return;
+    writeDailyGoalVisit(storage, session.user.id, {
+      date: localDateKey(browserTimeZone()),
+      met: true,
+      dismissed: true,
+    });
+  };
 
   return (
     <div className="streak-card-wrap">
@@ -1967,6 +2057,40 @@ function StreakCard({ session }: { session: Session }) {
                   ? '今天已有学习记录。'
                   : '今天还没有已完成的学习活动。'}
             </p>
+            {summary?.goal && (
+              <p className="streak-goal" role="status">
+                {dailyGoalStatusText(summary.goal)}
+              </p>
+            )}
+            {celebration && (
+              <p className="streak-goal-done" role="status">
+                <span>今天的学习目标完成了</span>
+                <button type="button" onClick={dismissCelebration}>
+                  知道了
+                </button>
+              </p>
+            )}
+            {summary?.goal && (
+              <label className="streak-goal-setting">
+                今日目标
+                <select
+                  aria-label="今日学习目标"
+                  value={goalOptionValue(summary.goal)}
+                  disabled={savingGoal}
+                  onChange={(event) => void saveGoal(event.target.value)}
+                >
+                  <option value="activity">完成 1 次学习</option>
+                  <option value="reviews:5">复习 5 个词</option>
+                  <option value="reviews:10">复习 10 个词</option>
+                  <option value="reviews:15">复习 15 个词</option>
+                </select>
+              </label>
+            )}
+            {goalError && (
+              <p className="streak-goal-error" role="alert">
+                {goalError}
+              </p>
+            )}
             <a className="streak-start-link" href="/dashboard/micro-stories">
               <BookOpen size={17} aria-hidden="true" />
               <span>开始一分钟微故事</span>
@@ -1984,14 +2108,23 @@ function StreakCard({ session }: { session: Session }) {
   );
 }
 
-function isLearningStreakSummary(value: unknown): value is LearningStreakSummary {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    Number.isSafeInteger((value as LearningStreakSummary).currentStreak) &&
-    (value as LearningStreakSummary).currentStreak >= 0 &&
-    typeof (value as LearningStreakSummary).todayActive === 'boolean'
-  );
+function goalVisitStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLearningStreakSummary(value: unknown): LearningStreakSummary | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const summary = value as LearningStreakSummary;
+  if (!Number.isSafeInteger(summary.currentStreak) || summary.currentStreak < 0) return null;
+  if (typeof summary.todayActive !== 'boolean') return null;
+  const goal = parseDailyGoal((value as { goal?: unknown }).goal);
+  return goal
+    ? { ...summary, goal }
+    : { currentStreak: summary.currentStreak, todayActive: summary.todayActive };
 }
 
 function AccountMenu({
@@ -2882,6 +3015,7 @@ function WordsPanel({
   const [failedWordCount, setFailedWordCount] = useState<number>();
   const wordsLoadRequestRef = useRef(0);
   const [creatingPlan, setCreatingPlan] = useState(false);
+  const [creatingDrill, setCreatingDrill] = useState(false);
   const creatingPlanRef = useRef(false);
   const bookWordsReady = bookId !== null && loadedBookId === bookId && wordsLoadStatus === 'ready';
   const visibleDashboardWords = bookWordsReady
@@ -3003,6 +3137,45 @@ function WordsPanel({
       setCreatingPlan(false);
     }
   };
+  const drillDisabled =
+    creatingPlan ||
+    creatingDrill ||
+    !planListReady ||
+    Boolean(existingPlan) ||
+    !bookWordsReady ||
+    reviewCandidateCount === 0;
+  const startQuickDrill = async () => {
+    if (drillDisabled || creatingPlanRef.current) return;
+    creatingPlanRef.current = true;
+    setCreatingDrill(true);
+    setMessage('');
+    try {
+      const plan = await request<LearningPlan>(
+        '/study/plans',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            mode: 'individual',
+            selection: 'due',
+            newWordCount: QUICK_DRILL_WORD_COUNT,
+            reviewWordCount: 0,
+          }),
+        },
+        session.accessToken,
+      );
+      try {
+        rememberQuickDrill(window.sessionStorage, session.user.id, plan.id);
+      } catch {
+        // The plan still opens. The completion note is optional when storage is unavailable.
+      }
+      onCreatePlan(plan);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '创建快练失败，请重试。');
+    } finally {
+      creatingPlanRef.current = false;
+      setCreatingDrill(false);
+    }
+  };
   return (
     <section className="words-panel">
       <header className="panel-top">
@@ -3060,6 +3233,7 @@ function WordsPanel({
             onClick={() => void createPlan()}
             disabled={
               creatingPlan ||
+              creatingDrill ||
               !planListReady ||
               (!existingPlan &&
                 mode === 'individual' &&
@@ -3096,6 +3270,27 @@ function WordsPanel({
           </Tooltip>
         </div>
       </header>
+      <div className="quick-drill-row">
+        <button
+          type="button"
+          className="quick-drill"
+          disabled={drillDisabled}
+          onClick={() => void startQuickDrill()}
+        >
+          {creatingDrill ? '正在创建快练…' : '5 分钟快练'}
+        </button>
+        <p>
+          {!planListReady
+            ? '先读取已有计划，再开始快练。'
+            : existingPlan
+              ? '先完成当前学习计划，再开始快练。'
+              : !bookWordsReady
+                ? '先确认词表和到期词，再开始快练。'
+                : reviewCandidateCount === 0
+                  ? '今天没有带可用释义的到期词。'
+                  : `最多 ${QUICK_DRILL_WORD_COUNT} 个到期词，走独立单词练习，建议 5 分钟内做完。`}
+        </p>
+      </div>
       {needsBookSelection && (
         <div className="book-selection-prompt" role="group" aria-labelledby="book-selection-title">
           <div>
@@ -3500,12 +3695,23 @@ function WordRow({
   onMarkMastered?: (word: Word) => Promise<void>;
   onDefer?: (word: Word) => Promise<void>;
 }) {
+  const dueReason =
+    word.state === 'review'
+      ? reviewDueReason({
+          now: new Date(),
+          lastReviewedAt: word.lastReviewedAt,
+          nextReviewAt: word.nextReviewAt,
+          lastIntervalDays: word.lastIntervalDays,
+          timeZone: browserTimeZone(),
+        })
+      : null;
   return (
     <article className="word-row">
       <div className="word-copy">
         <strong>{word.word}</strong>
         <PhoneticLine word={word} />
         <MeaningLines word={word} />
+        {dueReason && <small className="word-due-reason">{dueReason}</small>}
       </div>
       <div className="word-actions">
         {word.state === 'review' && (
@@ -3999,16 +4205,121 @@ function SynonymDemo({
   );
 }
 
+function isRememberedQuickDrill(userId: string, planId: string) {
+  try {
+    return readQuickDrillPlanId(window.sessionStorage, userId) === planId;
+  } catch {
+    return false;
+  }
+}
+
+function WrongItemRetest({
+  items,
+  omitted,
+  onDone,
+  onSkip,
+  onLeave,
+}: {
+  items: Word[];
+  omitted: number;
+  onDone: (correct: number) => void;
+  onSkip: () => void;
+  onLeave: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [answer, setAnswer] = useState<{ selected: string[]; confirmed: boolean } | undefined>();
+  const [revealed, setRevealed] = useState(false);
+  const [correctCount, setCorrectCount] = useState(0);
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const item = items[index];
+  const question = item?.question;
+  useEffect(() => {
+    if (revealed) nextButtonRef.current?.focus();
+  }, [revealed, index]);
+  if (!item || !question) return null;
+  const matchingReady =
+    question.type === 'WORD_MATCHING' &&
+    (answer?.selected.length ?? 0) >= (question.pairs?.length ?? 0) &&
+    (question.pairs?.length ?? 0) > 0;
+  const advance = () => {
+    const correct = gradeGeneratedAnswer(question, answer?.selected ?? []) ? 1 : 0;
+    const nextCorrect = correctCount + correct;
+    if (index + 1 >= items.length) {
+      onDone(nextCorrect);
+      return;
+    }
+    setCorrectCount(nextCorrect);
+    setIndex((current) => current + 1);
+    setAnswer(undefined);
+    setRevealed(false);
+  };
+  return (
+    <section className="retest-page" aria-labelledby="retest-title">
+      <header>
+        <p>RETRIEVAL · 错题回炉</p>
+        <h1 id="retest-title">再练刚才答错的词</h1>
+        <p>
+          第 {index + 1} / {items.length}{' '}
+          题。答完立即看到正误和解析。这一步不提交新作答，也不改复习时间或错题记录。
+        </p>
+        {omitted > 0 && (
+          <p>
+            还有 {omitted} 个错词留在错题本，这次只回炉 {items.length} 个。
+          </p>
+        )}
+      </header>
+      <GeneratedQuestionCard
+        key={`${item.id ?? item.word}:${index}`}
+        question={question}
+        word={item}
+        toneIndex={index}
+        answer={answer}
+        busy={revealed}
+        revealed={revealed}
+        onAnswer={(selected, confirmed) => {
+          setAnswer({ selected, confirmed });
+          if (confirmed) setRevealed(true);
+        }}
+      />
+      <div className="retest-actions">
+        {!revealed && question.type === 'WORD_MATCHING' && (
+          <button
+            type="button"
+            className="primary"
+            disabled={!matchingReady}
+            onClick={() => setRevealed(true)}
+          >
+            查看对错
+          </button>
+        )}
+        {revealed && (
+          <button type="button" className="primary" ref={nextButtonRef} onClick={advance}>
+            {index + 1 >= items.length ? '查看总结' : '下一题'}
+          </button>
+        )}
+        <button type="button" onClick={onSkip}>
+          跳过，查看总结
+        </button>
+        <button type="button" onClick={onLeave}>
+          返回学习序列
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function GroupSettlement({
   words,
   results,
   summary,
+  notes = [],
   onBack,
   onOpenMistakes,
 }: {
   words: Word[];
   results: Record<string, boolean>;
   summary?: LearningPlan['summary'];
+  notes?: string[];
   onBack: () => void;
   onOpenMistakes?: () => void;
 }) {
@@ -4054,6 +4365,11 @@ function GroupSettlement({
           <span>
             下方是本组首次有效作答结果，以及用户当前的排期和薄弱项状态；后两者不是本组完成时快照。
           </span>
+          {notes.map((note) => (
+            <p key={note} className="settlement-follow-up">
+              {note}
+            </p>
+          ))}
         </div>
         <div className="settlement-stamp">
           <Trophy size={27} />
@@ -4270,6 +4586,8 @@ function GeneratedStudyPage({
   const [draftRevision, setDraftRevision] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [finishedPlan, setFinishedPlan] = useState<LearningPlan | null>(null);
+  const [retestPhase, setRetestPhase] = useState<'pending' | 'done' | 'skipped'>('pending');
+  const [retestScore, setRetestScore] = useState<{ correct: number; total: number } | null>(null);
   const [submittedPlan, setSubmittedPlan] = useState<LearningPlan | null>(null);
   const [feedbackGroupIndex, setFeedbackGroupIndex] = useState<number | null>(null);
   const groupStartedAt = useRef(Date.now());
@@ -4381,14 +4699,41 @@ function GeneratedStudyPage({
     }
   };
   if (finishedPlan && !showingFeedback) {
+    const retest = wrongRetestPlan(finishedPlan.words);
+    if (retestPhase === 'pending' && retest.items.length > 0) {
+      return (
+        <WrongItemRetest
+          items={retest.items}
+          omitted={retest.omitted}
+          onLeave={onBack}
+          onSkip={() => setRetestPhase('skipped')}
+          onDone={(correct) => {
+            setRetestScore({ correct, total: retest.items.length });
+            setRetestPhase('done');
+          }}
+        />
+      );
+    }
     const results = Object.fromEntries(
       finishedPlan.words.map((word) => [word.word, word.result === true]),
     );
+    const notes: string[] = [];
+    if (retestPhase === 'done' && retestScore) {
+      notes.push(
+        `错题回炉答对 ${retestScore.correct}/${retestScore.total}。这一步没有改写复习排期或错题记录。`,
+      );
+    }
+    if (isRememberedQuickDrill(session.user.id, finishedPlan.id)) {
+      notes.push(
+        `这次快练完成 ${finishedPlan.summary?.totalQuestions ?? finishedPlan.wordCount} 题。建议用时约 5 分钟。没抽到的到期词仍留在首页待复习。`,
+      );
+    }
     return (
       <GroupSettlement
         words={finishedPlan.words}
         results={results}
         summary={finishedPlan.summary}
+        notes={notes}
         onBack={onBack}
         onOpenMistakes={onOpenMistakes}
       />
@@ -4419,6 +4764,12 @@ function GeneratedStudyPage({
             第 {group.index + 1} / {activePlan.groupCount}{' '}
             {activePlan.mode === 'individual' ? '篇' : '组'}
           </strong>
+          {isRememberedQuickDrill(session.user.id, activePlan.id) && (
+            <p className="lesson-quick-drill-note">
+              5 分钟快练：这次最多 {QUICK_DRILL_WORD_COUNT} 个到期词，建议 5
+              分钟内做完。没抽到的到期词仍留在首页。
+            </p>
+          )}
         </div>
         <b>
           {activePlan.completed}/{activePlan.wordCount} 已完成

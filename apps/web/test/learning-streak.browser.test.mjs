@@ -254,7 +254,16 @@ test(
           window.streakFixture.requests.push({ method: options.method ?? 'GET', url: path });
           if (window.streakFixture.failed) throw new Error('Fixture failure');
           if (window.streakFixture.loading) await new Promise(resolve => setTimeout(resolve, 700));
-          return Response.json({ currentStreak: window.streakFixture.currentStreak, todayActive: window.streakFixture.todayActive });
+          return Response.json({
+            currentStreak: window.streakFixture.currentStreak,
+            todayActive: window.streakFixture.todayActive,
+            goal: {
+              kind: 'activity',
+              target: 1,
+              progress: window.streakFixture.todayActive ? 1 : 0,
+              met: Boolean(window.streakFixture.todayActive),
+            },
+          });
         }
         if (path.includes('/api/v1/vocabulary/default')) {
           const index = window.defaultBookFixture.requests.length;

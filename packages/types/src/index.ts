@@ -77,11 +77,19 @@ export interface RankingRow {
   rate?: number;
 }
 
+export interface DailyGoalProgress {
+  kind: 'activity' | 'reviews';
+  target: number;
+  progress: number;
+  met: boolean;
+}
+
 export interface PeriodStatistics {
   activeDays: number;
   activity: PeriodActivityDay[];
   chart: Array<{ label: string; words: number; completed: boolean; today?: boolean }>;
   currentStreak: number;
+  dailyGoal: DailyGoalProgress;
   learnedWords: number;
   masteredWords: number;
   newWords: number;

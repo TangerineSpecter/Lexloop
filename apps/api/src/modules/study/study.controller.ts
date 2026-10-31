@@ -26,8 +26,8 @@ class CreatePlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100) newWordCount?: number;
   @IsOptional() @IsInt() @Min(0) @Max(40) reviewWordCount?: number;
   @IsOptional() @IsIn(['group', 'individual', 'exam']) mode?: 'group' | 'individual' | 'exam';
-  @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent']) selection?:
-    'book' | 'mistakes' | 'random' | 'frequent';
+  @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent', 'due']) selection?:
+    'book' | 'mistakes' | 'random' | 'frequent' | 'due';
 }
 class CompletedHistoryQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;

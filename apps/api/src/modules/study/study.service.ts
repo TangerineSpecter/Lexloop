@@ -26,6 +26,7 @@ import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabula
 const DAY = 86_400_000;
 const MAX_DAILY_REVIEW_WORDS = 40;
 const MAX_INDIVIDUAL_WORDS = 20;
+const DUE_DRILL_WORD_LIMIT = 12;
 const STUDY_CACHE_CANDIDATE_LIMIT = 20;
 const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
@@ -39,7 +40,7 @@ const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
   'READING_COMPREHENSION',
 ] as const;
-export type IndividualWordSelection = 'book' | 'mistakes' | 'random' | 'frequent';
+export type IndividualWordSelection = 'book' | 'mistakes' | 'random' | 'frequent' | 'due';
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -1210,6 +1211,33 @@ async function selectIndividualWords(
   selection: IndividualWordSelection,
   count: number,
 ): Promise<PlanWordPick> {
+  if (selection === 'due') {
+    const limit = Math.min(count, DUE_DRILL_WORD_LIMIT);
+    const rows = await tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
+      SELECT progress."bookWordId" AS "bookWordId"
+      FROM "UserWordProgress" AS progress
+      JOIN "VocabularyBookWord" AS bw ON bw."id" = progress."bookWordId"
+      JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
+      WHERE progress."userId" = ${userId}
+        AND progress."state" = ${WordProgressState.REVIEWING}::"WordProgressState"
+        AND progress."nextReviewAt" <= ${new Date()}
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserMasteredWord" AS mastered
+          WHERE mastered."userId" = ${userId} AND mastered."wordId" = w."id"
+        )
+        AND ${usableBookWordMeaning}
+      ORDER BY progress."nextReviewAt" ASC, progress."lastReviewedAt" ASC, progress."bookWordId" ASC
+      LIMIT ${limit}
+    `);
+    const ids = rows.map((row) => row.bookWordId);
+    if (!ids.length) {
+      throw new BadRequestException(
+        '今天没有带可用释义的到期词；未创建快练，复习排期未更改。可以先完成一组学习，或等已安排的复习到期。',
+      );
+    }
+    return { orderedIds: ids, reviewIds: ids };
+  }
+
   if (selection === 'mistakes') {
     const signals = await tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
       WITH ranked_signals AS (

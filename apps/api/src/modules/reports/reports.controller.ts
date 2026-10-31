@@ -1,6 +1,12 @@
-import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { IsIn, IsInt, IsOptional } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ReportsService } from './reports.service';
+
+class UpdateDailyGoalDto {
+  @IsIn(['activity', 'reviews']) kind!: 'activity' | 'reviews';
+  @IsOptional() @IsInt() @IsIn([5, 10, 15]) target?: number;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('reports')
@@ -20,6 +26,15 @@ export class ReportsController {
   @Get('streak')
   streak(@Req() request: { user: { sub: string } }, @Query('timeZone') timeZone?: string) {
     return this.reports.streak(request.user.sub, timeZone);
+  }
+
+  @Patch('daily-goal')
+  updateDailyGoal(
+    @Req() request: { user: { sub: string } },
+    @Body() dto: UpdateDailyGoalDto,
+    @Query('timeZone') timeZone?: string,
+  ) {
+    return this.reports.updateDailyGoal(request.user.sub, dto.kind, dto.target, timeZone);
   }
 
   @Get('career')

@@ -19,6 +19,7 @@ import type {
   StatisticsRange,
 } from '@lexloop/types';
 import { browserTimeZone, request, type Session } from '../lib/api';
+import { dailyGoalStatusText } from '../lib/daily-goal';
 import { CareerStatisticsView } from './career-statistics-view';
 import { DashboardBackButton } from './dashboard-back-button';
 
@@ -131,6 +132,7 @@ export function StatisticsPage({
           setRange={setRange}
           onOpenHistory={onOpenHistory}
         />
+        <DailyGoalLine goal={statistics.dailyGoal} />
         <span className="statistics-query-status" role="status" aria-live="polite">
           {statisticsQuery.isFetching ? '正在更新学习统计…' : ''}
         </span>
@@ -174,6 +176,7 @@ export function StatisticsPage({
         setRange={setRange}
         onOpenHistory={onOpenHistory}
       />
+      <DailyGoalLine goal={statistics.dailyGoal} />
       <span className="statistics-query-status" role="status" aria-live="polite">
         {statisticsQuery.isFetching ? '正在更新学习统计…' : ''}
       </span>
@@ -537,6 +540,15 @@ function formatStudyTime(seconds: number) {
   if (!seconds) return '0分';
   if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}分`;
   return `${Math.floor(seconds / 3600)}时`;
+}
+
+function DailyGoalLine({ goal }: { goal?: PeriodStatistics['dailyGoal'] }) {
+  if (!goal || (goal.kind !== 'activity' && goal.kind !== 'reviews')) return null;
+  return (
+    <p className="statistics-daily-goal" role="status">
+      {dailyGoalStatusText(goal)}
+    </p>
+  );
 }
 
 function StatFootprint({
