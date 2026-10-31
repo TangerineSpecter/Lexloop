@@ -9,12 +9,13 @@ export type SessionRecapWord = {
   word?: string | null;
   source?: string | null;
   result?: boolean;
-  activeWeaknesses?: Array<{ wrongCount?: number | null }>;
+  activeWeaknesses?: Array<{ wrongCount?: number | null; questionType?: string | null }>;
 };
 
 export type SessionWeakWord = {
   word: string;
   wrongCount: number | null;
+  cue: string | null;
 };
 
 export type SessionRecap = {
@@ -26,7 +27,10 @@ export type SessionRecap = {
   weakest: SessionWeakWord[];
 };
 
-export function sessionRecap(words: SessionRecapWord[]): SessionRecap {
+export function sessionRecap(
+  words: SessionRecapWord[],
+  cueFor: (questionType: string) => string | null = () => null,
+): SessionRecap {
   const total = words.length;
   const correct = words.filter((word) => word.result === true).length;
   const accuracy = total ? Math.round((correct / total) * 100) : 0;
@@ -34,11 +38,15 @@ export function sessionRecap(words: SessionRecapWord[]): SessionRecap {
   const ranked = words
     .map((word, index) => ({ word, index }))
     .filter((item) => item.word.result === false && item.word.word?.trim())
-    .map((item) => ({
-      word: item.word.word!.trim(),
-      wrongCount: savedWrongCount(item.word.activeWeaknesses),
-      index: item.index,
-    }))
+    .map((item) => {
+      const leading = leadingWeakness(item.word.activeWeaknesses, cueFor);
+      return {
+        word: item.word.word!.trim(),
+        wrongCount: leading.wrongCount,
+        cue: leading.cue,
+        index: item.index,
+      };
+    })
     .sort((left, right) => {
       const leftCount = left.wrongCount ?? -1;
       const rightCount = right.wrongCount ?? -1;
@@ -46,7 +54,7 @@ export function sessionRecap(words: SessionRecapWord[]): SessionRecap {
       return left.index - right.index;
     })
     .slice(0, SESSION_RECAP_WEAK_LIMIT)
-    .map(({ word, wrongCount }) => ({ word, wrongCount }));
+    .map(({ word, wrongCount, cue }) => ({ word, wrongCount, cue }));
   return {
     accuracy,
     correct,
@@ -61,14 +69,29 @@ export function sessionStatsLine(recap: SessionRecap) {
   return `正确率 ${recap.accuracy}%（${recap.correct}/${recap.total}）。新词 ${recap.newCount} 个，复习词 ${recap.reviewCount} 个。`;
 }
 
+export function sessionPaceLine(durationSeconds: unknown, wordCount: number) {
+  if (
+    typeof durationSeconds !== 'number' ||
+    !Number.isSafeInteger(durationSeconds) ||
+    durationSeconds <= 0 ||
+    !Number.isSafeInteger(wordCount) ||
+    wordCount <= 0
+  ) {
+    return null;
+  }
+  const average = Math.round(durationSeconds / wordCount);
+  const recorded = `记录用时 ${formatRecordedDuration(durationSeconds)}`;
+  return average > 0 ? `${recorded}，平均每词 ${average} 秒。` : `${recorded}。`;
+}
+
 export function sessionWeakLine(weakest: SessionWeakWord[], total: number) {
   if (total <= 0) return null;
   if (!weakest.length) return '这次没有答错的词。';
-  const parts = weakest.map((item) =>
-    item.wrongCount === null
-      ? `${item.word}（这次答错）`
-      : `${item.word}（单题型最多累计答错 ${item.wrongCount} 次）`,
-  );
+  const parts = weakest.map((item) => {
+    const detail =
+      item.wrongCount === null ? '这次答错' : `单题型最多累计答错 ${item.wrongCount} 次`;
+    return item.cue ? `${item.word}（${detail}，${item.cue}）` : `${item.word}（${detail}）`;
+  });
   return `这次较弱的词：${parts.join('、')}。`;
 }
 
@@ -117,10 +140,26 @@ function readDismissedRecaps(storage: Pick<Storage, 'getItem'>, userId: string) 
   }
 }
 
-function savedWrongCount(weaknesses: SessionRecapWord['activeWeaknesses']) {
-  const counts = (weaknesses ?? [])
-    .map((item) => item.wrongCount)
-    .filter((count): count is number => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0);
-  if (!counts.length) return null;
-  return Math.max(...counts);
+function leadingWeakness(
+  weaknesses: SessionRecapWord['activeWeaknesses'],
+  cueFor: (questionType: string) => string | null,
+) {
+  let wrongCount: number | null = null;
+  let cue: string | null = null;
+  for (const item of weaknesses ?? []) {
+    const count = item.wrongCount;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) continue;
+    if (wrongCount !== null && count <= wrongCount) continue;
+    wrongCount = count;
+    cue = item.questionType ? cueFor(item.questionType) : null;
+  }
+  return { wrongCount, cue };
+}
+
+function formatRecordedDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds} 秒`;
+  if (seconds === 0) return `${minutes} 分钟`;
+  return `${minutes} 分 ${seconds} 秒`;
 }

@@ -64,6 +64,7 @@ import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/r
 import { createPortal } from 'react-dom';
 import { browserTimeZone, request, type Session, userFacingError } from '../lib/api';
 import {
+  dailyGoalProgressPercent,
   dailyGoalStatusText,
   goalCelebrationDecision,
   goalOptionValue,
@@ -74,6 +75,7 @@ import {
   writeDailyGoalVisit,
   type DailyGoalProgress,
 } from '../lib/daily-goal';
+import { emptyStudyGuide } from '../lib/empty-study-guide';
 import {
   QUICK_DRILL_WORD_COUNT,
   readQuickDrillPlanId,
@@ -82,14 +84,21 @@ import {
 import { parseDuePreview, type DuePreview } from '../lib/due-preview';
 import { reviewQueueOrderNote } from '../lib/review-queue-order';
 import { reviewDueReason } from '../lib/review-due-reason';
+import { getMistakeLearningDirection } from '../lib/mistake-learning-directions';
 import {
   dismissSessionRecap,
   isSessionRecapDismissed,
   sessionGoalLine,
+  sessionPaceLine,
   sessionRecap,
   sessionStatsLine,
   sessionWeakLine,
 } from '../lib/session-recap';
+import {
+  dismissTomorrowNote,
+  readTomorrowNoteDismissed,
+  tomorrowPreviewLine,
+} from '../lib/tomorrow-note';
 import {
   acknowledgeStreakMilestone,
   nextStreakMilestoneState,
@@ -2113,9 +2122,14 @@ function StreakCard({ session }: { session: Session }) {
                   : '今天还没有已完成的学习活动。'}
             </p>
             {summary?.goal && (
-              <p className="streak-goal" role="status">
-                {dailyGoalStatusText(summary.goal)}
-              </p>
+              <>
+                <p className="streak-goal" role="status">
+                  {dailyGoalStatusText(summary.goal)}
+                </p>
+                <div className="streak-goal-bar" aria-hidden="true">
+                  <b style={{ width: `${dailyGoalProgressPercent(summary.goal)}%` }} />
+                </div>
+              </>
             )}
             {celebration && (
               <p className="streak-goal-done" role="status">
@@ -2174,6 +2188,14 @@ function StreakCard({ session }: { session: Session }) {
 function goalVisitStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
   try {
     return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredTomorrowNote(userId: string) {
+  try {
+    return readTomorrowNoteDismissed(window.localStorage, userId);
   } catch {
     return null;
   }
@@ -3097,6 +3119,9 @@ function WordsPanel({
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [creatingDrill, setCreatingDrill] = useState(false);
   const [creatingWeak, setCreatingWeak] = useState(false);
+  const [tomorrowDismissedOn, setTomorrowDismissedOn] = useState<string | null>(() =>
+    readStoredTomorrowNote(session.user.id),
+  );
   const creatingPlanRef = useRef(false);
   const bookWordsReady = bookId !== null && loadedBookId === bookId && wordsLoadStatus === 'ready';
   const visibleDashboardWords = bookWordsReady
@@ -3230,6 +3255,17 @@ function WordsPanel({
     }
   };
   const weakFocusCount = bookWordsReady ? dashboardWords.weakFocusCount : undefined;
+  const studyGuide =
+    bookWordsReady && !existingPlan
+      ? emptyStudyGuide({
+          reviewCount,
+          weakFocusCount,
+          newWordCount: newWordCandidates.length,
+        })
+      : null;
+  const tomorrowCount = visibleDashboardWords.duePreview?.days.find((day) => day.label === '明天')?.count;
+  const tomorrowLine = typeof tomorrowCount === 'number' ? tomorrowPreviewLine(tomorrowCount) : null;
+  const todayKey = localDateKey(browserTimeZone());
   const queueNote = bookWordsReady ? reviewQueueOrderNote(visibleDashboardWords.reviewWords) : null;
   const drillDisabled =
     creatingPlan ||
@@ -3445,10 +3481,15 @@ function WordsPanel({
                 : !bookWordsReady
                   ? '先确认词表，再看有没有可练的薄弱词。'
                   : weakFocusCount === 0
-                    ? '近期没有可练的薄弱词，可以跳过。这和交卷后的错题回炉不同。'
+                    ? '近期没有待练错题，可以跳过。这和交卷后的错题回炉不同。'
                     : `有 ${weakFocusCount} 个近期仍待巩固的词，这次最多 ${WEAK_FOCUS_WORD_COUNT} 个。可以不做。提交后会正常更新复习时间。`}
           </p>
         </div>
+      )}
+      {studyGuide && (
+        <p className="study-empty-guide" role="status">
+          {studyGuide}
+        </p>
       )}
       {needsBookSelection && (
         <div className="book-selection-prompt" role="group" aria-labelledby="book-selection-title">
@@ -3597,6 +3638,24 @@ function WordsPanel({
             按 {visibleDashboardWords.duePreview.timeZone}{' '}
             的日期。今天含已逾期和今天稍后才到点的词；首页待复习只列出已经到点的词。
           </p>
+          {tomorrowLine && tomorrowDismissedOn !== todayKey && (
+            <p className="tomorrow-note">
+              <span>{tomorrowLine}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setTomorrowDismissedOn(todayKey);
+                  try {
+                    dismissTomorrowNote(window.localStorage, session.user.id, todayKey);
+                  } catch {
+                    // The line stays hidden for this view even when storage is unavailable.
+                  }
+                }}
+              >
+                忽略
+              </button>
+            </p>
+          )}
         </section>
       )}
       {queueNote && <p className="review-queue-note">{queueNote}</p>}
@@ -4422,6 +4481,7 @@ function WrongItemRetest({
     if (revealed) nextButtonRef.current?.focus();
   }, [revealed, index]);
   if (!item || !question) return null;
+  const savedQuestionType = getMistakeLearningDirection(question.type)?.label ?? null;
   const matchingReady =
     question.type === 'WORD_MATCHING' &&
     (answer?.selected.length ?? 0) >= (question.pairs?.length ?? 0) &&
@@ -4447,6 +4507,7 @@ function WrongItemRetest({
           第 {index + 1} / {items.length}{' '}
           题。答完立即看到正误和解析。这一步不提交新作答，也不改复习时间或错题记录。
         </p>
+        {savedQuestionType && <p>这题的已保存题型是{savedQuestionType}。</p>}
         {omitted > 0 && (
           <p>
             还有 {omitted} 个错词留在错题本，这次只回炉 {items.length} 个。
@@ -4498,13 +4559,18 @@ function SessionRecapCard({
   accessToken,
   planId,
   words,
+  durationSeconds,
 }: {
   userId: string;
   accessToken: string;
   planId: string;
   words: Word[];
+  durationSeconds?: number;
 }) {
-  const recap = useMemo(() => sessionRecap(words), [words]);
+  const recap = useMemo(
+    () => sessionRecap(words, (type) => getMistakeLearningDirection(type)?.label ?? null),
+    [words],
+  );
   const [dismissed, setDismissed] = useState(() => {
     const storage = recapStorage();
     return storage ? isSessionRecapDismissed(storage, userId, planId) : false;
@@ -4542,6 +4608,7 @@ function SessionRecapCard({
     if (storage) dismissSessionRecap(storage, userId, planId);
   };
   const weakLine = sessionWeakLine(recap.weakest, recap.total);
+  const paceLine = sessionPaceLine(durationSeconds, recap.total);
   return (
     <section className="session-recap" aria-label="学完小结">
       <header>
@@ -4551,6 +4618,7 @@ function SessionRecapCard({
         </button>
       </header>
       <p>{sessionStatsLine(recap)}</p>
+      {paceLine && <p>{paceLine}</p>}
       {weakLine && <p>{weakLine}</p>}
       <p role="status">
         {goalState === 'loading'
@@ -4621,6 +4689,7 @@ function GroupSettlement({
           accessToken={recap.accessToken}
           planId={recap.planId}
           words={words}
+          durationSeconds={summary?.durationSeconds}
         />
       )}
       <header className="settlement-heading">

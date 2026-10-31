@@ -21,7 +21,7 @@ test('keeps the daily goal on one learning activity or a small review count', ()
   assert.equal(parseDailyGoal({ kind: 'activity', target: 2, progress: 1, met: false }), null);
   assert.equal(
     dailyGoalStatusText({ kind: 'reviews', target: 5, progress: 2, met: false }),
-    '今日目标：复习 5 个词 · 2/5',
+    '今日目标：复习 5 个词，还差 3 个',
   );
 });
 
