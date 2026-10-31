@@ -8,6 +8,7 @@ import {
 import type { VocabularyArchivePage } from '@lexloop/types';
 
 import {
+  ArrowDown,
   ArrowLeft,
   AlertTriangle,
   BarChart3,
@@ -75,6 +76,7 @@ import {
   writeDailyGoalVisit,
   type DailyGoalProgress,
 } from '../lib/daily-goal';
+import { dismissDueClear, nextDueClearState, readDueClearState, writeDueClearState } from '../lib/due-cleared';
 import { emptyStudyGuide } from '../lib/empty-study-guide';
 import {
   QUICK_DRILL_WORD_COUNT,
@@ -83,6 +85,7 @@ import {
 } from '../lib/quick-drill';
 import { parseDuePreview, type DuePreview } from '../lib/due-preview';
 import { reviewQueueOrderNote } from '../lib/review-queue-order';
+import { orderWithSkips, readReviewSkips, toggleReviewSkip, writeReviewSkips } from '../lib/review-skip';
 import { reviewDueReason } from '../lib/review-due-reason';
 import { getMistakeLearningDirection } from '../lib/mistake-learning-directions';
 import {
@@ -99,6 +102,7 @@ import {
   readTomorrowNoteDismissed,
   tomorrowPreviewLine,
 } from '../lib/tomorrow-note';
+import { parseWeekGlance, type WeekGlance } from '../lib/week-glance';
 import {
   acknowledgeStreakMilestone,
   nextStreakMilestoneState,
@@ -1405,6 +1409,18 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onOpenReadingSettings={() => setReadingSettingsOpen(true)}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
+                bookProgress={
+                  currentBook &&
+                  visibleProgressSummaryState.status === 'ready' &&
+                  visibleProgressSummaryState.summary &&
+                  visibleProgressSummaryState.summary.totalWords > 0
+                    ? {
+                        mastered: visibleProgressSummaryState.summary.masteredWords,
+                        total: visibleProgressSummaryState.summary.totalWords,
+                        percent: visibleProgressSummaryState.summary.progress,
+                      }
+                    : null
+                }
               />
             )}
             {activeTab === 'plan' && visiblePlansStatus === 'ready' && (
@@ -2000,6 +2016,7 @@ type LearningStreakSummary = {
   currentStreak: number;
   todayActive: boolean;
   goal?: DailyGoalProgress;
+  week?: WeekGlance;
 };
 
 function StreakCard({ session }: { session: Session }) {
@@ -2147,6 +2164,7 @@ function StreakCard({ session }: { session: Session }) {
                 </button>
               </p>
             )}
+            {summary?.week && <WeekGlanceStrip week={summary.week} />}
             {summary?.goal && (
               <label className="streak-goal-setting">
                 今日目标
@@ -2223,9 +2241,30 @@ function normalizeLearningStreakSummary(value: unknown): LearningStreakSummary |
   if (!Number.isSafeInteger(summary.currentStreak) || summary.currentStreak < 0) return null;
   if (typeof summary.todayActive !== 'boolean') return null;
   const goal = parseDailyGoal((value as { goal?: unknown }).goal);
-  return goal
-    ? { ...summary, goal }
+  const week = parseWeekGlance((value as { week?: unknown }).week);
+  const next: LearningStreakSummary = goal
+    ? { currentStreak: summary.currentStreak, todayActive: summary.todayActive, goal }
     : { currentStreak: summary.currentStreak, todayActive: summary.todayActive };
+  return week ? { ...next, week } : next;
+}
+
+function WeekGlanceStrip({ week }: { week: WeekGlance }) {
+  return (
+    <div className="week-glance" aria-label={`近 7 天有 ${week.activeDays} 天学习`}>
+      <p>
+        近 7 天 {week.activeDays} 天有学习。计划里新词 {week.newWords} 个、复习 {week.reviewWords} 个。
+      </p>
+      <div>
+        {week.days.map((day, index) => (
+          <span key={`${day.label}:${index}`} className={day.active ? 'is-active' : ''}>
+            <small>{day.label}</small>
+            <i />
+            <b className="sr-only">{day.active ? '有学习' : '没有学习'}</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function AccountMenu({
@@ -3084,6 +3123,7 @@ function WordsPanel({
   onOpenReadingSettings,
   planListReady,
   onProgressChanged,
+  bookProgress,
 }: {
   session: Session;
   bookId: string | null;
@@ -3095,6 +3135,7 @@ function WordsPanel({
   onOpenReadingSettings: () => void;
   planListReady: boolean;
   onProgressChanged: () => void;
+  bookProgress: { mastered: number; total: number; percent: number } | null;
 }) {
   const [mode, setMode] = useState<StudyMode>('group');
   const [individualSource, setIndividualSource] = useState<IndividualWordSource>('book');
@@ -3122,6 +3163,21 @@ function WordsPanel({
   const [tomorrowDismissedOn, setTomorrowDismissedOn] = useState<string | null>(() =>
     readStoredTomorrowNote(session.user.id),
   );
+  const [skipState, setSkipState] = useState<{ date: string; ids: string[] }>(() => {
+    const date = localDateKey(browserTimeZone());
+    try {
+      return { date, ids: readReviewSkips(window.localStorage, session.user.id, date) };
+    } catch {
+      return { date, ids: [] };
+    }
+  });
+  const [dueClear, setDueClear] = useState(() => {
+    try {
+      return readDueClearState(window.localStorage, session.user.id);
+    } catch {
+      return null;
+    }
+  });
   const creatingPlanRef = useRef(false);
   const bookWordsReady = bookId !== null && loadedBookId === bookId && wordsLoadStatus === 'ready';
   const visibleDashboardWords = bookWordsReady
@@ -3183,12 +3239,49 @@ function WordsPanel({
       Math.max(0, (current ?? dashboardWords.defaultNewWordCount) - 1),
     );
   };
+  const todayKey = localDateKey(browserTimeZone());
+  const skippedReviewIds = skipState.date === todayKey ? skipState.ids : [];
   const reviewCount = visibleDashboardWords.reviewWords.length;
-  const reviewCandidateWords = visibleDashboardWords.reviewWords.filter(hasUsableWordMeaning);
+  const reviewCandidateWords = visibleDashboardWords.reviewWords.filter(
+    (word) => hasUsableWordMeaning(word) && !(word.id && skippedReviewIds.includes(word.id)),
+  );
   const reviewCandidateCount = reviewCandidateWords.length;
   const missingReviewMeaningCount = reviewCount - reviewCandidateCount;
   const newWordCandidates = visibleDashboardWords.newWords.filter(hasUsableWordMeaning);
   const missingNewMeaningCount = visibleDashboardWords.newWords.length - newWordCandidates.length;
+  const orderedReviewWords = orderWithSkips(visibleDashboardWords.reviewWords, skippedReviewIds);
+  const skippedVisibleCount = orderedReviewWords.filter(
+    (word) => word.id && skippedReviewIds.includes(word.id),
+  ).length;
+  useEffect(() => {
+    if (!bookWordsReady) return;
+    const decision = nextDueClearState(dueClear, todayKey, reviewCount);
+    if (
+      decision.next.date === dueClear?.date &&
+      decision.next.seenDue === dueClear.seenDue &&
+      decision.next.dismissed === dueClear.dismissed
+    ) {
+      return;
+    }
+    setDueClear(decision.next);
+    try {
+      writeDueClearState(window.localStorage, session.user.id, decision.next);
+    } catch {
+      // The notice can still update in this view.
+    }
+  }, [bookWordsReady, dueClear, reviewCount, session.user.id, todayKey]);
+  const dueClearNotice = bookWordsReady
+    ? nextDueClearState(dueClear, todayKey, reviewCount).show
+    : false;
+  const toggleSkip = (wordId: string) => {
+    const next = toggleReviewSkip(skippedReviewIds, wordId);
+    setSkipState({ date: todayKey, ids: next });
+    try {
+      writeReviewSkips(window.localStorage, session.user.id, todayKey, next);
+    } catch {
+      // The order still changes for this view.
+    }
+  };
   const reviewWordsWithIds = useMemo(
     () =>
       visibleDashboardWords.reviewWords.filter(
@@ -3239,6 +3332,7 @@ function WordsPanel({
                   newWordCount: newWordCandidates.length,
                   reviewWordCount: selectedReviewCount,
                   mode,
+                  skipReviewWordIds: skippedReviewIds,
                 },
           ),
         },
@@ -3265,8 +3359,9 @@ function WordsPanel({
       : null;
   const tomorrowCount = visibleDashboardWords.duePreview?.days.find((day) => day.label === '明天')?.count;
   const tomorrowLine = typeof tomorrowCount === 'number' ? tomorrowPreviewLine(tomorrowCount) : null;
-  const todayKey = localDateKey(browserTimeZone());
-  const queueNote = bookWordsReady ? reviewQueueOrderNote(visibleDashboardWords.reviewWords) : null;
+  const queueNote = bookWordsReady
+    ? reviewQueueOrderNote(orderedReviewWords, { skipped: skippedVisibleCount })
+    : null;
   const drillDisabled =
     creatingPlan ||
     creatingDrill ||
@@ -3298,6 +3393,7 @@ function WordsPanel({
             selection: 'due',
             newWordCount: QUICK_DRILL_WORD_COUNT,
             reviewWordCount: 0,
+            skipReviewWordIds: skippedReviewIds,
           }),
         },
         session.accessToken,
@@ -3442,6 +3538,11 @@ function WordsPanel({
           </Tooltip>
         </div>
       </header>
+      {bookProgress && (
+        <p className="study-book-progress">
+          当前词书已掌握 {bookProgress.mastered} / {bookProgress.total}（{bookProgress.percent}%）
+        </p>
+      )}
       <div className="quick-drill-row">
         <button
           type="button"
@@ -3485,6 +3586,26 @@ function WordsPanel({
                     : `有 ${weakFocusCount} 个近期仍待巩固的词，这次最多 ${WEAK_FOCUS_WORD_COUNT} 个。可以不做。提交后会正常更新复习时间。`}
           </p>
         </div>
+      )}
+      {dueClearNotice && (
+        <p className="due-clear-note" role="status">
+          <span>今天已经到点的词都处理完了。</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (!dueClear) return;
+              const next = dismissDueClear({ ...dueClear, date: todayKey });
+              setDueClear(next);
+              try {
+                writeDueClearState(window.localStorage, session.user.id, next);
+              } catch {
+                // Hidden for this view even if storage is unavailable.
+              }
+            }}
+          >
+            知道了
+          </button>
+        </p>
       )}
       {studyGuide && (
         <p className="study-empty-guide" role="status">
@@ -3576,7 +3697,11 @@ function WordsPanel({
               </output>
             </>
           ) : (
-            <strong>没有带可用释义的到期词候选</strong>
+            <strong>
+              {skippedVisibleCount > 0
+                ? '放到队尾的词这次先不排进计划'
+                : '没有带可用释义的到期词候选'}
+            </strong>
           )}
           <p aria-live="polite">
             {reviewCandidateCount > selectedReviewCount
@@ -3664,7 +3789,9 @@ function WordsPanel({
           title="待复习单词"
           count={String(reviewCount)}
           icon={<ReviewWordsIcon />}
-          words={visibleDashboardWords.reviewWords.map((word) => ({ ...word, state: 'review' }))}
+          words={orderedReviewWords.map((word) => ({ ...word, state: 'review' as const }))}
+          skippedIds={skippedReviewIds}
+          onSkipToday={toggleSkip}
           onMarkMastered={async (word) => {
             if (!word.id) return;
             try {
@@ -3777,6 +3904,8 @@ function WordColumn({
   onAddToReview,
   onMarkMastered,
   onDefer,
+  onSkipToday,
+  skippedIds = [],
 }: {
   title: string;
   count: string;
@@ -3788,6 +3917,8 @@ function WordColumn({
   onAddToReview?: (word: Word) => Promise<void>;
   onMarkMastered?: (word: Word) => Promise<void>;
   onDefer?: (word: Word) => Promise<void>;
+  onSkipToday?: (wordId: string) => void;
+  skippedIds?: string[];
 }) {
   const [visibleCount, setVisibleCount] = useState(isNew ? words.length : 10);
   useEffect(() => {
@@ -3824,6 +3955,10 @@ function WordColumn({
             onAddToReview={onAddToReview}
             onMarkMastered={onMarkMastered}
             onDefer={onDefer}
+            skipped={Boolean(word.id && skippedIds.includes(word.id))}
+            onSkipToday={
+              onSkipToday && word.id ? () => onSkipToday(word.id as string) : undefined
+            }
           />
         ))}
         {hasMore && (
@@ -3925,11 +4060,15 @@ function WordRow({
   onAddToReview,
   onMarkMastered,
   onDefer,
+  onSkipToday,
+  skipped = false,
 }: {
   word: Word;
   onAddToReview?: (word: Word) => Promise<void>;
   onMarkMastered?: (word: Word) => Promise<void>;
   onDefer?: (word: Word) => Promise<void>;
+  onSkipToday?: () => void;
+  skipped?: boolean;
 }) {
   const dueReason =
     word.state === 'review'
@@ -3950,10 +4089,21 @@ function WordRow({
         {dueReason && <small className="word-due-reason">{dueReason}</small>}
       </div>
       <div className="word-actions">
+        {word.state === 'review' && onSkipToday && (
+          <Tooltip label={skipped ? '移回原来的顺序' : '今天放到队尾，不改复习时间'}>
+            <button
+              type="button"
+              aria-label={skipped ? '移回原来的顺序' : '今天放到队尾'}
+              onClick={onSkipToday}
+            >
+              <ArrowDown size={16} />
+            </button>
+          </Tooltip>
+        )}
         {word.state === 'review' && (
-          <button className="reviewing">
+          <button className="reviewing" type="button">
             <TimerReset size={14} />
-            复习中
+            {skipped ? '队尾' : '复习中'}
           </button>
         )}
         {!word.state && (

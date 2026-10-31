@@ -1,11 +1,13 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -28,6 +30,12 @@ class CreatePlanDto {
   @IsOptional() @IsIn(['group', 'individual', 'exam']) mode?: 'group' | 'individual' | 'exam';
   @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent', 'due']) selection?:
     'book' | 'mistakes' | 'random' | 'frequent' | 'due';
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  skipReviewWordIds?: string[];
 }
 class CompletedHistoryQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
@@ -60,6 +68,7 @@ export class StudyController {
       dto.mode,
       dto.reviewWordCount,
       dto.selection,
+      dto.skipReviewWordIds,
     );
   }
   @Post('plans/:planId/generate') generate(
