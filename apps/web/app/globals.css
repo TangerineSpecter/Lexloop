@@ -5663,12 +5663,21 @@ button {
 }
 .lesson-page-head > b {
   margin-left: auto;
+  max-width: 100%;
   padding: 5px 10px;
   border: 2px solid var(--border-color);
   border-radius: 7px;
   background: #fff4b9;
   font-family: 'DM Mono', monospace;
   font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.lesson-page-head > b small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
 }
 .lesson-layout {
   display: grid;

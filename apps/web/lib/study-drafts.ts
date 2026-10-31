@@ -175,6 +175,17 @@ export function readStudyDraftSnapshot(
   }
 }
 
+export function studyDraftAnswerCount(
+  userId: string,
+  planId: string,
+  groupIndex: number,
+  questions: StudyDraftQuestion[],
+  storage: DraftStorage | undefined = browserStorage(),
+) {
+  return Object.keys(readStudyDraftSnapshot(userId, planId, groupIndex, questions, storage).answers)
+    .length;
+}
+
 export function saveStudyDraft(
   userId: string,
   planId: string,

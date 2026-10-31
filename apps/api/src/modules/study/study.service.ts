@@ -110,7 +110,7 @@ const studyPlanInclude = (userId: string) =>
         bookWord: {
           include: {
             word: true,
-            progress: { where: { userId }, select: { nextReviewAt: true } },
+            progress: { where: { userId }, select: { nextReviewAt: true, lastIntervalDays: true } },
             weaknesses: {
               where: { userId, status: WeaknessStatus.ACTIVE },
               select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
@@ -619,8 +619,11 @@ export class StudyService {
       answers.every((answer) => items.some((item) => item.bookWordId === answer.bookWordId));
     if (!answersMatchGroup) throw new BadRequestException('答题结果包含不属于当前分组的单词');
 
+    const previousIntervals = new Map<string, number>();
+    let committed = false;
     try {
       await this.prisma.$transaction(async (tx) => {
+        previousIntervals.clear();
         const completedAt = new Date();
         const claimed = await tx.studyPlanItem.updateMany({
           where: {
@@ -647,6 +650,7 @@ export class StudyService {
           const progress = await tx.userWordProgress.findUniqueOrThrow({
             where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },
           });
+          previousIntervals.set(item.bookWordId, progress.lastIntervalDays);
           await tx.wordReviewAttempt.create({
             data: {
               userId,
@@ -680,10 +684,20 @@ export class StudyService {
           });
         }
       });
+      committed = true;
     } catch (error) {
       if (!(error instanceof StudyGroupCompletionAlreadyClaimed)) throw error;
     }
-    return this.serializePlan(planId, userId);
+    const plan = await this.serializePlan(planId, userId);
+    if (!committed) return plan;
+    return {
+      ...plan,
+      words: plan.words.map((word) =>
+        previousIntervals.has(word.id)
+          ? { ...word, previousIntervalDays: previousIntervals.get(word.id) }
+          : word,
+      ),
+    };
   }
 
   private schedule(
@@ -748,6 +762,9 @@ export class StudyService {
         ? { selectedAnswer: item.attempts[0]!.selectedAnswer as string[] }
         : {}),
       nextReviewAt: item.completedAt ? (item.bookWord.progress[0]?.nextReviewAt ?? null) : null,
+      lastIntervalDays: item.completedAt
+        ? (item.bookWord.progress[0]?.lastIntervalDays ?? null)
+        : null,
       activeWeaknesses: item.completedAt
         ? item.bookWord.weaknesses.map((signal) => ({
             ...signal,

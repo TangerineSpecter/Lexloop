@@ -129,6 +129,8 @@ import {
   studyDraftIdentity,
   type StudyDraftAnswers,
 } from '../lib/study-drafts';
+import { studyDraftAnswerCount } from '../lib/study-drafts';
+import { intervalGrowthLine } from '../lib/interval-growth';
 import { studyGroupCompletion } from '../lib/study-sequence';
 import { Tooltip } from './tooltip';
 import { ReadingModelDrawer } from './reading-model-drawer';
@@ -220,6 +222,7 @@ type Word = {
   lastReviewedAt?: string | null;
   nextReviewAt?: string | null;
   lastIntervalDays?: number | null;
+  previousIntervalDays?: number | null;
   activeWeaknesses?: Array<{
     questionType: string;
     wrongCount: number;
@@ -2211,6 +2214,19 @@ function goalVisitStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
   }
 }
 
+function resumeDraftCount(userId: string, plan: LearningPlan) {
+  if (plan.status !== 'ACTIVE' || !plan.content?.groups?.length) return 0;
+  const pending = plan.words.find((word) => !word.completed);
+  const groupIndex = pending?.groupIndex ?? plan.content.groups[0]?.index;
+  const group = plan.content.groups.find((item) => item.index === groupIndex);
+  if (!group || groupIndex === undefined) return 0;
+  try {
+    return studyDraftAnswerCount(userId, plan.id, group.index, group.questions);
+  } catch {
+    return 0;
+  }
+}
+
 function readStoredTomorrowNote(userId: string) {
   try {
     return readTomorrowNoteDismissed(window.localStorage, userId);
@@ -3521,6 +3537,8 @@ function WordsPanel({
                 ? '先读取已有计划'
                 : existingPlan?.status === 'FAILED'
                   ? '打开并重试当前计划'
+                  : existingPlan && resumeDraftCount(session.user.id, existingPlan) > 0
+                    ? '继续上次的作答'
                   : existingPlan
                     ? '打开当前学习计划'
                     : needsBookSelection
@@ -3673,6 +3691,9 @@ function WordsPanel({
             当前计划包含 {existingReviewCount} 个复习词和 {existingNewWordCount}{' '}
             个新词；打开它不会创建新计划或改变词汇数量。
             {existingPlan.status !== 'FAILED' && ' 完成后可再选择下一次的复习数量。'}
+            {existingPlan.status === 'ACTIVE' &&
+              resumeDraftCount(session.user.id, existingPlan) > 0 &&
+              ` 本组有 ${resumeDraftCount(session.user.id, existingPlan)} 道未提交的作答，打开后会接着写。`}
           </p>
         </div>
       ) : mode !== 'individual' && reviewCount > 0 ? (
@@ -4759,6 +4780,7 @@ function SessionRecapCard({
   };
   const weakLine = sessionWeakLine(recap.weakest, recap.total);
   const paceLine = sessionPaceLine(durationSeconds, recap.total);
+  const growthLine = intervalGrowthLine(words);
   return (
     <section className="session-recap" aria-label="学完小结">
       <header>
@@ -4769,6 +4791,7 @@ function SessionRecapCard({
       </header>
       <p>{sessionStatsLine(recap)}</p>
       {paceLine && <p>{paceLine}</p>}
+      {growthLine && <p>{growthLine}</p>}
       {weakLine && <p>{weakLine}</p>}
       <p role="status">
         {goalState === 'loading'
@@ -5272,7 +5295,11 @@ function GeneratedStudyPage({
           )}
         </div>
         <b>
-          {activePlan.completed}/{activePlan.wordCount} 已完成
+          已完成 {activePlan.completed} / {activePlan.wordCount} 词
+          <small>
+            本组 {words.filter((word) => word.id && answers[word.id]?.confirmed).length} /{' '}
+            {words.length} 题
+          </small>
         </b>
       </header>
       <div className="lesson-layout">
