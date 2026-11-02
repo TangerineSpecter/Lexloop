@@ -391,7 +391,9 @@ test(
       await send('Emulation.clearDeviceMetricsOverride');
 
       await reload();
-      await until('document.body.innerText.includes("探索完成！")');
+      await until(
+        'window.recoveryFixture.reads["learner-a"] === 4 && document.body.innerText.includes("探索完成！")',
+      );
       assert.equal(await evaluate('window.recoveryFixture.reads["learner-a"]'), 4);
       assert.equal(
         await evaluate('document.querySelector("#adventure-mistake-review")?.hidden'),

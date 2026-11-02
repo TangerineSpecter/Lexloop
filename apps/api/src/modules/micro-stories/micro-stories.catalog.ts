@@ -342,7 +342,7 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     frame: 'Is there any ___ in the stockroom?',
     example: 'Is there any oat milk in the stockroom?',
     focusPhrase: 'in the stockroom',
-    focusMeaning: '在库房里；这里指店员检查货架后方是否还有米。',
+    focusMeaning: '在库房里；这里指店员检查库房是否还有米。',
   },
   {
     key: 'grocery-03',
@@ -351,7 +351,7 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     level: 'B1',
     english:
       'Riley does not want to wait, so she buys a small bag of pasta and plans to cook a different dinner tonight. She will come back for rice after the delivery arrives.',
-    reference: 'Riley 不想等，于是买了一小袋意面，打算今晚换一道晚餐。等新货到了，她再回来买米。',
+    reference: 'Riley 不想等，于是买了一小袋意面，打算今晚改做别的晚餐。等新货到了，她再回来买米。',
     explanation: 'come back for rice 表示之后回来买米；今晚 Riley 打算吃意面，买米要等新货送到后。',
     frame: 'I will come back for ___.',
     example: "I'll come back for the rice tomorrow.",

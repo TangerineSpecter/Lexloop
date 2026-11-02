@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.137',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '修正文库里的两处中文释义',
+        entry: '一分钟微故事 → 超市补货',
+        usage:
+          '明确“库房里”指检查库房是否有米，并润色今晚改做晚餐的表达。英文原文、故事 key 和已有进度不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.136',
     date: '2026-11-02',
     items: [

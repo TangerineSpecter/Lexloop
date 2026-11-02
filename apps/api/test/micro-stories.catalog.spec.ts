@@ -71,10 +71,11 @@ describe('micro-story English learning content', () => {
     expect(second?.english).toContain('checks, finds none');
     expect(second?.english).toContain('next delivery is due tomorrow');
     expect(second?.reference).toContain('预计明天到');
+    expect(second?.focusMeaning).toBe('在库房里；这里指店员检查库房是否还有米。');
     expect(second?.explanation).toContain('不表示已经到店');
     expect(third?.english).toContain('does not want to wait');
     expect(third?.english).toContain('after the delivery arrives');
-    expect(third?.reference).toContain('今晚换一道晚餐');
+    expect(third?.reference).toContain('今晚改做别的晚餐');
     expect(third?.reference).toContain('新货到了');
   });
 
