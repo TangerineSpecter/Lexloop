@@ -104,6 +104,7 @@ import {
   writeReviewSkips,
 } from '../lib/review-skip';
 import { reviewDueReason } from '../lib/review-due-reason';
+import { DEFAULT_MISTAKE_LIST_STATE, type MistakeListState } from '../lib/mistake-list-state';
 import { getMistakeLearningDirection } from '../lib/mistake-learning-directions';
 import {
   dismissSessionRecap,
@@ -750,6 +751,22 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const lastAccountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const currentUserIdRef = useRef(session.user.id);
   currentUserIdRef.current = session.user.id;
+  const [mistakeListScope, setMistakeListScope] = useState<{
+    userId: string;
+    state: MistakeListState;
+  }>({ userId: session.user.id, state: DEFAULT_MISTAKE_LIST_STATE });
+  const visibleMistakeListState =
+    mistakeListScope.userId === session.user.id
+      ? mistakeListScope.state
+      : DEFAULT_MISTAKE_LIST_STATE;
+  const saveMistakeListState = useCallback(
+    (state: MistakeListState) => {
+      const userId = session.user.id;
+      if (currentUserIdRef.current !== userId) return;
+      setMistakeListScope({ userId, state });
+    },
+    [session.user.id],
+  );
   const cancelAccountMenuHoverClose = () => {
     if (accountMenuHoverCloseTimeoutRef.current !== null) {
       clearTimeout(accountMenuHoverCloseTimeoutRef.current);
@@ -1536,6 +1553,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             <MistakesPage
               key={session.user.id}
               session={session}
+              initialListState={visibleMistakeListState}
+              onListStateChange={saveMistakeListState}
               onBack={() => returnToPage('study')}
               onOpenTutorSettings={
                 session.user.role === 'ADMIN'

@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { partitionMistakePracticeSelection } from '../lib/mistake-practice-selection';
+import type { MistakeListState } from '../lib/mistake-list-state';
 import {
   getMistakeLearningDirection,
   MISTAKE_LEARNING_DIRECTIONS,
@@ -22,7 +23,7 @@ import { TutorPanel } from './tutor-panel';
 import { DashboardBackButton } from './dashboard-back-button';
 import { StyledSelect } from './styled-select';
 
-type MistakeStatus = 'active' | 'ignored' | 'resolved';
+type MistakeStatus = MistakeListState['status'];
 type Weakness = {
   id: string;
   questionType: string;
@@ -86,20 +87,22 @@ const labels: Record<string, string> = Object.fromEntries(
 
 export function MistakesPage({
   session,
+  initialListState,
+  onListStateChange,
   onBack,
   onOpenTutorSettings,
   onPlanCreated,
 }: {
   session: Session;
+  initialListState: MistakeListState;
+  onListStateChange: (state: MistakeListState) => void;
   onBack: () => void;
   onOpenTutorSettings?: () => void;
   onPlanCreated: (plan: LearningPlan) => void;
 }) {
-  const [status, setStatus] = useState<MistakeStatus>('active');
-  const [questionType, setQuestionType] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [listState, setListState] = useState(initialListState);
+  const { status, questionType, search: appliedSearch, page } = listState;
+  const [searchInput, setSearchInput] = useState(initialListState.search);
   const [result, setResult] = useState<ListResponse | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedItems, setSelectedItems] = useState<Record<string, MistakeWord>>({});
@@ -117,6 +120,10 @@ export function MistakesPage({
   const detailRequestId = useRef(0);
   const detailAbort = useRef<AbortController | null>(null);
   const attemptHistoryHeadingRef = useRef<HTMLDivElement>(null);
+  const updateListState = (next: MistakeListState) => {
+    setListState(next);
+    onListStateChange(next);
+  };
 
   const prepareForListChange = (preserveSelection = false) => {
     listRequestId.current += 1;
@@ -306,15 +313,13 @@ export function MistakesPage({
     setSearchInput(nextSearch);
     if (nextSearch === appliedSearch) return;
     prepareForListChange();
-    setAppliedSearch(nextSearch);
-    setPage(1);
+    updateListState({ ...listState, search: nextSearch, page: 1 });
   };
   const clearSearch = () => {
     setSearchInput('');
     if (!appliedSearch) return;
     prepareForListChange();
-    setAppliedSearch('');
-    setPage(1);
+    updateListState({ ...listState, search: '', page: 1 });
   };
   const selectedPractice = partitionMistakePracticeSelection(
     Object.values(selectedItems),
@@ -370,8 +375,7 @@ export function MistakesPage({
               onClick={() => {
                 if (value === status && page === 1) return;
                 prepareForListChange();
-                setStatus(value);
-                setPage(1);
+                updateListState({ ...listState, status: value, page: 1 });
               }}
             >
               {value === 'active' ? '待巩固' : value === 'ignored' ? '已忽略' : '已纠正'}
@@ -387,8 +391,7 @@ export function MistakesPage({
           ]}
           onChange={(value) => {
             prepareForListChange();
-            setQuestionType(value);
-            setPage(1);
+            updateListState({ ...listState, questionType: value, page: 1 });
           }}
         />
         {status === 'active' && (
@@ -566,7 +569,7 @@ export function MistakesPage({
             disabled={page === 1 || loading}
             onClick={() => {
               prepareForListChange(true);
-              setPage((value) => value - 1);
+              updateListState({ ...listState, page: page - 1 });
             }}
           >
             <ChevronLeft size={16} />
@@ -577,7 +580,7 @@ export function MistakesPage({
             disabled={!result.hasMore || loading}
             onClick={() => {
               prepareForListChange(true);
-              setPage((value) => value + 1);
+              updateListState({ ...listState, page: page + 1 });
             }}
           >
             下一页

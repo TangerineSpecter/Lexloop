@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.130',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '返回待巩固时保留筛选',
+        entry: '待巩固 → 设置筛选 → 进入词环 → 返回待巩固',
+        usage:
+          '同一页面会话内保留已应用的状态、题型、搜索词和页码。重新加载或切换账号会使用默认筛选，已选词条不会跨页面恢复。',
+      },
+    ],
+  },
+  {
     version: '1.27.129',
     date: '2026-11-02',
     items: [

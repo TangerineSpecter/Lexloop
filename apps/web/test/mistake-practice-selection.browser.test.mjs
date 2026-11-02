@@ -317,6 +317,9 @@ test(
               const normalizedSearch = search.toLocaleLowerCase();
               const activeRace = new URL(location.href).searchParams.has('activeRace');
               window.mistakeListRequests.push({ status, questionType, activeRace, page, search });
+              if (sessionUserId === 'mistake-user-b') {
+                return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'account-b-word', word: 'B-only' }], page: 1, total: 1, hasMore: false });
+              }
               if (new URL(location.href).searchParams.has('searchRace')) {
                 if (search === 'slow') {
                   await new Promise(resolve => setTimeout(resolve, 700));
@@ -336,6 +339,7 @@ test(
                 if (search) return Response.json({ items: [], page, total: 0, hasMore: false });
                 return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
               }
+              if (normalizedSearch === 'retry-me') return Response.json({ items: [{ ...${JSON.stringify(paginatedItems[34])}, bookWordId: 'page-word-35' }], page, total: 1, hasMore: false });
               if (activeRace && questionType === 'OUTPUT') {
                 await new Promise(resolve => setTimeout(resolve, 700));
                 return Response.json({ items: [{ ...${JSON.stringify(items[1])}, bookWordId: 'stale-output', word: 'stale-output' }], page: 1, total: 1, hasMore: false });
@@ -359,9 +363,6 @@ test(
               }
               if (new URL(location.href).searchParams.has('pagination')) {
                 return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
-              }
-              if (sessionUserId === 'mistake-user-b') {
-                return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'account-b-word', word: 'B-only' }], page: 1, total: 1, hasMore: false });
               }
               if (questionType === 'OUTPUT') return Response.json({ items: [${JSON.stringify(items[1])}], page: 1, total: 1, hasMore: false });
               return Response.json({ items: ${JSON.stringify(items)}, page: 1, total: 3, hasMore: false });
@@ -1188,6 +1189,62 @@ test(
       );
       await clickVisible('.mistakes-empty[role=alert] button');
       await until('document.querySelector(".mistakes-list")?.textContent.includes("pencil box")');
+
+      await clickVisible('.mistake-check[aria-label="取消选择 pencil box"]');
+      await until(
+        'document.querySelector(".mistakes-create")?.textContent.includes("生成专项（0）")',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav button")].find((button) => button.textContent.includes("词环")).click()',
+      );
+      await until(
+        '!document.querySelector(".mistakes-page") && document.querySelector(".study-content")',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".sidebar-nav .nav-children button")].find((button) => button.textContent.includes("待巩固")).click()',
+      );
+      await until(
+        'document.querySelector("#mistakes-search-input")?.value === "retry-me" && document.querySelector(".mistakes-list")?.textContent.includes("pencil box")',
+      );
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeListRequests.at(-1))')),
+        {
+          status: 'active',
+          questionType: 'READING_COMPREHENSION',
+          activeRace: false,
+          page: 1,
+          search: 'retry-me',
+        },
+        'leaving and returning should restore the applied status, type and search filters',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+        'the remounted list should use its normal fresh selection defaults',
+      );
+      await evaluate(`(() => {
+        const frame = document.createElement('iframe');
+        frame.hidden = true;
+        document.body.append(frame);
+        const nextSession = { accessToken: 'fixture-b', user: { id: 'mistake-user-b', email: 'b@example.invalid', displayName: '学习者 B', role: 'USER' } };
+        frame.contentWindow.localStorage.setItem('lexloop.session', JSON.stringify(nextSession));
+      })()`);
+      await until('document.querySelector(".mistakes-list")?.textContent.includes("B-only")');
+      assert.equal(
+        await evaluate('document.querySelector("#mistakes-search-input")?.value'),
+        '',
+        'a different account must not inherit the previous learner’s mistake search',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistakes-toolbar [role=tab][aria-selected=true]")?.textContent.trim()',
+        ),
+        '待巩固',
+        'a different account must start with its default mistake status',
+      );
+      await evaluate(
+        `localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'mistake-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }))`,
+      );
 
       await send('Page.navigate', {
         url: new URL('/dashboard?view=mistakes&searchRace=1', baseUrl).href,

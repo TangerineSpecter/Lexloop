@@ -100,7 +100,7 @@ test(
           runStatus: window.focusFixture?.run?.status ?? null,
           currentRoom: window.focusFixture?.run?.currentRoom ?? null,
           actionCount: window.focusFixture?.actions?.length ?? null,
-          bodyText: document.body.innerText.slice(0, 1200),
+          bodyText: document.body?.innerText?.slice(0, 1200) ?? null,
           orderMarkup: document.querySelector('[class*=challengeCard] [class*=order]')?.outerHTML.slice(0, 1600) ?? null,
           browserErrors: window.focusFixture?.errors ?? [],
         })`).catch((error) => ({ diagnosticError: String(error) }));
@@ -769,15 +769,15 @@ test(
         ),
         true,
       );
-      await until('document.body.innerText.includes("探索完成！")');
-      await until('document.body.innerText.includes("+126 EXP")');
+      await until('document.body?.innerText?.includes("探索完成！")');
+      await until('document.body?.innerText?.includes("+126 EXP")');
       await evaluate('location.reload()');
-      await until('document.body.innerText.includes("探索完成！")');
+      await until('document.body?.innerText?.includes("探索完成！")');
       await until('window.focusFixture.recoveries === 1');
       assert.equal(await evaluate('window.focusFixture.run.status'), 'COMPLETED');
       assert.equal(await evaluate('window.focusFixture.actions.length'), 8);
       await clickSelector('button');
-      await until('document.body.innerText.includes("第 1 层远征准备")');
+      await until('document.body?.innerText?.includes("第 1 层远征准备")');
       assert.equal(
         await evaluate('localStorage.getItem("lexloop.adventureRun.learner-focus")'),
         null,
