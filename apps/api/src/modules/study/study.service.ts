@@ -18,7 +18,7 @@ import {
   WeaknessStatus,
   WordProgressState,
 } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AiService } from '../ai/ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { SystemLogService } from '../admin/system-log.service';
@@ -28,6 +28,16 @@ import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 import { studyQuestionFingerprint } from './study-content-bank';
+import {
+  getStudyContentClaimStatus,
+  releaseStudyContentClaims,
+  renewStudyContentClaims,
+  STUDY_CONTENT_CLAIM_HEARTBEAT_MS,
+  STUDY_CONTENT_CLAIM_LEASE_MS,
+  STUDY_CONTENT_CLAIM_POLL_MS,
+  STUDY_CONTENT_CLAIM_WAIT_MS,
+  tryClaimStudyContentSignatures,
+} from './study-content-generation-claim';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
 import { chinaDateRange } from '../automatic-study-plan/automatic-study-plan.rules';
 import {
@@ -42,6 +52,35 @@ const MAX_DAILY_REVIEW_WORDS = 40;
 const MAX_INDIVIDUAL_WORDS = 20;
 const DUE_DRILL_WORD_LIMIT = 12;
 const STUDY_CACHE_CANDIDATE_LIMIT = 20;
+const PUBLIC_CACHE_OBSERVATION_DETAILS: Record<
+  PublicCacheMissReason,
+  { code: string; reason: string }
+> = {
+  NO_PUBLIC_MATERIAL: {
+    code: 'STUDY_CACHE_MISS_NO_PUBLIC',
+    reason: '匹配词目没有来源可确认的公共材料；未记录词条或题目。',
+  },
+  DISABLED_MATERIAL: {
+    code: 'STUDY_CACHE_MISS_DISABLED',
+    reason: '匹配材料只有停用版本；未记录词条或题目。',
+  },
+  FAMILIAR_MATERIAL: {
+    code: 'STUDY_CACHE_MISS_FAMILIAR',
+    reason: '匹配材料对应题目均已答对；未记录词条或题目。',
+  },
+  INVALID_MATERIAL: {
+    code: 'STUDY_CACHE_MISS_INVALID',
+    reason: '候选公共材料未通过内容校验或达到候选上限；未记录材料内容。',
+  },
+  CANDIDATE_LIMIT: {
+    code: 'STUDY_CACHE_MISS_CANDIDATE_LIMIT',
+    reason: '候选公共材料未通过内容校验或达到候选上限；未记录材料内容。',
+  },
+};
+const PUBLIC_CACHE_REUSED_OBSERVATION = {
+  code: 'STUDY_CACHE_REUSED',
+  reason: '该计划复用了符合词目、模式、题型和当前熟悉度条件的公共材料；未记录题目内容。',
+};
 export const MAX_STUDY_QUESTION_REPAIR_ATTEMPTS = 3;
 export const STUDY_GENERATION_REQUEST_TIMEOUT_MS = 90_000;
 export const STUDY_GENERATION_TOTAL_TIMEOUT_MS = 6 * 60_000;
@@ -121,6 +160,17 @@ type ResolvedGroup = {
   signature: string;
   reused: boolean;
   publicEligible: boolean;
+};
+type PublicCacheMissReason =
+  | 'NO_PUBLIC_MATERIAL'
+  | 'DISABLED_MATERIAL'
+  | 'FAMILIAR_MATERIAL'
+  | 'INVALID_MATERIAL'
+  | 'CANDIDATE_LIMIT';
+type PublicCacheResolution = {
+  cached: Array<ResolvedGroup | null>;
+  invalidCacheIds: Map<number, string>;
+  missReasons: Map<number, PublicCacheMissReason>;
 };
 type GradedAnswer = {
   isCorrect: boolean;
@@ -213,6 +263,10 @@ export class StudyQuestionValidationError extends Error {
 
 @Injectable()
 export class StudyService {
+  private readonly cacheClaimWaitTimeoutMs = STUDY_CONTENT_CLAIM_WAIT_MS;
+  private readonly cacheClaimPollIntervalMs = STUDY_CONTENT_CLAIM_POLL_MS;
+  private readonly cacheClaimHeartbeatMs = STUDY_CONTENT_CLAIM_HEARTBEAT_MS;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
@@ -220,6 +274,36 @@ export class StudyService {
     private readonly mistakes: MistakesService,
     @Optional() private readonly systemLogs?: SystemLogService,
   ) {}
+
+  private observePublicCache(code: string, reason: string) {
+    if (!this.systemLogs) return;
+    void this.systemLogs
+      .record({
+        source: 'api',
+        severity: 'info',
+        kind: 'study.content-cache',
+        code,
+        method: 'POST',
+        route: '/api/v1/study/plans/:planId/generate',
+        reason,
+      })
+      .catch(() => undefined);
+  }
+
+  private async waitForPublicCacheClaim(signature: string, deadline: number) {
+    while (Date.now() < deadline) {
+      const status = await getStudyContentClaimStatus(this.prisma, signature);
+      if (status === 'COOLDOWN') return 'COOLDOWN' as const;
+      if (status === 'READY' || status === 'EXPIRED') return 'RETRY' as const;
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(this.cacheClaimPollIntervalMs, remaining)),
+        );
+      }
+    }
+    return 'TIMEOUT' as const;
+  }
 
   async createPlan(
     userId: string,
@@ -428,6 +512,12 @@ export class StudyService {
     let generationPhase: SystemLogDiagnosticPhase = 'internal';
     let repairAttempts = 0;
     const generationDeadline = generationStartedAt.getTime() + STUDY_GENERATION_TOTAL_TIMEOUT_MS;
+    let heldCacheSignatures: string[] = [];
+    let cacheClaimToken: string | undefined;
+    let cacheClaimFailureCode: string | undefined;
+    let cacheClaimHeartbeat: ReturnType<typeof setInterval> | undefined;
+    let providerRequestStarted = false;
+    const cacheClaimAbortController = new AbortController();
     const generateWithBudget = async (request: Parameters<AiService['generateForUser']>[0]) => {
       const timeoutMs = studyGenerationRequestTimeoutMs(generationDeadline);
       if (!timeoutMs) {
@@ -441,12 +531,38 @@ export class StudyService {
           },
         );
       }
-      const signal = AbortSignal.timeout(timeoutMs);
+      if (cacheClaimAbortController.signal.aborted) {
+        throw attachSystemLogDiagnostic(
+          new Error('公共学习材料生成协同租约失效；已停止后续模型请求。'),
+          {
+            code: 'STUDY_CACHE_CLAIM_LOST',
+            phase: 'provider_request',
+            fieldPath: 'public_material_claim',
+            reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+          },
+        );
+      }
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(timeoutMs),
+        cacheClaimAbortController.signal,
+      ]);
       try {
+        providerRequestStarted = true;
         const response = await this.ai.generateForUser(request, userId, signal);
         if (signal.aborted) throw signal.reason;
         return response;
       } catch (error) {
+        if (cacheClaimAbortController.signal.aborted) {
+          throw attachSystemLogDiagnostic(
+            new Error('公共学习材料生成协同租约失效；已停止后续模型请求。'),
+            {
+              code: 'STUDY_CACHE_CLAIM_LOST',
+              phase: 'provider_request',
+              fieldPath: 'public_material_claim',
+              reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+            },
+          );
+        }
         if (!signal.aborted) throw error;
         const totalTimeout = Date.now() >= generationDeadline;
         throw attachSystemLogDiagnostic(
@@ -476,7 +592,6 @@ export class StudyService {
       if (!updated.count) throw new StudyPlanGenerationSuperseded();
     };
     try {
-      const invalidCacheIds = new Map<number, string>();
       const cacheLookupSpecs = groupSpec.map((spec) => ({
         spec,
         signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
@@ -488,21 +603,28 @@ export class StudyService {
             .map(({ signature }) => signature),
         ),
       ];
-      // The plan selector already limits the groups to new or due, non-mastered
-      // words. For an exact public material version, a missing or latest-wrong
-      // answer is a concrete low-familiarity signal. Fully correct versions are
-      // left out so a due word can get fresh material when no suitable cache
-      // variant remains; this adds no separate mastery threshold.
-      const cacheCandidates = signatures.length
-        ? await this.prisma.$queryRaw<
-            Array<{ id: string; signature: string; material: Prisma.JsonValue }>
-          >(Prisma.sql`
+      const resolveCacheGroups = async (): Promise<PublicCacheResolution> => {
+        // The plan selector already limits groups to new or due, non-mastered
+        // words. An exact public material version with a missing/latest-wrong
+        // answer is unfamiliar; fully correct versions are intentionally not
+        // reused so a due word gets fresh material when needed.
+        const cacheCandidates = signatures.length
+          ? await this.prisma.$queryRaw<
+              Array<{
+                id: string;
+                signature: string;
+                material: Prisma.JsonValue;
+                hasUnfamiliarQuestion: boolean;
+                candidateCount: number;
+              }>
+            >(Prisma.sql`
             WITH ranked_cache AS (
               SELECT
                 cache."id",
                 cache."signature",
                 cache."material",
                 familiarity."hasUnfamiliarQuestion",
+                COUNT(*) OVER (PARTITION BY cache."signature")::int AS "candidateCount",
                 ROW_NUMBER() OVER (
                   PARTITION BY cache."signature"
                   ORDER BY familiarity."hasUnfamiliarQuestion" DESC,
@@ -542,42 +664,254 @@ export class StudyService {
                 AND cache."isPublic" = TRUE
                 AND cache."isActive" = TRUE
                 AND cache."signature" IN (${Prisma.join(signatures)})
-                AND familiarity."hasUnfamiliarQuestion" = TRUE
             )
-            SELECT "id", "signature", "material"
+            SELECT "id", "signature", "material", "hasUnfamiliarQuestion", "candidateCount"
             FROM ranked_cache
             WHERE candidate_rank <= ${STUDY_CACHE_CANDIDATE_LIMIT}
             ORDER BY "signature", candidate_rank
           `)
-        : [];
-      const cacheCandidatesBySignature = new Map<string, typeof cacheCandidates>();
-      for (const candidate of cacheCandidates) {
-        const matches = cacheCandidatesBySignature.get(candidate.signature) ?? [];
-        matches.push(candidate);
-        cacheCandidatesBySignature.set(candidate.signature, matches);
-      }
-      const cached = cacheLookupSpecs.map(({ spec, signature }): ResolvedGroup | null => {
-        if (!spec.publicEligible) return null;
-        let firstInvalidCacheId: string | undefined;
-        for (const cache of cacheCandidatesBySignature.get(signature) ?? []) {
-          const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
-          try {
-            validateGeneratedContent({ groups: [group] }, [spec]);
-          } catch {
-            firstInvalidCacheId ??= cache.id;
-            continue;
-          }
-          return {
-            cacheId: cache.id,
-            signature,
-            reused: true,
-            publicEligible: true,
-            group,
-          };
+          : [];
+        const cacheCandidatesBySignature = new Map<string, typeof cacheCandidates>();
+        for (const candidate of cacheCandidates) {
+          const matches = cacheCandidatesBySignature.get(candidate.signature) ?? [];
+          matches.push(candidate);
+          cacheCandidatesBySignature.set(candidate.signature, matches);
         }
-        if (firstInvalidCacheId) invalidCacheIds.set(spec.index, firstInvalidCacheId);
-        return null;
-      });
+        const invalidCacheIds = new Map<number, string>();
+        const cached = cacheLookupSpecs.map(({ spec, signature }): ResolvedGroup | null => {
+          if (!spec.publicEligible) return null;
+          let firstInvalidCacheId: string | undefined;
+          for (const cache of cacheCandidatesBySignature.get(signature) ?? []) {
+            if (!cache.hasUnfamiliarQuestion) continue;
+            const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
+            try {
+              validateGeneratedContent({ groups: [group] }, [spec]);
+            } catch {
+              firstInvalidCacheId ??= cache.id;
+              continue;
+            }
+            return {
+              cacheId: cache.id,
+              signature,
+              reused: true,
+              publicEligible: true,
+              group,
+            };
+          }
+          if (firstInvalidCacheId) invalidCacheIds.set(spec.index, firstInvalidCacheId);
+          return null;
+        });
+        const missReasons = new Map<number, PublicCacheMissReason>();
+        const unresolved = cacheLookupSpecs.filter(
+          ({ spec }, index) => spec.publicEligible && !cached[index],
+        );
+        const candidatesBySignature = new Map(
+          [...cacheCandidatesBySignature.entries()].map(([signature, items]) => [
+            signature,
+            {
+              items,
+              total: items[0]?.candidateCount ?? 0,
+            },
+          ]),
+        );
+        const signaturesWithoutCandidates = [
+          ...new Set(
+            unresolved
+              .filter(({ signature }) => !candidatesBySignature.has(signature))
+              .map(({ signature }) => signature),
+          ),
+        ];
+        const materialCounts = signaturesWithoutCandidates.length
+          ? await this.prisma.$queryRaw<
+              Array<{ signature: string; publicCount: number; activeCount: number }>
+            >(Prisma.sql`
+              SELECT
+                "signature",
+                COUNT(*)::int AS "publicCount",
+                COUNT(*) FILTER (WHERE "isActive" = TRUE)::int AS "activeCount"
+              FROM "public"."StudyContentCache"
+              WHERE "mode" = ${plan.mode}::"StudyPlanMode"
+                AND "isPublic" = TRUE
+                AND "signature" IN (${Prisma.join(signaturesWithoutCandidates)})
+              GROUP BY "signature"
+            `)
+          : [];
+        const countsBySignature = new Map(materialCounts.map((row) => [row.signature, row]));
+        for (const { spec, signature } of unresolved) {
+          const candidateState = candidatesBySignature.get(signature);
+          let reason: PublicCacheMissReason;
+          if (candidateState) {
+            if (candidateState.items.some((item) => item.hasUnfamiliarQuestion)) {
+              reason =
+                invalidCacheIds.has(spec.index) &&
+                candidateState.total > STUDY_CACHE_CANDIDATE_LIMIT
+                  ? 'CANDIDATE_LIMIT'
+                  : 'INVALID_MATERIAL';
+            } else {
+              reason = 'FAMILIAR_MATERIAL';
+            }
+          } else {
+            const counts = countsBySignature.get(signature);
+            reason = counts?.publicCount
+              ? counts.activeCount
+                ? 'FAMILIAR_MATERIAL'
+                : 'DISABLED_MATERIAL'
+              : 'NO_PUBLIC_MATERIAL';
+          }
+          missReasons.set(spec.index, reason);
+        }
+        return { cached, invalidCacheIds, missReasons };
+      };
+      let cacheResolution = await resolveCacheGroups();
+      let invalidCacheIds = cacheResolution.invalidCacheIds;
+      let cached = cacheResolution.cached;
+      const publicMissingSignatures = () =>
+        [
+          ...new Set(
+            cacheLookupSpecs
+              .filter(({ spec }, index) => spec.publicEligible && !cached[index])
+              .map(({ signature }) => signature),
+          ),
+        ].sort();
+      const claimWaitDeadline = Math.min(
+        generationDeadline,
+        Date.now() + this.cacheClaimWaitTimeoutMs,
+      );
+      const initiallyMissingSignatures = publicMissingSignatures();
+      if (initiallyMissingSignatures.length) {
+        cacheClaimToken = randomUUID();
+        while (true) {
+          const needed = publicMissingSignatures();
+          if (!needed.length) break;
+          if (Date.now() >= claimWaitDeadline) {
+            throw attachSystemLogDiagnostic(
+              new BadGatewayException(
+                '等待相同公共学习材料超过时限；没有重复发起模型请求，请稍后重试。',
+              ),
+              {
+                code: 'STUDY_CACHE_GENERATION_WAIT_TIMEOUT',
+                phase: 'internal',
+                fieldPath: 'public_material_claim',
+                reason: '等待同一公共材料超过时限；已停止发起重复模型请求。',
+              },
+            );
+          }
+          if (
+            await tryClaimStudyContentSignatures(
+              this.prisma,
+              needed,
+              cacheClaimToken,
+              new Date(),
+              generationStartedAt,
+            )
+          ) {
+            heldCacheSignatures = needed;
+            break;
+          }
+          const statuses = await Promise.all(
+            needed.map(async (signature) => ({
+              signature,
+              status: await getStudyContentClaimStatus(this.prisma, signature),
+            })),
+          );
+          const blocked = statuses.find(({ status }) => status !== 'READY');
+          const blockedSignature = blocked?.signature ?? needed[0];
+          const status = blocked?.status ?? 'READY';
+          await releaseStudyContentClaims(this.prisma, needed, cacheClaimToken);
+          if (status === 'COOLDOWN') {
+            throw attachSystemLogDiagnostic(
+              new BadGatewayException(
+                '同一公共学习材料刚生成失败，系统正在短暂冷却以避免重复请求；请稍后重试。',
+              ),
+              {
+                code: 'STUDY_CACHE_GENERATION_COOLDOWN',
+                phase: 'internal',
+                fieldPath: 'public_material_claim',
+                reason: '同一公共材料近期生成失败；处于短暂冷却期，未发起重复模型请求。',
+              },
+            );
+          }
+          const waited = await this.waitForPublicCacheClaim(
+            blockedSignature ?? needed[0],
+            claimWaitDeadline,
+          );
+          if (waited === 'TIMEOUT') {
+            throw attachSystemLogDiagnostic(
+              new BadGatewayException(
+                '等待相同公共学习材料超过时限；没有重复发起模型请求，请稍后重试。',
+              ),
+              {
+                code: 'STUDY_CACHE_GENERATION_WAIT_TIMEOUT',
+                phase: 'internal',
+                fieldPath: 'public_material_claim',
+                reason: '等待同一公共材料超过时限；已停止发起重复模型请求。',
+              },
+            );
+          }
+          if (waited === 'COOLDOWN') {
+            throw attachSystemLogDiagnostic(
+              new BadGatewayException(
+                '同一公共学习材料刚生成失败，系统正在短暂冷却以避免重复请求；请稍后重试。',
+              ),
+              {
+                code: 'STUDY_CACHE_GENERATION_COOLDOWN',
+                phase: 'internal',
+                fieldPath: 'public_material_claim',
+                reason: '同一公共材料近期生成失败；处于短暂冷却期，未发起重复模型请求。',
+              },
+            );
+          }
+        }
+        cacheResolution = await resolveCacheGroups();
+        cached = cacheResolution.cached;
+        invalidCacheIds = cacheResolution.invalidCacheIds;
+        const noLongerNeeded = heldCacheSignatures.filter(
+          (signature) => !publicMissingSignatures().includes(signature),
+        );
+        if (noLongerNeeded.length) {
+          await releaseStudyContentClaims(this.prisma, noLongerNeeded, cacheClaimToken);
+          heldCacheSignatures = heldCacheSignatures.filter(
+            (signature) => !noLongerNeeded.includes(signature),
+          );
+        }
+        if (heldCacheSignatures.length) {
+          let heartbeatInFlight = false;
+          cacheClaimHeartbeat = setInterval(() => {
+            if (heartbeatInFlight || cacheClaimAbortController.signal.aborted) return;
+            heartbeatInFlight = true;
+            void renewStudyContentClaims(this.prisma, heldCacheSignatures, cacheClaimToken!)
+              .then((renewed) => {
+                if (!renewed && !cacheClaimAbortController.signal.aborted) {
+                  cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+                  cacheClaimAbortController.abort(new Error('Public study content claim expired'));
+                }
+              })
+              .catch(() => {
+                if (!cacheClaimAbortController.signal.aborted) {
+                  cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+                  cacheClaimAbortController.abort(
+                    new Error('Public study content claim unavailable'),
+                  );
+                }
+              })
+              .finally(() => {
+                heartbeatInFlight = false;
+              });
+          }, this.cacheClaimHeartbeatMs);
+          cacheClaimHeartbeat.unref?.();
+        }
+      }
+      if (cached.some(Boolean)) {
+        this.observePublicCache(
+          PUBLIC_CACHE_REUSED_OBSERVATION.code,
+          PUBLIC_CACHE_REUSED_OBSERVATION.reason,
+        );
+      }
+      const observedMissReasons = new Set(cacheResolution.missReasons.values());
+      for (const reason of observedMissReasons) {
+        const observation = PUBLIC_CACHE_OBSERVATION_DETAILS[reason];
+        this.observePublicCache(observation.code, observation.reason);
+      }
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
       let generatedMissing: GeneratedGroup[] = [];
       if (missingSpecs.length) {
@@ -688,6 +1022,30 @@ export class StudyService {
       await setGenerationPhase(StudyPlanGenerationPhase.SAVING);
       generationPhase = 'plan_persistence';
       await this.prisma.$transaction(async (tx) => {
+        if (heldCacheSignatures.length && cacheClaimToken) {
+          const lease = await tx.studyContentGenerationClaim.updateMany({
+            where: {
+              signature: { in: heldCacheSignatures },
+              ownerToken: cacheClaimToken,
+              leaseExpiresAt: { gt: generatedAt },
+            },
+            data: {
+              leaseExpiresAt: new Date(generatedAt.getTime() + STUDY_CONTENT_CLAIM_LEASE_MS),
+            },
+          });
+          if (lease.count !== heldCacheSignatures.length) {
+            cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+            throw attachSystemLogDiagnostic(
+              new Error('公共学习材料生成协同租约失效；已停止保存结果。'),
+              {
+                code: 'STUDY_CACHE_CLAIM_LOST',
+                phase: 'plan_persistence',
+                fieldPath: 'public_material_claim',
+                reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+              },
+            );
+          }
+        }
         const finalized = await tx.studyPlan.updateMany({
           where: {
             id: planId,
@@ -760,7 +1118,16 @@ export class StudyService {
             skipDuplicates: true,
           });
         }
+        if (heldCacheSignatures.length && cacheClaimToken) {
+          await tx.studyContentGenerationClaim.deleteMany({
+            where: {
+              signature: { in: heldCacheSignatures },
+              ownerToken: cacheClaimToken,
+            },
+          });
+        }
       });
+      heldCacheSignatures = [];
       return this.serializePlan(planId, userId);
     } catch (error) {
       if (error instanceof StudyPlanGenerationSuperseded) {
@@ -795,6 +1162,23 @@ export class StudyService {
         new BadGatewayException(`学习计划生成失败：${message}`),
         diagnostic,
       );
+    } finally {
+      if (cacheClaimHeartbeat) clearInterval(cacheClaimHeartbeat);
+      if (heldCacheSignatures.length && cacheClaimToken) {
+        const failureCode =
+          cacheClaimFailureCode ??
+          (providerRequestStarted
+            ? generationPhase === 'content_parse' || generationPhase === 'content_validation'
+              ? 'STUDY_CACHE_VALIDATION_FAILED'
+              : 'STUDY_CACHE_PROVIDER_FAILED'
+            : undefined);
+        await releaseStudyContentClaims(
+          this.prisma,
+          heldCacheSignatures,
+          cacheClaimToken,
+          failureCode,
+        ).catch(() => undefined);
+      }
     }
   }
 
@@ -1486,6 +1870,15 @@ function safeGenerationFailureMessage(
   const message = generationErrorText(error).trim();
   if (isSafeProviderFailureMessage(message) || isSafeKnownGenerationMessage(message)) {
     return message.slice(0, 500);
+  }
+  if (diagnostic.code === 'STUDY_CACHE_GENERATION_WAIT_TIMEOUT') {
+    return '等待相同公共学习材料超过时限；没有重复发起模型请求，请稍后重试。';
+  }
+  if (diagnostic.code === 'STUDY_CACHE_GENERATION_COOLDOWN') {
+    return '同一公共学习材料刚生成失败，系统正在短暂冷却以避免重复请求；请稍后重试。';
+  }
+  if (diagnostic.code === 'STUDY_CACHE_CLAIM_LOST') {
+    return '公共学习材料协同状态已失效；已停止后续请求，请稍后重试。';
   }
   if (
     phase === 'content_validation' &&

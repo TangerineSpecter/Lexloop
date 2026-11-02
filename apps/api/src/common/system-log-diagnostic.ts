@@ -31,6 +31,7 @@ const SAFE_FIELD_PATHS = new Set([
   'choices[0].message.content',
   'studyPlan.generatedContent',
   'studyPlan.generation',
+  'public_material_claim',
   'groups',
   'groups[].sentences',
   'groups[].sentences[].english',
@@ -53,6 +54,9 @@ const VALID_REASONS = new Set([
   '学习计划生成失败；原始异常详情已隐藏。',
   '个别题目未通过校验，已达到本次局部修复上限；原始内容和词条已隐藏。',
   '个别题目已通过有限局部修复；题目内容未写入日志。',
+  '等待同一公共材料超过时限；已停止发起重复模型请求。',
+  '同一公共材料近期生成失败；处于短暂冷却期，未发起重复模型请求。',
+  '公共材料生成协同租约失效；已停止本次后续模型请求。',
 ]);
 
 export function attachSystemLogDiagnostic<T extends Error>(

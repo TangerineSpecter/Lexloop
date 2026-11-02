@@ -81,6 +81,40 @@ describe('file-backed administrator system logs', () => {
     expect(result.groups[0].latestDetail.reason).toContain('HTTP 502');
   });
 
+  it('keeps informational cache observations out of the default error list', async () => {
+    const logs = new SystemLogService();
+    await logs.record(
+      event({
+        severity: 'info',
+        kind: 'study.content-cache',
+        code: 'STUDY_CACHE_REUSED',
+        reason: '该计划复用了符合词目、模式、题型和当前熟悉度条件的公共材料；未记录题目内容。',
+      }),
+    );
+    await logs.record(event({ code: 'HTTP_502', status: 502 }));
+
+    const errors = await logs.list({ from: '2026-11-03', to: '2026-11-03' });
+    const observations = await logs.list({
+      from: '2026-11-03',
+      to: '2026-11-03',
+      severity: 'info',
+    });
+    const all = await logs.list({ from: '2026-11-03', to: '2026-11-03', severity: 'all' });
+    const infoExport = await logs.exportCsv({
+      from: '2026-11-03',
+      to: '2026-11-03',
+      severity: 'info',
+    });
+
+    expect(errors.groups.map((group) => group.code)).toEqual(['HTTP_502']);
+    expect(observations.groups).toMatchObject([
+      { kind: 'study.content-cache', code: 'STUDY_CACHE_REUSED', severity: 'info', count: 1 },
+    ]);
+    expect(all.groups).toHaveLength(2);
+    expect(infoExport.csv).toContain('"severity"');
+    expect(infoExport.csv).toContain('"info"');
+  });
+
   it('stores only the safe final system-update check summary and attempt count', async () => {
     const logs = new SystemLogService();
     await logs.record({

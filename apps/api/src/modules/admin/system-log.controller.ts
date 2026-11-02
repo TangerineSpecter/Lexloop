@@ -12,6 +12,7 @@ type CsvResponse = { header(name: string, value: string): unknown };
 class SystemLogQueryDto implements SystemLogFilters {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) from?: string;
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) to?: string;
+  @IsOptional() @IsIn(['error', 'info', 'all']) severity?: 'error' | 'info' | 'all';
   @IsOptional() @IsIn(['api', 'worker']) source?: 'api' | 'worker';
   @IsOptional() @IsString() @MaxLength(80) search?: string;
 }

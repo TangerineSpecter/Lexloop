@@ -16,9 +16,11 @@ import { resolve } from 'node:path';
 import { isSafeSystemLogFieldPath } from '../../common/system-log-diagnostic';
 
 export type SystemLogSource = 'api' | 'worker';
+export type SystemLogSeverity = 'error' | 'info';
 
 export type SystemLogInput = {
   source: SystemLogSource;
+  severity?: SystemLogSeverity;
   kind: string;
   code: string;
   reason: string;
@@ -35,6 +37,7 @@ export type SystemLogInput = {
 };
 
 export type SystemLogEvent = Omit<SystemLogInput, 'at'> & {
+  severity: SystemLogSeverity;
   at: string;
   day: string;
   epoch: number;
@@ -71,6 +74,15 @@ const SAFE_REASONS = new Set([
   '学习计划生成失败；原始异常详情已隐藏。',
   '个别题目未通过校验，已达到本次局部修复上限；原始内容和词条已隐藏。',
   '个别题目已通过有限局部修复；题目内容未写入日志。',
+  '该计划复用了符合词目、模式、题型和当前熟悉度条件的公共材料；未记录题目内容。',
+  '匹配词目没有来源可确认的公共材料；未记录词条或题目。',
+  '匹配材料只有停用版本；未记录词条或题目。',
+  '匹配材料对应题目均已答对；未记录词条或题目。',
+  '候选公共材料未通过内容校验或达到候选上限；未记录材料内容。',
+  '公共材料正由其他请求准备；未记录词条或题目。',
+  '等待同一公共材料超过时限；已停止发起重复模型请求。',
+  '同一公共材料近期生成失败；处于短暂冷却期，未发起重复模型请求。',
+  '公共材料生成协同租约失效；已停止本次后续模型请求。',
   '应用记录了一条错误；原始详情已隐藏。',
   '接口已接受请求，但没有返回可解析的结构化生成结果。',
   '接口返回了非 JSON 错误响应；请检查 API 地址是否指向兼容接口。',
@@ -334,6 +346,7 @@ function sanitizeEvent(
 ): SystemLogEvent {
   const kind = safeIdentifier(input.kind, 'application.error');
   const code = safeIdentifier(input.code, 'APPLICATION_ERROR');
+  const severity: SystemLogSeverity = input.severity === 'info' ? 'info' : 'error';
   const route = safeRoute(input.route);
   const method = input.method && /^[A-Z]{3,8}$/.test(input.method) ? input.method : undefined;
   const param =
@@ -359,15 +372,16 @@ function sanitizeEvent(
     input.fieldPath && isSafeSystemLogFieldPath(input.fieldPath) ? input.fieldPath : undefined;
   const attemptsMade = safeCount(input.attemptsMade);
   const maxAttempts = safeCount(input.maxAttempts);
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify([input.source, kind, code, method ?? null, route ?? null]))
-    .digest('hex');
+  const fingerprintFields: unknown[] = [input.source, kind, code, method ?? null, route ?? null];
+  if (severity === 'info') fingerprintFields.push(severity);
+  const fingerprint = createHash('sha256').update(JSON.stringify(fingerprintFields)).digest('hex');
   return {
     at,
     day,
     epoch,
     fingerprint,
     source: input.source,
+    severity,
     kind,
     code,
     ...(status ? { status } : {}),
@@ -445,6 +459,7 @@ function parseSystemLogEvent(
   const safeEvent = sanitizeEvent(
     {
       source: event.source,
+      severity: event.severity === 'info' ? 'info' : 'error',
       kind: event.kind,
       code: event.code,
       reason: typeof event.reason === 'string' ? event.reason : '',

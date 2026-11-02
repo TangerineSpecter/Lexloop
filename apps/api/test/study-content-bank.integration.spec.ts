@@ -113,11 +113,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
       const ai = {
         generateForUser: vi.fn(async ({ prompt }: { prompt: string }) => generatedResponse(prompt)),
       };
+      const logEvents: unknown[] = [];
       const service = new StudyService(
         prisma as never,
         ai as never,
         { selectedProvider: async () => ({ id: 'isolated-fixture-model' }) } as never,
         {} as never,
+        { record: async (event: unknown) => void logEvents.push(event) } as never,
       );
       const plan = await service.createPlan(user.id, 1, 'individual', 0, 'book');
       const generated = await service.generatePlan(user.id, plan.id);
@@ -145,6 +147,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
       expect(item.contentCacheId).toBeNull();
       expect(item.question).toMatchObject({ bookWordId: item.bookWordId });
       expect(await prisma.studyContentCache.count({ where: { signature } })).toBe(0);
+      expect(await prisma.studyContentGenerationClaim.count({ where: { signature } })).toBe(0);
+      expect(logEvents).toEqual([]);
       expect(
         await prisma.userWordProgress.count({
           where: { userId: user.id, bookWordId: item.bookWordId },

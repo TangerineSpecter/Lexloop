@@ -9,12 +9,14 @@ import {
   systemLogTimeZone,
   type SystemLogEvent,
   type SystemLogInput,
+  type SystemLogSeverity,
   type SystemLogSource,
 } from './system-log-file';
 
 export type SystemLogFilters = {
   from?: string;
   to?: string;
+  severity?: SystemLogSeverity | 'all';
   source?: SystemLogSource;
   search?: string;
 };
@@ -22,6 +24,7 @@ export type SystemLogFilters = {
 type SystemLogGroup = {
   fingerprint: string;
   source: SystemLogSource;
+  severity: SystemLogSeverity;
   kind: string;
   code: string;
   count: number;
@@ -90,6 +93,7 @@ export class SystemLogService {
     const header = [
       'fingerprint',
       'source',
+      'severity',
       'kind',
       'code',
       'count',
@@ -111,6 +115,7 @@ export class SystemLogService {
       return [
         group.fingerprint,
         group.source,
+        group.severity,
         group.kind,
         group.code,
         group.count,
@@ -147,6 +152,8 @@ export class SystemLogService {
     event: SystemLogEvent,
     filters: SystemLogFilters,
   ) {
+    const severityFilter = filters.severity ?? 'error';
+    if (severityFilter !== 'all' && event.severity !== severityFilter) return;
     if (filters.source && event.source !== filters.source) return;
     const current = groups.get(event.fingerprint);
     if (current) {
@@ -165,6 +172,7 @@ export class SystemLogService {
     groups.set(event.fingerprint, {
       fingerprint: event.fingerprint,
       source: event.source,
+      severity: event.severity,
       kind: event.kind,
       code: event.code,
       count: 1,
@@ -185,6 +193,7 @@ export class SystemLogService {
         const detail = group.latestDetail;
         return [
           group.source,
+          group.severity,
           group.kind,
           group.code,
           detail.param,

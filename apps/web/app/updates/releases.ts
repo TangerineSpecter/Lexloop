@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.125',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '减少相同公共材料的重复生成',
+        entry: '学习计划生成 → 公共材料匹配',
+        usage:
+          '相同公开材料由短租约协调并发生成，等待者会重新检查可复用材料。命中/未命中作为信息级观测；管理员日志 API 可单独筛选，默认错误列表不混入正常命中。',
+      },
+    ],
+  },
+  {
     version: '1.27.124',
     date: '2026-11-02',
     items: [

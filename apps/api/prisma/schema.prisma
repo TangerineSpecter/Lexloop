@@ -658,6 +658,20 @@ model StudyContentCache {
   @@index([isPublic, isActive, mode, createdAt])
 }
 
+// A lease coordinates identical public materials without storing their text or owner account.
+model StudyContentGenerationClaim {
+  signature       String    @id @db.VarChar(64)
+  ownerToken      String?   @db.VarChar(64)
+  leaseExpiresAt  DateTime?
+  retryAfter      DateTime?
+  lastFailureCode String?   @db.VarChar(80)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leaseExpiresAt])
+  @@index([retryAfter])
+}
+
 model StudyContentQuestionFeedback {
   id                  String                      @id @default(cuid())
   userId              String
