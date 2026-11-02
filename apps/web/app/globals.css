@@ -691,17 +691,23 @@
 
 .public-question-feedback {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.65rem;
+  min-width: 0;
+  max-width: 100%;
   margin: 1rem 0 0;
   padding: 0.8rem;
   border: 2px dashed var(--border-color);
   border-radius: 0.65rem;
   background: #fffefa;
+  box-sizing: border-box;
 }
 
 .public-question-feedback legend {
+  max-width: 100%;
   padding: 0 0.35rem;
   font-weight: 850;
+  overflow-wrap: anywhere;
 }
 
 .public-question-feedback-options {
@@ -711,7 +717,10 @@
 }
 
 .public-question-feedback-options button,
-.public-question-feedback-save {
+.public-question-feedback-save,
+.public-question-feedback-withdraw {
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -725,6 +734,8 @@
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .public-question-feedback-options button[aria-pressed='true'] {
@@ -734,6 +745,7 @@
 
 .public-question-feedback > label {
   display: grid;
+  min-width: 0;
   gap: 0.35rem;
   max-width: 24rem;
   font-size: 0.9rem;
@@ -741,6 +753,9 @@
 }
 
 .public-question-feedback select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 2.5rem;
   padding: 0.4rem 0.6rem;
   border: 2px solid var(--border-color);
@@ -748,12 +763,20 @@
   background: #fffefa;
   color: var(--border-color);
   font: inherit;
+  box-sizing: border-box;
 }
 
 .public-question-feedback-save {
   justify-self: start;
   background: var(--navy);
   color: #fffefa;
+}
+
+.public-question-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .public-question-feedback-save:disabled {
@@ -764,6 +787,7 @@
 .public-question-feedback p {
   margin: 0;
   color: #526a9f;
+  overflow-wrap: anywhere;
 }
 
 .generated-matching {
@@ -9812,7 +9836,7 @@ button {
     width: calc(100% - 48px);
   }
   .lesson-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .lesson-side {
     display: grid;
@@ -18090,8 +18114,10 @@ button[data-tooltip]::after {
   box-shadow: 2px 2px 0 var(--border-color);
   outline: none;
 }
-.lesson-layout {
-  grid-template-columns: minmax(0, 1fr) 390px;
+@media (min-width: 921px) {
+  .lesson-layout {
+    grid-template-columns: minmax(0, 1fr) 390px;
+  }
 }
 .tutor-panel {
   min-height: 560px;
@@ -18707,7 +18733,7 @@ button[data-tooltip]::after {
     height: 570px;
   }
   .lesson-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 680px) {

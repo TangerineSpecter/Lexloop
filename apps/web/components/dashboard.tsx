@@ -1376,11 +1376,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 : undefined
             }
             onPlanUpdated={(updated) =>
-              setPlans((current) =>
-                current.map((plan) =>
+              currentUserIdRef.current === session.user.id &&
+              setPlans((current) => {
+                if (currentUserIdRef.current !== session.user.id) return current;
+                return current.map((plan) =>
                   plan.id === updated.id ? { ...updated, mode: plan.mode } : plan,
-                ),
-              )
+                );
+              })
             }
           />
         ) : page === 'study' ? (
@@ -5549,6 +5551,7 @@ function GeneratedStudyPage({
   const [retestScore, setRetestScore] = useState<{ correct: number; total: number } | null>(null);
   const [submittedPlan, setSubmittedPlan] = useState<LearningPlan | null>(null);
   const [feedbackGroupIndex, setFeedbackGroupIndex] = useState<number | null>(null);
+  const feedbackMutationVersions = useRef(new Map<string, number>());
   const [planMarks, setPlanMarks] = useState({ quick: false, weak: false });
   const groupStartedAt = useRef(Date.now());
   const activePlan = plan && submittedPlan?.id === plan.id ? submittedPlan : plan;
@@ -5668,11 +5671,20 @@ function GeneratedStudyPage({
       setSubmitting(false);
     }
   };
+  const startQuestionFeedbackMutation = (bookWordId: string) => {
+    const key = `${session.user.id}:${activePlan.id}:${bookWordId}`;
+    const version = (feedbackMutationVersions.current.get(key) ?? 0) + 1;
+    feedbackMutationVersions.current.set(key, version);
+    return { key, version };
+  };
+  const isLatestQuestionFeedbackMutation = (key: string, version: number) =>
+    feedbackMutationVersions.current.get(key) === version;
   const saveQuestionFeedback = async (
     bookWordId: string,
     rating: 'UP' | 'DOWN',
     reason: NonNullable<Word['questionFeedback']>['reason'],
-  ) => {
+  ): Promise<NonNullable<Word['questionFeedback']> | null> => {
+    const mutation = startQuestionFeedbackMutation(bookWordId);
     const feedback = await request<NonNullable<Word['questionFeedback']>>(
       `/study/plans/${encodeURIComponent(activePlan.id)}/public-questions/${encodeURIComponent(bookWordId)}/feedback`,
       {
@@ -5681,6 +5693,7 @@ function GeneratedStudyPage({
       },
       session.accessToken,
     );
+    if (!isLatestQuestionFeedbackMutation(mutation.key, mutation.version)) return null;
     const updated: LearningPlan = {
       ...activePlan,
       words: activePlan.words.map((item) =>
@@ -5690,6 +5703,26 @@ function GeneratedStudyPage({
     setSubmittedPlan(updated);
     onPlanUpdated(updated);
     return feedback;
+  };
+  const withdrawQuestionFeedback = async (bookWordId: string): Promise<boolean> => {
+    const mutation = startQuestionFeedbackMutation(bookWordId);
+    const result = await request<{ withdrawn: boolean }>(
+      `/study/plans/${encodeURIComponent(activePlan.id)}/public-questions/${encodeURIComponent(bookWordId)}/feedback`,
+      { method: 'DELETE' },
+      session.accessToken,
+    );
+    if (!result.withdrawn || !isLatestQuestionFeedbackMutation(mutation.key, mutation.version)) {
+      return false;
+    }
+    const updated: LearningPlan = {
+      ...activePlan,
+      words: activePlan.words.map((item) =>
+        item.id === bookWordId ? { ...item, questionFeedback: null } : item,
+      ),
+    };
+    setSubmittedPlan(updated);
+    onPlanUpdated(updated);
+    return true;
   };
   if (finishedPlan && !showingFeedback) {
     const retest = wrongRetestPlan(finishedPlan.words);
@@ -5838,6 +5871,7 @@ function GeneratedStudyPage({
                   onSaveFeedback={(rating, reason) =>
                     saveQuestionFeedback(word.id!, rating, reason)
                   }
+                  onWithdrawFeedback={() => withdrawQuestionFeedback(word.id!)}
                 />
               );
             })}
@@ -6228,6 +6262,7 @@ function GeneratedQuestionCard({
   publicBankMaterial = false,
   questionFeedback = null,
   onSaveFeedback,
+  onWithdrawFeedback,
 }: {
   question: GeneratedQuestion;
   word: Word;
@@ -6241,7 +6276,8 @@ function GeneratedQuestionCard({
   onSaveFeedback?: (
     rating: 'UP' | 'DOWN',
     reason: NonNullable<Word['questionFeedback']>['reason'],
-  ) => Promise<NonNullable<Word['questionFeedback']>>;
+  ) => Promise<NonNullable<Word['questionFeedback']> | null>;
+  onWithdrawFeedback?: () => Promise<boolean>;
 }) {
   const selected = answer?.selected ?? [];
   const isMultiple = question.type === 'WORD_MNEMONIC';
@@ -6256,11 +6292,19 @@ function GeneratedQuestionCard({
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState('');
   const [feedbackSaved, setFeedbackSaved] = useState(Boolean(questionFeedback));
+  const [feedbackDirty, setFeedbackDirty] = useState(false);
+  const [feedbackWithdrawn, setFeedbackWithdrawn] = useState(false);
+  const feedbackWithdrawalStatusRef = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
     setFeedbackRating(questionFeedback?.rating ?? null);
     setFeedbackReason(questionFeedback?.reason ?? null);
     setFeedbackSaved(Boolean(questionFeedback));
+    setFeedbackDirty(false);
+    if (questionFeedback) setFeedbackWithdrawn(false);
   }, [questionFeedback?.rating, questionFeedback?.reason]);
+  useEffect(() => {
+    if (feedbackWithdrawn) feedbackWithdrawalStatusRef.current?.focus();
+  }, [feedbackWithdrawn]);
   const correct = Boolean(
     answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected),
   );
@@ -6287,11 +6331,32 @@ function GeneratedQuestionCard({
         feedbackRating,
         feedbackRating === 'DOWN' ? feedbackReason : null,
       );
+      if (!saved) return;
       setFeedbackRating(saved.rating);
       setFeedbackReason(saved.reason);
       setFeedbackSaved(true);
+      setFeedbackDirty(false);
+      setFeedbackWithdrawn(false);
     } catch (error) {
       setFeedbackError(userFacingError(error, '评价没有保存，请重试。'));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+  const withdrawFeedback = async () => {
+    if (!feedbackSaved || !onWithdrawFeedback || feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackError('');
+    try {
+      const withdrawn = await onWithdrawFeedback();
+      if (!withdrawn) return;
+      setFeedbackRating(null);
+      setFeedbackReason(null);
+      setFeedbackSaved(false);
+      setFeedbackDirty(false);
+      setFeedbackWithdrawn(true);
+    } catch (error) {
+      setFeedbackError(userFacingError(error, '评价没有撤回，请重试。'));
     } finally {
       setFeedbackBusy(false);
     }
@@ -6389,10 +6454,13 @@ function GeneratedQuestionCard({
               <div className="public-question-feedback-options">
                 <button
                   type="button"
+                  disabled={feedbackBusy}
                   aria-pressed={feedbackRating === 'UP'}
                   onClick={() => {
                     setFeedbackRating('UP');
                     setFeedbackReason(null);
+                    setFeedbackDirty(true);
+                    setFeedbackWithdrawn(false);
                     setFeedbackError('');
                   }}
                 >
@@ -6401,9 +6469,12 @@ function GeneratedQuestionCard({
                 </button>
                 <button
                   type="button"
+                  disabled={feedbackBusy}
                   aria-pressed={feedbackRating === 'DOWN'}
                   onClick={() => {
                     setFeedbackRating('DOWN');
+                    setFeedbackDirty(true);
+                    setFeedbackWithdrawn(false);
                     setFeedbackError('');
                   }}
                 >
@@ -6416,13 +6487,16 @@ function GeneratedQuestionCard({
                   原因（可选）
                   <select
                     value={feedbackReason ?? ''}
-                    onChange={(event) =>
+                    disabled={feedbackBusy}
+                    onChange={(event) => {
                       setFeedbackReason(
                         (event.target.value || null) as NonNullable<
                           Word['questionFeedback']
                         >['reason'],
-                      )
-                    }
+                      );
+                      setFeedbackDirty(true);
+                      setFeedbackWithdrawn(false);
+                    }}
                   >
                     <option value="">不补充原因</option>
                     <option value="ANSWER_INCORRECT">参考答案有误</option>
@@ -6433,15 +6507,36 @@ function GeneratedQuestionCard({
                   </select>
                 </label>
               )}
-              <button
-                type="button"
-                className="public-question-feedback-save"
-                disabled={!feedbackRating || feedbackBusy}
-                onClick={() => void saveFeedback()}
-              >
-                {feedbackBusy ? '保存中…' : feedbackSaved ? '更新评价' : '提交评价'}
-              </button>
-              {feedbackSaved && !feedbackError && <p role="status">评价已保存，可随时修改。</p>}
+              <div className="public-question-feedback-actions">
+                <button
+                  type="button"
+                  className="public-question-feedback-save"
+                  disabled={!feedbackRating || feedbackBusy || (feedbackSaved && !feedbackDirty)}
+                  onClick={() => void saveFeedback()}
+                >
+                  {feedbackBusy ? '处理中…' : feedbackSaved ? '更新评价' : '提交评价'}
+                </button>
+                {feedbackSaved && (
+                  <button
+                    type="button"
+                    className="public-question-feedback-withdraw"
+                    disabled={feedbackBusy}
+                    onClick={() => void withdrawFeedback()}
+                  >
+                    撤回已保存评价
+                  </button>
+                )}
+              </div>
+              {feedbackSaved && !feedbackError && (
+                <p role="status">
+                  {feedbackDirty ? '评价有未保存的修改。' : '评价已保存，可随时修改或撤回。'}
+                </p>
+              )}
+              {feedbackWithdrawn && !feedbackError && (
+                <p ref={feedbackWithdrawalStatusRef} tabIndex={-1} role="status">
+                  评价已撤回，可重新评价。
+                </p>
+              )}
               {feedbackError && <p role="alert">{feedbackError}</p>}
             </fieldset>
           )}

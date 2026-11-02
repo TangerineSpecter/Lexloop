@@ -6,11 +6,13 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Reflector } from '@nestjs/core';
 import { PrismaClient, Role, StudyPlanMode } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { StudyContentBankController } from '../src/modules/admin/study-content-bank.controller';
 import { StudyContentBankService } from '../src/modules/admin/study-content-bank.service';
 import { JwtAuthGuard } from '../src/modules/auth/jwt-auth.guard';
 import { RolesGuard } from '../src/modules/auth/roles.guard';
+import { StudyController } from '../src/modules/study/study.controller';
+import { StudyService } from '../src/modules/study/study.service';
 import { studyQuestionFingerprint } from '../src/modules/study/study-content-bank';
 
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
@@ -88,7 +90,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const jwt = new JwtService({ secret: jwtSecret });
         const moduleRef = await Test.createTestingModule({
           imports: [JwtModule.register({})],
-          controllers: [StudyContentBankController],
+          controllers: [StudyContentBankController, StudyController],
           providers: [
             {
               provide: StudyContentBankService,
@@ -100,6 +102,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             {
               provide: ConfigService,
               useValue: { getOrThrow: () => jwtSecret },
+            },
+            {
+              provide: StudyService,
+              useValue: {
+                withdrawPublicQuestionFeedback: vi.fn(async () => ({ withdrawn: true })),
+              },
             },
           ],
         }).compile();
@@ -118,6 +126,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           { secret: jwtSecret, expiresIn: '5m' },
         );
         const route = '/api/v1/admin/study-content-bank';
+        const feedbackRoute = `/api/v1/study/plans/${fixtureId}/public-questions/word-${fixtureId}/feedback`;
 
         const anonymousRead = await fastify.inject({ method: 'GET', url: route });
         const userRead = await fastify.inject({
@@ -141,6 +150,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(userRead.statusCode, userRead.body).toBe(403);
         expect(anonymousWrite.statusCode).toBe(401);
         expect(userWrite.statusCode, userWrite.body).toBe(403);
+        const anonymousFeedbackWithdrawal = await fastify.inject({
+          method: 'DELETE',
+          url: feedbackRoute,
+        });
+        expect(anonymousFeedbackWithdrawal.statusCode).toBe(401);
         expect(
           await prisma.studyContentCache.findUniqueOrThrow({
             where: { id: cache.id },
@@ -192,6 +206,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           disabledReason: '隔离 HTTP 管理验证',
           disabledByUserId: admin.id,
         });
+        const memberFeedbackWithdrawal = await fastify.inject({
+          method: 'DELETE',
+          url: feedbackRoute,
+          headers: { authorization: `Bearer ${userToken}` },
+        });
+        const withdrawalService = moduleRef.get(StudyService);
+        expect(withdrawalService.withdrawPublicQuestionFeedback).toHaveBeenCalledWith(
+          user.id,
+          fixtureId,
+          `word-${fixtureId}`,
+        );
+        expect(memberFeedbackWithdrawal.statusCode, memberFeedbackWithdrawal.body).toBe(200);
+        expect(memberFeedbackWithdrawal.json()).toEqual({ withdrawn: true });
       } finally {
         await app?.close();
         if (cacheId) await prisma.studyContentCache.deleteMany({ where: { id: cacheId } });

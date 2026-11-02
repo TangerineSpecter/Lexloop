@@ -79,6 +79,7 @@ export class StudyContentBankService {
         FROM "public"."StudyContentQuestionFeedback" AS feedback
         WHERE feedback."contentCacheId" = "public"."StudyContentCache"."id"
           AND feedback."rating" = 'DOWN'::"StudyContentFeedbackRating"
+          AND feedback."withdrawnAt" IS NULL
       )`);
     }
     const search = filters.search?.trim();
@@ -137,6 +138,7 @@ export class StudyContentBankService {
                  COUNT(*)::bigint AS "count", MAX("updatedAt") AS "lastUpdatedAt"
           FROM "public"."StudyContentQuestionFeedback"
           WHERE "contentCacheId" IN (${Prisma.join(ids)})
+            AND "withdrawnAt" IS NULL
           GROUP BY "contentCacheId", "questionFingerprint", "questionSnapshot", "rating", "reason"
         `)
       : [];

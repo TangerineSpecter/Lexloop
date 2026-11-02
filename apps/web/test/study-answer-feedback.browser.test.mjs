@@ -330,6 +330,9 @@ test(
           window.mistakeRequests = [];
           window.apiFetchLog = [];
           window.questionFeedbackRequests = [];
+          window.questionFeedbackWithdrawalRequests = [];
+          window.questionFeedbackWithdrawalAttempts = 0;
+          window.holdFeedbackWithdrawal = false;
           window.studyBankListRequests = [];
           window.studyBankFixture = {
             page: 1, pageSize: 20, total: 2, quarantinedCount: 2,
@@ -454,6 +457,19 @@ test(
               const body = JSON.parse(options.body);
               window.questionFeedbackRequests.push({ path, body });
               return Response.json({ ...body, saved: true });
+            }
+            if (path.includes('/api/v1/study/plans/plan-1/public-questions/') && path.endsWith('/feedback') && method === 'DELETE') {
+              window.questionFeedbackWithdrawalRequests.push(path);
+              window.questionFeedbackWithdrawalAttempts += 1;
+              if (window.holdFeedbackWithdrawal) {
+                return await new Promise((resolve) => {
+                  window.resolveFeedbackWithdrawal = resolve;
+                });
+              }
+              if (window.questionFeedbackWithdrawalAttempts === 1) {
+                return Response.json({ message: 'Fixture withdrawal failed' }, { status: 503 });
+              }
+              return Response.json({ withdrawn: true });
             }
             const generationPath = '/api/v1/study/plans/first-plan-book-b/generate';
             if (path.endsWith(generationPath) && method === 'POST' && window.firstPlanJourney) {
@@ -2026,6 +2042,114 @@ test(
         rating: 'UP',
         reason: null,
       });
+      await evaluate('window.holdFeedbackWithdrawal = true');
+      await evaluate(
+        '([...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("撤回已保存评价")).focus())',
+      );
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until('window.questionFeedbackWithdrawalRequests.length === 1');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("撤回已保存评价")).disabled',
+        ),
+        true,
+        'withdraw controls stay locked while the server response is pending',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("撤回已保存评价")).click()',
+      );
+      assert.equal(await evaluate('window.questionFeedbackWithdrawalRequests.length'), 1);
+      await evaluate(
+        "window.holdFeedbackWithdrawal = false; window.resolveFeedbackWithdrawal(Response.json({ message: 'Fixture withdrawal failed' }, { status: 503 }))",
+      );
+      await until('document.querySelector(".public-question-feedback [role=alert]")');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("题目清楚")).getAttribute("aria-pressed")',
+        ),
+        'true',
+        'a failed withdrawal keeps the saved rating for retry',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("撤回已保存评价")).click()',
+      );
+      await until(
+        'document.querySelector(".public-question-feedback [role=status]")?.textContent.includes("评价已撤回")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.activeElement.matches(".public-question-feedback [role=status][tabindex=\'-1\']")',
+        ),
+        true,
+        'focus moves to the withdrawal status when its focused button disappears',
+      );
+      assert.equal(await evaluate('window.questionFeedbackWithdrawalRequests.length'), 2);
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".public-question-feedback-options button")].every((button) => button.getAttribute("aria-pressed") === "false")',
+        ),
+        true,
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("有问题")).click()',
+      );
+      await evaluate(`(() => {
+        const reason = document.querySelector('.public-question-feedback select');
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(reason, 'OTHER');
+        reason.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("提交评价")).click()',
+      );
+      await until('window.questionFeedbackRequests.length === 3');
+      assert.deepEqual(await evaluate('window.questionFeedbackRequests[2].body'), {
+        rating: 'DOWN',
+        reason: 'OTHER',
+      });
+      await until(
+        'document.querySelector(".public-question-feedback [role=status]")?.textContent.includes("评价已保存")',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileFeedbackLayout = await evaluate(`(() => {
+        const feedback = document.querySelector('.public-question-feedback');
+        const rect = feedback.getBoundingClientRect();
+        const controls = [...feedback.querySelectorAll('button, select')].map((element) => {
+          const box = element.getBoundingClientRect();
+          return { left: box.left, right: box.right, width: box.width };
+        });
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth,
+          left: rect.left, right: rect.right, scrollWidth: feedback.scrollWidth,
+          clientWidth: feedback.clientWidth, controls };
+      })()`);
+      assert.equal(mobileFeedbackLayout.viewport, 390);
+      assert.ok(mobileFeedbackLayout.document <= 390, JSON.stringify(mobileFeedbackLayout));
+      assert.ok(
+        mobileFeedbackLayout.left >= 0 && mobileFeedbackLayout.right <= 390,
+        JSON.stringify(mobileFeedbackLayout),
+      );
+      assert.ok(
+        mobileFeedbackLayout.scrollWidth <= mobileFeedbackLayout.clientWidth + 1,
+        JSON.stringify(mobileFeedbackLayout),
+      );
+      assert.ok(
+        mobileFeedbackLayout.controls.every(
+          ({ left, right }) =>
+            left >= mobileFeedbackLayout.left && right <= mobileFeedbackLayout.right,
+        ),
+        JSON.stringify(mobileFeedbackLayout),
+      );
+      await capture('public-question-feedback-withdrawal-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       assert.equal(
         await evaluate('document.querySelector(".saved-review-context p")?.textContent'),
         'Maya missed the bus, so she called a taxi.',
@@ -2081,7 +2205,25 @@ test(
           const rect = element.getBoundingClientRect();
           return [selector, { left: rect.left, right: rect.right, width: rect.width, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }];
         }));
-        return { viewport: innerWidth, page: document.documentElement.scrollWidth, body: document.body.scrollWidth, boxes };
+        const ancestors = [];
+        for (let node = document.querySelector('.exercise-card'); node && ancestors.length < 7; node = node.parentElement) {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          ancestors.push({ tag: node.tagName, className: typeof node.className === 'string' ? node.className : '',
+            left: rect.left, right: rect.right, width: rect.width, scrollWidth: node.scrollWidth,
+            clientWidth: node.clientWidth, gridTemplateColumns: style.gridTemplateColumns, minWidth: style.minWidth });
+        }
+        const overflowingDescendants = [...document.querySelectorAll('.exercise-card *')]
+          .filter((element) => element.closest('.public-question-feedback') || element.scrollWidth > element.clientWidth + 1)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return { tag: element.tagName, className: typeof element.className === 'string' ? element.className : '',
+              text: element.textContent?.slice(0, 80), left: rect.left, right: rect.right,
+              width: rect.width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+              whiteSpace: style.whiteSpace, minWidth: style.minWidth };
+          });
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, body: document.body.scrollWidth, boxes, ancestors, overflowingDescendants };
       })()`);
       assert.equal(longTextLayout.viewport, 195);
       assert.ok(longTextLayout.page <= longTextLayout.viewport, JSON.stringify(longTextLayout));
@@ -2093,7 +2235,7 @@ test(
         );
         assert.ok(
           box.scrollWidth <= box.clientWidth + 1,
-          `${selector}: text overflows its box: ${JSON.stringify(box)}`,
+          `${selector}: text overflows its box: ${JSON.stringify({ box, overflowingDescendants: longTextLayout.overflowingDescendants })}`,
         );
       }
       await send('Emulation.setDeviceMetricsOverride', {

@@ -198,7 +198,7 @@ const studyPlanInclude = (userId: string) =>
           select: {
             isPublic: true,
             questionFeedbacks: {
-              where: { userId },
+              where: { userId, withdrawnAt: null },
               orderBy: { updatedAt: 'desc' },
               take: 50,
               select: { questionFingerprint: true, rating: true, reason: true },
@@ -1238,15 +1238,45 @@ export class StudyService {
         questionSnapshot: item.question,
         rating,
         reason: rating === StudyContentFeedbackRating.DOWN ? (reason ?? null) : null,
+        withdrawnAt: null,
       },
       update: {
         questionSnapshot: item.question,
         rating,
         reason: rating === StudyContentFeedbackRating.DOWN ? (reason ?? null) : null,
+        withdrawnAt: null,
       },
       select: { rating: true, reason: true },
     });
     return { ...feedback, saved: true };
+  }
+
+  async withdrawPublicQuestionFeedback(userId: string, planId: string, bookWordId: string) {
+    const item = await this.prisma.studyPlanItem.findFirst({
+      where: {
+        planId,
+        bookWordId,
+        completedAt: { not: null },
+        plan: { userId },
+        attempts: { some: { userId } },
+        contentCache: { is: { isPublic: true } },
+      },
+      select: { question: true, contentCacheId: true },
+    });
+    if (!item?.question || !item.contentCacheId) {
+      throw new NotFoundException('只有完成并查看过的公共题目可以撤回评价');
+    }
+    await this.prisma.studyContentQuestionFeedback.updateMany({
+      where: {
+        userId,
+        contentCacheId: item.contentCacheId,
+        questionFingerprint: studyQuestionFingerprint(item.question),
+        withdrawnAt: null,
+      },
+      data: { withdrawnAt: new Date() },
+    });
+    // Return the target state so a retry after a lost response is idempotent.
+    return { withdrawn: true };
   }
 
   async getGenerationStatus(userId: string, planId: string) {

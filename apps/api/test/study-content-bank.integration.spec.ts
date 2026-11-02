@@ -332,6 +332,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
           StudyContentFeedbackRating.UP,
         ),
       ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        study.withdrawPublicQuestionFeedback(users[1].id, plans[0].id, bookWordId),
+      ).rejects.toBeInstanceOf(NotFoundException);
       const otherPlanItem = plans[1].items[0];
       await prisma.studyPlanItem.update({
         where: { id: otherPlanItem.id },
@@ -360,6 +363,103 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         StudyContentFeedbackRating.UP,
       );
       expect(changedVote).toMatchObject({ rating: 'UP', reason: null });
+      const ownerFeedback = await prisma.studyContentQuestionFeedback.findUniqueOrThrow({
+        where: {
+          userId_contentCacheId_questionFingerprint: {
+            userId: users[0].id,
+            contentCacheId: cache.id,
+            questionFingerprint: studyQuestionFingerprint(question),
+          },
+        },
+      });
+      const [withdrawalOne, withdrawalRetry] = await Promise.all([
+        study.withdrawPublicQuestionFeedback(users[0].id, plans[0].id, bookWordId),
+        study.withdrawPublicQuestionFeedback(users[0].id, plans[0].id, bookWordId),
+      ]);
+      expect(withdrawalOne).toEqual({ withdrawn: true });
+      expect(withdrawalRetry).toEqual({ withdrawn: true });
+      const withdrawnFeedback = await prisma.studyContentQuestionFeedback.findUniqueOrThrow({
+        where: { id: ownerFeedback.id },
+      });
+      expect(withdrawnFeedback).toMatchObject({
+        id: ownerFeedback.id,
+        rating: StudyContentFeedbackRating.UP,
+        questionFingerprint: studyQuestionFingerprint(question),
+        questionSnapshot: question,
+      });
+      expect(withdrawnFeedback.withdrawnAt).toBeInstanceOf(Date);
+      expect((await study.getPlan(users[0].id, plans[0].id)).words[0].questionFeedback).toBeNull();
+      const afterWithdrawal = await bank.list({
+        status: 'active',
+        search: fixtureId,
+        feedback: 'negative',
+      });
+      expect(afterWithdrawal).toMatchObject({ total: 1, items: [{ id: cache.id }] });
+      expect(afterWithdrawal.items[0].questions[0].feedback).toEqual({
+        up: 0,
+        down: 0,
+        reasonCounts: {},
+      });
+      expect(afterWithdrawal.items[0].feedbackSummary).toEqual({
+        current: { up: 0, down: 0 },
+        older: { up: 0, down: 1 },
+      });
+
+      // A completed same-version question can be rated again after withdrawal;
+      // the unique row is reactivated rather than duplicated.
+      const restoredVote = await study.ratePublicQuestion(
+        users[0].id,
+        plans[0].id,
+        bookWordId,
+        StudyContentFeedbackRating.UP,
+      );
+      expect(restoredVote).toMatchObject({ rating: 'UP', reason: null });
+      expect(
+        await prisma.studyContentQuestionFeedback.count({
+          where: { userId: users[0].id, contentCacheId: cache.id },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.studyContentQuestionFeedback.findUniqueOrThrow({
+          where: { id: ownerFeedback.id },
+        }),
+      ).toMatchObject({ id: ownerFeedback.id, withdrawnAt: null, rating: 'UP' });
+      await Promise.all([
+        study.ratePublicQuestion(
+          users[0].id,
+          plans[0].id,
+          bookWordId,
+          StudyContentFeedbackRating.DOWN,
+          StudyContentFeedbackReason.EXPLANATION_UNCLEAR,
+        ),
+        study.withdrawPublicQuestionFeedback(users[0].id, plans[0].id, bookWordId),
+      ]);
+      const afterRace = await prisma.studyContentQuestionFeedback.findUniqueOrThrow({
+        where: { id: ownerFeedback.id },
+      });
+      expect(
+        await prisma.studyContentQuestionFeedback.count({
+          where: {
+            userId: users[0].id,
+            contentCacheId: cache.id,
+            questionFingerprint: studyQuestionFingerprint(question),
+          },
+        }),
+      ).toBe(1);
+      const planAfterRace = await study.getPlan(users[0].id, plans[0].id);
+      expect(Boolean(planAfterRace.words[0].questionFeedback)).toBe(afterRace.withdrawnAt === null);
+      const bankAfterRace = await bank.list({ status: 'active', search: fixtureId });
+      expect(bankAfterRace.items[0].questions[0].feedback).toEqual(
+        afterRace.withdrawnAt === null
+          ? { up: 0, down: 1, reasonCounts: { EXPLANATION_UNCLEAR: 1 } }
+          : { up: 0, down: 0, reasonCounts: {} },
+      );
+      await study.ratePublicQuestion(
+        users[0].id,
+        plans[0].id,
+        bookWordId,
+        StudyContentFeedbackRating.UP,
+      );
       expect(
         await prisma.studyContentQuestionFeedback.count({
           where: { userId: users[0].id, contentCacheId: cache.id },

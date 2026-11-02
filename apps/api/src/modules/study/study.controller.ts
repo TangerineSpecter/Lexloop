@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ArrayMaxSize,
   IsArray,
@@ -53,7 +64,7 @@ class CompletedHistoryQueryDto {
 @UseGuards(JwtAuthGuard)
 @Controller('study')
 export class StudyController {
-  constructor(private readonly study: StudyService) {}
+  constructor(@Inject(StudyService) private readonly study: StudyService) {}
   @Get('plans') list(@Req() request: AuthenticatedRequest) {
     return this.study.listPlans(request.user.sub);
   }
@@ -118,5 +129,12 @@ export class StudyController {
       dto.rating,
       dto.reason,
     );
+  }
+  @Delete('plans/:planId/public-questions/:bookWordId/feedback') withdrawFeedback(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+    @Param('bookWordId') bookWordId: string,
+  ) {
+    return this.study.withdrawPublicQuestionFeedback(request.user.sub, planId, bookWordId);
   }
 }

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.134',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '撤回已提交的题目评价',
+        entry: '已完成的公共题目 → 评价',
+        usage:
+          '可撤回自己对公共题目的赞踩，撤回后不再计入管理员汇总，并可重新评价。答题快照、历史作答和复习进度不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.133',
     date: '2026-11-02',
     items: [
