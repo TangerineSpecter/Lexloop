@@ -24,7 +24,8 @@ export function intervalGrowthLine(words: IntervalWord[]) {
     .slice(0, 3);
   if (!grown.length) return null;
   const parts = grown.map(
-    (word) => `${word.word!.trim()} 从 ${word.previousIntervalDays} 天到 ${word.lastIntervalDays} 天`,
+    (word) =>
+      `${word.word!.trim()} 从 ${word.previousIntervalDays} 天到 ${word.lastIntervalDays} 天`,
   );
   return `复习间隔拉长：${parts.join('、')}。`;
 }

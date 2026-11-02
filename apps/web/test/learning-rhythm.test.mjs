@@ -36,7 +36,12 @@ import {
 test('summarizes one finished plan without inventing a goal delta', () => {
   const recap = sessionRecap([
     { word: 'adapt', source: 'REVIEW', result: false, activeWeaknesses: [{ wrongCount: 4 }] },
-    { word: 'bright', source: 'NEW', result: false, activeWeaknesses: [{ wrongCount: 1 }, { wrongCount: 3 }] },
+    {
+      word: 'bright',
+      source: 'NEW',
+      result: false,
+      activeWeaknesses: [{ wrongCount: 1 }, { wrongCount: 3 }],
+    },
     { word: 'calm', source: 'NEW', result: true },
     { word: 'drift', source: 'REVIEW', result: false },
     { word: 'eager', source: 'REVIEW', result: false, activeWeaknesses: [{ wrongCount: 9 }] },
@@ -61,7 +66,10 @@ test('summarizes one finished plan without inventing a goal delta', () => {
     sessionGoalLine({ kind: 'reviews', target: 10, progress: 6, met: false }, 5),
     '今日目标是复习 10 个不同词，当前 6/10。这次计划提交了 5 个词；同一天已经答过的词不会再计一次。',
   );
-  assert.match(sessionGoalLine({ kind: 'activity', target: 1, progress: 1, met: true }, 5), /已完成/);
+  assert.match(
+    sessionGoalLine({ kind: 'activity', target: 1, progress: 1, met: true }, 5),
+    /已完成/,
+  );
 });
 
 test('hides a dismissed session recap for that plan only', () => {
@@ -146,8 +154,14 @@ test('names a saved question type and skips an unknown one', () => {
     ],
     cueFor,
   );
-  assert.match(sessionWeakLine(recap.weakest, recap.total) ?? '', /bright（单题型最多累计答错 4 次）/);
-  assert.match(sessionWeakLine(recap.weakest, recap.total) ?? '', /adapt（单题型最多累计答错 2 次，词义识别）/);
+  assert.match(
+    sessionWeakLine(recap.weakest, recap.total) ?? '',
+    /bright（单题型最多累计答错 4 次）/,
+  );
+  assert.match(
+    sessionWeakLine(recap.weakest, recap.total) ?? '',
+    /adapt（单题型最多累计答错 2 次，词义识别）/,
+  );
   assert.equal((sessionWeakLine(recap.weakest, recap.total) ?? '').includes('拼写'), false);
 });
 
@@ -170,16 +184,25 @@ test('guides an empty review day toward new words or another book', () => {
     emptyStudyGuide({ reviewCount: 0, weakFocusCount: 0, newWordCount: 6 }),
     '今天没有到期词，也没有待练错题。用上面的「创建学习计划」从新词开始就行。',
   );
-  assert.match(emptyStudyGuide({ reviewCount: 0, weakFocusCount: 0, newWordCount: 0 }) ?? '', /切换词书/);
+  assert.match(
+    emptyStudyGuide({ reviewCount: 0, weakFocusCount: 0, newWordCount: 0 }) ?? '',
+    /切换词书/,
+  );
   assert.equal(emptyStudyGuide({ reviewCount: 2, weakFocusCount: 0, newWordCount: 6 }), null);
-  assert.equal(emptyStudyGuide({ reviewCount: 0, weakFocusCount: undefined, newWordCount: 6 }), null);
+  assert.equal(
+    emptyStudyGuide({ reviewCount: 0, weakFocusCount: undefined, newWordCount: 6 }),
+    null,
+  );
 });
 
 test('shows how many reviews remain and fills the goal bar from saved progress', () => {
   const goal = { kind: 'reviews', target: 10, progress: 4, met: false };
   assert.equal(dailyGoalStatusText(goal), '今日目标：复习 10 个词，还差 6 个');
   assert.equal(dailyGoalProgressPercent(goal), 40);
-  assert.equal(dailyGoalProgressPercent({ kind: 'activity', target: 1, progress: 1, met: true }), 100);
+  assert.equal(
+    dailyGoalProgressPercent({ kind: 'activity', target: 1, progress: 1, met: true }),
+    100,
+  );
 });
 
 test('remembers a weak-focus plan separately from a missing count', () => {

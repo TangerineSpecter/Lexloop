@@ -119,10 +119,10 @@ export function dismissSessionRecap(
   planId: string,
 ) {
   if (!userId || !planId || planId.length > 200) return;
-  const next = [planId, ...readDismissedRecaps(storage, userId).filter((id) => id !== planId)].slice(
-    0,
-    DISMISS_LIMIT,
-  );
+  const next = [
+    planId,
+    ...readDismissedRecaps(storage, userId).filter((id) => id !== planId),
+  ].slice(0, DISMISS_LIMIT);
   storage.setItem(`${DISMISS_KEY_PREFIX}${userId}`, JSON.stringify(next));
 }
 
@@ -133,7 +133,9 @@ function readDismissedRecaps(storage: Pick<Storage, 'getItem'>, userId: string) 
     const value = JSON.parse(raw) as unknown;
     if (!Array.isArray(value)) return [];
     return value
-      .filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 200)
+      .filter(
+        (item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 200,
+      )
       .slice(0, DISMISS_LIMIT);
   } catch {
     return [];

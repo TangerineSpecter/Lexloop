@@ -27,7 +27,11 @@ test('accepts a seven-day glance and rejects a mismatched active count', () => {
 });
 
 test('moves a skipped due word to the end without dropping it', () => {
-  const words = [{ id: 'a', word: 'adapt' }, { id: 'b', word: 'bright' }, { id: 'c', word: 'calm' }];
+  const words = [
+    { id: 'a', word: 'adapt' },
+    { id: 'b', word: 'bright' },
+    { id: 'c', word: 'calm' },
+  ];
   const skipped = toggleReviewSkip([], 'a');
   assert.deepEqual(
     orderWithSkips(words, skipped).map((word) => word.id),
