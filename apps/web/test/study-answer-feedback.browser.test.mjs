@@ -338,18 +338,18 @@ test(
               material: { title: 'Fixture public lesson', wordOccurrences: { bright: 1 }, sentences: [] },
               reuseHits: 3, planReferences: 4, isActive: true, disabledAt: null, disabledReason: null,
               createdAt: '2026-10-31T12:00:00.000Z', provenance: '生成模型来源未记录（题库未保存该字段）',
-              feedbackSummary: { up: 2, down: 1 },
+              feedbackSummary: { current: { up: 2, down: 0 }, older: { up: 0, down: 1 } },
               questions: [{
                 bookWordId: 'word-1', type: 'MEANING_RECOGNITION', prompt: 'Choose the meaning of bright.',
                 options: ['暗的', '明亮的'], correctAnswers: ['明亮的'], explanation: 'bright 描述光线充足。',
-                feedback: { up: 2, down: 1, reasonCounts: { QUESTION_UNCLEAR: 1 } },
+                feedback: { up: 2, down: 0, reasonCounts: {} },
               }],
             }, {
               id: 'cache-no-negative', mode: 'INDIVIDUAL',
               material: { title: 'Fixture without negative votes', wordOccurrences: { steady: 1 }, sentences: [] },
               reuseHits: 1, planReferences: 1, isActive: true, disabledAt: null, disabledReason: null,
               createdAt: '2026-10-30T12:00:00.000Z', provenance: '生成模型来源未记录（题库未保存该字段）',
-              feedbackSummary: { up: 1, down: 0 }, questions: [],
+              feedbackSummary: { current: { up: 1, down: 0 }, older: { up: 0, down: 0 } }, questions: [],
             }],
           };
           window.tutorRequests = [];
@@ -436,7 +436,7 @@ test(
               const feedback = url.searchParams.get('feedback');
               const items = window.studyBankFixture.items.filter((item) =>
                 (status === 'active' ? item.isActive : status === 'disabled' ? !item.isActive : true) &&
-                (feedback !== 'negative' || item.feedbackSummary.down > 0),
+                (feedback !== 'negative' || item.feedbackSummary.current.down + item.feedbackSummary.older.down > 0),
               );
               return Response.json({ ...window.studyBankFixture, items, total: items.length });
             }
@@ -2625,7 +2625,7 @@ test(
       );
       assert.equal(
         await evaluate(
-          'document.querySelector("[aria-labelledby=study-content-bank-title] article").innerText.includes("2 赞 · 1 踩")',
+          'document.querySelector("[aria-labelledby=study-content-bank-title] article").innerText.includes("当前题目 2 赞 · 0 踩") && document.querySelector("[aria-labelledby=study-content-bank-title] article").innerText.includes("历史快照 0 赞 · 1 踩")',
         ),
         true,
       );

@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { StudyContentBankController } from '../src/modules/admin/study-content-bank.controller';
 import { StudyContentBankService } from '../src/modules/admin/study-content-bank.service';
 import { ROLES_KEY } from '../src/modules/auth/roles.decorator';
+import { studyQuestionFingerprint } from '../src/modules/study/study-content-bank';
 import { contentSignature, StudyService } from '../src/modules/study/study.service';
 import { lexicalFields } from '../src/modules/vocabulary/lexical';
 
@@ -286,6 +287,20 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         StudyContentFeedbackReason.QUESTION_UNCLEAR,
       );
       expect(firstVote).toMatchObject({ rating: 'DOWN', reason: 'QUESTION_UNCLEAR' });
+      const previousSnapshotQuestion = {
+        ...question,
+        prompt: 'Earlier wording for the same public question.',
+      };
+      await prisma.studyContentQuestionFeedback.create({
+        data: {
+          userId: users[1].id,
+          contentCacheId: cache.id,
+          questionFingerprint: studyQuestionFingerprint(previousSnapshotQuestion),
+          questionSnapshot: previousSnapshotQuestion,
+          rating: StudyContentFeedbackRating.DOWN,
+          reason: StudyContentFeedbackReason.ANSWER_INCORRECT,
+        },
+      });
       const bank = new StudyContentBankService(prisma as never);
       const initiallyNegative = await bank.list({
         status: 'active',
@@ -294,7 +309,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         feedback: 'negative',
       });
       expect(initiallyNegative).toMatchObject({ total: 1, items: [{ id: cache.id }] });
-      expect(initiallyNegative.items[0].feedbackSummary).toEqual({ up: 0, down: 1 });
+      expect(initiallyNegative.items[0].feedbackSummary).toEqual({
+        current: { up: 0, down: 1 },
+        older: { up: 0, down: 1 },
+      });
       await expect(
         study.ratePublicQuestion(
           users[1].id,
@@ -344,10 +362,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
 
       const listed = await bank.list({ status: 'active', pageSize: 10, search: fixtureId });
       expect(listed.items[0].questions[0].feedback).toEqual({ up: 1, down: 0, reasonCounts: {} });
-      expect(listed.items[0].feedbackSummary).toEqual({ up: 1, down: 0 });
+      expect(listed.items[0].feedbackSummary).toEqual({
+        current: { up: 1, down: 0 },
+        older: { up: 0, down: 1 },
+      });
       expect(
         await bank.list({ status: 'active', search: fixtureId, feedback: 'negative' }),
-      ).toMatchObject({ total: 0, items: [] });
+      ).toMatchObject({ total: 1, items: [{ id: cache.id }] });
       await bank.setActive(cache.id, false, '题目反馈核查中', users[2].id);
       expect(await bank.list({ status: 'active', search: fixtureId })).toMatchObject({
         total: 0,

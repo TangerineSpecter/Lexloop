@@ -159,7 +159,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             expect.objectContaining({
               id: cache.id,
               isActive: true,
-              feedbackSummary: { up: 0, down: 1 },
+              feedbackSummary: {
+                current: { up: 0, down: 1 },
+                older: { up: 0, down: 0 },
+              },
             }),
           ]),
         );

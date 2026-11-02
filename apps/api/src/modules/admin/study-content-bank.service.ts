@@ -132,14 +132,31 @@ export class StudyContentBankService {
         `)
       : [];
     const aggregatesByQuestion = new Map<string, VoteAggregate[]>();
-    const feedbackByCache = new Map<string, { up: number; down: number }>();
+    const currentQuestionFingerprints = new Map(
+      orderedCaches.map((cache) => [
+        cache.id,
+        new Set(questionsFromMaterial(cache.material).map(studyQuestionFingerprint)),
+      ]),
+    );
+    const feedbackByCache = new Map<
+      string,
+      { current: { up: number; down: number }; older: { up: number; down: number } }
+    >();
     for (const aggregate of aggregates) {
       const key = `${aggregate.contentCacheId}:${aggregate.questionFingerprint}`;
       const values = aggregatesByQuestion.get(key) ?? [];
       values.push(aggregate);
       aggregatesByQuestion.set(key, values);
-      const summary = feedbackByCache.get(aggregate.contentCacheId) ?? { up: 0, down: 0 };
-      summary[aggregate.rating === 'UP' ? 'up' : 'down'] += Number(aggregate.count);
+      const summary = feedbackByCache.get(aggregate.contentCacheId) ?? {
+        current: { up: 0, down: 0 },
+        older: { up: 0, down: 0 },
+      };
+      const snapshot = currentQuestionFingerprints
+        .get(aggregate.contentCacheId)
+        ?.has(aggregate.questionFingerprint)
+        ? summary.current
+        : summary.older;
+      snapshot[aggregate.rating === 'UP' ? 'up' : 'down'] += Number(aggregate.count);
       feedbackByCache.set(aggregate.contentCacheId, summary);
     }
 
@@ -161,7 +178,10 @@ export class StudyContentBankService {
           createdAt: cache.createdAt,
           updatedAt: cache.updatedAt,
           provenance: '生成模型来源未记录（题库未保存该字段）',
-          feedbackSummary: feedbackByCache.get(cache.id) ?? { up: 0, down: 0 },
+          feedbackSummary: feedbackByCache.get(cache.id) ?? {
+            current: { up: 0, down: 0 },
+            older: { up: 0, down: 0 },
+          },
           questions: questionsFromMaterial(cache.material).map((question) => {
             const fingerprint = studyQuestionFingerprint(question);
             const votes = aggregatesByQuestion.get(`${cache.id}:${fingerprint}`) ?? [];

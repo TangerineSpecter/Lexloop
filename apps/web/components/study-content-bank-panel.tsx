@@ -25,7 +25,10 @@ type BankItem = {
   material: BankMaterial;
   reuseHits: number;
   planReferences: number;
-  feedbackSummary?: { up: number; down: number };
+  feedbackSummary?: {
+    current?: { up: number; down: number };
+    older?: { up: number; down: number };
+  };
   isActive: boolean;
   disabledAt: string | null;
   disabledReason: string | null;
@@ -223,7 +226,7 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
             }
           >
             <option value="all">全部评价</option>
-            <option value="negative">有负面评价（含历史版本）</option>
+            <option value="negative">有负面评价（任一快照）</option>
           </select>
         </label>
         <label>
@@ -285,11 +288,21 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
                     计划引用 <strong>{item.planReferences}</strong>
                   </span>
                   <span>
-                    材料累计赞踩{' '}
+                    当前题目{' '}
                     <strong
-                      aria-label={`赞 ${item.feedbackSummary?.up ?? 0}，踩 ${item.feedbackSummary?.down ?? 0}`}
+                      aria-label={`当前题目赞 ${item.feedbackSummary?.current?.up ?? 0}，踩 ${item.feedbackSummary?.current?.down ?? 0}`}
                     >
-                      {item.feedbackSummary?.up ?? 0} 赞 · {item.feedbackSummary?.down ?? 0} 踩
+                      {item.feedbackSummary?.current?.up ?? 0} 赞 ·{' '}
+                      {item.feedbackSummary?.current?.down ?? 0} 踩
+                    </strong>
+                  </span>
+                  <span>
+                    历史快照{' '}
+                    <strong
+                      aria-label={`历史快照赞 ${item.feedbackSummary?.older?.up ?? 0}，踩 ${item.feedbackSummary?.older?.down ?? 0}`}
+                    >
+                      {item.feedbackSummary?.older?.up ?? 0} 赞 ·{' '}
+                      {item.feedbackSummary?.older?.down ?? 0} 踩
                     </strong>
                   </span>
                 </div>
