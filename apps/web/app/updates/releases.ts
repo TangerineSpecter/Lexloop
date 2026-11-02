@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.129',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '按单词或词书搜索错题',
+        entry: '待巩固 → 搜索错题',
+        usage:
+          '可按单词、当前显示释义或词书名称搜索整个筛选结果，再分页查看。切换搜索词会清除旧选择；同一搜索下翻页保留选择，最多 20 个。搜索不修改答题、复习排期或掌握记录。',
+      },
+    ],
+  },
+  {
     version: '1.27.128',
     date: '2026-11-02',
     items: [

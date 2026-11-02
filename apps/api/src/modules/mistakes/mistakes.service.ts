@@ -19,6 +19,7 @@ type Transaction = Prisma.TransactionClient;
 type ListQuery = {
   status?: 'active' | 'ignored' | 'resolved';
   questionType?: string;
+  search?: string;
   page?: number;
   pageSize?: number;
 };
@@ -176,27 +177,73 @@ export class MistakesService {
       status,
       ...(query.questionType ? { questionType: query.questionType } : {}),
     };
-    const [rankedWords, totals] = await Promise.all([
-      this.prisma.weaknessSignal.groupBy({
-        by: ['bookWordId'],
-        where,
-        orderBy: [
-          { _min: { consecutiveCorrect: 'asc' } },
-          { _max: { wrongCount: 'desc' } },
-          { _max: { lastWrongAt: 'desc' } },
-          { bookWordId: 'asc' },
-        ],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
-        SELECT COUNT(DISTINCT "bookWordId")::int AS "count"
-        FROM "WeaknessSignal"
-        WHERE "userId" = ${userId}
-          AND "status" = CAST(${status} AS "WeaknessStatus")
-          ${query.questionType ? Prisma.sql`AND "questionType" = ${query.questionType}` : Prisma.empty}
-      `),
-    ]);
+    const normalizedSearch = query.search
+      ?.normalize('NFKC')
+      .trim()
+      .replace(/\s+/gu, ' ')
+      .slice(0, 80);
+    let rankedWords: Array<{ bookWordId: string }>;
+    let total: number;
+    if (normalizedSearch) {
+      // Search joins and filters the complete authorized set before grouping, ranking and paging.
+      // `strpos` treats user input literally, unlike LIKE patterns containing `%` or `_`.
+      const fromWhere = Prisma.sql`
+        FROM "WeaknessSignal" AS signal
+        JOIN "VocabularyBookWord" AS book_word ON book_word."id" = signal."bookWordId"
+        JOIN "VocabularyWord" AS word ON word."id" = book_word."wordId"
+        JOIN "VocabularyBook" AS book ON book."id" = book_word."bookId"
+        WHERE signal."userId" = ${userId}
+          AND signal."status" = CAST(${status} AS "WeaknessStatus")
+          ${query.questionType ? Prisma.sql`AND signal."questionType" = ${query.questionType}` : Prisma.empty}
+          AND (
+            strpos(regexp_replace(lower(COALESCE(word."text", '')), '[[:space:]]+', ' ', 'g'), lower(${normalizedSearch})) > 0
+            OR strpos(regexp_replace(lower(COALESCE(book_word."contextMeaning", word."meaning", '')), '[[:space:]]+', ' ', 'g'), lower(${normalizedSearch})) > 0
+            OR strpos(regexp_replace(lower(COALESCE(book."title", '')), '[[:space:]]+', ' ', 'g'), lower(${normalizedSearch})) > 0
+          )
+      `;
+      const [matchingWords, matchingTotals] = await Promise.all([
+        this.prisma.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
+          SELECT signal."bookWordId" AS "bookWordId"
+          ${fromWhere}
+          GROUP BY signal."bookWordId"
+          ORDER BY MIN(signal."consecutiveCorrect") ASC,
+            MAX(signal."wrongCount") DESC,
+            MAX(signal."lastWrongAt") DESC,
+            signal."bookWordId" ASC
+          LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+        `),
+        this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+          SELECT COUNT(DISTINCT signal."bookWordId")::int AS "count"
+          ${fromWhere}
+        `),
+      ]);
+      rankedWords = matchingWords;
+      total = matchingTotals[0]?.count ?? 0;
+    } else {
+      const [unfilteredWords, totals] = await Promise.all([
+        this.prisma.weaknessSignal.groupBy({
+          by: ['bookWordId'],
+          where,
+          orderBy: [
+            { _min: { consecutiveCorrect: 'asc' } },
+            { _max: { wrongCount: 'desc' } },
+            { _max: { lastWrongAt: 'desc' } },
+            { bookWordId: 'asc' },
+          ],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+          SELECT COUNT(DISTINCT "bookWordId")::int AS "count"
+          FROM "WeaknessSignal"
+          WHERE "userId" = ${userId}
+            AND "status" = CAST(${status} AS "WeaknessStatus")
+            ${query.questionType ? Prisma.sql`AND "questionType" = ${query.questionType}` : Prisma.empty}
+        `),
+      ]);
+      rankedWords = unfilteredWords;
+      total = totals[0]?.count ?? 0;
+    }
     const bookWordIds = rankedWords.map((item) => item.bookWordId);
     const signals = await this.prisma.weaknessSignal.findMany({
       where: { ...where, bookWordId: { in: bookWordIds } },
@@ -209,7 +256,6 @@ export class MistakesService {
     const selected = bookWordIds
       .map((id) => grouped.get(id))
       .filter((group): group is typeof signals => Boolean(group?.length));
-    const total = totals[0]?.count ?? 0;
     return {
       items: selected.map((group) => ({
         bookWordId: group[0].bookWordId,

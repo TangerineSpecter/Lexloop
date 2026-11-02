@@ -19,6 +19,7 @@ type AuthenticatedRequest = { user: { sub: string } };
 class MistakeQueryDto {
   @IsOptional() @IsIn(['active', 'ignored', 'resolved']) status?: 'active' | 'ignored' | 'resolved';
   @IsOptional() @IsString() questionType?: string;
+  @IsOptional() @IsString() @MaxLength(80) search?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize?: number;
 }

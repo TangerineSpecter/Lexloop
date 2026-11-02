@@ -101,6 +101,56 @@
   color: var(--soft);
   box-shadow: 3px 3px 0 var(--gold);
 }
+.mistakes-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 9px;
+  align-items: center;
+  margin-top: 12px;
+}
+.mistakes-search input,
+.mistakes-search button {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 42px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+}
+.mistakes-search input {
+  width: 100%;
+  padding: 8px 12px;
+}
+.mistakes-search input::placeholder {
+  color: rgba(8, 40, 119, 0.64);
+}
+.mistakes-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.mistakes-search button[type='submit'] {
+  background: var(--border-color);
+  color: var(--soft);
+  box-shadow: 2px 2px 0 var(--gold);
+}
+.mistakes-search button:focus-visible,
+.mistakes-search input:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+.mistakes-search-summary {
+  margin: 12px 2px 0;
+  color: rgba(8, 40, 119, 0.76);
+  font-size: 13px;
+  font-weight: 700;
+}
 .mistakes-practice-choices {
   display: grid;
   gap: 10px;
@@ -244,6 +294,20 @@
   border-radius: 11px;
   background: var(--soft);
   text-align: center;
+}
+.mistakes-empty button {
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.mistakes-empty button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
 }
 .mistakes-pagination {
   display: flex;
@@ -544,6 +608,14 @@
   }
   .mistakes-toolbar {
     grid-template-columns: 1fr;
+  }
+  .mistakes-search {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+  }
+  .mistakes-search button {
+    gap: 4px;
+    padding: 8px 9px;
   }
   .mistakes-list > article {
     grid-template-columns: auto 1fr;

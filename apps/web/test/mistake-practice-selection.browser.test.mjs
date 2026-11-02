@@ -148,6 +148,68 @@ test(
           `document.querySelector(${JSON.stringify(trigger)})?.textContent.trim() === ${JSON.stringify(label)}`,
         );
       };
+      const fillSearchInput = async (value) => {
+        await clickVisible('#mistakes-search-input');
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'Control',
+          code: 'ControlLeft',
+          modifiers: 2,
+          windowsVirtualKeyCode: 17,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'a',
+          code: 'KeyA',
+          modifiers: 2,
+          windowsVirtualKeyCode: 65,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'a',
+          code: 'KeyA',
+          modifiers: 2,
+          windowsVirtualKeyCode: 65,
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'Control',
+          code: 'ControlLeft',
+          windowsVirtualKeyCode: 17,
+        });
+        await send('Input.insertText', { text: value });
+        const state = JSON.parse(
+          await evaluate(
+            'JSON.stringify({ focused: document.activeElement?.id, value: document.querySelector("#mistakes-search-input")?.value })',
+          ),
+        );
+        assert.equal(
+          state.focused,
+          'mistakes-search-input',
+          'keyboard entry should focus the search input',
+        );
+        assert.equal(
+          state.value,
+          value,
+          'keyboard entry should update the controlled search input',
+        );
+      };
+      const pressEnter = async () => {
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'Enter',
+          code: 'Enter',
+          windowsVirtualKeyCode: 13,
+          text: '\r',
+          unmodifiedText: '\r',
+        });
+        await send('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'Enter',
+          code: 'Enter',
+          windowsVirtualKeyCode: 13,
+        });
+      };
 
       const weaknesses = (id, questionType, wrongCount = 2) => ({
         id,
@@ -202,6 +264,12 @@ test(
         lastWrongAt: '2026-10-26T10:00:00.000Z',
         weaknesses: [weaknesses(`page-signal-${index + 1}`, 'READING_COMPREHENSION', 2)],
       }));
+      paginatedItems[34] = {
+        ...paginatedItems[34],
+        word: 'pencil box',
+        meaning: '文具盒',
+        bookTitle: 'Everyday Stationery',
+      };
 
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
@@ -230,6 +298,7 @@ test(
             }
           });
           window.failOutputFilterOnce = true;
+          window.failMistakeSearchOnce = true;
           window.failOlderCursorOnce = true;
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
@@ -244,8 +313,29 @@ test(
               const status = query.get('status');
               const questionType = query.get('questionType') || '';
               const page = Number(query.get('page') || 1);
+              const search = query.get('search') || '';
+              const normalizedSearch = search.toLocaleLowerCase();
               const activeRace = new URL(location.href).searchParams.has('activeRace');
-              window.mistakeListRequests.push({ status, questionType, activeRace, page });
+              window.mistakeListRequests.push({ status, questionType, activeRace, page, search });
+              if (new URL(location.href).searchParams.has('searchRace')) {
+                if (search === 'slow') {
+                  await new Promise(resolve => setTimeout(resolve, 700));
+                  return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'slow-match', word: 'slow match' }], page: 1, total: 1, hasMore: false });
+                }
+                if (search === 'fast') return Response.json({ items: [{ ...${JSON.stringify(items[1])}, bookWordId: 'fast-match', word: 'fast match' }], page: 1, total: 1, hasMore: false });
+              }
+              if (new URL(location.href).searchParams.has('searchFixture')) {
+                if (normalizedSearch === 'retry-me' && window.failMistakeSearchOnce) {
+                  window.failMistakeSearchOnce = false;
+                  return Response.json({ message: '模拟错题搜索失败' }, { status: 503 });
+                }
+                if (normalizedSearch === 'retry-me') return Response.json({ items: [{ ...${JSON.stringify(paginatedItems[34])}, bookWordId: 'page-word-35' }], page, total: 1, hasMore: false });
+                if (normalizedSearch === 'empty') return Response.json({ items: [], page, total: 0, hasMore: false });
+                if (normalizedSearch === 'pencil box' || normalizedSearch === '文具盒' || normalizedSearch === 'everyday stationery') return Response.json({ items: [{ ...${JSON.stringify(paginatedItems[34])}, bookWordId: 'page-word-35' }], page, total: 1, hasMore: false });
+                if (normalizedSearch === 'many') return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
+                if (search) return Response.json({ items: [], page, total: 0, hasMore: false });
+                return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
+              }
               if (activeRace && questionType === 'OUTPUT') {
                 await new Promise(resolve => setTimeout(resolve, 700));
                 return Response.json({ items: [{ ...${JSON.stringify(items[1])}, bookWordId: 'stale-output', word: 'stale-output' }], page: 1, total: 1, hasMore: false });
@@ -976,6 +1066,156 @@ test(
         'changing the question-type filter should start a new selection scope',
       );
       assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes&searchFixture=1', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 20');
+      await fillSearchInput('many');
+      const requestsBeforeKeyboardSubmit = await evaluate('window.mistakeListRequests.length');
+      await pressEnter();
+      await delay(100);
+      assert.equal(
+        await evaluate('window.mistakeListRequests.length'),
+        requestsBeforeKeyboardSubmit + 1,
+        'pressing Enter in the search input should submit the search form',
+      );
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页") && document.querySelector(".mistakes-search-summary")?.textContent.includes("40 个词")',
+      );
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      await clickVisible('.mistakes-pagination button:last-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 2 页")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（10）/,
+      );
+      await clickVisible('button[aria-label="选择 page-word-21"]');
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（11）/,
+      );
+      await clickVisible('.mistakes-pagination button:first-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页")',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].some(button => button.getAttribute("aria-label") === "取消选择 page-word-1")',
+        ),
+        true,
+        'a search-scoped selection remains selected when paging within the same query',
+      );
+      await clickVisible('.mistakes-pagination button:last-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 2 页")',
+      );
+
+      await fillSearchInput('  PENCIL   BOX  ');
+      await pressEnter();
+      await until(
+        'document.querySelector(".mistakes-list")?.textContent.includes("pencil box") && document.querySelector(".mistakes-pagination") === null',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#mistakes-search-input")?.value'),
+        'PENCIL BOX',
+      );
+      assert.equal(await evaluate('document.querySelector(".mistakes-pagination span")'), null);
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+      );
+      assert.equal(
+        await evaluate('window.mistakeListRequests.at(-1)?.search'),
+        'PENCIL BOX',
+        'the search should be normalized before the server-side request',
+      );
+      const narrowSearchBounds = JSON.parse(
+        await evaluate(`JSON.stringify((() => {
+        const form = document.querySelector('.mistakes-search').getBoundingClientRect();
+        const input = document.querySelector('#mistakes-search-input').getBoundingClientRect();
+        return { formLeft: form.left, formRight: form.right, inputRight: input.right, viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+      })())`),
+      );
+      assert.ok(
+        narrowSearchBounds.formLeft >= 0 &&
+          narrowSearchBounds.formRight <= narrowSearchBounds.viewport,
+      );
+      assert.ok(narrowSearchBounds.inputRight <= narrowSearchBounds.formRight);
+      assert.ok(narrowSearchBounds.scrollWidth <= narrowSearchBounds.viewport);
+
+      await fillSearchInput('文具盒');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until(
+        'window.mistakeListRequests.at(-1)?.search === "文具盒" && document.querySelector(".mistakes-list")?.textContent.includes("pencil box")',
+      );
+      await fillSearchInput('everyday stationery');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until(
+        'window.mistakeListRequests.at(-1)?.search === "everyday stationery" && document.querySelector(".mistakes-list")?.textContent.includes("pencil box")',
+      );
+      await selectQuestionType('READING_COMPREHENSION', '阅读理解');
+      await until(
+        'window.mistakeListRequests.at(-1)?.search === "everyday stationery" && window.mistakeListRequests.at(-1)?.questionType === "READING_COMPREHENSION" && document.querySelector(".mistakes-list")?.textContent.includes("pencil box")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+      );
+      await evaluate('document.querySelector(".mistakes-search-clear")?.click()');
+      await until(
+        'document.querySelector("#mistakes-search-input")?.value === "" && document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页") && document.querySelectorAll(".mistakes-list > article").length === 20',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（10）/,
+      );
+
+      await fillSearchInput('empty');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until('document.querySelector(".mistakes-empty")?.textContent.includes("没有找到与")');
+      assert.ok(
+        await evaluate(
+          'document.querySelector(".mistakes-empty button")?.textContent.includes("清空搜索")',
+        ),
+      );
+      await fillSearchInput('retry-me');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until(
+        'document.querySelector(".mistakes-empty[role=alert]")?.textContent.includes("模拟错题搜索失败")',
+      );
+      await clickVisible('.mistakes-empty[role=alert] button');
+      await until('document.querySelector(".mistakes-list")?.textContent.includes("pencil box")');
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes&searchRace=1', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
+      const submitRaceSearch = async (value) => {
+        await fillSearchInput(value);
+        await clickVisible('.mistakes-search button[type="submit"]');
+      };
+      await submitRaceSearch('slow');
+      await until('window.mistakeListRequests.at(-1)?.search === "slow"');
+      await submitRaceSearch('fast');
+      await until(
+        'window.mistakeListRequests.at(-1)?.search === "fast" && document.querySelector(".mistakes-list")?.textContent.includes("fast match")',
+      );
+      await delay(850);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistakes-list")?.textContent.includes("slow match")',
+        ),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistakes-list")?.textContent.includes("fast match")',
+        ),
+        true,
+      );
       await send('Emulation.clearDeviceMetricsOverride');
       await send('Page.navigate', {
         url: new URL('/dashboard?view=mistakes', baseUrl).href,

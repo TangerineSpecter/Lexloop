@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleAlert,
   RotateCcw,
+  Search,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -96,6 +97,8 @@ export function MistakesPage({
 }) {
   const [status, setStatus] = useState<MistakeStatus>('active');
   const [questionType, setQuestionType] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ListResponse | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -153,6 +156,7 @@ export function MistakesPage({
     try {
       const query = new URLSearchParams({ status, page: String(page), pageSize: '20' });
       if (questionType) query.set('questionType', questionType);
+      if (appliedSearch) query.set('search', appliedSearch);
       const response = await request<ListResponse>(
         `/mistakes?${query}`,
         { signal: abort.signal },
@@ -160,7 +164,7 @@ export function MistakesPage({
       );
       if (requestId !== listRequestId.current) return;
       setResult(response);
-      const nextSelectionScope = `${status}:${questionType}`;
+      const nextSelectionScope = `${status}:${questionType}:${appliedSearch}`;
       if (selectionScope.current !== nextSelectionScope) {
         const defaults = status === 'active' ? response.items.slice(0, 10) : [];
         setSelected(defaults.map((item) => item.bookWordId));
@@ -176,7 +180,7 @@ export function MistakesPage({
         if (listAbort.current === abort) listAbort.current = null;
       }
     }
-  }, [page, questionType, session.accessToken, status]);
+  }, [appliedSearch, page, questionType, session.accessToken, status]);
 
   useEffect(() => {
     void load();
@@ -296,6 +300,22 @@ export function MistakesPage({
       setMessage(error instanceof Error ? error.message : '更新薄弱项状态失败');
     }
   };
+  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextSearch = searchInput.normalize('NFKC').trim().replace(/\s+/gu, ' ').slice(0, 80);
+    setSearchInput(nextSearch);
+    if (nextSearch === appliedSearch) return;
+    prepareForListChange();
+    setAppliedSearch(nextSearch);
+    setPage(1);
+  };
+  const clearSearch = () => {
+    setSearchInput('');
+    if (!appliedSearch) return;
+    prepareForListChange();
+    setAppliedSearch('');
+    setPage(1);
+  };
   const selectedPractice = partitionMistakePracticeSelection(
     Object.values(selectedItems),
     selected,
@@ -382,12 +402,40 @@ export function MistakesPage({
           </button>
         )}
       </div>
+      <form className="mistakes-search" role="search" aria-label="搜索错题" onSubmit={submitSearch}>
+        <label className="sr-only" htmlFor="mistakes-search-input">
+          按单词、释义或词书名称搜索
+        </label>
+        <input
+          id="mistakes-search-input"
+          type="search"
+          maxLength={80}
+          value={searchInput}
+          placeholder="搜索单词、释义或词书名称"
+          onChange={(event) => setSearchInput(event.target.value)}
+        />
+        <button type="submit">
+          <Search size={16} aria-hidden="true" />
+          搜索
+        </button>
+        {(searchInput || appliedSearch) && (
+          <button type="button" className="mistakes-search-clear" onClick={clearSearch}>
+            <X size={16} aria-hidden="true" />
+            清空
+          </button>
+        )}
+      </form>
+      {appliedSearch && result && (
+        <p className="mistakes-search-summary" role="status">
+          “{appliedSearch}”匹配到 {result.total} 个词
+        </p>
+      )}
       <p className="mistakes-order-note">
         当前筛选内先按该词各题型中较低的连对次数排序，再看较高的累计错答次数和最近错答时间；每个题型分别显示自己的记录。
       </p>
       {status === 'active' && (
         <p className="mistakes-selection-note">
-          最多选择 20 词，翻页会保留选择；切换状态或题型后会重新选择当前页前 10 词。
+          最多选择 20 词，翻页会保留选择；切换状态、题型或搜索词后会重新选择当前页前 10 词。
         </p>
       )}
       {message && result && (
@@ -450,8 +498,19 @@ export function MistakesPage({
       ) : !result?.items.length ? (
         <div className="mistakes-empty">
           <Check size={34} />
-          <strong>{status === 'active' ? '当前没有待巩固的单词' : '这里还没有记录'}</strong>
-          <p>完成练习后，错题会自动汇总到这里。</p>
+          <strong>
+            {appliedSearch
+              ? `没有找到与“${appliedSearch}”匹配的错题`
+              : status === 'active'
+                ? '当前没有待巩固的单词'
+                : '这里还没有记录'}
+          </strong>
+          <p>
+            {appliedSearch
+              ? '可尝试单词、释义或词书名称，或清空搜索查看全部。'
+              : '完成练习后，错题会自动汇总到这里。'}
+          </p>
+          {appliedSearch && <button onClick={clearSearch}>清空搜索</button>}
         </div>
       ) : (
         <div className="mistakes-list">
