@@ -313,6 +313,17 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         current: { up: 0, down: 1 },
         older: { up: 0, down: 1 },
       });
+      expect(initiallyNegative.items[0].historicalNegativeQuestionCount).toBe(1);
+      expect(initiallyNegative.items[0].historicalNegativeQuestions).toMatchObject([
+        {
+          question: { prompt: 'Earlier wording for the same public question.' },
+          feedback: {
+            up: 0,
+            down: 1,
+            reasonCounts: { ANSWER_INCORRECT: 1 },
+          },
+        },
+      ]);
       await expect(
         study.ratePublicQuestion(
           users[1].id,
@@ -366,6 +377,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         current: { up: 1, down: 0 },
         older: { up: 0, down: 1 },
       });
+      expect(listed.items[0].questions[0].feedback.reasonCounts).toEqual({});
+      expect(listed.items[0].historicalNegativeQuestions).toMatchObject([
+        {
+          question: { prompt: 'Earlier wording for the same public question.' },
+          feedback: { down: 1, reasonCounts: { ANSWER_INCORRECT: 1 } },
+        },
+      ]);
       expect(
         await bank.list({ status: 'active', search: fixtureId, feedback: 'negative' }),
       ).toMatchObject({ total: 1, items: [{ id: cache.id }] });

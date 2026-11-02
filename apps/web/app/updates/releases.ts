@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.133',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '查看历史快照的负面评价',
+        entry: '账号设置 → 公共题库 → 历史快照负面评价',
+        usage:
+          '管理员可查看最近 10 道已替换且收到差评的历史题目、赞踩汇总、负面原因和最近评价时间。历史评价与当前题目统计分开显示；旧学习计划和答题记录不变。',
+      },
+    ],
+  },
+  {
     version: '1.27.130',
     date: '2026-11-02',
     items: [

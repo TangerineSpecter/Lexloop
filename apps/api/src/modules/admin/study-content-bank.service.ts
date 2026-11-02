@@ -19,10 +19,18 @@ type BankMaterial = Record<string, unknown> & { questions?: BankQuestion[] };
 type VoteAggregate = {
   contentCacheId: string;
   questionFingerprint: string;
+  questionSnapshot: Prisma.JsonValue;
   rating: 'UP' | 'DOWN';
   reason: string | null;
   count: bigint;
+  lastUpdatedAt: Date;
 };
+type HistoricalQuestionFeedback = {
+  question: BankQuestion;
+  feedback: { up: number; down: number; reasonCounts: Record<string, number> };
+  lastUpdatedAt: Date;
+};
+const MAX_HISTORICAL_NEGATIVE_QUESTIONS = 10;
 
 function questionsFromMaterial(material: Prisma.JsonValue): BankQuestion[] {
   if (!material || typeof material !== 'object' || Array.isArray(material)) return [];
@@ -124,14 +132,16 @@ export class StudyContentBankService {
     });
     const aggregates = ids.length
       ? await this.prisma.$queryRaw<VoteAggregate[]>(Prisma.sql`
-          SELECT "contentCacheId", "questionFingerprint", "rating"::text AS "rating",
-                 "reason"::text AS "reason", COUNT(*)::bigint AS "count"
+          SELECT "contentCacheId", "questionFingerprint", "questionSnapshot",
+                 "rating"::text AS "rating", "reason"::text AS "reason",
+                 COUNT(*)::bigint AS "count", MAX("updatedAt") AS "lastUpdatedAt"
           FROM "public"."StudyContentQuestionFeedback"
           WHERE "contentCacheId" IN (${Prisma.join(ids)})
-          GROUP BY "contentCacheId", "questionFingerprint", "rating", "reason"
+          GROUP BY "contentCacheId", "questionFingerprint", "questionSnapshot", "rating", "reason"
         `)
       : [];
     const aggregatesByQuestion = new Map<string, VoteAggregate[]>();
+    const historicalByCache = new Map<string, Map<string, HistoricalQuestionFeedback>>();
     const currentQuestionFingerprints = new Map(
       orderedCaches.map((cache) => [
         cache.id,
@@ -151,13 +161,40 @@ export class StudyContentBankService {
         current: { up: 0, down: 0 },
         older: { up: 0, down: 0 },
       };
-      const snapshot = currentQuestionFingerprints
+      const isCurrent = currentQuestionFingerprints
         .get(aggregate.contentCacheId)
-        ?.has(aggregate.questionFingerprint)
-        ? summary.current
-        : summary.older;
+        ?.has(aggregate.questionFingerprint);
+      const snapshot = isCurrent ? summary.current : summary.older;
       snapshot[aggregate.rating === 'UP' ? 'up' : 'down'] += Number(aggregate.count);
       feedbackByCache.set(aggregate.contentCacheId, summary);
+
+      if (!isCurrent) {
+        const questionSnapshot = aggregate.questionSnapshot;
+        if (
+          !questionSnapshot ||
+          typeof questionSnapshot !== 'object' ||
+          Array.isArray(questionSnapshot)
+        ) {
+          continue;
+        }
+        const olderQuestions = historicalByCache.get(aggregate.contentCacheId) ?? new Map();
+        const historical = olderQuestions.get(aggregate.questionFingerprint) ?? {
+          question: questionSnapshot as BankQuestion,
+          feedback: { up: 0, down: 0, reasonCounts: {} },
+          lastUpdatedAt: aggregate.lastUpdatedAt,
+        };
+        historical.feedback[aggregate.rating === 'UP' ? 'up' : 'down'] += Number(aggregate.count);
+        if (aggregate.rating === 'DOWN' && aggregate.reason) {
+          historical.feedback.reasonCounts[aggregate.reason] =
+            (historical.feedback.reasonCounts[aggregate.reason] ?? 0) + Number(aggregate.count);
+        }
+        if (aggregate.lastUpdatedAt > historical.lastUpdatedAt) {
+          historical.lastUpdatedAt = aggregate.lastUpdatedAt;
+          historical.question = questionSnapshot as BankQuestion;
+        }
+        olderQuestions.set(aggregate.questionFingerprint, historical);
+        historicalByCache.set(aggregate.contentCacheId, olderQuestions);
+      }
     }
 
     return {
@@ -182,6 +219,18 @@ export class StudyContentBankService {
             current: { up: 0, down: 0 },
             older: { up: 0, down: 0 },
           },
+          historicalNegativeQuestionCount: Array.from(
+            historicalByCache.get(cache.id)?.values() ?? [],
+          ).filter((item) => item.feedback.down > 0).length,
+          historicalNegativeQuestions: Array.from(historicalByCache.get(cache.id)?.values() ?? [])
+            .filter((item) => item.feedback.down > 0)
+            .sort((first, second) => second.lastUpdatedAt.getTime() - first.lastUpdatedAt.getTime())
+            .slice(0, MAX_HISTORICAL_NEGATIVE_QUESTIONS)
+            .map(({ question, feedback, lastUpdatedAt }) => ({
+              question,
+              feedback,
+              lastUpdatedAt: lastUpdatedAt.toISOString(),
+            })),
           questions: questionsFromMaterial(cache.material).map((question) => {
             const fingerprint = studyQuestionFingerprint(question);
             const votes = aggregatesByQuestion.get(`${cache.id}:${fingerprint}`) ?? [];

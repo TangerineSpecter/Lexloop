@@ -163,6 +163,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
                 current: { up: 0, down: 1 },
                 older: { up: 0, down: 0 },
               },
+              historicalNegativeQuestionCount: 0,
+              historicalNegativeQuestions: [],
             }),
           ]),
         );

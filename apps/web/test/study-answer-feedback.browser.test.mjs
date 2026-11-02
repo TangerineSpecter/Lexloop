@@ -344,12 +344,22 @@ test(
                 options: ['暗的', '明亮的'], correctAnswers: ['明亮的'], explanation: 'bright 描述光线充足。',
                 feedback: { up: 2, down: 0, reasonCounts: {} },
               }],
+              historicalNegativeQuestionCount: 1,
+              historicalNegativeQuestions: [{
+                question: {
+                  bookWordId: 'word-1', type: 'MEANING_RECOGNITION', prompt: 'Earlier wording for bright.',
+                  options: ['暗的', '明亮的'], correctAnswers: ['明亮的'], explanation: '历史快照解析。',
+                },
+                feedback: { up: 0, down: 1, reasonCounts: { QUESTION_UNCLEAR: 1 } },
+                lastUpdatedAt: '2026-10-31T12:00:00.000Z',
+              }],
             }, {
               id: 'cache-no-negative', mode: 'INDIVIDUAL',
               material: { title: 'Fixture without negative votes', wordOccurrences: { steady: 1 }, sentences: [] },
               reuseHits: 1, planReferences: 1, isActive: true, disabledAt: null, disabledReason: null,
               createdAt: '2026-10-30T12:00:00.000Z', provenance: '生成模型来源未记录（题库未保存该字段）',
-              feedbackSummary: { current: { up: 1, down: 0 }, older: { up: 0, down: 0 } }, questions: [],
+              feedbackSummary: { current: { up: 1, down: 0 }, older: { up: 0, down: 0 } },
+              historicalNegativeQuestionCount: 0, historicalNegativeQuestions: [], questions: [],
             }],
           };
           window.tutorRequests = [];
@@ -2664,6 +2674,15 @@ test(
         await evaluate('document.querySelector("details").innerText.includes("参考答案：明亮的")'),
         true,
       );
+      await evaluate(
+        'document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details")[1].querySelector("summary").click()',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details")[1].innerText.includes("Earlier wording for bright.") && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details")[1].innerText.includes("题意不清 1")',
+        ),
+        true,
+      );
       await send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
         height: 1000,
@@ -2727,7 +2746,31 @@ test(
         status.dispatchEvent(new Event('change', { bubbles: true }));
         document.querySelector('[aria-labelledby="study-content-bank-title"] form button[type=submit]').click();
       })()`);
-      await until('document.querySelector("details summary")');
+      await until(
+        'document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details").length >= 2 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details")[1].querySelector("summary")?.innerText.includes("历史快照负面评价")',
+      );
+      await evaluate(
+        'document.querySelectorAll("[aria-labelledby=study-content-bank-title] article details")[1].querySelector("summary").click()',
+      );
+      const mobileHistoricalFeedback = await evaluate(`(() => {
+        const details = document.querySelectorAll('[aria-labelledby="study-content-bank-title"] article details')[1];
+        const panel = details.getBoundingClientRect();
+        const question = details.querySelector('section').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, questionLeft: question.left, questionRight: question.right, text: details.innerText };
+      })()`);
+      assert.equal(mobileHistoricalFeedback.viewport, 390);
+      assert.ok(mobileHistoricalFeedback.document <= 390, JSON.stringify(mobileHistoricalFeedback));
+      assert.ok(
+        mobileHistoricalFeedback.panelLeft >= 0 && mobileHistoricalFeedback.panelRight <= 390,
+        JSON.stringify(mobileHistoricalFeedback),
+      );
+      assert.ok(
+        mobileHistoricalFeedback.questionLeft >= 0 && mobileHistoricalFeedback.questionRight <= 390,
+        JSON.stringify(mobileHistoricalFeedback),
+      );
+      assert.match(mobileHistoricalFeedback.text, /Earlier wording for bright\./);
+      assert.match(mobileHistoricalFeedback.text, /题意不清 1/);
+      await capture('public-study-bank-history-390.png');
       await evaluate(`(() => {
         const reason = document.querySelector('input[maxlength="200"]');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(reason, 'fixture review');

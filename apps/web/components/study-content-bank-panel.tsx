@@ -29,6 +29,12 @@ type BankItem = {
     current?: { up: number; down: number };
     older?: { up: number; down: number };
   };
+  historicalNegativeQuestionCount?: number;
+  historicalNegativeQuestions?: Array<{
+    question: BankQuestion;
+    feedback: BankQuestion['feedback'];
+    lastUpdatedAt: string;
+  }>;
   isActive: boolean;
   disabledAt: string | null;
   disabledReason: string | null;
@@ -364,6 +370,54 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
                   ))}
                 </div>
               </details>
+              {(item.historicalNegativeQuestionCount ?? 0) > 0 && (
+                <details className={styles.material}>
+                  <summary>历史快照负面评价（{item.historicalNegativeQuestionCount} 道题）</summary>
+                  <p className={styles.meta}>
+                    以下内容来自已替换的题目快照，不计入当前题目票数；按最近评价时间显示。
+                  </p>
+                  <div className={styles.questions}>
+                    {(item.historicalNegativeQuestions ?? []).map(
+                      ({ question, feedback, lastUpdatedAt }, index) => (
+                        <section key={`${question.bookWordId ?? 'history'}-${index}`}>
+                          <h4>
+                            {QUESTION_LABELS[question.type ?? ''] ?? '历史练习题'}
+                            {question.prompt ? ` · ${question.prompt}` : ''}
+                          </h4>
+                          {question.options?.length ? (
+                            <p>选项：{question.options.join(' / ')}</p>
+                          ) : null}
+                          {question.correctAnswers?.length ? (
+                            <p>参考答案：{question.correctAnswers.join(' / ')}</p>
+                          ) : null}
+                          {question.explanation && <p>解析：{question.explanation}</p>}
+                          <p className={styles.voteSummary}>
+                            <span>
+                              <ThumbsUp size={15} aria-hidden="true" /> {feedback.up}
+                            </span>
+                            <span>
+                              <ThumbsDown size={15} aria-hidden="true" /> {feedback.down}
+                            </span>
+                            {Object.entries(feedback.reasonCounts).map(([reason, count]) => (
+                              <span key={reason}>
+                                {REASON_LABELS[reason] ?? '其他'} {count}
+                              </span>
+                            ))}
+                            <span>最近评价 {dateTime(lastUpdatedAt)}</span>
+                          </p>
+                        </section>
+                      ),
+                    )}
+                  </div>
+                  {(item.historicalNegativeQuestions?.length ?? 0) <
+                    (item.historicalNegativeQuestionCount ?? 0) && (
+                    <p className={styles.meta}>
+                      仅显示最近 {item.historicalNegativeQuestions?.length ?? 0} 条；共有{' '}
+                      {item.historicalNegativeQuestionCount} 道历史题目曾收到负面评价。
+                    </p>
+                  )}
+                </details>
+              )}
               <footer className={styles.cardFooter}>
                 {!item.isActive && <span>停用不会删除题目、反馈或旧计划中的快照。</span>}
                 {item.isActive && (
