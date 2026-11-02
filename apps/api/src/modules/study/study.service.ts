@@ -36,6 +36,7 @@ import {
   STUDY_CONTENT_CLAIM_LEASE_MS,
   STUDY_CONTENT_CLAIM_POLL_MS,
   STUDY_CONTENT_CLAIM_WAIT_MS,
+  studyContentClaimWaitDeadline,
   tryClaimStudyContentSignatures,
 } from './study-content-generation-claim';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
@@ -773,9 +774,10 @@ export class StudyService {
               .map(({ signature }) => signature),
           ),
         ].sort();
-      const claimWaitDeadline = Math.min(
+      const claimWaitDeadline = studyContentClaimWaitDeadline(
         generationDeadline,
-        Date.now() + this.cacheClaimWaitTimeoutMs,
+        Date.now(),
+        this.cacheClaimWaitTimeoutMs,
       );
       const initiallyMissingSignatures = publicMissingSignatures();
       if (initiallyMissingSignatures.length) {

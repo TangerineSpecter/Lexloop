@@ -19,6 +19,14 @@ export type StudyContentClaimStatus = 'READY' | 'BUSY' | 'COOLDOWN' | 'EXPIRED';
 
 let lastPruneAttemptAt = 0;
 
+export function studyContentClaimWaitDeadline(
+  generationDeadline: number,
+  now: number,
+  maxWaitMs = STUDY_CONTENT_CLAIM_WAIT_MS,
+) {
+  return Math.min(generationDeadline, now + maxWaitMs);
+}
+
 export async function tryClaimStudyContentSignature(
   prisma: PrismaService,
   signature: string,
