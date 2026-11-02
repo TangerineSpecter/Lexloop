@@ -1,6 +1,6 @@
 {
   "name": "lexloop",
-  "version": "1.27.121",
+  "version": "1.27.122",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "release": "node scripts/release.mjs",
     "test:updater": "node --test deploy/updater/*.test.mjs",
+    "test:updater:image-smoke": "node deploy/updater/image-smoke.mjs",
     "test:deploy": "node --test deploy/*.test.mjs deploy/updater/*.test.mjs",
     "db:generate": "pnpm --filter @lexloop/api prisma:generate",
     "db:migrate": "pnpm --filter @lexloop/api prisma:migrate",

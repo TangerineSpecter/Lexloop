@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.122',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '修复更新服务镜像启动缺失依赖',
+        entry: '系统设置 → 系统更新',
+        usage:
+          'updater 镜像现包含版本检查重试模块，并增加镜像启动验收。更新服务修复后可正常提供状态和版本检查；此版本不修改应用数据或数据库结构。',
+      },
+    ],
+  },
+  {
     version: '1.27.121',
     date: '2026-11-02',
     items: [
