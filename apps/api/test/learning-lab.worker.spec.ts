@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DelayedError } from 'bullmq';
 import { generateLab } from '../src/modules/learning-lab/lab.processor';
+import { JSON_OBJECT_USER_INSTRUCTION } from '../src/modules/ai/json-object-request';
 
 const job = {
   data: { submissionId: 'submission1', workerToken: 'a'.repeat(64) },
@@ -64,6 +65,7 @@ describe('learning lab worker boundaries', () => {
     const body = JSON.parse(fetch.mock.calls[0][1].body as string);
     expect(body.temperature).toBe(0.65);
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0].content).toBe(`learner draft\n\n${JSON_OBJECT_USER_INSTRUCTION}`);
   });
   it('omits call-site temperature for custom OpenAI lab generation when no setting exists', async () => {
     const service = {
@@ -86,6 +88,7 @@ describe('learning lab worker boundaries', () => {
     const body = JSON.parse(fetch.mock.calls[0][1].body as string);
     expect(body).not.toHaveProperty('temperature');
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0].content).toBe(`learner draft\n\n${JSON_OBJECT_USER_INSTRUCTION}`);
   });
   it('does not call a model again when a repeated job is already complete', async () => {
     const service = {

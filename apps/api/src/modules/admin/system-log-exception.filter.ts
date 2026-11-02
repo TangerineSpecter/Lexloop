@@ -7,6 +7,7 @@ import {
   type ArgumentsHost,
 } from '@nestjs/common';
 import { SystemLogService } from './system-log.service';
+import { readSystemLogDiagnostic } from '../../common/system-log-diagnostic';
 
 type FilterRequest = {
   method?: string;
@@ -28,6 +29,7 @@ export class SystemLogExceptionFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     if (status >= 500) {
+      const diagnostic = readSystemLogDiagnostic(exception);
       const providerDetails =
         exception instanceof HttpException
           ? safeProviderDetails(exception.getResponse())
@@ -35,7 +37,7 @@ export class SystemLogExceptionFilter implements ExceptionFilter {
       void this.logs.record({
         source: 'api',
         kind: 'http.exception',
-        code: providerDetails?.code ?? `HTTP_${status}`,
+        code: providerDetails?.code ?? diagnostic?.code ?? `HTTP_${status}`,
         status,
         ...(providerDetails?.upstreamStatus
           ? { upstreamStatus: providerDetails.upstreamStatus }
@@ -45,9 +47,18 @@ export class SystemLogExceptionFilter implements ExceptionFilter {
           ? { method: request.method }
           : {}),
         ...(request.routeOptions?.url ? { route: request.routeOptions.url } : {}),
+        ...(diagnostic ? { phase: diagnostic.phase, fieldPath: diagnostic.fieldPath } : {}),
+        ...(diagnostic?.repairAttempts !== undefined
+          ? {
+              attemptsMade: diagnostic.repairAttempts,
+              maxAttempts: diagnostic.maxRepairAttempts ?? 3,
+            }
+          : {}),
         reason: providerDetails
-          ? '模型供应商未完成请求；原始响应正文已隐藏。'
-          : `服务器处理请求失败（HTTP ${status}）；原始异常详情已隐藏。`,
+          ? (diagnostic?.reason ?? '模型供应商未完成请求；原始响应正文已隐藏。')
+          : diagnostic
+            ? diagnostic.reason
+            : `服务器处理请求失败（HTTP ${status}）；原始异常详情已隐藏。`,
       });
     }
 

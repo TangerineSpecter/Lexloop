@@ -974,7 +974,7 @@ export class AdventureService {
           { purpose: 'adventure-free-response', prompt },
           userId,
         );
-        const parsed = parseJson(String(raw));
+        const parsed = parseChatCompletionJson(raw);
         const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
         if (typeof parsed.message !== 'string')
           throw new BadGatewayException('自由表达评分结构无效');
@@ -1654,6 +1654,17 @@ function parseJson(value: string) {
   const match = value.match(/\{[\s\S]*\}/);
   if (!match) throw new BadGatewayException('模型没有返回 JSON');
   return JSON.parse(match[0]) as Record<string, unknown>;
+}
+function parseChatCompletionJson(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    throw new BadGatewayException('模型没有返回兼容的 JSON 对象');
+  }
+  const content = (value as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]
+    ?.message?.content;
+  if (typeof content !== 'string') {
+    throw new BadGatewayException('模型响应缺少 JSON 内容');
+  }
+  return parseJson(content);
 }
 function seedNumber(value: string) {
   return [...value].reduce((sum, character) => (sum * 31 + character.charCodeAt(0)) >>> 0, 7);

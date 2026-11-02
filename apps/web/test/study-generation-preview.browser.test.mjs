@@ -123,15 +123,28 @@ test(
         })()`);
         await until('document.querySelector(".plan-preview-layer")');
       };
+      const openFailedPlan = async (planId) => {
+        await evaluate(`(() => {
+          const card = document.querySelector('.history-grid article[data-plan-id="' + ${JSON.stringify(planId)} + '"]');
+          const button = card?.innerText.includes('生成失败') ? card.querySelector('footer button') : null;
+          if (!button) throw new Error('No failed retry action found for plan: ' + ${JSON.stringify(planId)});
+          button.click();
+        })()`);
+        await until('document.querySelector(".plan-preview-layer")');
+      };
       const startGeneration = async (expectedCount) => {
         await evaluate('document.querySelector(".plan-preview .start-challenge").click()');
         await until(`window.generationAttempts.length === ${expectedCount}`);
       };
-      const resolvePlan = async (id, status, response) => {
+      const resolvePlan = async (id, status, response, generationError = null) => {
         await evaluate(`(() => {
           const plan = window.planLists["study-user"].find((item) => item.id === ${JSON.stringify(id)});
           plan.status = ${JSON.stringify(status)};
-          if (plan.status === 'ACTIVE') plan.generationError = null;
+          plan.generationError = ${JSON.stringify(generationError)};
+          if (plan.status !== 'GENERATING') {
+            plan.generationPhase = null;
+            plan.generationStartedAt = null;
+          }
           window.resolveGeneration(${JSON.stringify(id)}, ${response});
         })()`);
       };
@@ -152,6 +165,8 @@ test(
             wordCount: 1, groupCount: 1, completed: 0,
             createdAt: new Date().toISOString(), completedAt: null,
             generationError: status === 'FAILED' ? 'fixture failure' : null,
+            generationPhase: status === 'GENERATING' ? 'PREPARING' : null,
+            generationStartedAt: status === 'GENERATING' ? new Date(Date.now() - 45000).toISOString() : null,
             words: [{ id: id + '-word', word, part: 'adj.', meaning: '平稳的', source: 'NEW', groupIndex: 0, completed: false, nextReviewAt: null, activeWeaknesses: [] }],
             content: null,
             summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
@@ -166,6 +181,10 @@ test(
             { ...secondActivePlan.words[0], id: 'second-active-new', word: 'steady', source: 'NEW' },
           ];
           const historicalPlan = makePlan('preview-history', 'steady', 'COMPLETED');
+          const failedRetryPlan = makePlan('preview-c', 'calm', 'FAILED', 'individual');
+          failedRetryPlan.generationError = 'fixture failure Bearer secret-token https://private.invalid/path';
+          const persistedFailurePlan = makePlan('preview-error', 'careful', 'FAILED', 'individual');
+          persistedFailurePlan.generationError = 'fixture failure Bearer secret-token https://private.invalid/path';
           historicalPlan.completed = 1;
           historicalPlan.words[0] = {
             ...historicalPlan.words[0],
@@ -195,14 +214,17 @@ test(
             'study-user': [
               makePlan('preview-a', 'bright'),
               makePlan('preview-b', 'gentle', 'FAILED', 'exam'),
-              makePlan('preview-c', 'calm', 'FAILED', 'individual'),
+              failedRetryPlan,
               makePlan('preview-account', 'useful'),
               historicalPlan,
+              persistedFailurePlan,
             ],
             'second-study-user': [secondActivePlan],
           };
           window.savedHistoricalPlan = savedHistoricalPlan;
           window.generationAttempts = [];
+          window.generationStatusPolls = {};
+          window.generationAborted = false;
           window.studyPlanCreateBodies = [];
           window.generationResolvers = {};
           window.resolveGeneration = (id, response) => {
@@ -239,8 +261,34 @@ test(
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
             if (generation && method === 'POST') {
               const id = generation[1];
+              const plan = Object.values(window.planLists).flat().find((item) => item.id === id);
+              if (plan && plan.status !== 'GENERATING') {
+                plan.status = 'GENERATING';
+                plan.generationPhase = 'PREPARING';
+                plan.generationStartedAt = new Date(Date.now() - 45000).toISOString();
+                window.generationStatusPolls[id] = 0;
+              }
               window.generationAttempts.push(id);
+              options.signal?.addEventListener('abort', () => { window.generationAborted = true; });
               return new Promise((resolve) => { window.generationResolvers[id] = resolve; });
+            }
+            const generationStatus = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generation-status$'));
+            if (generationStatus && method === 'GET') {
+              const plan = (window.planLists[session?.user.id] ?? []).find((item) => item.id === generationStatus[1]);
+              if (!plan) return Response.json({ message: '学习计划不存在' }, { status: 404 });
+              if (plan.status === 'GENERATING') {
+                const polls = (window.generationStatusPolls[plan.id] ?? 0) + 1;
+                window.generationStatusPolls[plan.id] = polls;
+                plan.generationPhase = polls < 2 ? 'PREPARING' : 'WAITING_MODEL';
+                return Response.json({
+                  id: plan.id,
+                  status: plan.status,
+                  generationPhase: plan.generationPhase,
+                  generationStartedAt: plan.generationStartedAt,
+                  generationError: null,
+                });
+              }
+              return Response.json(plan);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
               return Response.json(window.planLists[session?.user.id] ?? []);
@@ -257,7 +305,7 @@ test(
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 5');
+      await until('document.querySelectorAll(".history-grid article").length === 6');
 
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
@@ -387,7 +435,7 @@ test(
       );
       assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 3);
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 5');
+      await until('document.querySelectorAll(".history-grid article").length === 6');
 
       // Closing the first preview leaves its server request alive. A double
       // click still starts only one client request.
@@ -441,6 +489,7 @@ test(
         'preview-b',
         'FAILED',
         'Response.json({ message: "fixture generation failed" }, { status: 502 })',
+        'fixture generation failed',
       );
       await until(
         'window.planLists["study-user"][1].status === "FAILED" && window.generationResolvers["preview-b"] === undefined',
@@ -454,6 +503,9 @@ test(
         await evaluate('document.querySelector(".plan-preview .book-message") === null'),
         true,
       );
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
 
       await resolvePlan('preview-c', 'ACTIVE', 'Response.json(window.planLists["study-user"][2])');
       await until(
@@ -474,6 +526,7 @@ test(
         'preview-b',
         'FAILED',
         'Response.json({ message: "部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型" }, { status: 400 })',
+        '部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型',
       );
       await until(
         'document.querySelector(".plan-preview .book-message")?.textContent.includes("缺失或未通过内容校验")',
@@ -541,11 +594,17 @@ test(
       // Simulate a configured model: regeneration can still fail validation.
       // The exact error is announced and the learner can retry the same plan.
       await openRetry('应试语境');
-      await startGeneration(5);
+      assert.equal(
+        await evaluate('document.querySelector(".plan-retry-after-settings")?.textContent.trim()'),
+        '我已更新模型，重新生成',
+      );
+      await evaluate('document.querySelector(".plan-retry-after-settings").click()');
+      await until('window.generationAttempts.length === 5');
       await resolvePlan(
         'preview-b',
         'FAILED',
         'Response.json({ message: "学习计划生成失败：单词 steady 的选项语言、数量或唯一性不符合题型要求" }, { status: 502 })',
+        '学习计划生成失败：单词 steady 的选项语言、数量或唯一性不符合题型要求',
       );
       await until(
         'document.querySelector(".plan-preview .book-message")?.textContent.includes("选项语言、数量或唯一性")',
@@ -590,8 +649,109 @@ test(
 
       // An outstanding response from the prior account cannot populate the
       // next account's dashboard after logout and login.
-      await openRetry('生成失败');
+      await openFailedPlan('preview-error');
+      const persistedFailureMessage = await evaluate(
+        'document.querySelector(".plan-preview .book-message")?.textContent ?? ""',
+      );
+      assert.match(persistedFailureMessage, /fixture failure/);
+      assert.match(persistedFailureMessage, /凭据已隐藏/);
+      assert.doesNotMatch(persistedFailureMessage, /secret-token|private\.invalid/);
       await startGeneration(7);
+      assert.equal(
+        await evaluate('document.querySelector(".plan-preview .book-message") === null'),
+        true,
+      );
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("正在整理词条")',
+      );
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待模型返回")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".plan-generation-elapsed")?.textContent ?? ""'),
+        /已等待 [0-9]+ 秒/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".plan-generation-status p")?.textContent ?? ""'),
+        /模型内部进度暂不可见/,
+      );
+      assert.equal(await evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches'), true);
+      const reducedMotionNote = await evaluate(
+        'document.querySelector(".plan-generation-status p")?.textContent',
+      );
+      await delay(9200);
+      assert.equal(
+        await evaluate('document.querySelector(".plan-generation-status p")?.textContent'),
+        reducedMotionNote,
+      );
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+      });
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+      assert.equal(await evaluate('window.generationAborted'), false);
+
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
+      );
+      await until(
+        'document.querySelector(".sequence-summary button")?.textContent.includes("继续生成题目")',
+      );
+      await evaluate('document.querySelector(".sequence-summary button").click()');
+      await until('document.querySelector(".plan-preview-layer")');
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待模型返回")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-generation-reassurance")?.textContent.includes("不会取消已提交的生成")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-generation-elapsed")?.getAttribute("aria-live")',
+        ),
+        'off',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileGenerationLayout = await evaluate(`(() => {
+        const preview = document.querySelector('.plan-preview').getBoundingClientRect();
+        const status = document.querySelector('.plan-generation-status').getBoundingClientRect();
+        return {
+          viewportWidth: innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          previewLeft: preview.left,
+          previewRight: preview.right,
+          statusLeft: status.left,
+          statusRight: status.right,
+        };
+      })()`);
+      assert.ok(
+        mobileGenerationLayout.documentWidth <= mobileGenerationLayout.viewportWidth,
+        JSON.stringify(mobileGenerationLayout),
+      );
+      assert.ok(
+        mobileGenerationLayout.previewLeft >= 0 &&
+          mobileGenerationLayout.previewRight <= mobileGenerationLayout.viewportWidth,
+        JSON.stringify(mobileGenerationLayout),
+      );
+      assert.ok(
+        mobileGenerationLayout.statusLeft >= mobileGenerationLayout.previewLeft &&
+          mobileGenerationLayout.statusRight <= mobileGenerationLayout.previewRight,
+        JSON.stringify(mobileGenerationLayout),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate('document.querySelector(".plan-preview header button").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 
@@ -1066,9 +1226,9 @@ test(
       await clickHistory();
       await until('document.querySelectorAll(".history-grid article").length === 1');
       await resolvePlan(
-        'preview-account',
+        'preview-error',
         'ACTIVE',
-        'Response.json(window.planLists["study-user"][3])',
+        'Response.json(window.planLists["study-user"][5])',
       );
       await delay(200);
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);

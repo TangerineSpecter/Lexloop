@@ -1,6 +1,8 @@
 import { BadGatewayException, ServiceUnavailableException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AiService } from '../src/modules/ai/ai.service';
+import { readSystemLogDiagnostic } from '../src/common/system-log-diagnostic';
+import { JSON_OBJECT_USER_INSTRUCTION } from '../src/modules/ai/json-object-request';
 
 describe('AiService', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -147,6 +149,9 @@ describe('AiService', () => {
     expect(defaultRequest.stream).toBe(true);
     expect(defaultRequest.max_tokens).toBe(2048);
     expect(defaultRequest.response_format).toEqual({ type: 'json_object' });
+    expect(defaultRequest.messages[0].content).toBe(
+      `Create a short practice.\n\n${JSON_OBJECT_USER_INSTRUCTION}`,
+    );
 
     fetchMock.mockClear();
     const configuredService = new AiService(
@@ -197,6 +202,40 @@ describe('AiService', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body).not.toHaveProperty('temperature');
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[1].content).toBe(
+      `Create structured lesson content.\n\n${JSON_OBJECT_USER_INSTRUCTION}`,
+    );
+  });
+
+  it('classifies malformed successful response JSON without retaining its body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"private_answer":"secret",'));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new AiService(
+      { get: vi.fn() } as never,
+      {
+        selectedProvider: vi.fn().mockResolvedValue({
+          apiKey: 'system-key',
+          baseUrl: 'https://models.example.test/v1',
+          model: 'approved-model',
+          provider: 'OPENAI_COMPATIBLE',
+          temperature: null,
+        }),
+      } as never,
+    );
+
+    const failure = await service
+      .generateForUser({ purpose: 'study-plan', prompt: 'synthetic fixture', schema: {} }, 'user_1')
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('原始内容已隐藏');
+    expect((failure as Error).message).not.toContain('private_answer');
+    expect((failure as Error).message).not.toContain('secret');
+    expect(readSystemLogDiagnostic(failure)).toMatchObject({
+      code: 'AI_RESPONSE_JSON_INVALID',
+      phase: 'response_parse',
+      fieldPath: 'response.body',
+    });
   });
 
   it('keeps the existing DeepSeek call-specific temperature when no model value is set', async () => {

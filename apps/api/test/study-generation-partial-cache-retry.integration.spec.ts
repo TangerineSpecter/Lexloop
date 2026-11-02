@@ -146,15 +146,30 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         });
         planId = plan.id;
 
+        const duplicateQuestion = generatedGroup(
+          1,
+          book.bookWords[1].id,
+          book.bookWords[1].word.text,
+          'Invalid repair fixture',
+        ).questions[0];
+        duplicateQuestion.options[2] = duplicateQuestion.options[0];
+        const invalidRepairResponse = {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ questions: [duplicateQuestion] }),
+              },
+            },
+          ],
+        };
+        let generationCalls = 0;
         const ai = {
-          generateForUser: vi
-            .fn()
-            .mockImplementationOnce(async ({ prompt }: { prompt: string }) =>
-              responseForPrompt(prompt, true),
-            )
-            .mockImplementationOnce(async ({ prompt }: { prompt: string }) =>
-              responseForPrompt(prompt),
-            ),
+          generateForUser: vi.fn(async ({ prompt }: { prompt: string }) => {
+            generationCalls += 1;
+            if (generationCalls === 1) return responseForPrompt(prompt, true);
+            if (generationCalls <= 4) return invalidRepairResponse;
+            return responseForPrompt(prompt);
+          }),
         };
         const selectedProvider = vi.fn(async () => ({ id: 'isolated-fixture-model' }));
         const service = new StudyService(
@@ -164,16 +179,14 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           {} as never,
         );
 
-        await expect(service.generatePlan(users.id, plan.id)).rejects.toThrow(
-          '选项语言、数量或唯一性',
-        );
+        await expect(service.generatePlan(users.id, plan.id)).rejects.toThrow('的选项不能重复');
         const failedPlan = await prisma.studyPlan.findUniqueOrThrow({
           where: { id: plan.id },
           select: { status: true, generatedContent: true, generationError: true },
         });
         expect(failedPlan).toMatchObject({ status: 'FAILED', generatedContent: null });
-        expect(failedPlan.generationError).toContain('选项语言、数量或唯一性');
-        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+        expect(failedPlan.generationError).toContain('的选项不能重复');
+        expect(ai.generateForUser).toHaveBeenCalledTimes(4);
         const failedPrompt = ai.generateForUser.mock.calls[0][0].prompt;
         expect(failedPrompt).toContain('gentle');
         expect(failedPrompt).not.toContain('steady');
@@ -203,8 +216,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           ],
         });
         expect(selectedProvider).toHaveBeenCalledTimes(2);
-        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
-        const retryPrompt = ai.generateForUser.mock.calls[1][0].prompt;
+        expect(ai.generateForUser).toHaveBeenCalledTimes(5);
+        const retryPrompt = ai.generateForUser.mock.calls[4][0].prompt;
         expect(retryPrompt).toContain('gentle');
         expect(retryPrompt).not.toContain('steady');
 

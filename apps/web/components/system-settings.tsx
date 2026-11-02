@@ -6,9 +6,7 @@ import {
   ChevronDown,
   CheckCircle2,
   CircleAlert,
-  FileSearch,
   LoaderCircle,
-  PackageSearch,
   PlugZap,
   Settings2,
   Pencil,
@@ -20,9 +18,7 @@ import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
 import { Tooltip } from './tooltip';
 import { SystemBackupPanel } from './system-backup/system-backup-panel';
-import { SystemUpdatePanel } from './system-update-panel';
 import { DailySentenceSettings } from './daily-sentence/daily-sentence-settings';
-import { SystemLogsPanel } from './system-logs-panel';
 import { AutomaticStudyPlanSettings } from './automatic-study-plan-settings';
 
 type AiModel = {
@@ -59,7 +55,7 @@ const DEEPSEEK_MODELS = [
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
-  const [tab, setTab] = useState<'models' | 'logs' | 'updates' | 'features' | 'backups'>('models');
+  const [tab, setTab] = useState<'models' | 'features' | 'backups'>('models');
   const [models, setModels] = useState<AiModel[]>([]);
   const [modal, setModal] = useState<AiModel | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
@@ -146,15 +142,6 @@ export function SystemSettings({ session }: { session: Session }) {
           功能开关
         </button>
         <button
-          className={tab === 'logs' ? 'active' : ''}
-          role="tab"
-          aria-selected={tab === 'logs'}
-          onClick={() => setTab('logs')}
-        >
-          <FileSearch size={18} />
-          系统日志
-        </button>
-        <button
           className={tab === 'models' ? 'active' : ''}
           role="tab"
           aria-selected={tab === 'models'}
@@ -162,15 +149,6 @@ export function SystemSettings({ session }: { session: Session }) {
         >
           <Bot size={18} />
           AI 模型管理
-        </button>
-        <button
-          className={tab === 'updates' ? 'active' : ''}
-          role="tab"
-          aria-selected={tab === 'updates'}
-          onClick={() => setTab('updates')}
-        >
-          <PackageSearch size={18} />
-          系统更新
         </button>
       </div>
       {tab === 'backups' ? (
@@ -180,10 +158,6 @@ export function SystemSettings({ session }: { session: Session }) {
           <DailySentenceSettings session={session} />
           <AutomaticStudyPlanSettings session={session} />
         </>
-      ) : tab === 'logs' ? (
-        <SystemLogsPanel session={session} />
-      ) : tab === 'updates' ? (
-        <SystemUpdatePanel session={session} />
       ) : (
         <>
           <div className="model-head">

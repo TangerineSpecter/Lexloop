@@ -1,5 +1,7 @@
 'use client';
 import { CollectWordForm } from './learning-lab/collect-word-form';
+import { SystemLogsPanel } from './system-logs-panel';
+import { SystemUpdatePanel } from './system-update-panel';
 import {
   DashboardBootstrapLoading,
   DashboardLoadingCard,
@@ -25,12 +27,14 @@ import {
   Eye,
   EyeOff,
   Flame,
+  FileSearch,
   Grid2X2,
   LayoutList,
   ListRestart,
   LogOut,
   Menu,
   Pause,
+  PackageSearch,
   PenLine,
   Play,
   Plus,
@@ -270,6 +274,8 @@ export type LearningPlan = {
   groupCount: number;
   content?: { groups: GeneratedGroup[] } | null;
   generationError?: string | null;
+  generationPhase?: 'PREPARING' | 'WAITING_MODEL' | 'VALIDATING' | 'REPAIRING' | 'SAVING' | null;
+  generationStartedAt?: string | null;
   summary?: {
     totalQuestions: number;
     correctQuestions: number;
@@ -282,6 +288,7 @@ export type LearningPlan = {
   completedAt?: string | null;
 };
 type StudyPlanListStatus = 'loading' | 'ready' | 'error';
+type SettingsSection = 'account' | 'system' | 'logs' | 'about';
 type DashboardPage =
   | 'study'
   | 'travel'
@@ -341,6 +348,33 @@ function dashboardPageFromLocation(
 
 function dashboardUrlForPage(page: DashboardPage): string {
   return page === 'study' ? '/dashboard' : `/dashboard?view=${encodeURIComponent(page)}`;
+}
+function settingsSectionFromLocation(
+  search: string,
+  state: unknown,
+  userId: string,
+): SettingsSection {
+  const params = new URLSearchParams(search);
+  const legacyTab = params.get('tab');
+  if (legacyTab === 'updates' || legacyTab === 'system-update') return 'about';
+  if (legacyTab === 'logs' || legacyTab === 'system-logs') return 'logs';
+  const requested = params.get('section') ?? legacyTab;
+  if (requested === 'logs' || requested === 'system-logs') return 'logs';
+  if (requested === 'about' || requested === 'updates' || requested === 'system-update') {
+    return 'about';
+  }
+  if (requested === 'system') return 'system';
+  if (requested === 'account') return 'account';
+  if (
+    state &&
+    typeof state === 'object' &&
+    (state as { lexloopDashboardUserId?: string }).lexloopDashboardUserId === userId
+  ) {
+    const saved = (state as { lexloopDashboardSettingsSection?: unknown })
+      .lexloopDashboardSettingsSection;
+    if (saved === 'system' || saved === 'logs' || saved === 'about') return saved;
+  }
+  return 'account';
 }
 function isDashboardPage(value: unknown): value is DashboardPage {
   return typeof value === 'string' && dashboardPages.has(value as DashboardPage);
@@ -649,7 +683,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setSidebarOpen(false);
   };
   const [historyBackPage, setHistoryBackPage] = useState<'study' | 'statistics'>('study');
-  const [settingsSection, setSettingsSection] = useState<'account' | 'system'>('account');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('account');
   const retryDeferredPage = () => {
     const state =
       window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
@@ -822,12 +856,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     const initialPage: DashboardRoutePage =
       retryPage ?? (requestedView === 'mistakes' ? 'mistakes' : routePage);
     setSettingsSection(
-      (retryPage === 'settings' &&
-        existingState.lexloopDashboardUserId === session.user.id &&
-        existingState.lexloopDashboardSettingsSection === 'system') ||
-        new URLSearchParams(window.location.search).get('section') === 'system'
-        ? 'system'
-        : 'account',
+      settingsSectionFromLocation(window.location.search, existingState, session.user.id),
     );
     setHistoryBackPage(
       new URLSearchParams(window.location.search).get('from') === 'statistics' ||
@@ -870,11 +899,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       }
       if (nextPage === 'settings') {
         setSettingsSection(
-          new URLSearchParams(window.location.search).get('section') === 'system' ||
-            (event.state?.lexloopDashboardUserId === session.user.id &&
-              event.state?.lexloopDashboardSettingsSection === 'system')
-            ? 'system'
-            : 'account',
+          settingsSectionFromLocation(window.location.search, event.state, session.user.id),
         );
       }
       if (currentPageRef.current !== nextPage) planCreateIntentRef.current++;
@@ -1558,6 +1583,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           <AccountSettings
             session={session}
             initialSection={settingsSection}
+            onSectionChange={(nextSection) => {
+              setSettingsSection(nextSection);
+              setPage('settings', `/dashboard?view=settings&section=${nextSection}`);
+            }}
             onBack={() => returnToPage('study')}
             onRetryDeferredPage={retryDeferredPage}
             onLearningReset={() => {
@@ -2037,11 +2066,12 @@ function StreakCard({ session }: { session: Session }) {
   const [failed, setFailed] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
   const [goalSettingsOpen, setGoalSettingsOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState('activity');
   const [goalError, setGoalError] = useState('');
   const [celebration, setCelebration] = useState(false);
   const [milestone, setMilestone] = useState<number | null>(null);
   const goalSettingsTriggerRef = useRef<HTMLButtonElement>(null);
-  const goalSelectRef = useRef<HTMLSelectElement>(null);
+  const goalDialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -2064,7 +2094,10 @@ function StreakCard({ session }: { session: Session }) {
   }, [session.accessToken]);
 
   useEffect(() => {
-    if (goalSettingsOpen) goalSelectRef.current?.focus();
+    if (!goalSettingsOpen) return;
+    goalDialogRef.current
+      ?.querySelector<HTMLInputElement>('input[name="daily-learning-goal"]:checked')
+      ?.focus();
   }, [goalSettingsOpen]);
 
   useEffect(() => {
@@ -2123,8 +2156,44 @@ function StreakCard({ session }: { session: Session }) {
   };
 
   const closeGoalSettings = () => {
+    if (savingGoal) return;
     setGoalSettingsOpen(false);
     goalSettingsTriggerRef.current?.focus();
+  };
+
+  const openGoalSettings = () => {
+    if (!summary?.goal) return;
+    setGoalDraft(goalOptionValue(summary.goal));
+    setGoalError('');
+    setGoalSettingsOpen(true);
+  };
+
+  const handleGoalDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeGoalSettings();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = goalDialogRef.current;
+    if (!dialog) return;
+    const selectedRadio =
+      dialog.querySelector<HTMLInputElement>('input[name="daily-learning-goal"]:checked') ??
+      dialog.querySelector<HTMLInputElement>('input[name="daily-learning-goal"]');
+    const controls = [
+      ...(selectedRadio ? [selectedRadio] : []),
+      ...dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+    ];
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   const dismissMilestone = () => {
@@ -2183,47 +2252,12 @@ function StreakCard({ session }: { session: Session }) {
                   aria-controls="streak-goal-settings"
                   onClick={() => {
                     if (goalSettingsOpen) closeGoalSettings();
-                    else setGoalSettingsOpen(true);
+                    else openGoalSettings();
                   }}
                 >
                   <Settings2 size={14} aria-hidden="true" />
                   <span>设置目标</span>
                   <ChevronDown size={14} aria-hidden="true" />
-                </button>
-              </div>
-            )}
-            {goalSettingsOpen && summary?.goal && (
-              <div
-                id="streak-goal-settings"
-                className="streak-goal-settings-panel"
-                role="group"
-                aria-label="选择今日学习目标"
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    closeGoalSettings();
-                  }
-                }}
-              >
-                <label className="sr-only" htmlFor="streak-goal-select">
-                  今日学习目标
-                </label>
-                <select
-                  ref={goalSelectRef}
-                  id="streak-goal-select"
-                  aria-label="今日学习目标"
-                  value={goalOptionValue(summary.goal)}
-                  disabled={savingGoal}
-                  onChange={(event) => void saveGoal(event.target.value)}
-                >
-                  <option value="activity">完成 1 次学习</option>
-                  <option value="reviews:5">复习 5 个词</option>
-                  <option value="reviews:10">复习 10 个词</option>
-                  <option value="reviews:15">复习 15 个词</option>
-                </select>
-                <span className="streak-goal-settings-hint">选择后立即保存</span>
-                <button type="button" onClick={closeGoalSettings} disabled={savingGoal}>
-                  收起
                 </button>
               </div>
             )}
@@ -2244,7 +2278,7 @@ function StreakCard({ session }: { session: Session }) {
               </p>
             )}
             {summary?.week && <WeekGlanceStrip week={summary.week} />}
-            {goalError && (
+            {goalError && !goalSettingsOpen && (
               <p className="streak-goal-error" role="alert">
                 {goalError}
               </p>
@@ -2262,6 +2296,70 @@ function StreakCard({ session }: { session: Session }) {
           </div>
         </div>
       </article>
+      {goalSettingsOpen &&
+        summary?.goal &&
+        createPortal(
+          <div
+            className="streak-goal-dialog-layer"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeGoalSettings();
+            }}
+          >
+            <section
+              id="streak-goal-settings"
+              ref={goalDialogRef}
+              className="streak-goal-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="streak-goal-dialog-title"
+              onKeyDown={handleGoalDialogKeyDown}
+            >
+              <h2 id="streak-goal-dialog-title">设置今日学习目标</h2>
+              <p>选择一个适合今天的目标，不会修改已有学习记录。</p>
+              <fieldset disabled={savingGoal}>
+                <legend className="sr-only">今日学习目标</legend>
+                {[
+                  { value: 'activity', label: '完成 1 次学习' },
+                  { value: 'reviews:5', label: '复习 5 个词' },
+                  { value: 'reviews:10', label: '复习 10 个词' },
+                  { value: 'reviews:15', label: '复习 15 个词' },
+                ].map((option) => (
+                  <label key={option.value}>
+                    <input
+                      id={`daily-goal-${option.value.replace(':', '-')}`}
+                      type="radio"
+                      name="daily-learning-goal"
+                      value={option.value}
+                      checked={goalDraft === option.value}
+                      onChange={() => setGoalDraft(option.value)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </fieldset>
+              {goalError && (
+                <p className="streak-goal-dialog-error" role="alert">
+                  {goalError}
+                </p>
+              )}
+              <footer>
+                <button type="button" onClick={closeGoalSettings} disabled={savingGoal}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void saveGoal(goalDraft)}
+                  disabled={savingGoal || goalDraft === goalOptionValue(summary.goal)}
+                >
+                  {savingGoal ? '正在保存…' : '保存目标'}
+                </button>
+              </footer>
+            </section>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -2892,12 +2990,14 @@ function BookCards({
 function AccountSettings({
   session,
   initialSection,
+  onSectionChange,
   onBack,
   onRetryDeferredPage,
   onLearningReset,
 }: {
   session: Session;
-  initialSection: 'account' | 'system';
+  initialSection: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
   onBack: () => void;
   onRetryDeferredPage: () => void;
   onLearningReset: () => void;
@@ -2907,7 +3007,7 @@ function AccountSettings({
   const [show, setShow] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [section, setSection] = useState<'account' | 'system'>(initialSection);
+  const [section, setSection] = useState<SettingsSection>(initialSection);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState('');
@@ -2978,24 +3078,60 @@ function AccountSettings({
         <nav>
           <button
             className={section === 'account' ? 'active' : ''}
-            onClick={() => setSection('account')}
+            onClick={() => {
+              setSection('account');
+              onSectionChange('account');
+            }}
           >
             <UserRound size={19} />
             账号设置
           </button>
           {session.user.role === 'ADMIN' && (
-            <button
-              className={section === 'system' ? 'active' : ''}
-              onClick={() => setSection('system')}
-            >
-              <Settings2 size={19} />
-              系统设置
-            </button>
+            <>
+              <button
+                className={section === 'system' ? 'active' : ''}
+                onClick={() => {
+                  setSection('system');
+                  onSectionChange('system');
+                }}
+              >
+                <Settings2 size={19} />
+                系统设置
+              </button>
+              <button
+                className={section === 'logs' ? 'active' : ''}
+                onClick={() => {
+                  setSection('logs');
+                  onSectionChange('logs');
+                }}
+              >
+                <FileSearch size={19} />
+                系统日志
+              </button>
+              <button
+                className={section === 'about' ? 'active' : ''}
+                onClick={() => {
+                  setSection('about');
+                  onSectionChange('about');
+                }}
+              >
+                <PackageSearch size={19} />
+                关于系统
+              </button>
+            </>
           )}
         </nav>
         {section === 'system' && session.user.role === 'ADMIN' ? (
           <DashboardChunkErrorBoundary title="系统设置" onRetry={onRetryDeferredPage}>
             <SystemSettings session={session} />
+          </DashboardChunkErrorBoundary>
+        ) : section === 'logs' && session.user.role === 'ADMIN' ? (
+          <DashboardChunkErrorBoundary title="系统日志" onRetry={onRetryDeferredPage}>
+            <SystemLogsPanel session={session} />
+          </DashboardChunkErrorBoundary>
+        ) : section === 'about' && session.user.role === 'ADMIN' ? (
+          <DashboardChunkErrorBoundary title="关于系统" onRetry={onRetryDeferredPage}>
+            <SystemUpdatePanel session={session} />
           </DashboardChunkErrorBoundary>
         ) : (
           <section className="account-settings-content">
@@ -4251,6 +4387,33 @@ function PhoneticLine({ word }: { word: Pick<Word, 'word' | 'ukPhonetic' | 'usPh
 }
 
 const modeLabel = { group: '分组学习', individual: '单词模式', exam: '应试语境' } as const;
+const generationPhaseLabels = {
+  PREPARING: '正在整理词条和可复用的练习材料',
+  WAITING_MODEL: '正在等待模型返回内容',
+  VALIDATING: '正在检查题目和解析',
+  REPAIRING: '正在补齐少量未通过校验的题目',
+  SAVING: '正在保存并准备学习计划',
+} as const;
+const generationWaitNotes = [
+  '模型内部进度暂不可见；可以先熟悉上方词卡。',
+  '结果回来后这里会自动更新，关闭窗口不会取消已提交的生成。',
+  '这一步需要一点时间，页面会继续查询服务端状态。',
+];
+
+function safeGenerationPreviewMessage(value: unknown) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed
+    .slice(0, 500)
+    .replace(/\bBearer\s+[^\s,;，；）)]+/gi, 'Bearer [凭据已隐藏]')
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}\b/g, '[凭据已隐藏]')
+    .replace(
+      /\b(?:api[_ -]?key|authorization|access[_ -]?token|refresh[_ -]?token|password|secret)\b\s*[:=]\s*[^\s,;，；）)'" ]+/gi,
+      '[凭据已隐藏]',
+    )
+    .replace(/https?:\/\/[^\s)）]+/gi, '[地址已隐藏]');
+}
 
 function PlanPreview({
   plan,
@@ -4270,8 +4433,22 @@ function PlanPreview({
   const [index, setIndex] = useState(0);
   const [generating, setGenerating] = useState(plan.status === 'GENERATING');
   const [generationMessage, setGenerationMessage] = useState('');
+  const [generationStatusMessage, setGenerationStatusMessage] = useState('');
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
+  const [waitingNoteIndex, setWaitingNoteIndex] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [audioNote, setAudioNote] = useState('');
-  const needsModelSelection = generationMessage.includes('阅读材料模型设置');
+  const planRef = useRef(plan);
+  planRef.current = plan;
+  const onPlanUpdatedRef = useRef(onPlanUpdated);
+  onPlanUpdatedRef.current = onPlanUpdated;
+  const persistedGenerationMessage =
+    !generating && plan.status === 'FAILED'
+      ? safeGenerationPreviewMessage(plan.generationError)
+      : '';
+  const visibleGenerationMessage =
+    safeGenerationPreviewMessage(generationMessage) || persistedGenerationMessage;
+  const needsModelSelection = visibleGenerationMessage.includes('阅读材料模型设置');
   const generationStartedRef = useRef(false);
   const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
@@ -4311,9 +4488,24 @@ function PlanPreview({
   }, [onClose, plan.wordCount, word.word]);
 
   const refreshPlan = useCallback(async () => {
-    const plans = await request<LearningPlan[]>('/study/plans', {}, session.accessToken);
-    return plans.find((item) => item.id === plan.id) ?? null;
+    return request<Partial<LearningPlan> & Pick<LearningPlan, 'id' | 'status'>>(
+      `/study/plans/${plan.id}/generation-status`,
+      {},
+      session.accessToken,
+    );
   }, [plan.id, session.accessToken]);
+
+  const publishPlanUpdate = useCallback(
+    (updated: Partial<LearningPlan> & Pick<LearningPlan, 'id' | 'status'>) => {
+      if (updated.id !== planRef.current.id) return;
+      const completePlan = Array.isArray(updated.words)
+        ? (updated as LearningPlan)
+        : ({ ...planRef.current, ...updated } as LearningPlan);
+      planRef.current = completePlan;
+      onPlanUpdatedRef.current(completePlan);
+    },
+    [],
+  );
 
   const generate = useCallback(async () => {
     if (generationRequestInFlightRef.current) return;
@@ -4326,19 +4518,34 @@ function PlanPreview({
         { method: 'POST' },
         session.accessToken,
       );
-      onPlanUpdated(updated);
+      publishPlanUpdate(updated);
     } catch (error) {
-      setGenerationMessage(error instanceof Error ? error.message : '学习计划生成失败，请重试');
-      void refreshPlan()
-        .then((updated) => {
-          if (updated) onPlanUpdated(updated);
-        })
-        .catch(() => undefined);
+      try {
+        const updated = await refreshPlan();
+        publishPlanUpdate(updated);
+        if (updated.status === 'GENERATING') {
+          setGenerationMessage(
+            updated.generationStartedAt
+              ? '页面未收到生成结果，服务端仍显示任务进行中；下方会继续同步状态。'
+              : '页面未收到生成结果，服务端尚未报告开始阶段；下方会继续同步状态。',
+          );
+        } else if (updated.status === 'FAILED' && updated.generationError) {
+          setGenerationMessage(updated.generationError);
+        } else {
+          setGenerationMessage('');
+        }
+      } catch {
+        setGenerationMessage(
+          error instanceof Error
+            ? error.message
+            : '暂时无法确认学习计划的生成结果，请稍后查看计划状态。',
+        );
+      }
     } finally {
       generationRequestInFlightRef.current = false;
       setGenerating(false);
     }
-  }, [onPlanUpdated, plan.id, refreshPlan, session.accessToken]);
+  }, [plan.id, refreshPlan, session.accessToken]);
 
   useEffect(() => {
     if (plan.status === 'GENERATING' && !generationStartedRef.current) {
@@ -4348,24 +4555,79 @@ function PlanPreview({
   }, [generate, plan.status]);
 
   useEffect(() => {
-    if (plan.status !== 'GENERATING' || generating) return;
+    if (plan.status !== 'GENERATING' && !(generating && plan.status === 'FAILED')) return;
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void refreshPlan()
-        .then((updated) => {
-          if (!cancelled && updated) onPlanUpdated(updated);
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            setGenerationMessage(error instanceof Error ? error.message : '学习计划状态加载失败');
-          }
-        });
-    }, 1500);
+    let timer: number | undefined;
+    let nextDelay = 1800;
+    const poll = async () => {
+      try {
+        const updated = await refreshPlan();
+        if (cancelled) return;
+        nextDelay = 1800;
+        setGenerationStatusMessage('');
+        publishPlanUpdate(updated);
+        if (updated.status === 'GENERATING') timer = window.setTimeout(poll, nextDelay);
+      } catch {
+        if (cancelled) return;
+        setGenerationStatusMessage('暂时无法读取最新状态；当前结果未知，页面会继续重试查询。');
+        nextDelay = Math.min(nextDelay * 2, 15_000);
+        timer = window.setTimeout(poll, nextDelay);
+      }
+    };
+    timer = window.setTimeout(poll, 1000);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [generating, onPlanUpdated, plan.id, plan.status, refreshPlan, session.accessToken]);
+  }, [generating, plan.id, plan.status, publishPlanUpdate, refreshPlan, session.accessToken]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setPrefersReducedMotion(media.matches);
+    updatePreference();
+    media.addEventListener('change', updatePreference);
+    return () => media.removeEventListener('change', updatePreference);
+  }, []);
+
+  useEffect(() => {
+    if (plan.status !== 'GENERATING' || !plan.generationStartedAt) {
+      setGenerationElapsedSeconds(0);
+      return;
+    }
+    const startedAt = new Date(plan.generationStartedAt).getTime();
+    if (!Number.isFinite(startedAt)) return;
+    const updateElapsed = () =>
+      setGenerationElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [plan.generationStartedAt, plan.status]);
+
+  useEffect(() => {
+    if (plan.generationPhase !== 'WAITING_MODEL' || prefersReducedMotion) {
+      setWaitingNoteIndex(0);
+      return;
+    }
+    const timer = window.setInterval(
+      () => setWaitingNoteIndex((index) => (index + 1) % generationWaitNotes.length),
+      9000,
+    );
+    return () => window.clearInterval(timer);
+  }, [plan.generationPhase, prefersReducedMotion]);
+
+  const generationIsVisible = generating || plan.status === 'GENERATING';
+  const phaseLabel =
+    plan.status === 'GENERATING'
+      ? plan.generationPhase
+        ? generationPhaseLabels[plan.generationPhase]
+        : plan.generationStartedAt
+          ? '服务端已开始，正在确认当前阶段'
+          : '请求已提交，正在等待服务端领取'
+      : '正在确认服务端状态';
+  const elapsedLabel =
+    generationElapsedSeconds < 60
+      ? `已等待 ${generationElapsedSeconds} 秒`
+      : `已等待 ${Math.floor(generationElapsedSeconds / 60)} 分 ${generationElapsedSeconds % 60} 秒`;
 
   return (
     <div
@@ -4380,7 +4642,7 @@ function PlanPreview({
         <header>
           <div>
             <p>
-              {generating || plan.status === 'GENERATING'
+              {generationIsVisible
                 ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…`
                 : plan.status === 'FAILED'
                   ? '学习计划生成失败'
@@ -4458,24 +4720,63 @@ function PlanPreview({
             <ChevronRight size={26} />
           </button>
         </div>
-        {generationMessage && (
+        {generationIsVisible && (
+          <div className="plan-generation-status">
+            <div className="plan-generation-head">
+              <div
+                className="plan-generation-phase"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <Sparkles size={18} aria-hidden="true" />
+                <strong>{phaseLabel}</strong>
+              </div>
+              {generationElapsedSeconds > 0 && (
+                <span aria-live="off" className="plan-generation-elapsed">
+                  {elapsedLabel}
+                </span>
+              )}
+            </div>
+            {plan.generationPhase === 'WAITING_MODEL' && (
+              <p aria-live="off">{generationWaitNotes[waitingNoteIndex]}</p>
+            )}
+            <p className="plan-generation-reassurance">
+              关闭预习窗口不会取消已提交的生成；可从当前学习序列重新打开查看。
+            </p>
+            {generationStatusMessage && <p role="status">{generationStatusMessage}</p>}
+          </div>
+        )}
+        {visibleGenerationMessage && (
           <p className="book-message" role="alert" aria-live="assertive">
-            {generationMessage}
+            {visibleGenerationMessage}
           </p>
         )}
-        {plan.status === 'FAILED' || generationMessage ? (
-          <button
-            className="start-challenge"
-            onClick={needsModelSelection ? onOpenModelSettings : () => void generate()}
-            disabled={generating}
-          >
-            <Sparkles size={19} />
-            {generating
-              ? '正在重新生成…'
-              : needsModelSelection
-                ? '设置阅读材料模型'
-                : '重新生成学习计划'}
-          </button>
+        {plan.status === 'FAILED' || visibleGenerationMessage ? (
+          <div className="plan-retry-actions">
+            <button
+              className="start-challenge"
+              onClick={needsModelSelection ? onOpenModelSettings : () => void generate()}
+              disabled={generating}
+            >
+              <Sparkles size={19} />
+              {generating
+                ? '正在重新生成…'
+                : needsModelSelection
+                  ? '设置阅读材料模型'
+                  : '重新生成学习计划'}
+            </button>
+            {needsModelSelection && (
+              <button
+                type="button"
+                className="plan-retry-after-settings"
+                onClick={() => void generate()}
+                disabled={generating}
+              >
+                我已更新模型，重新生成
+              </button>
+            )}
+          </div>
         ) : (
           <button
             className="start-challenge"
@@ -6713,7 +7014,7 @@ function LearningHistory({
         const active = plan.status === 'ACTIVE' || plan.status === 'GENERATING';
         const failed = plan.status === 'FAILED';
         return (
-          <article className={active ? 'is-current' : ''} key={plan.id}>
+          <article className={active ? 'is-current' : ''} data-plan-id={plan.id} key={plan.id}>
             <header>
               <span>{modeLabel[plan.mode]}</span>
               <span>正常模式</span>

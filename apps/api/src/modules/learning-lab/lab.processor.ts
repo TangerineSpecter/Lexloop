@@ -1,4 +1,5 @@
 import { DelayedError, type Job } from 'bullmq';
+import { withJsonObjectUserInstruction } from '../ai/json-object-request';
 import { withProviderTemperature } from '../ai/model-temperature';
 import type { LabService } from './lab.service';
 
@@ -46,13 +47,13 @@ export async function generateLab(
       },
       body: JSON.stringify(
         withProviderTemperature(
-          {
+          withJsonObjectUserInstruction({
             model: claim.provider.model,
             messages: claim.messages,
             temperature: 0.3,
             response_format: { type: 'json_object' },
             max_tokens: 5000,
-          },
+          }),
           claim.provider,
         ),
       ),

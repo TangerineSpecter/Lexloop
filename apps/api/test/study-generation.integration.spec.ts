@@ -1,6 +1,8 @@
+import { BadGatewayException } from '@nestjs/common';
 import { PrismaClient, StudyPlanMode, StudyPlanPurpose } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { readSystemLogDiagnostic } from '../src/common/system-log-diagnostic';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
 import { ReportsService } from '../src/modules/reports/reports.service';
 import { StudyService, contentSignature } from '../src/modules/study/study.service';
@@ -49,6 +51,115 @@ const generatedResponse = (bookWordId: string, word: string, title: string) => (
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'study plan generation fencing in an isolated database',
   () => {
+    it('persists a safe generation failure that can be read again with its typed diagnostic', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const user = await prisma.user.create({
+        data: {
+          email: `study-generation-diagnostic-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      const book = await prisma.vocabularyBook.create({
+        data: {
+          ownerId: user.id,
+          kind: 'PERSONAL',
+          sourceKey: fixtureId,
+          title: 'Generation diagnostic test',
+          sourcePath: 'test',
+          category: 'GENERAL',
+        },
+        select: { id: true },
+      });
+      const word = await prisma.vocabularyWord.create({
+        data: {
+          normalized: `study-generation-diagnostic-${fixtureId}`,
+          text: 'steady',
+          meaning: '平稳的',
+          bookWords: { create: { bookId: book.id, position: 0 } },
+        },
+        select: { id: true, bookWords: { select: { id: true } } },
+      });
+      const plan = await prisma.studyPlan.create({
+        data: {
+          userId: user.id,
+          mode: StudyPlanMode.GROUP,
+          purpose: StudyPlanPurpose.NORMAL,
+          status: 'GENERATING',
+          items: {
+            create: {
+              bookWordId: word.bookWords[0].id,
+              source: 'NEW',
+              groupIndex: 0,
+            },
+          },
+        },
+        select: { id: true },
+      });
+      const secretFixtureBody =
+        '{"private_answer":"learner response", "api_key":"sk-fixture-secret",';
+      const ai = {
+        generateForUser: vi.fn().mockResolvedValue({
+          choices: [{ message: { content: secretFixtureBody } }],
+        }),
+      };
+      const service = new StudyService(
+        prisma as never,
+        ai as never,
+        { selectedProvider: async () => ({ model: 'isolated-fixture' }) } as never,
+        {} as MistakesService,
+      );
+
+      try {
+        const failure = await service
+          .generatePlan(user.id, plan.id)
+          .catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(BadGatewayException);
+        expect((failure as Error).message).toContain('学习材料内容不是有效 JSON');
+        expect((failure as Error).message).not.toContain('learner response');
+        expect((failure as Error).message).not.toContain('sk-fixture-secret');
+        expect(readSystemLogDiagnostic(failure)).toMatchObject({
+          code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+          phase: 'content_parse',
+          fieldPath: 'choices[0].message.content',
+        });
+
+        const saved = await prisma.studyPlan.findUniqueOrThrow({
+          where: { id: plan.id },
+          select: { status: true, generationError: true, generatedContent: true },
+        });
+        expect(saved.status).toBe('FAILED');
+        expect(saved.generatedContent).toBeNull();
+        expect(saved.generationError).toContain('学习材料内容不是有效 JSON');
+        expect(saved.generationError).not.toContain('learner response');
+        expect(saved.generationError).not.toContain('sk-fixture-secret');
+
+        const reopened = (await service.listPlans(user.id)).find((item) => item.id === plan.id);
+        expect(reopened?.generationError).toBe(saved.generationError);
+        const reopenedStatus = await service.getGenerationStatus(user.id, plan.id);
+        expect(reopenedStatus).toMatchObject({
+          id: plan.id,
+          status: 'FAILED',
+          generationPhase: null,
+          generationStartedAt: null,
+          generationError: saved.generationError,
+        });
+        expect('words' in reopenedStatus).toBe(true);
+        if (!('words' in reopenedStatus))
+          throw new Error('Terminal status omitted the plan snapshot');
+        expect(reopenedStatus.words).toHaveLength(1);
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        await prisma.vocabularyWord.deleteMany({
+          where: { id: word.id, bookWords: { none: {} } },
+        });
+        await prisma.$disconnect();
+      }
+    }, 60_000);
+
     it('keeps a newer generation when an expired request later fails or succeeds', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
@@ -154,6 +265,16 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         // An old request that fails after the replacement has committed must not
         // change the successful plan back to FAILED.
         const failRace = await startSupersededPair(plans[0].id, 0);
+        const waitingStatus = await service.getGenerationStatus(user.id, plans[0].id);
+        expect(waitingStatus).toMatchObject({
+          id: plans[0].id,
+          status: 'GENERATING',
+          generationPhase: 'WAITING_MODEL',
+        });
+        expect(waitingStatus.generationStartedAt).toBeInstanceOf(Date);
+        await expect(service.getGenerationStatus(randomUUID(), plans[0].id)).rejects.toThrow(
+          '学习计划不存在',
+        );
         pending[1].resolve(
           generatedResponse(words[0].bookWords[0].id, 'steady', 'newer successful lesson'),
         );
@@ -162,6 +283,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const olderAfterFailure = await failRace.first;
         expect(newerAfterFailure).toMatchObject({ id: plans[0].id, status: 'ACTIVE' });
         expect(olderAfterFailure).toMatchObject({ id: plans[0].id, status: 'ACTIVE' });
+        expect(newerAfterFailure).toMatchObject({
+          generationPhase: null,
+          generationStartedAt: null,
+        });
         expect(olderAfterFailure.content).toMatchObject({
           groups: [{ title: 'newer successful lesson' }],
         });
@@ -188,12 +313,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const savedPlans = await prisma.studyPlan.findMany({
           where: { id: { in: plans.map((plan) => plan.id) }, userId: user.id },
           orderBy: { id: 'asc' },
-          select: { id: true, status: true, generationError: true, generatedContent: true },
+          select: {
+            id: true,
+            status: true,
+            generationError: true,
+            generatedContent: true,
+            generationPhase: true,
+          },
         });
         expect(savedPlans).toHaveLength(2);
         expect(
           savedPlans.every((plan) => plan.status === 'ACTIVE' && plan.generationError === null),
         ).toBe(true);
+        expect(savedPlans.every((plan) => plan.generationPhase === null)).toBe(true);
         expect(
           await prisma.studyContentCache.count({ where: { signature: { in: cacheSignatures } } }),
         ).toBe(2);
@@ -289,12 +421,27 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           .content,
       );
       invalidContent.groups[0].questions[0].options[2] = ' 平稳的　';
+      const invalidRepairResponse = {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({ questions: [invalidContent.groups[0].questions[0]] }),
+            },
+          },
+        ],
+      };
+      const malformedRepairResponse = {
+        choices: [{ message: { content: '{not json}' } }],
+      };
       const ai = {
         generateForUser: vi
           .fn()
           .mockResolvedValueOnce({
             choices: [{ message: { content: JSON.stringify(invalidContent) } }],
           })
+          .mockResolvedValueOnce(malformedRepairResponse)
+          .mockResolvedValueOnce(invalidRepairResponse)
+          .mockResolvedValueOnce(invalidRepairResponse)
           .mockResolvedValueOnce(
             generatedResponse(word.bookWords[0].id, 'steady', 'A repaired steady path'),
           ),
@@ -313,15 +460,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       );
 
       try {
-        await expect(service.generatePlan(user.id, plan.id)).rejects.toThrow(
-          '选项语言、数量或唯一性',
-        );
+        await expect(service.generatePlan(user.id, plan.id)).rejects.toThrow('的选项不能重复');
         let savedPlan = await prisma.studyPlan.findUniqueOrThrow({
           where: { id: plan.id },
           select: { status: true, generatedContent: true, generationError: true },
         });
         expect(savedPlan).toMatchObject({ status: 'FAILED', generatedContent: null });
-        expect(savedPlan.generationError).toContain('选项语言、数量或唯一性');
+        expect(savedPlan.generationError).toContain('的选项不能重复');
         expect(await prisma.studyContentCache.count({ where: { signature } })).toBe(0);
         expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(0);
 
@@ -402,7 +547,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         await expect(service.generatePlan(user.id, plan.id)).rejects.toThrow(
           '缺失或未通过内容校验',
         );
-        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+        expect(ai.generateForUser).toHaveBeenCalledTimes(4);
         expect(modelConfigs.selectedProvider).toHaveBeenCalledTimes(2);
         const waitingPlan = await prisma.studyPlan.findUniqueOrThrow({
           where: { id: plan.id },
@@ -418,7 +563,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         providerAvailable = true;
         const repairedPlan = await service.generatePlan(user.id, plan.id);
         expect(repairedPlan.status).toBe('ACTIVE');
-        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+        expect(ai.generateForUser).toHaveBeenCalledTimes(5);
         savedPlan = await prisma.studyPlan.findUniqueOrThrow({
           where: { id: plan.id },
           select: { status: true, generatedContent: true, generationError: true },

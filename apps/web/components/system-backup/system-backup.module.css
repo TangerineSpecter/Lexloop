@@ -49,6 +49,17 @@
   font-weight: 700;
   min-width: 0;
 }
+.fields > label:not(.full):not(.check) {
+  grid-template-rows: minmax(20px, auto) 52px minmax(2.4em, auto);
+  align-content: start;
+  align-items: start;
+}
+.fields > label:not(.full):not(.check) > input {
+  grid-row: 2;
+}
+.fields > label:not(.full):not(.check) > small {
+  grid-row: 3;
+}
 .panel small {
   font-weight: 400;
 }

@@ -543,10 +543,10 @@ function AutoUpdateSettings({
               setEnabled(event.target.checked);
             }}
           />
-          启用自动检查并安装
+          <span>启用自动检查并安装</span>
         </label>
         <label className="update-auto-interval">
-          检查周期（小时）
+          <span>检查周期（小时）</span>
           <input
             type="number"
             min={6}
@@ -560,8 +560,10 @@ function AutoUpdateSettings({
               setIntervalHours(Number(event.target.value));
             }}
           />
-          <small>可设置 6–168 小时；调度器每分钟检查一次是否到期。</small>
         </label>
+        <small className="update-auto-interval-help">
+          可设置 6–168 小时；调度器每分钟检查一次是否到期。
+        </small>
         {enabled && (
           <label className="update-auto-acknowledge">
             <input

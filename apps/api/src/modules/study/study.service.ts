@@ -1,14 +1,17 @@
 import {
   BadGatewayException,
   BadRequestException,
+  HttpException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   Prisma,
   StudyPlanItemSource,
   StudyPlanMode,
   StudyPlanPurpose,
+  StudyPlanGenerationPhase,
   StudyPlanStatus,
   WeaknessStatus,
   WordProgressState,
@@ -16,6 +19,7 @@ import {
 import { createHash } from 'node:crypto';
 import { AiService } from '../ai/ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
+import { SystemLogService } from '../admin/system-log.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
@@ -23,12 +27,29 @@ import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
 import { chinaDateRange } from '../automatic-study-plan/automatic-study-plan.rules';
+import {
+  attachSystemLogDiagnostic,
+  readSystemLogDiagnostic,
+  type SystemLogDiagnostic,
+  type SystemLogDiagnosticPhase,
+} from '../../common/system-log-diagnostic';
 
 const DAY = 86_400_000;
 const MAX_DAILY_REVIEW_WORDS = 40;
 const MAX_INDIVIDUAL_WORDS = 20;
 const DUE_DRILL_WORD_LIMIT = 12;
 const STUDY_CACHE_CANDIDATE_LIMIT = 20;
+export const MAX_STUDY_QUESTION_REPAIR_ATTEMPTS = 3;
+export const STUDY_GENERATION_REQUEST_TIMEOUT_MS = 90_000;
+export const STUDY_GENERATION_TOTAL_TIMEOUT_MS = 6 * 60_000;
+const SAFE_GENERATION_FAILURE =
+  '学习计划生成失败；详细错误已隐藏。请稍后重试；如仍失败，请联系管理员查看错误日志。';
+const SAFE_VALIDATION_ERROR_PATTERNS = [
+  /^模型返回的阅读材料分组数量不正确$/,
+  /^第 \d{1,3} 组 (?:内容不完整|必须为每个单词生成且只生成一道题|缺少中文逐句翻译、简化文本或语法提示)$/,
+  /^单词 [\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .'’'\-]{0,79} (?:的题型不受支持，请重新生成|缺少纯英文题干或可判定答案|必须生成 (?:WORD_MNEMONIC|MEANING_RECOGNITION|WORD_MATCHING|SYNONYM_REPLACEMENT|READING_COMPREHENSION) 题型的变式题|的解析必须使用中文|的匹配题只能使用配对内容，不能包含额外选项或答案列表|的选项必须恰有 4 个|的选项语言与题型不符|的选项不能重复|的选项语言、数量或唯一性不符合题型要求|的正确答案不符合题型要求|的匹配题必须包含 4 组唯一的中文释义和提示|的每个匹配短语都必须包含目标词)$/u,
+  /^阅读材料未包含单词 [\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .'’'\-]{0,79}$/u,
+];
 const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
   'MEANING_RECOGNITION',
@@ -163,6 +184,18 @@ function hasUsableMeaning(raw: string | null | undefined) {
 class StudyGroupCompletionAlreadyClaimed extends Error {}
 class StudyPlanGenerationSuperseded extends Error {}
 
+export class StudyQuestionValidationError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly bookWordId: string,
+    readonly fieldPath: string,
+  ) {
+    super(message);
+    this.name = 'StudyQuestionValidationError';
+  }
+}
+
 @Injectable()
 export class StudyService {
   constructor(
@@ -170,6 +203,7 @@ export class StudyService {
     private readonly ai: AiService,
     private readonly modelConfigs: AiModelConfigService,
     private readonly mistakes: MistakesService,
+    @Optional() private readonly systemLogs?: SystemLogService,
   ) {}
 
   async createPlan(
@@ -311,6 +345,7 @@ export class StudyService {
       },
       data: {
         status: StudyPlanStatus.GENERATING,
+        generationPhase: StudyPlanGenerationPhase.PREPARING,
         generationStartedAt,
         generationError: null,
       },
@@ -338,6 +373,7 @@ export class StudyService {
         where: { id: planId, userId, status: StudyPlanStatus.GENERATING, generationStartedAt },
         data: {
           status: StudyPlanStatus.FAILED,
+          generationPhase: null,
           generationStartedAt: null,
           generationError: message,
         },
@@ -371,6 +407,56 @@ export class StudyService {
       ),
     }));
 
+    let generationPhase: SystemLogDiagnosticPhase = 'internal';
+    let repairAttempts = 0;
+    const generationDeadline = generationStartedAt.getTime() + STUDY_GENERATION_TOTAL_TIMEOUT_MS;
+    const generateWithBudget = async (request: Parameters<AiService['generateForUser']>[0]) => {
+      const timeoutMs = studyGenerationRequestTimeoutMs(generationDeadline);
+      if (!timeoutMs) {
+        throw attachSystemLogDiagnostic(
+          new Error('学习计划生成超过 6 分钟模型请求总时限；请稍后重试。'),
+          {
+            code: 'STUDY_GENERATION_TOTAL_TIMEOUT',
+            phase: 'provider_request',
+            fieldPath: 'request',
+            reason: '学习计划模型请求总时限已用完；没有发起额外请求。',
+          },
+        );
+      }
+      const signal = AbortSignal.timeout(timeoutMs);
+      try {
+        const response = await this.ai.generateForUser(request, userId, signal);
+        if (signal.aborted) throw signal.reason;
+        return response;
+      } catch (error) {
+        if (!signal.aborted) throw error;
+        const totalTimeout = Date.now() >= generationDeadline;
+        throw attachSystemLogDiagnostic(
+          new Error(
+            totalTimeout
+              ? '学习计划生成超过 6 分钟模型请求总时限；请稍后重试。'
+              : '模型请求超过单次 90 秒响应时限；请稍后重试。',
+          ),
+          {
+            code: totalTimeout
+              ? 'STUDY_GENERATION_TOTAL_TIMEOUT'
+              : 'STUDY_PROVIDER_REQUEST_TIMEOUT',
+            phase: 'provider_request',
+            fieldPath: 'request',
+            reason: totalTimeout
+              ? '学习计划模型请求总时限已用完；没有发起额外请求。'
+              : '单次模型请求超过 90 秒响应时限；原始请求和响应内容已隐藏。',
+          },
+        );
+      }
+    };
+    const setGenerationPhase = async (phase: StudyPlanGenerationPhase) => {
+      const updated = await this.prisma.studyPlan.updateMany({
+        where: { id: planId, userId, status: StudyPlanStatus.GENERATING, generationStartedAt },
+        data: { generationPhase: phase },
+      });
+      if (!updated.count) throw new StudyPlanGenerationSuperseded();
+    };
     try {
       const invalidCacheIds = new Map<number, string>();
       const cacheLookupSpecs = groupSpec.map((spec) => ({
@@ -438,22 +524,81 @@ export class StudyService {
       const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
       let generatedMissing: GeneratedGroup[] = [];
       if (missingSpecs.length) {
+        generationPhase = 'provider_request';
         if (!(await this.modelConfigs.selectedProvider(userId))) {
           throw new BadRequestException(
             '部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型',
           );
         }
-        const response = await this.ai.generateForUser(
-          {
-            purpose: 'study-plan',
-            prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
-            schema: {},
+        await setGenerationPhase(StudyPlanGenerationPhase.WAITING_MODEL);
+        const response = await generateWithBudget({
+          purpose: 'study-plan',
+          prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
+          schema: {},
+        });
+        await setGenerationPhase(StudyPlanGenerationPhase.VALIDATING);
+        generationPhase = 'content_parse';
+        const generated = normalizeGeneratedContentFormatting(parseGeneratedContent(response));
+        generationPhase = 'content_validation';
+        const repaired = await validateAndRepairGeneratedContent(generated, missingSpecs, {
+          onRepairAttempt: async (attempt) => {
+            repairAttempts = attempt;
+            generationPhase = 'content_validation';
+            await setGenerationPhase(StudyPlanGenerationPhase.REPAIRING);
           },
-          userId,
-        );
-        const generated = parseGeneratedContent(response);
-        validateGeneratedContent(generated, missingSpecs);
-        generatedMissing = generated.groups;
+          repairQuestion: async ({ error, word, group, question, attempt }) => {
+            generationPhase = 'provider_request';
+            const repairResponse = await generateWithBudget({
+              purpose: 'study-plan-question-repair',
+              prompt: questionRepairPrompt({
+                word,
+                targetQuestionType: groupSpec.find((spec) => spec.index === group.index)
+                  ?.targetQuestionTypes?.[word.id],
+                sentenceContext: group.sentences.map((sentence) => sentence.english),
+                question,
+                issue: safeQuestionRepairIssue(error.code),
+                attempt,
+              }),
+              schema: {},
+            });
+            await setGenerationPhase(StudyPlanGenerationPhase.VALIDATING);
+            generationPhase = 'content_parse';
+            let repairedQuestion: GeneratedQuestion;
+            try {
+              repairedQuestion = parseGeneratedQuestionRepair(repairResponse, word.id);
+            } catch (repairError) {
+              const repairDiagnostic = readSystemLogDiagnostic(repairError);
+              if (this.systemLogs && repairDiagnostic) {
+                await this.systemLogs.record({
+                  source: 'api',
+                  kind: 'study.generation.repair',
+                  ...repairDiagnostic,
+                  attemptsMade: attempt,
+                  maxAttempts: MAX_STUDY_QUESTION_REPAIR_ATTEMPTS,
+                  reason: '局部修复响应结构无效；原题保留并使用剩余补救次数，未记录返回内容。',
+                });
+              }
+              generationPhase = 'content_validation';
+              return question;
+            }
+            generationPhase = 'content_validation';
+            return repairedQuestion;
+          },
+        });
+        repairAttempts = repaired.attempts;
+        if (repairAttempts > 0 && this.systemLogs) {
+          await this.systemLogs.record({
+            source: 'api',
+            kind: 'study.generation.repair',
+            code: 'STUDY_QUESTION_REPAIR_COMPLETED',
+            phase: 'content_validation',
+            fieldPath: 'groups[].questions',
+            attemptsMade: repairAttempts,
+            maxAttempts: MAX_STUDY_QUESTION_REPAIR_ATTEMPTS,
+            reason: '个别题目已通过有限局部修复；题目内容未写入日志。',
+          });
+        }
+        generatedMissing = repaired.content.groups;
       }
       const resolved = groupSpec.map((spec, index): ResolvedGroup => {
         const cache = cached[index];
@@ -479,8 +624,11 @@ export class StudyService {
         };
       });
       const generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
+      generationPhase = 'content_validation';
       validateGeneratedContent(generatedContent, groupSpec);
       const generatedAt = new Date();
+      await setGenerationPhase(StudyPlanGenerationPhase.SAVING);
+      generationPhase = 'plan_persistence';
       await this.prisma.$transaction(async (tx) => {
         const finalized = await tx.studyPlan.updateMany({
           where: {
@@ -492,6 +640,7 @@ export class StudyService {
           data: {
             generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
             generationError: null,
+            generationPhase: null,
             generationStartedAt: null,
             generatedAt,
             status: StudyPlanStatus.ACTIVE,
@@ -558,7 +707,15 @@ export class StudyService {
       if (error instanceof StudyPlanGenerationSuperseded) {
         return this.serializePlan(planId, userId);
       }
-      const message = error instanceof Error ? error.message : '大模型未返回有效的学习内容';
+      const baseDiagnostic =
+        readSystemLogDiagnostic(error) ?? generationFailureDiagnostic(error, generationPhase);
+      const diagnostic: SystemLogDiagnostic = {
+        ...baseDiagnostic,
+        ...(repairAttempts > 0
+          ? { repairAttempts, maxRepairAttempts: MAX_STUDY_QUESTION_REPAIR_ATTEMPTS }
+          : {}),
+      };
+      const message = safeGenerationFailureMessage(error, diagnostic, generationPhase);
       const failed = await this.prisma.studyPlan.updateMany({
         where: {
           id: planId,
@@ -568,13 +725,17 @@ export class StudyService {
         },
         data: {
           status: StudyPlanStatus.FAILED,
+          generationPhase: null,
           generationStartedAt: null,
           generationError: message.slice(0, 500),
         },
       });
       if (!failed.count) return this.serializePlan(planId, userId);
-      if (error instanceof BadRequestException) throw error;
-      throw new BadGatewayException(`学习计划生成失败：${message}`);
+      if (error instanceof BadRequestException) throw new BadRequestException(message);
+      throw attachSystemLogDiagnostic(
+        new BadGatewayException(`学习计划生成失败：${message}`),
+        diagnostic,
+      );
     }
   }
 
@@ -586,6 +747,32 @@ export class StudyService {
       include: studyPlanInclude(userId),
     });
     return plans.map((plan) => this.serializePlanRecord(plan));
+  }
+
+  async getPlan(userId: string, planId: string) {
+    return this.serializePlan(planId, userId);
+  }
+
+  async getGenerationStatus(userId: string, planId: string) {
+    const plan = await this.prisma.studyPlan.findFirst({
+      where: { id: planId, userId },
+      select: {
+        id: true,
+        status: true,
+        generationPhase: true,
+        generationStartedAt: true,
+        generationError: true,
+      },
+    });
+    if (!plan) throw new NotFoundException('学习计划不存在');
+    if (plan.status !== StudyPlanStatus.GENERATING) return this.serializePlan(planId, userId);
+    return {
+      id: plan.id,
+      status: plan.status,
+      generationPhase: plan.generationPhase,
+      generationStartedAt: plan.generationStartedAt,
+      generationError: safeStoredGenerationError(plan.generationError),
+    };
   }
 
   async listCompletedPlans(userId: string, requestedPage = 1, requestedPageSize = 20) {
@@ -829,7 +1016,10 @@ export class StudyService {
       purpose: plan.purpose.toLowerCase(),
       status: plan.status,
       blocksNewPlanCreation,
-      generationError: plan.generationError,
+      generationError: safeStoredGenerationError(plan.generationError),
+      generationPhase: plan.status === StudyPlanStatus.GENERATING ? plan.generationPhase : null,
+      generationStartedAt:
+        plan.status === StudyPlanStatus.GENERATING ? plan.generationStartedAt : null,
       generatedAt: plan.generatedAt,
       createdAt: plan.createdAt,
       completedAt: plan.completedAt,
@@ -1061,12 +1251,226 @@ ${
 function parseGeneratedContent(response: unknown): GeneratedContent {
   const content = (response as { choices?: Array<{ message?: { content?: unknown } }> })
     ?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') throw new Error('模型响应缺少 JSON 内容');
+  if (typeof content !== 'string') {
+    throw attachSystemLogDiagnostic(new Error('模型响应缺少 JSON 内容'), {
+      code: 'STUDY_RESPONSE_CONTENT_MISSING',
+      phase: 'content_parse',
+      fieldPath: 'choices[0].message.content',
+      reason: '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+    });
+  }
   const cleaned = content
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '');
-  return JSON.parse(cleaned) as GeneratedContent;
+  try {
+    return JSON.parse(cleaned) as GeneratedContent;
+  } catch {
+    throw attachSystemLogDiagnostic(new Error('模型响应不是有效的 JSON 内容'), {
+      code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+      phase: 'content_parse',
+      fieldPath: 'choices[0].message.content',
+      reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+    });
+  }
+}
+
+function generationFailureDiagnostic(
+  error: unknown,
+  phase: SystemLogDiagnosticPhase,
+): SystemLogDiagnostic {
+  if (error instanceof StudyQuestionValidationError) {
+    return {
+      code: error.code,
+      phase: 'content_validation',
+      fieldPath: error.fieldPath,
+      reason: '模型返回的学习材料未通过内容校验；原始内容和词条已隐藏。',
+    };
+  }
+  const message = generationErrorText(error);
+  const upstreamStatus = /上游 HTTP ([1-5]\d\d)/.exec(message)?.[1];
+  if (upstreamStatus) {
+    const param = /param: ([A-Za-z0-9_.\[\]-]{1,80})/.exec(message)?.[1];
+    return {
+      code: 'UPSTREAM_PROVIDER_ERROR',
+      phase: 'provider_request',
+      fieldPath: param ?? 'request',
+      reason: '模型供应商未完成请求；原始响应正文已隐藏。',
+    };
+  }
+  if (message.startsWith('AI Provider 无法连接')) {
+    return {
+      code: 'AI_PROVIDER_UNREACHABLE',
+      phase: 'provider_request',
+      fieldPath: 'request',
+      reason: '模型供应商连接失败；地址和凭据未记录。',
+    };
+  }
+  if (phase === 'response_parse') {
+    return {
+      code: 'AI_RESPONSE_JSON_INVALID',
+      phase,
+      fieldPath: 'response.body',
+      reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+    };
+  }
+  if (phase === 'content_parse') {
+    return {
+      code: 'STUDY_RESPONSE_CONTENT_INVALID',
+      phase,
+      fieldPath: 'choices[0].message.content',
+      reason: '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+    };
+  }
+  if (phase === 'content_validation') {
+    return {
+      code: 'STUDY_CONTENT_VALIDATION_FAILED',
+      phase,
+      fieldPath: generationValidationFieldPath(message),
+      reason: '模型返回的学习材料未通过内容校验；原始内容和词条已隐藏。',
+    };
+  }
+  if (phase === 'plan_persistence') {
+    return {
+      code: 'STUDY_PLAN_SAVE_FAILED',
+      phase,
+      fieldPath: 'studyPlan.generatedContent',
+      reason: '学习材料已校验，但学习计划保存失败；内部异常详情已隐藏。',
+    };
+  }
+  return {
+    code: 'STUDY_PLAN_GENERATION_FAILED',
+    phase: 'internal',
+    fieldPath: 'studyPlan.generation',
+    reason: '学习计划生成失败；原始异常详情已隐藏。',
+  };
+}
+
+function generationValidationFieldPath(message: string) {
+  if (/分组数量|组内容不完整/.test(message)) return 'groups';
+  if (/逐句翻译|简化文本|语法提示/.test(message)) return 'groups[].sentences';
+  if (/题型/.test(message)) return 'groups[].questions[].type';
+  if (/纯英文题干/.test(message)) return 'groups[].questions[].prompt';
+  if (/解析必须/.test(message)) return 'groups[].questions[].explanation';
+  if (/选项/.test(message)) return 'groups[].questions[].options';
+  if (/正确答案|可判定答案/.test(message)) return 'groups[].questions[].correctAnswers';
+  if (/匹配题/.test(message)) return 'groups[].questions[].pairs';
+  if (/阅读材料未包含/.test(message)) return 'groups[].sentences[].english';
+  return 'groups[].questions';
+}
+
+function safeGenerationFailureMessage(
+  error: unknown,
+  diagnostic: SystemLogDiagnostic,
+  phase: SystemLogDiagnosticPhase,
+) {
+  const message = generationErrorText(error).trim();
+  if (isSafeProviderFailureMessage(message) || isSafeKnownGenerationMessage(message)) {
+    return message.slice(0, 500);
+  }
+  if (
+    phase === 'content_validation' &&
+    SAFE_VALIDATION_ERROR_PATTERNS.some((pattern) => pattern.test(message))
+  ) {
+    return message.slice(0, 500);
+  }
+  switch (diagnostic.phase) {
+    case 'response_parse':
+      return '模型接口已响应，但响应正文无法解析；原始内容已隐藏，请稍后重试。';
+    case 'content_parse':
+      return diagnostic.code === 'STUDY_RESPONSE_CONTENT_INVALID_JSON'
+        ? '模型接口已响应，但学习材料内容不是有效 JSON；原始内容已隐藏，请重试。'
+        : '模型接口已响应，但未返回预期的学习材料字段；原始内容已隐藏，请重试。';
+    case 'content_validation':
+      return '模型接口已响应，但学习材料未通过内容校验；原始内容已隐藏，请重试。';
+    case 'plan_persistence':
+      return '学习材料已生成，但未能保存学习计划；内部异常详情已隐藏，请稍后重试。';
+    case 'provider_request':
+      return '模型请求未能完成；请检查模型设置。如仍失败，请联系管理员查看错误日志。';
+    default:
+      return SAFE_GENERATION_FAILURE;
+  }
+}
+
+function safeStoredGenerationError(value: string | null | undefined) {
+  const message = value?.trim();
+  if (!message) return null;
+  if (
+    isSafeProviderFailureMessage(message) ||
+    isSafeKnownGenerationMessage(message) ||
+    SAFE_VALIDATION_ERROR_PATTERNS.some((pattern) => pattern.test(message))
+  ) {
+    return message.slice(0, 500);
+  }
+  return SAFE_GENERATION_FAILURE;
+}
+
+function isSafeProviderFailureMessage(message: string) {
+  if (
+    message === 'AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试' ||
+    message === 'AI Provider 无法连接，请检查模型配置或稍后重试'
+  ) {
+    return true;
+  }
+  const match =
+    /^(.*?)（上游 HTTP ([1-5]\d\d)(?:；code: ([A-Za-z0-9_-]{1,64}))?(?:；param: ([A-Za-z0-9_.\[\]-]{1,80}))?）$/.exec(
+      message,
+    );
+  return Boolean(
+    match &&
+    [
+      '供应商错误响应过长，已隐藏原文。',
+      '接口返回了非 JSON 错误响应；请检查 API 地址是否指向兼容接口。',
+      '模型认证未通过，请检查已保存的 API Key 和供应商权限。',
+      '接口或模型路由未找到，请检查 API 地址与模型配置。',
+      '供应商处理请求超时。',
+      '请求被限流或额度策略拒绝。',
+      '供应商暂时无法处理请求。',
+      '供应商未接受本次请求，请核对模型名称和请求参数。',
+    ].includes(match[1]),
+  );
+}
+
+function isSafeKnownGenerationMessage(message: string) {
+  return (
+    [
+      'AI 服务尚未配置：请在 API 环境变量中设置 AI_API_KEY',
+      '请先在阅读材料模型设置中选择可用的大模型',
+      '当前默认词书没有带可用释义的未学词；原词条和学习进度未更改，请补充释义或选择其他词表。',
+      '自动计划没有可用的已选模型，请在设置模型后重试。',
+      '学习计划生成失败；详细错误已隐藏。请稍后重试；如仍失败，请联系管理员查看错误日志。',
+      '模型接口已响应，但响应正文无法解析；原始内容已隐藏，请稍后重试。',
+      '模型接口已响应，但学习材料内容不是有效 JSON；原始内容已隐藏，请重试。',
+      '模型接口已响应，但未返回预期的学习材料字段；原始内容已隐藏，请重试。',
+      '模型接口已响应，但学习材料未通过内容校验；原始内容已隐藏，请重试。',
+      '学习材料已生成，但未能保存学习计划；内部异常详情已隐藏，请稍后重试。',
+      '模型请求未能完成；请检查模型设置。如仍失败，请联系管理员查看错误日志。',
+      '模型请求超过单次 90 秒响应时限；请稍后重试。',
+      '学习计划生成超过 6 分钟模型请求总时限；请稍后重试。',
+    ].includes(message) ||
+    /^部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型$/.test(message) ||
+    /^\d{1,4} 个词目前没有可用释义，未生成练习内容；计划中的词条和复习排期未更改。补充释义后可重试，或创建其他计划。$/.test(
+      message,
+    )
+  );
+}
+
+function generationErrorText(error: unknown) {
+  if (error instanceof HttpException) {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    if (typeof response === 'object' && response !== null && 'message' in response) {
+      const value = (response as { message?: unknown }).message;
+      if (typeof value === 'string') return value;
+      if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').join('；');
+    }
+  }
+  return error instanceof Error ? error.message : '';
+}
+
+export function studyGenerationRequestTimeoutMs(deadlineMs: number, nowMs = Date.now()) {
+  const remainingMs = deadlineMs - nowMs;
+  return remainingMs > 0 ? Math.min(STUDY_GENERATION_REQUEST_TIMEOUT_MS, remainingMs) : 0;
 }
 
 function containsEnglish(value: unknown) {
@@ -1117,18 +1521,38 @@ export function validateGeneratedContent(
     for (const word of expectedGroup.words) {
       const question = group.questions.find((item) => item.bookWordId === word.id);
       if (!question || !GENERATED_QUESTION_TYPES.has(question.type))
-        throw new Error(`单词 ${word.word} 的题型不受支持，请重新生成学习计划`);
+        throw questionValidationError(
+          word,
+          '的题型不受支持，请重新生成学习计划',
+          'STUDY_QUESTION_TYPE_INVALID',
+          'groups[].questions[].type',
+        );
       if (
         !containsEnglish(question.prompt) ||
         containsChinese(question.prompt) ||
         !Array.isArray(question.correctAnswers)
       )
-        throw new Error(`单词 ${word.word} 缺少纯英文题干或可判定答案`);
+        throw questionValidationError(
+          word,
+          '缺少纯英文题干或可判定答案',
+          'STUDY_QUESTION_PROMPT_INVALID',
+          'groups[].questions[].prompt',
+        );
       const targetType = expectedGroup.targetQuestionTypes?.[word.id];
       if (targetType && question.type !== targetType)
-        throw new Error(`单词 ${word.word} 必须生成 ${targetType} 题型的变式题`);
+        throw questionValidationError(
+          word,
+          `必须生成 ${targetType} 题型的变式题`,
+          'STUDY_QUESTION_TYPE_MISMATCH',
+          'groups[].questions[].type',
+        );
       if (!containsChinese(question.explanation))
-        throw new Error(`单词 ${word.word} 的解析必须使用中文`);
+        throw questionValidationError(
+          word,
+          '的解析必须使用中文',
+          'STUDY_QUESTION_EXPLANATION_INVALID',
+          'groups[].questions[].explanation',
+        );
       const isMatching = question.type === 'WORD_MATCHING';
       const isMnemonic = question.type === 'WORD_MNEMONIC';
       const expectsChineseOptions = question.type === 'MEANING_RECOGNITION';
@@ -1138,20 +1562,43 @@ export function validateGeneratedContent(
           question.options.length > 0 ||
           question.correctAnswers.length > 0)
       ) {
-        throw new Error(`单词 ${word.word} 的匹配题只能使用配对内容，不能包含额外选项或答案列表`);
+        throw questionValidationError(
+          word,
+          '的匹配题只能使用配对内容，不能包含额外选项或答案列表',
+          'STUDY_QUESTION_MATCHING_OPTIONS_INVALID',
+          'groups[].questions[].options',
+        );
+      }
+      if (!isMatching && (!Array.isArray(question.options) || question.options.length !== 4)) {
+        throw questionValidationError(
+          word,
+          '的选项必须恰有 4 个',
+          'STUDY_QUESTION_OPTIONS_COUNT_INVALID',
+          'groups[].questions[].options',
+        );
       }
       if (
         !isMatching &&
-        (!Array.isArray(question.options) ||
-          question.options.length !== 4 ||
-          question.options.some((option) =>
-            expectsChineseOptions
-              ? !containsChinese(option)
-              : !containsEnglish(option) || containsChinese(option),
-          ) ||
-          !hasUniqueOptions(question.options))
+        question.options.some((option) =>
+          expectsChineseOptions
+            ? !containsChinese(option)
+            : !containsEnglish(option) || containsChinese(option),
+        )
       ) {
-        throw new Error(`单词 ${word.word} 的选项语言、数量或唯一性不符合题型要求`);
+        throw questionValidationError(
+          word,
+          '的选项语言与题型不符',
+          'STUDY_QUESTION_OPTIONS_LANGUAGE_INVALID',
+          'groups[].questions[].options',
+        );
+      }
+      if (!isMatching && !hasUniqueOptions(question.options)) {
+        throw questionValidationError(
+          word,
+          '的选项不能重复',
+          'STUDY_QUESTION_OPTIONS_DUPLICATE',
+          'groups[].questions[].options',
+        );
       }
       if (
         (!isMatching &&
@@ -1162,10 +1609,20 @@ export function validateGeneratedContent(
             question.correctAnswers.length) ||
         (!isMnemonic && !isMatching && question.correctAnswers.length !== 1)
       ) {
-        throw new Error(`单词 ${word.word} 的正确答案不符合题型要求`);
+        throw questionValidationError(
+          word,
+          '的正确答案不符合题型要求',
+          'STUDY_QUESTION_ANSWER_INVALID',
+          'groups[].questions[].correctAnswers',
+        );
       }
       if (question.type === 'WORD_MATCHING' && !hasValidGeneratedMatchingPairs(question.pairs)) {
-        throw new Error(`单词 ${word.word} 的匹配题必须包含 4 组唯一的中文释义和提示`);
+        throw questionValidationError(
+          word,
+          '的匹配题必须包含 4 组唯一的中文释义和提示',
+          'STUDY_QUESTION_MATCHING_PAIRS_INVALID',
+          'groups[].questions[].pairs',
+        );
       }
       if (
         question.type === 'WORD_MATCHING' &&
@@ -1173,7 +1630,12 @@ export function validateGeneratedContent(
           (pair) => !new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'i').test(pair.left),
         )
       ) {
-        throw new Error(`单词 ${word.word} 的每个匹配短语都必须包含目标词`);
+        throw questionValidationError(
+          word,
+          '的每个匹配短语都必须包含目标词',
+          'STUDY_QUESTION_MATCHING_TARGET_MISSING',
+          'groups[].questions[].pairs',
+        );
       }
       if (
         !group.sentences.some((sentence) =>
@@ -1183,6 +1645,223 @@ export function validateGeneratedContent(
         throw new Error(`阅读材料未包含单词 ${word.word}`);
     }
   }
+}
+
+function questionValidationError(word: PlanWord, suffix: string, code: string, fieldPath: string) {
+  return new StudyQuestionValidationError(`单词 ${word.word} ${suffix}`, code, word.id, fieldPath);
+}
+
+function normalizeGeneratedContentFormatting(content: GeneratedContent): GeneratedContent {
+  if (!Array.isArray(content?.groups)) return content;
+  return {
+    ...content,
+    groups: content.groups.map((group) => ({
+      ...group,
+      questions: Array.isArray(group.questions)
+        ? group.questions.map((question) => normalizeGeneratedQuestionFormatting(question))
+        : group.questions,
+    })),
+  };
+}
+
+function normalizeGeneratedQuestionFormatting(question: GeneratedQuestion): GeneratedQuestion {
+  if (!Array.isArray(question.options)) return question;
+  const normalizedOptions = question.options.map(normalizeOptionWhitespace);
+  const optionByNormalizedValue = new Map<string, string>();
+  question.options.forEach((option, index) => {
+    if (typeof option === 'string') {
+      const key = normalizeGeneratedLabel(option);
+      if (key && !optionByNormalizedValue.has(key)) {
+        optionByNormalizedValue.set(key, normalizedOptions[index]);
+      }
+    }
+  });
+  const correctAnswers = Array.isArray(question.correctAnswers)
+    ? question.correctAnswers.map((answer) => {
+        if (typeof answer !== 'string') return answer;
+        return (
+          optionByNormalizedValue.get(normalizeGeneratedLabel(answer)) ??
+          normalizeOptionWhitespace(answer)
+        );
+      })
+    : question.correctAnswers;
+  return {
+    ...question,
+    options: normalizedOptions,
+    correctAnswers,
+    ...(Array.isArray(question.optionNotes)
+      ? { optionNotes: question.optionNotes.map(normalizeOptionWhitespace) }
+      : {}),
+  };
+}
+
+function normalizeOptionWhitespace(value: unknown): string {
+  return typeof value === 'string' ? value.trim().replace(/\s+/gu, ' ') : (value as string);
+}
+
+type RepairableQuestion = {
+  error: StudyQuestionValidationError;
+  word: PlanWord;
+  group: GeneratedGroup;
+  question: GeneratedQuestion;
+  attempt: number;
+};
+
+type GeneratedContentRepairOptions = {
+  onRepairAttempt: (attempt: number) => Promise<void>;
+  repairQuestion: (input: RepairableQuestion) => Promise<GeneratedQuestion>;
+};
+
+export async function validateAndRepairGeneratedContent(
+  input: GeneratedContent,
+  expected: Array<{
+    index: number;
+    words: PlanWord[];
+    targetQuestionTypes?: Record<string, string>;
+  }>,
+  options: GeneratedContentRepairOptions,
+): Promise<{ content: GeneratedContent; attempts: number }> {
+  const content = normalizeGeneratedContentFormatting(input);
+  let attempts = 0;
+  while (true) {
+    try {
+      validateGeneratedContent(content, expected);
+      return { content, attempts };
+    } catch (error) {
+      if (!(error instanceof StudyQuestionValidationError)) throw error;
+      if (attempts >= MAX_STUDY_QUESTION_REPAIR_ATTEMPTS) throw error;
+      const expectedGroup = expected.find((group) =>
+        group.words.some((word) => word.id === error.bookWordId),
+      );
+      const group = content.groups.find((candidate) => candidate.index === expectedGroup?.index);
+      const word = expectedGroup?.words.find((candidate) => candidate.id === error.bookWordId);
+      const question = group?.questions.find(
+        (candidate) => candidate.bookWordId === error.bookWordId,
+      );
+      if (!expectedGroup || !group || !word || !question) throw error;
+      attempts += 1;
+      await options.onRepairAttempt(attempts);
+      const repaired = await options.repairQuestion({
+        error,
+        word,
+        group,
+        question,
+        attempt: attempts,
+      });
+      if (repaired.bookWordId !== word.id) {
+        throw attachSystemLogDiagnostic(new Error('单题修复返回了不匹配的词条标识'), {
+          code: 'STUDY_QUESTION_REPAIR_TARGET_MISMATCH',
+          phase: 'content_parse',
+          fieldPath: 'groups[].questions',
+          reason: '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+        });
+      }
+      group.questions = group.questions.map((candidate) =>
+        candidate.bookWordId === word.id ? repaired : candidate,
+      );
+      const formatted = normalizeGeneratedQuestionFormatting(repaired);
+      group.questions = group.questions.map((candidate) =>
+        candidate.bookWordId === word.id ? formatted : candidate,
+      );
+    }
+  }
+}
+
+function safeQuestionRepairIssue(code: string) {
+  const issues: Record<string, string> = {
+    STUDY_QUESTION_OPTIONS_COUNT_INVALID: '选项数量错误',
+    STUDY_QUESTION_OPTIONS_LANGUAGE_INVALID: '选项语言不符合指定题型',
+    STUDY_QUESTION_OPTIONS_DUPLICATE: '选项经空白与 Unicode 兼容形式归一后仍须唯一',
+    STUDY_QUESTION_ANSWER_INVALID: '正确答案必须与选项严格对应且数量符合题型',
+    STUDY_QUESTION_EXPLANATION_INVALID: '解析必须使用中文',
+    STUDY_QUESTION_PROMPT_INVALID: '题干必须是纯英文且含可判定答案',
+    STUDY_QUESTION_TYPE_INVALID: '题型不受支持',
+    STUDY_QUESTION_TYPE_MISMATCH: '题型必须符合既定题型',
+    STUDY_QUESTION_MATCHING_OPTIONS_INVALID: '匹配题不可提供额外选项或答案列表',
+    STUDY_QUESTION_MATCHING_PAIRS_INVALID: '匹配题必须提供四组唯一且符合语言要求的配对',
+    STUDY_QUESTION_MATCHING_TARGET_MISSING: '每个匹配短语都必须包含目标词',
+  };
+  return issues[code] ?? '此题未通过内容校验';
+}
+
+export function questionRepairPrompt(input: {
+  word: PlanWord;
+  targetQuestionType?: string;
+  sentenceContext: string[];
+  question: GeneratedQuestion;
+  issue: string;
+  attempt: number;
+}) {
+  const questionRules =
+    input.question.type === 'WORD_MATCHING'
+      ? 'pairs 必须恰好 4 组且配对唯一，left 均含目标词；options 和 correctAnswers 必须为空数组。'
+      : input.question.type === 'WORD_MNEMONIC'
+        ? '提供恰好 4 个互不重复的纯英文 options；correctAnswers 可多项但至少一项，且每项必须与 options 原文一致、不重复；不编造词源。'
+        : '提供恰好 4 个互不重复的选项和恰好 1 个与选项原文完全一致的 correctAnswers；' +
+          (input.question.type === 'MEANING_RECOGNITION'
+            ? '所有 options 都是中文释义。'
+            : '所有 options 都是纯英文词或短语。');
+  return (
+    `只修复一题，不重新生成整组或其他内容。请只返回 JSON 对象，结构为 {"questions":[单个题目]}。\n` +
+    `目标词条：${JSON.stringify(input.word)}\n` +
+    `指定题型：${input.targetQuestionType ?? input.question.type}；必须保持题型 ${input.targetQuestionType ?? input.question.type}。\n` +
+    `本组原有英文句子（仅作语境，不要改写）：${JSON.stringify(input.sentenceContext)}\n` +
+    `待修题目：${JSON.stringify(input.question)}\n` +
+    `校验问题：${input.issue}\n` +
+    `这是本次计划第 ${input.attempt} 次局部修复。保留 bookWordId=${input.word.id} 和原题型 ${input.question.type}，不得改变题型。题型规则：${questionRules} 题干使用自然英文，解析使用中文；题目必须符合给定释义和语境，不增加无法支持的答案。不要返回分组、句子或其他题目。`
+  );
+}
+
+function parseGeneratedQuestionRepair(
+  response: unknown,
+  expectedBookWordId: string,
+): GeneratedQuestion {
+  const content = (response as { choices?: Array<{ message?: { content?: unknown } }> })
+    ?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    throw attachSystemLogDiagnostic(new Error('模型单题修复缺少 JSON 内容'), {
+      code: 'STUDY_QUESTION_REPAIR_CONTENT_MISSING',
+      phase: 'content_parse',
+      fieldPath: 'choices[0].message.content',
+      reason: '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      content
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, ''),
+    );
+  } catch {
+    throw attachSystemLogDiagnostic(new Error('模型单题修复不是有效 JSON'), {
+      code: 'STUDY_QUESTION_REPAIR_INVALID_JSON',
+      phase: 'content_parse',
+      fieldPath: 'choices[0].message.content',
+      reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+    });
+  }
+  const questions =
+    typeof parsed === 'object' && parsed !== null && 'questions' in parsed
+      ? (parsed as { questions?: unknown }).questions
+      : undefined;
+  if (
+    !Array.isArray(questions) ||
+    questions.length !== 1 ||
+    typeof questions[0] !== 'object' ||
+    questions[0] === null ||
+    !('bookWordId' in questions[0]) ||
+    (questions[0] as { bookWordId?: unknown }).bookWordId !== expectedBookWordId
+  ) {
+    throw attachSystemLogDiagnostic(new Error('模型单题修复未返回指定题目'), {
+      code: 'STUDY_QUESTION_REPAIR_TARGET_MISMATCH',
+      phase: 'content_parse',
+      fieldPath: 'groups[].questions',
+      reason: '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+    });
+  }
+  return questions[0] as GeneratedQuestion;
 }
 
 export { unfamiliarityScore };

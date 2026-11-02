@@ -13,6 +13,7 @@ import {
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
+import { isSafeSystemLogFieldPath } from '../../common/system-log-diagnostic';
 
 export type SystemLogSource = 'api' | 'worker';
 
@@ -27,6 +28,7 @@ export type SystemLogInput = {
   method?: string;
   route?: string;
   phase?: string;
+  fieldPath?: string;
   attemptsMade?: number;
   maxAttempts?: number;
   at?: Date;
@@ -61,6 +63,14 @@ const SAFE_REASONS = new Set([
   '精读语法队列连接发生错误；原始错误详情已隐藏。',
   '后台任务服务启动失败；原始错误详情已隐藏。',
   '模型供应商未完成请求；原始响应正文已隐藏。',
+  '模型供应商连接失败；地址和凭据未记录。',
+  '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+  '模型接口已响应，但未包含预期的结构化字段；原始内容已隐藏。',
+  '模型返回的学习材料未通过内容校验；原始内容和词条已隐藏。',
+  '学习材料已校验，但学习计划保存失败；内部异常详情已隐藏。',
+  '学习计划生成失败；原始异常详情已隐藏。',
+  '个别题目未通过校验，已达到本次局部修复上限；原始内容和词条已隐藏。',
+  '个别题目已通过有限局部修复；题目内容未写入日志。',
   '应用记录了一条错误；原始详情已隐藏。',
   '接口已接受请求，但没有返回可解析的结构化生成结果。',
   '接口返回了非 JSON 错误响应；请检查 API 地址是否指向兼容接口。',
@@ -331,7 +341,22 @@ function sanitizeEvent(
   const status = safeStatus(input.status);
   const upstreamStatus = safeStatus(input.upstreamStatus);
   const reason = safeReason(input.reason);
-  const phase = input.phase === 'retry' || input.phase === 'final' ? input.phase : undefined;
+  const phase =
+    input.phase &&
+    [
+      'retry',
+      'final',
+      'provider_request',
+      'response_parse',
+      'content_parse',
+      'content_validation',
+      'plan_persistence',
+      'internal',
+    ].includes(input.phase)
+      ? input.phase
+      : undefined;
+  const fieldPath =
+    input.fieldPath && isSafeSystemLogFieldPath(input.fieldPath) ? input.fieldPath : undefined;
   const attemptsMade = safeCount(input.attemptsMade);
   const maxAttempts = safeCount(input.maxAttempts);
   const fingerprint = createHash('sha256')
@@ -351,6 +376,7 @@ function sanitizeEvent(
     ...(method ? { method } : {}),
     ...(route ? { route } : {}),
     ...(phase ? { phase } : {}),
+    ...(fieldPath ? { fieldPath } : {}),
     ...(attemptsMade !== undefined ? { attemptsMade } : {}),
     ...(maxAttempts !== undefined ? { maxAttempts } : {}),
     reason,
@@ -428,6 +454,7 @@ function parseSystemLogEvent(
       method: event.method,
       route: event.route,
       phase: event.phase,
+      fieldPath: event.fieldPath,
       attemptsMade: event.attemptsMade,
       maxAttempts: event.maxAttempts,
     },

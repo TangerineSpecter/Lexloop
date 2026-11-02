@@ -15,6 +15,7 @@ type SystemLogDetail = {
   method?: string;
   route?: string;
   phase?: string;
+  fieldPath?: string;
   attemptsMade?: number;
   maxAttempts?: number;
   reason: string;
@@ -52,6 +53,17 @@ type Filters = {
   to?: string;
   source?: 'api' | 'worker';
   search?: string;
+};
+
+const SYSTEM_LOG_PHASE_LABELS: Record<string, string> = {
+  retry: '失败尝试，可重试',
+  final: '最后一次失败',
+  provider_request: '供应商请求',
+  response_parse: '供应商响应解析',
+  content_parse: '学习内容解析',
+  content_validation: '学习内容校验',
+  plan_persistence: '学习计划保存',
+  internal: '应用内部处理',
 };
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '/api/v1').replace(/\/$/, '');
@@ -217,6 +229,13 @@ export function SystemLogsPanel({ session }: { session: Session }) {
           timeStyle: 'medium',
         }).format(date);
   };
+  const appliedFilterPending = Boolean(
+    data &&
+    (from !== data.range.from ||
+      to !== data.range.to ||
+      (source === 'all' ? undefined : source) !== appliedFilters.current.source ||
+      search.trim() !== (appliedFilters.current.search ?? '')),
+  );
 
   return (
     <section className="system-log-panel" aria-busy={loading}>
@@ -281,13 +300,12 @@ export function SystemLogsPanel({ session }: { session: Session }) {
       </form>
 
       {data && (
-        <div className="system-log-storage" role="note">
-          当前文件占用 {formatBytes(data.storage.usedBytes)} / {formatBytes(data.storage.maxBytes)}
-          {data.storage.droppedEvents > 0 && ` · 因空间限制未收录 ${data.storage.droppedEvents} 条`}
-          {data.storage.apiWriteFailuresSinceStart > 0 &&
-            ` · API 本次运行有 ${data.storage.apiWriteFailuresSinceStart} 次写入失败`}
-          {data.storage.unreadableRecords > 0 &&
-            ` · ${data.storage.unreadableRecords} 条记录无法读取`}
+        <div className="system-log-summary" role="status">
+          <strong>{data.totalGroups} 类错误</strong>
+          <span>
+            日志文件占用 {formatBytes(data.storage.usedBytes)} /{' '}
+            {formatBytes(data.storage.maxBytes)}
+          </span>
         </div>
       )}
       {error && (
@@ -311,18 +329,20 @@ export function SystemLogsPanel({ session }: { session: Session }) {
           {notice}
         </p>
       )}
+      {appliedFilterPending && (
+        <p className="system-log-storage" role="status">
+          筛选条件已更改，点击“筛选日志”后更新列表与导出范围。
+        </p>
+      )}
       <div className="system-log-range-actions">
-        <strong>
-          {data ? `${data.range.from} 至 ${data.range.to}` : '正在加载日期范围'} ·{' '}
-          {data?.totalGroups ?? '…'} 类错误
-        </strong>
+        <strong>{appliedFilterPending ? '待应用筛选结果' : '当前筛选结果'}</strong>
         <button
           type="button"
           onClick={() => void exportCsv()}
-          disabled={!data || exporting !== '' || data.groups.length === 0}
+          disabled={!data || appliedFilterPending || exporting !== '' || data.groups.length === 0}
         >
           <Download size={16} aria-hidden="true" />
-          {exporting === 'range' ? '正在导出…' : '导出此范围 CSV'}
+          {exporting === 'range' ? '正在导出…' : '导出已筛选范围 CSV'}
         </button>
       </div>
 
@@ -377,10 +397,17 @@ export function SystemLogsPanel({ session }: { session: Session }) {
                 )}
                 {group.latestDetail.phase && (
                   <div>
-                    <dt>队列阶段</dt>
+                    <dt>错误阶段</dt>
                     <dd>
-                      {group.latestDetail.phase === 'final' ? '最后一次失败' : '失败尝试，可重试'}
+                      {SYSTEM_LOG_PHASE_LABELS[group.latestDetail.phase] ??
+                        group.latestDetail.phase}
                     </dd>
+                  </div>
+                )}
+                {group.latestDetail.fieldPath && (
+                  <div>
+                    <dt>字段</dt>
+                    <dd>{group.latestDetail.fieldPath}</dd>
                   </div>
                 )}
                 {group.latestDetail.attemptsMade !== undefined && (

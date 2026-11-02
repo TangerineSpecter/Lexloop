@@ -699,9 +699,15 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         ).toEqual({ mastery: 0, bossUnlocked: false });
 
-        ai.generateForUser.mockResolvedValueOnce(
-          JSON.stringify({ score: 90, message: '目标词在句中使用正确。' }),
-        );
+        ai.generateForUser.mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ score: 90, message: '目标词在句中使用正确。' }),
+              },
+            },
+          ],
+        });
         await prisma.dungeonRoom.update({
           where: { id: room.id },
           data: {

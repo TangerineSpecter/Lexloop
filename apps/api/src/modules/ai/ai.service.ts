@@ -1,7 +1,14 @@
-import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
 import { withProviderTemperature } from './model-temperature';
+import { attachSystemLogDiagnostic } from '../../common/system-log-diagnostic';
+import { withJsonObjectUserInstruction } from './json-object-request';
 
 export interface ChatCompletionRequest {
   model?: string;
@@ -106,7 +113,9 @@ export class AiService implements AiProvider {
       response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(withProviderTemperature({ ...request, model }, configured)),
+        body: JSON.stringify(
+          withProviderTemperature(withJsonObjectUserInstruction({ ...request, model }), configured),
+        ),
       });
     } catch {
       throw new BadGatewayException('AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试');
@@ -134,11 +143,21 @@ export class AiService implements AiProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(
-          withProviderTemperature({ ...request, model: configured.model }, configured),
+          withProviderTemperature(
+            withJsonObjectUserInstruction({ ...request, model: configured.model }),
+            configured,
+          ),
         ),
         signal,
       });
-    } catch {
+    } catch (error) {
+      if (
+        signal?.aborted &&
+        error instanceof Error &&
+        (error.name === 'TimeoutError' || error.name === 'AbortError')
+      ) {
+        throw new GatewayTimeoutException('模型请求超过本次允许的等待时间，请稍后重试。');
+      }
       throw new BadGatewayException('AI Provider 无法连接，请检查模型配置或稍后重试');
     }
     if (!response.ok)
@@ -159,7 +178,7 @@ export class AiService implements AiProvider {
         },
         body: JSON.stringify(
           withProviderTemperature(
-            {
+            withJsonObjectUserInstruction({
               model: configured.model,
               messages: [
                 { role: 'system', content: MODEL_TEST_SYSTEM_PROMPT },
@@ -167,7 +186,7 @@ export class AiService implements AiProvider {
               ],
               temperature: 0.7,
               response_format: { type: 'json_object' },
-            },
+            }),
             configured,
           ),
         ),
@@ -238,7 +257,11 @@ export class AiService implements AiProvider {
     };
   }
 
-  async generateForUser(request: GenerateRequest, userId: string): Promise<unknown> {
+  async generateForUser(
+    request: GenerateRequest,
+    userId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const response = await this.selectedChatCompletions(
       {
         messages: [
@@ -252,8 +275,21 @@ export class AiService implements AiProvider {
         response_format: { type: 'json_object' },
       },
       userId,
+      signal,
     );
-    return response.json();
+    try {
+      return await response.json();
+    } catch {
+      throw attachSystemLogDiagnostic(
+        new Error('模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。'),
+        {
+          code: 'AI_RESPONSE_JSON_INVALID',
+          phase: 'response_parse',
+          fieldPath: 'response.body',
+          reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+        },
+      );
+    }
   }
 
   async generate(request: GenerateRequest): Promise<unknown> {

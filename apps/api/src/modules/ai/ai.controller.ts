@@ -51,7 +51,7 @@ export class ReadingTranslationDto {
   @IsString() @MinLength(1) @MaxLength(1200) learnerTranslation!: string;
 }
 
-/** OpenAI-compatible request fields are forwarded untouched to the configured Provider. */
+/** OpenAI-compatible fields are forwarded, with a JSON-mode instruction for compatible gateways. */
 class ChatCompletionDto implements ChatCompletionRequest {
   @IsOptional() @IsString() model?: string;
   @IsArray() @ArrayMinSize(1) messages!: Array<Record<string, unknown>>;

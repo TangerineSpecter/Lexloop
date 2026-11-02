@@ -101,6 +101,7 @@ export class SystemLogService {
       'method',
       'route',
       'phase',
+      'field_path',
       'attempts_made',
       'max_attempts',
       'reason',
@@ -121,6 +122,7 @@ export class SystemLogService {
         detail.method,
         detail.route,
         detail.phase,
+        detail.fieldPath,
         detail.attemptsMade,
         detail.maxAttempts,
         detail.reason,
@@ -181,7 +183,16 @@ export class SystemLogService {
       .filter((group) => {
         if (!search) return true;
         const detail = group.latestDetail;
-        return [group.source, group.kind, group.code, detail.param, detail.route, detail.reason]
+        return [
+          group.source,
+          group.kind,
+          group.code,
+          detail.param,
+          detail.route,
+          detail.phase,
+          detail.fieldPath,
+          detail.reason,
+        ]
           .filter(Boolean)
           .join(' ')
           .toLocaleLowerCase()

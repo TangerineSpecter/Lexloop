@@ -6,6 +6,7 @@ import { ROLES_KEY } from '../src/modules/auth/roles.decorator';
 import { RolesGuard } from '../src/modules/auth/roles.guard';
 import { AiModelTestController } from '../src/modules/ai/ai-model-test.controller';
 import { AiService } from '../src/modules/ai/ai.service';
+import { JSON_OBJECT_USER_INSTRUCTION } from '../src/modules/ai/json-object-request';
 
 const configuredModel = {
   id: 'model_1',
@@ -47,7 +48,10 @@ describe('AI model connection test', () => {
               role: 'system',
               content: 'Return only a JSON object with one property named "ok" set to true.',
             },
-            { role: 'user', content: 'Return exactly {"ok":true}.' },
+            {
+              role: 'user',
+              content: `Return exactly {"ok":true}.\n\n${JSON_OBJECT_USER_INSTRUCTION}`,
+            },
           ],
           response_format: { type: 'json_object' },
         }),

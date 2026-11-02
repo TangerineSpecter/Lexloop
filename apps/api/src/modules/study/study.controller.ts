@@ -55,6 +55,18 @@ export class StudyController {
   ) {
     return this.study.listCompletedPlans(request.user.sub, query.page, query.pageSize);
   }
+  @Get('plans/:planId/generation-status') generationStatus(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+  ) {
+    return this.study.getGenerationStatus(request.user.sub, planId);
+  }
+  @Get('plans/:planId') getPlan(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+  ) {
+    return this.study.getPlan(request.user.sub, planId);
+  }
   @Get('plans/:planId/review') review(
     @Req() request: AuthenticatedRequest,
     @Param('planId') planId: string,

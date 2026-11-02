@@ -172,12 +172,23 @@ test(
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height / 2;
             const hit = document.elementFromPoint(x, y);
-            resolve({ x, y, visible: rect.width > 0 && rect.height > 0 && x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight, hit: hit === element || element.contains(hit) });
+            resolve({
+              x, y,
+              visible: rect.width > 0 && rect.height > 0 && x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight,
+              hit: hit === element || element.contains(hit),
+              target: { tag: element.tagName, className: element.getAttribute('class'), rect: rect.toJSON() },
+              topmost: hit ? { tag: hit.tagName, className: hit.getAttribute('class'), label: hit.getAttribute('aria-label') } : null,
+              activeElement: document.activeElement ? { tag: document.activeElement.tagName, className: document.activeElement.getAttribute('class') } : null,
+            });
           });
         }))`);
         assert.ok(point, `Expected visible element to click: ${selector}`);
         assert.equal(point.visible, true, `Expected in-viewport element: ${selector}`);
-        assert.equal(point.hit, true, `Expected unobstructed element: ${selector}`);
+        assert.equal(
+          point.hit,
+          true,
+          `Expected unobstructed element: ${selector}; hit=${JSON.stringify(point)}`,
+        );
         await clickAt(point.x, point.y);
       };
       const until = async (expression, timeoutMs = 12_000) => {
@@ -301,6 +312,20 @@ test(
             systemUpdateApplyRequests: [],
             systemAutoUpdateRequests: [],
             systemAutoUpdateSaves: [],
+            remoteBackupRequests: [],
+            dailySentenceSettings: { enabled: false },
+            dailySentenceSaves: [],
+            remoteBackupStatus: {
+              available: true,
+              settings: { enabled: false, host: 'backup.example.invalid', port: 22, username: 'fixture-user', remotePath: '/backups/lexloop', hostKey: 'ssh-ed25519 fixture', hasPrivateKey: true, hasPassphrase: true },
+              stale: false,
+              running: false,
+              lastAttemptAt: null,
+              lastSuccessAt: null,
+              lastFile: null,
+              error: null,
+              configurationError: null,
+            },
             automaticStudyPlanSaves: [],
             automaticStudyPlanSettings: {
               enabled: false,
@@ -497,6 +522,18 @@ test(
                 window.reportFixture.automaticStudyPlanSettings = { ...window.reportFixture.automaticStudyPlanSettings, ...body };
               }
               return Response.json(window.reportFixture.automaticStudyPlanSettings);
+            }
+            if (path === '/api/v1/admin/daily-sentence/settings') {
+              if (options.method === 'PATCH') {
+                const body = JSON.parse(options.body ?? '{}');
+                window.reportFixture.dailySentenceSaves.push(body);
+                window.reportFixture.dailySentenceSettings = { ...window.reportFixture.dailySentenceSettings, ...body };
+              }
+              return Response.json(window.reportFixture.dailySentenceSettings);
+            }
+            if (path === '/api/v1/admin/system/backups') {
+              window.reportFixture.remoteBackupRequests.push('GET');
+              return Response.json(window.reportFixture.remoteBackupStatus);
             }
             if (path === '/api/v1/admin/system-logs' && options.method !== 'DELETE') {
               const query = { from: parsed.searchParams.get('from'), to: parsed.searchParams.get('to'), source: parsed.searchParams.get('source'), search: parsed.searchParams.get('search') };
@@ -912,7 +949,9 @@ test(
           requestStage: 'Request',
         })),
       });
-      await clickElement('.settings-layout nav button:last-child');
+      await evaluate(
+        '[...document.querySelectorAll(".settings-layout nav button")].find(button => button.textContent.includes("系统设置")).click()',
+      );
       const delayedSystemSettingsChunk = await waitForProtocolEvent(
         'Fetch.requestPaused',
         ({ request }) =>
@@ -977,6 +1016,97 @@ test(
       await send('Fetch.continueRequest', { requestId: delayedSystemSettingsChunk.requestId });
       await send('Fetch.disable');
       await until('document.querySelector(".system-settings")');
+      await until('document.querySelector(".model-test-button")');
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("远端备份")).click()',
+      );
+      await until('document.querySelector("#remote-backup-title")');
+      await until('window.reportFixture.remoteBackupRequests.length >= 1');
+      const backupRowsDesktop = await evaluate(`(() => {
+        const section = document.querySelector('#remote-backup-title').closest('section');
+        const fields = [...section.querySelector('fieldset').querySelectorAll(':scope > label')].filter(field =>
+          field.querySelector('input:not([type=checkbox])') && !field.querySelector('textarea')
+        ).slice(0, 4);
+        const rect = element => { const value = element.getBoundingClientRect(); return { top: value.top, height: value.height, left: value.left, right: value.right }; };
+        const inputs = fields.map(field => rect(field.querySelector('input')));
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, inputs };
+      })()`);
+      assert.equal(backupRowsDesktop.inputs.length, 4, JSON.stringify(backupRowsDesktop));
+      assert.ok(
+        Math.abs(backupRowsDesktop.inputs[0].top - backupRowsDesktop.inputs[1].top) <= 1 &&
+          Math.abs(backupRowsDesktop.inputs[0].height - backupRowsDesktop.inputs[1].height) <= 1 &&
+          Math.abs(backupRowsDesktop.inputs[2].top - backupRowsDesktop.inputs[3].top) <= 1 &&
+          Math.abs(backupRowsDesktop.inputs[2].height - backupRowsDesktop.inputs[3].height) <= 1,
+        JSON.stringify(backupRowsDesktop),
+      );
+      await evaluate(`(() => {
+        const fields = [...document.querySelector('#remote-backup-title').closest('section').querySelector('fieldset').querySelectorAll(':scope > label')].filter(field =>
+          field.querySelector('input:not([type=checkbox])') && !field.querySelector('textarea')
+        );
+        fields[2].scrollIntoView({ block: 'center' });
+      })()`);
+      await capture('remote-backup-form-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 768,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const backupRowsIntermediate = await evaluate(`(() => ({
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+        right: document.querySelector('#remote-backup-title').closest('section').getBoundingClientRect().right,
+        controls: [...document.querySelector('#remote-backup-title').closest('section').querySelectorAll('fieldset input')].every(input => input.getBoundingClientRect().width > 0),
+      }))()`);
+      assert.ok(
+        backupRowsIntermediate.document <= 768 &&
+          backupRowsIntermediate.right <= 768 &&
+          backupRowsIntermediate.controls,
+        JSON.stringify(backupRowsIntermediate),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const backupRowsMobile = await evaluate(`(() => ({
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+        panelRight: document.querySelector('#remote-backup-title').closest('section').getBoundingClientRect().right,
+        fieldsRight: [...document.querySelector('#remote-backup-title').closest('section').querySelector('fieldset').querySelectorAll(':scope > label')].map(label => label.getBoundingClientRect().right),
+        compactInputs: (() => {
+          const section = document.querySelector('#remote-backup-title').closest('section');
+          const fields = [...section.querySelector('fieldset').querySelectorAll(':scope > label')].filter(field =>
+            field.querySelector('input:not([type=checkbox])') && !field.querySelector('textarea')
+          ).slice(0, 4);
+          const rects = fields.map(field => field.querySelector('input').getBoundingClientRect());
+          return rects.length === 4 && rects.every(rect => Math.abs(rect.height - 52) <= 1) && rects[3].top > rects[2].top;
+        })(),
+      }))()`);
+      assert.ok(
+        backupRowsMobile.document <= 390 &&
+          backupRowsMobile.panelRight <= 390 &&
+          backupRowsMobile.fieldsRight.every((right) => right <= 390) &&
+          backupRowsMobile.compactInputs,
+        JSON.stringify(backupRowsMobile),
+      );
+      await evaluate(`(() => {
+        const fields = [...document.querySelector('#remote-backup-title').closest('section').querySelector('fieldset').querySelectorAll(':scope > label')].filter(field =>
+          field.querySelector('input:not([type=checkbox])') && !field.querySelector('textarea')
+        );
+        fields[2].scrollIntoView({ block: 'start' });
+      })()`);
+      await capture('remote-backup-form-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("AI 模型管理")).click()',
+      );
       await until('document.querySelector(".model-test-button")');
       await evaluate('window.reportFixture.holdModelTest = true');
       await evaluate('document.querySelector(".model-test-button").click()');
@@ -1151,6 +1281,31 @@ test(
       await evaluate(
         `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('功能开关')).click()`,
       );
+      await until('document.querySelector("#daily-sentence-settings-title")');
+      const dailySentenceSwitch =
+        'document.querySelector("#daily-sentence-settings-title").closest("section").querySelector("[role=switch]")';
+      assert.equal(await evaluate(`${dailySentenceSwitch}.getAttribute("aria-checked")`), 'false');
+      await evaluate(`${dailySentenceSwitch}.click()`);
+      await until(`${dailySentenceSwitch}.getAttribute("aria-checked") === "true"`);
+      assert.deepEqual(await evaluate('window.reportFixture.dailySentenceSaves'), [
+        { enabled: true },
+      ]);
+      assert.equal(
+        await evaluate(`getComputedStyle(${dailySentenceSwitch}).backgroundColor`),
+        'rgb(216, 243, 221)',
+      );
+      assert.match(
+        await evaluate(
+          'document.querySelector("#daily-sentence-settings-title").closest("section").innerText',
+        ),
+        /每天北京时间 06:00 起准备新句/,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#daily-sentence-settings-title").closest("section").innerText.includes("已保存")',
+        ),
+        true,
+      );
       await until('document.querySelector("#automatic-study-plan-settings-title")');
       const automaticPlanDefaults = await evaluate(`(() => ({
         enabled: document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelector('[role=switch]')?.getAttribute('aria-checked'),
@@ -1241,9 +1396,16 @@ test(
         mobile: false,
       });
       await evaluate(
-        `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统日志')).click()`,
+        `[...document.querySelectorAll('.settings-layout nav button')].find(button => button.textContent.includes('系统日志')).click()`,
       );
       await until('document.querySelector(".system-log-card")');
+      assert.equal(await evaluate('new URLSearchParams(location.search).get("section")'), 'logs');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".system-tabs button")].some(button => button.textContent.includes("系统日志"))',
+        ),
+        false,
+      );
       const systemLogsDesktop = await evaluate(`(() => {
         const panel = document.querySelector('.system-log-panel').getBoundingClientRect();
         const filters = document.querySelector('.system-log-filters').getBoundingClientRect();
@@ -1257,6 +1419,12 @@ test(
       assert.equal(systemLogsDesktop.count, '3 次');
       assert.equal(systemLogsDesktop.latest, '最近发生');
       assert.equal(await evaluate('window.reportFixture.systemLogRequests.length'), 1);
+      const initialLogSummary = await evaluate(
+        'document.querySelector(".system-log-summary").innerText.replace(/\\s+/g, " ").trim()',
+      );
+      assert.match(initialLogSummary, /1 类错误/);
+      assert.match(initialLogSummary, /1\.0 KB \/ 100\.0 MB/);
+      assert.equal(initialLogSummary.includes('2026-10-27'), false);
       await capture('system-logs-panel-1440.png');
 
       await evaluate(`(() => {
@@ -1270,8 +1438,11 @@ test(
         const search = document.querySelector('.system-log-search input');
         const setText = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setText.call(search, 'UPSTREAM'); search.dispatchEvent(new Event('input', { bubbles: true }));
+        const exportButton = document.querySelector('.system-log-range-actions button');
+        window.__rangeExportDisabledWhileDraft = exportButton.disabled;
         document.querySelector('.system-log-filters button[type="submit"]').click();
       })()`);
+      assert.equal(await evaluate('window.__rangeExportDisabledWhileDraft'), true);
       await until('window.reportFixture.systemLogRequests.length === 2');
       assert.deepEqual(await evaluate('window.reportFixture.systemLogRequests[1]'), {
         from: '2026-10-31',
@@ -1345,8 +1516,42 @@ test(
         };
       })()`);
       await evaluate(
-        `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统更新')).click()`,
+        `[...document.querySelectorAll('.settings-layout nav button')].find(button => button.textContent.includes('关于系统')).click()`,
       );
+      await until('document.querySelector(".system-update-panel")');
+      assert.equal(await evaluate('new URLSearchParams(location.search).get("section")'), 'about');
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".settings-layout nav button")].map(button => button.textContent.trim()).join("|")',
+        ),
+        '账号设置|系统设置|系统日志|关于系统',
+      );
+      await evaluate(`(() => {
+        const state = { lexloopDashboardPage: 'settings', lexloopDashboardUserId: 'report-user-a' };
+        history.pushState(state, '', '/dashboard?view=settings&tab=system-update');
+        dispatchEvent(new PopStateEvent('popstate', { state }));
+      })()`);
+      await until(
+        'document.querySelector(".settings-layout nav button.active")?.textContent.includes("关于系统")',
+      );
+      assert.equal(await evaluate('document.querySelector(".system-update-panel") !== null'), true);
+      await evaluate(`(() => {
+        const state = { lexloopDashboardPage: 'settings', lexloopDashboardUserId: 'report-user-a' };
+        history.pushState(state, '', '/dashboard?view=settings&tab=system-logs');
+        dispatchEvent(new PopStateEvent('popstate', { state }));
+      })()`);
+      await until('document.querySelector(".system-log-panel")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".settings-layout nav button.active")?.textContent.includes("系统日志")',
+        ),
+        true,
+      );
+      await evaluate(`(() => {
+        const state = { lexloopDashboardPage: 'settings', lexloopDashboardUserId: 'report-user-a' };
+        history.pushState(state, '', '/dashboard?view=settings&section=about');
+        dispatchEvent(new PopStateEvent('popstate', { state }));
+      })()`);
       await until('document.querySelector(".system-update-panel")');
       await until('window.reportFixture.systemUpdateRequests.length >= 1');
       assert.match(
@@ -1528,6 +1733,49 @@ test(
       });
       assert.equal(await evaluate('window.reportFixture.systemAutoUpdateStatus.nextCheckAt'), null);
       assert.equal(await evaluate('window.reportFixture.systemUpdateApplyRequests.length'), 0);
+      const autoSettingsDesktop = await evaluate(`(() => {
+        const panel = document.querySelector('.update-auto-settings');
+        const form = panel.querySelector('form');
+        const input = panel.querySelector('.update-auto-interval input').getBoundingClientRect();
+        const toggle = panel.querySelector('.update-auto-toggle').getBoundingClientRect();
+        const save = form.querySelector('button[type=submit]').getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          document: document.documentElement.scrollWidth,
+          inputTop: input.top,
+          toggleTop: toggle.top,
+          saveTop: save.top,
+          panelRight: panel.getBoundingClientRect().right,
+        };
+      })()`);
+      assert.ok(
+        Math.abs(autoSettingsDesktop.inputTop - autoSettingsDesktop.toggleTop) <= 1 &&
+          Math.abs(autoSettingsDesktop.inputTop - autoSettingsDesktop.saveTop) <= 1 &&
+          autoSettingsDesktop.panelRight <= 1440 &&
+          autoSettingsDesktop.document <= 1440,
+        JSON.stringify(autoSettingsDesktop),
+      );
+      await evaluate(
+        'document.querySelector(".update-auto-settings form").scrollIntoView({ block: "center" })',
+      );
+      await capture('system-auto-update-settings-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 768,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const autoSettingsIntermediate = await evaluate(`(() => {
+        const panel = document.querySelector('.update-auto-settings').getBoundingClientRect();
+        const form = document.querySelector('.update-auto-settings form').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panelRight: panel.right, formRight: form.right };
+      })()`);
+      assert.ok(
+        autoSettingsIntermediate.document <= 768 &&
+          autoSettingsIntermediate.panelRight <= 768 &&
+          autoSettingsIntermediate.formRight <= 768,
+        JSON.stringify(autoSettingsIntermediate),
+      );
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
         height: 844,
@@ -1538,16 +1786,29 @@ test(
         viewport: innerWidth,
         document: document.documentElement.scrollWidth,
         panelRight: document.querySelector('.update-auto-settings').getBoundingClientRect().right,
-        formRight: document.querySelector('.update-auto-settings form').getBoundingClientRect().right,
+        form: (() => { const value = document.querySelector('.update-auto-settings form').getBoundingClientRect(); return { bottom: value.bottom, right: value.right }; })(),
+        toggle: (() => { const value = document.querySelector('.update-auto-toggle').getBoundingClientRect(); return { top: value.top, bottom: value.bottom, width: value.width, right: value.right }; })(),
+        interval: (() => { const value = document.querySelector('.update-auto-interval').getBoundingClientRect(); return { top: value.top, bottom: value.bottom }; })(),
+        help: (() => { const value = document.querySelector('.update-auto-interval-help').getBoundingClientRect(); return { top: value.top, bottom: value.bottom }; })(),
+        save: (() => { const value = document.querySelector('.update-auto-settings form > button').getBoundingClientRect(); return { top: value.top, bottom: value.bottom, width: value.width, right: value.right }; })(),
         controls: [...document.querySelectorAll('.update-auto-settings input')].every(node => node.getBoundingClientRect().width > 0)
       }))()`);
       assert.ok(
         autoSettingsMobile.document <= 390 &&
           autoSettingsMobile.panelRight <= 390 &&
-          autoSettingsMobile.formRight <= 390,
+          autoSettingsMobile.form.right <= 390 &&
+          autoSettingsMobile.toggle.width >= 250 &&
+          autoSettingsMobile.toggle.bottom <= autoSettingsMobile.interval.top &&
+          autoSettingsMobile.interval.bottom <= autoSettingsMobile.help.top &&
+          autoSettingsMobile.help.bottom <= autoSettingsMobile.save.top &&
+          autoSettingsMobile.save.width >= 250 &&
+          autoSettingsMobile.save.right <= 390,
         JSON.stringify(autoSettingsMobile),
       );
       assert.equal(autoSettingsMobile.controls, true);
+      await evaluate(
+        'document.querySelector(".update-auto-settings form").scrollIntoView({ block: "center" })',
+      );
       await capture('system-auto-update-settings-390.png');
       await send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
@@ -2714,6 +2975,9 @@ test(
       );
       await until(
         `location.search === "?view=mistakes" && document.querySelector(${JSON.stringify(mistakeTriggerSelector)})`,
+      );
+      await until(
+        '!document.querySelector(".study-sidebar").classList.contains("is-open") && new DOMMatrixReadOnly(getComputedStyle(document.querySelector(".study-sidebar")).transform).m41 <= -219',
       );
       const mistakesLayout = await evaluate(`(() => {
         const page = document.querySelector('.mistakes-page');

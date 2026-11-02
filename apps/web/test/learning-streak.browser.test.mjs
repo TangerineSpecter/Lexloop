@@ -464,7 +464,11 @@ test(
       await evaluate('document.querySelector(".streak-goal-toggle").focus()');
       await pressKey('Enter', 'Enter', 13);
       await until('document.querySelector("#streak-goal-settings")');
-      await until('document.activeElement?.id === "streak-goal-select"');
+      await until('document.activeElement?.id === "daily-goal-activity"');
+      assert.equal(
+        await evaluate('document.querySelector(".streak-card").offsetHeight'),
+        desktopStreakLayout.cardHeight,
+      );
       assert.equal(
         await evaluate(
           'document.querySelector(".streak-goal-toggle").getAttribute("aria-expanded")',
@@ -481,13 +485,12 @@ test(
 
       await evaluate('window.streakFixture.failNextGoalUpdate = 1');
       await pressKey('Enter', 'Enter', 13);
-      await until('document.activeElement?.id === "streak-goal-select"');
-      await evaluate(`(() => {
-        const select = document.querySelector('#streak-goal-select');
-        select.value = 'reviews:5';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      })()`);
-      await until('document.querySelector(".streak-goal-error[role=alert]")');
+      await until('document.activeElement?.id === "daily-goal-activity"');
+      await evaluate('document.querySelector("#daily-goal-reviews-5").click()');
+      await evaluate(
+        '[...document.querySelectorAll("#streak-goal-settings button")].find(button => button.textContent.includes("保存目标")).click()',
+      );
+      await until('document.querySelector(".streak-goal-dialog-error[role=alert]")');
       assert.equal(
         await evaluate('document.querySelector("#streak-goal-settings") !== null'),
         true,
@@ -498,13 +501,12 @@ test(
         ),
         true,
       );
-      await evaluate(`(() => {
-        const select = document.querySelector('#streak-goal-select');
-        select.value = 'reviews:5';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      })()`);
+      assert.equal(await evaluate('document.querySelector("#daily-goal-reviews-5").checked'), true);
+      await evaluate(
+        '[...document.querySelectorAll("#streak-goal-settings button")].find(button => button.textContent.includes("保存目标")).click()',
+      );
       await until('document.querySelector(".streak-goal")?.textContent.includes("复习 5 个词")');
-      await until('document.querySelector(".streak-goal-settings-panel") === null');
+      await until('document.querySelector("#streak-goal-settings") === null');
       assert.deepEqual(await evaluate('window.streakFixture.goalUpdates'), [
         { kind: 'reviews', target: 5 },
         { kind: 'reviews', target: 5 },
@@ -515,7 +517,10 @@ test(
         await evaluate('document.activeElement === document.querySelector(".streak-goal-toggle")'),
         true,
       );
-      assert.equal(await evaluate('document.querySelector(".streak-goal-error") === null'), true);
+      assert.equal(
+        await evaluate('document.querySelector(".streak-goal-dialog-error") === null'),
+        true,
+      );
 
       await send('Page.reload');
       await until('document.querySelector(".streak-goal")?.textContent.includes("复习 5 个词")');
@@ -588,6 +593,53 @@ test(
         `streak card layout: desktop 1440px ${desktopStreakLayout.cardHeight}px; mobile 390px ${mobileStreakLayout.cardHeight}px; goal shown once; seven day markers; no horizontal overflow`,
       );
       await capture('streak-card-mobile.png');
+      const mobileCardHeight = await evaluate(
+        'Math.round(document.querySelector(".streak-card").getBoundingClientRect().height)',
+      );
+      await evaluate('document.querySelector(".streak-goal-toggle").click()');
+      await until('document.querySelector("#streak-goal-settings")');
+      const mobileGoalDialog = await evaluate(`(() => {
+        const dialog = document.querySelector('#streak-goal-settings').getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          document: document.documentElement.scrollWidth,
+          dialogLeft: dialog.left,
+          dialogRight: dialog.right,
+          cardHeight: Math.round(document.querySelector('.streak-card').getBoundingClientRect().height),
+          options: document.querySelectorAll('#streak-goal-settings input[type=radio]').length,
+          actionsVisible: [...document.querySelectorAll('#streak-goal-settings footer button')].every(button => {
+            const rect = button.getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= innerWidth && rect.width > 0;
+          }),
+        };
+      })()`);
+      assert.equal(mobileGoalDialog.viewport, 390, JSON.stringify(mobileGoalDialog));
+      assert.ok(mobileGoalDialog.document <= 390, JSON.stringify(mobileGoalDialog));
+      assert.ok(
+        mobileGoalDialog.dialogLeft >= 0 && mobileGoalDialog.dialogRight <= 390,
+        JSON.stringify(mobileGoalDialog),
+      );
+      assert.equal(mobileGoalDialog.cardHeight, mobileCardHeight, JSON.stringify(mobileGoalDialog));
+      assert.equal(mobileGoalDialog.options, 4, JSON.stringify(mobileGoalDialog));
+      assert.equal(mobileGoalDialog.actionsVisible, true, JSON.stringify(mobileGoalDialog));
+      await capture('streak-goal-dialog-mobile.png');
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector("#streak-goal-settings") === null');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".streak-goal-toggle")'),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 768,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const tabletDocumentWidth = await evaluate('document.documentElement.scrollWidth');
+      assert.ok(
+        tabletDocumentWidth <= 768,
+        `Intermediate viewport overflow: ${tabletDocumentWidth}px`,
+      );
       await send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
         height: 900,
@@ -934,6 +986,9 @@ test(
       });
       await until('innerWidth === 390');
       await evaluate(`window.scrollTo(0, ${scrollBeforeDuePreviewCapture})`);
+      const expectedRestoredScroll = await evaluate(
+        `Math.min(${scrollBeforeDuePreviewCapture}, Math.max(0, document.documentElement.scrollHeight - innerHeight))`,
+      );
       const focusAfterBookSelection = await evaluate(`(() => ({
         tag: document.activeElement?.tagName,
         className: document.activeElement?.className,
@@ -947,7 +1002,7 @@ test(
         ),
         `when the new-user trigger disappears, focus returns to the selected learning tab: ${JSON.stringify(focusAfterBookSelection)}`,
       );
-      assert.equal(await evaluate('window.scrollY'), bookPickerScrollBeforeOpen);
+      assert.equal(await evaluate('window.scrollY'), expectedRestoredScroll);
       assert.equal(
         await evaluate('document.querySelector(".book-selection-prompt") === null'),
         true,

@@ -48,9 +48,7 @@ export function DailySentenceSettings({ session }: { session: Session }) {
       <div className={styles.settingsRow}>
         <div>
           <h3 id="daily-sentence-settings-title">每日一句</h3>
-          <p className={styles.note}>
-            对所有用户生效。开启后每天北京时间 06:00 起提前准备句子，已有未读时保留原句。
-          </p>
+          <p className={styles.note}>全站生效 · 每天北京时间 06:00 起准备新句，未读则保留。</p>
         </div>
         <button
           type="button"
@@ -65,11 +63,11 @@ export function DailySentenceSettings({ session }: { session: Session }) {
         </button>
       </div>
       <p className={styles.note}>
-        关闭后隐藏首页入口并停止新的生成任务；已经开始的生成可能完成，历史句子与收藏会保留。重新开启后按原来的未读规则继续。
+        关闭后隐藏入口并停止新任务，进行中的生成可能完成；历史与收藏保留。
       </p>
       {saved && (
         <p className={styles.note} role="status">
-          设置已保存，{enabled ? '每日一句已开启。' : '每日一句已关闭。'}
+          已保存
         </p>
       )}
       {error && (

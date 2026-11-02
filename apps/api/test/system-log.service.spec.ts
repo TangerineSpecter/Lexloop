@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { Role } from '@prisma/client';
@@ -19,6 +19,7 @@ import { SystemLogExceptionFilter } from '../src/modules/admin/system-log-except
 import { SystemLogService } from '../src/modules/admin/system-log.service';
 import { ROLES_KEY } from '../src/modules/auth/roles.decorator';
 import { RolesGuard } from '../src/modules/auth/roles.guard';
+import { attachSystemLogDiagnostic } from '../src/common/system-log-diagnostic';
 
 describe('file-backed administrator system logs', () => {
   let directory: string;
@@ -106,6 +107,34 @@ describe('file-backed administrator system logs', () => {
       maxAttempts: 3,
       reason: '更新仓库检查失败；原始 Git 输出已隐藏。',
     });
+  });
+
+  it('keeps allow-listed generation phase and field-path diagnostics in an event and export', async () => {
+    const logs = new SystemLogService();
+    await logs.record(
+      event({
+        code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+        phase: 'content_parse',
+        fieldPath: 'choices[0].message.content',
+        reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+      }),
+    );
+
+    const listed = await logs.list({ from: '2026-11-03', to: '2026-11-03' });
+    expect(listed.groups[0].latestDetail).toMatchObject({
+      code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+      phase: 'content_parse',
+      fieldPath: 'choices[0].message.content',
+    });
+    const exported = await logs.exportCsv({ from: '2026-11-03', to: '2026-11-03' });
+    expect(exported.csv).toContain('field_path');
+    expect(exported.csv).toContain('choices[0].message.content');
+
+    await logs.record(event({ fieldPath: 'private.answer.secret' }));
+    const all = await logs.list({ from: '2026-11-03', to: '2026-11-03' });
+    expect(all.groups.map((group) => group.latestDetail.fieldPath)).not.toContain(
+      'private.answer.secret',
+    );
   });
 
   it('does not persist arbitrary exception text, secrets, prompts, query strings, or unknown JSON fields', async () => {
@@ -285,6 +314,81 @@ describe('system log access and exception capture', () => {
     expect(JSON.stringify(record.mock.calls)).not.toContain('private');
     expect(status).toHaveBeenCalledWith(500);
     expect(send).toHaveBeenCalledWith({ statusCode: 500, message: 'Internal server error' });
+  });
+
+  it('preserves safe typed generation diagnostics without logging exception text', async () => {
+    const record = vi.fn().mockResolvedValue('written');
+    const filter = new SystemLogExceptionFilter({ record } as never);
+    const send = vi.fn();
+    const exception = attachSystemLogDiagnostic(
+      new BadGatewayException('student answer and model body must never be logged'),
+      {
+        code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+        phase: 'content_parse',
+        fieldPath: 'choices[0].message.content',
+        reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+      },
+    );
+    filter.catch(exception, {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method: 'POST',
+          routeOptions: { url: '/api/v1/study/plans/:planId/generate' },
+        }),
+        getResponse: () => ({ status: vi.fn(() => ({ send })) }),
+      }),
+    } as never);
+    await Promise.resolve();
+
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'STUDY_RESPONSE_CONTENT_INVALID_JSON',
+        phase: 'content_parse',
+        fieldPath: 'choices[0].message.content',
+        reason: '模型接口已响应，但响应正文不是有效 JSON；原始内容已隐藏。',
+      }),
+    );
+    expect(JSON.stringify(record.mock.calls)).not.toContain('student answer');
+    expect(JSON.stringify(record.mock.calls)).not.toContain('model body');
+  });
+
+  it('retains safe upstream status, code, and parameter alongside generation diagnostics', async () => {
+    const record = vi.fn().mockResolvedValue('written');
+    const filter = new SystemLogExceptionFilter({ record } as never);
+    const send = vi.fn();
+    const exception = attachSystemLogDiagnostic(
+      new BadGatewayException(
+        '模型供应商未完成请求（上游 HTTP 502；code: invalid_request_error；param: input）',
+      ),
+      {
+        code: 'UPSTREAM_PROVIDER_ERROR',
+        phase: 'provider_request',
+        fieldPath: 'request',
+        reason: '模型供应商未完成请求；原始响应正文已隐藏。',
+      },
+    );
+    filter.catch(exception, {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method: 'POST',
+          routeOptions: { url: '/api/v1/study/plans/:planId/generate' },
+        }),
+        getResponse: () => ({ status: vi.fn(() => ({ send })) }),
+      }),
+    } as never);
+    await Promise.resolve();
+
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'UPSTREAM_invalid_request_error',
+        status: 502,
+        upstreamStatus: 502,
+        param: 'input',
+        phase: 'provider_request',
+        fieldPath: 'request',
+        reason: '模型供应商未完成请求；原始响应正文已隐藏。',
+      }),
+    );
   });
 
   it('does not count expected client errors as server error events', () => {

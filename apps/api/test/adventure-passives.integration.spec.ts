@@ -16,7 +16,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       const normalized = Array.from({ length: 12 }, (_, index) => `${sourceKey}-${index}`);
       const userIds: string[] = [];
       const ai = {
-        generateForUser: vi.fn(async () => JSON.stringify({ score: 80, message: '表达清楚。' })),
+        generateForUser: vi.fn(async () => ({
+          choices: [{ message: { content: JSON.stringify({ score: 80, message: '表达清楚。' }) } }],
+        })),
       };
       const service = new AdventureService(
         prisma as never,
