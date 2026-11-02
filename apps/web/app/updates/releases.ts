@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.126',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '显示公共材料等待阶段',
+        entry: '学习计划 → 生成中预习窗口',
+        usage:
+          '相同公共材料正由其他请求准备时会明确显示等待材料，不再显示整理中或等待模型；材料到达后重新检查是否适合当前学习者。',
+      },
+    ],
+  },
+  {
     version: '1.27.125',
     date: '2026-11-02',
     items: [

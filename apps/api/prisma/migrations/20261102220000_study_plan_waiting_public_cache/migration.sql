@@ -1,0 +1,1 @@
+ALTER TYPE "StudyPlanGenerationPhase" ADD VALUE 'WAITING_PUBLIC_CACHE';

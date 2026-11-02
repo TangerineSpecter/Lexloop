@@ -279,7 +279,12 @@ test(
               if (plan.status === 'GENERATING') {
                 const polls = (window.generationStatusPolls[plan.id] ?? 0) + 1;
                 window.generationStatusPolls[plan.id] = polls;
-                plan.generationPhase = polls < 2 ? 'PREPARING' : 'WAITING_MODEL';
+                plan.generationPhase =
+                  polls < 2
+                    ? 'PREPARING'
+                    : polls < 4
+                      ? 'WAITING_PUBLIC_CACHE'
+                      : 'WAITING_MODEL';
                 return Response.json({
                   id: plan.id,
                   status: plan.status,
@@ -663,6 +668,9 @@ test(
       );
       await until(
         'document.querySelector(".plan-generation-phase strong")?.textContent.includes("正在整理词条")',
+      );
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待可复用的公共材料")',
       );
       await until(
         'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待模型返回")',

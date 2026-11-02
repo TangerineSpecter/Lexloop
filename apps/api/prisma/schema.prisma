@@ -50,6 +50,7 @@ enum StudyPlanStatus {
 
 enum StudyPlanGenerationPhase {
   PREPARING
+  WAITING_PUBLIC_CACHE
   WAITING_MODEL
   VALIDATING
   REPAIRING

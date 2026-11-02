@@ -292,7 +292,14 @@ export type LearningPlan = {
   groupCount: number;
   content?: { groups: GeneratedGroup[] } | null;
   generationError?: string | null;
-  generationPhase?: 'PREPARING' | 'WAITING_MODEL' | 'VALIDATING' | 'REPAIRING' | 'SAVING' | null;
+  generationPhase?:
+    | 'PREPARING'
+    | 'WAITING_PUBLIC_CACHE'
+    | 'WAITING_MODEL'
+    | 'VALIDATING'
+    | 'REPAIRING'
+    | 'SAVING'
+    | null;
   generationStartedAt?: string | null;
   summary?: {
     totalQuestions: number;
@@ -4424,6 +4431,7 @@ function PhoneticLine({ word }: { word: Pick<Word, 'word' | 'ukPhonetic' | 'usPh
 const modeLabel = { group: '分组学习', individual: '单词模式', exam: '应试语境' } as const;
 const generationPhaseLabels = {
   PREPARING: '正在整理词条和可复用的练习材料',
+  WAITING_PUBLIC_CACHE: '正在等待可复用的公共材料准备完成',
   WAITING_MODEL: '正在等待模型返回内容',
   VALIDATING: '正在检查题目和解析',
   REPAIRING: '正在补齐少量未通过校验的题目',

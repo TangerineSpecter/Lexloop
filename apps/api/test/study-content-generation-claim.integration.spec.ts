@@ -180,6 +180,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           timeout: 10_000,
           interval: 5,
         });
+        await vi.waitFor(async () => {
+          const pending = await admin.studyPlan.findUniqueOrThrow({
+            where: { id: planIds[1] },
+            select: { generationPhase: true },
+          });
+          expect(pending.generationPhase).toBe('WAITING_PUBLIC_CACHE');
+        });
         resolveGeneration({});
 
         const [first, second] = await Promise.all([firstGeneration, secondGeneration]);

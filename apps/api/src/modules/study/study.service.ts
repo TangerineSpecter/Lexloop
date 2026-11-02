@@ -833,6 +833,9 @@ export class StudyService {
               },
             );
           }
+          if (status === 'BUSY') {
+            await setGenerationPhase(StudyPlanGenerationPhase.WAITING_PUBLIC_CACHE);
+          }
           const waited = await this.waitForPublicCacheClaim(
             blockedSignature ?? needed[0],
             claimWaitDeadline,
