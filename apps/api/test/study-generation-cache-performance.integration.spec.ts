@@ -42,6 +42,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       });
       const fixtureId = randomUUID();
       const cacheLookupDurations: number[] = [];
+      const cacheMetadataDurations: number[] = [];
       let userId: string | undefined;
       let bookId: string | undefined;
       let planId: string | undefined;
@@ -49,7 +50,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
       prisma.$on('query', (event) => {
         if (/SELECT[\s\S]*FROM\s+"public"\."StudyContentCache"/i.test(event.query)) {
-          cacheLookupDurations.push(event.duration);
+          if (/WITH\s+ranked_cache\s+AS/i.test(event.query)) {
+            cacheLookupDurations.push(event.duration);
+          } else {
+            // Serialization reads the public flag for the returned snapshot;
+            // keep that bounded separately from the batched candidate lookup.
+            cacheMetadataDurations.push(event.duration);
+          }
         }
       });
 
@@ -146,6 +153,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const generated = await service.generatePlan(user.id, plan.id);
         const generationMs = Math.round(performance.now() - startedAt);
         const lookupQueryCount = cacheLookupDurations.length;
+        const metadataQueryCount = cacheMetadataDurations.length;
         const cumulativeLookupMs = Math.round(
           cacheLookupDurations.reduce((sum, duration) => sum + duration, 0),
         );
@@ -154,10 +162,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(generated.status).toBe('ACTIVE');
         expect(generatedGroups).toHaveLength(MAX_INDIVIDUAL_GROUPS);
         expect(lookupQueryCount).toBe(1);
+        expect(metadataQueryCount).toBeLessThanOrEqual(1);
         expect(selectedProvider).toHaveBeenCalledTimes(1);
         expect(ai.generateForUser).toHaveBeenCalledTimes(1);
         console.log(
-          `study generation cache reads: ${MAX_INDIVIDUAL_GROUPS} individual groups / ${lookupQueryCount} SELECTs / ${cumulativeLookupMs} cumulative DB ms / ${generationMs} total ms (fixture model)`,
+          `study generation cache reads: ${MAX_INDIVIDUAL_GROUPS} individual groups / ${lookupQueryCount} batched candidate SELECTs / ${metadataQueryCount} snapshot metadata SELECTs / ${cumulativeLookupMs} candidate query DB ms / ${generationMs} total ms (fixture model)`,
         );
       } finally {
         if (planId) {

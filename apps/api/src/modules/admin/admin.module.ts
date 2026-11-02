@@ -15,6 +15,8 @@ import { SystemLogExceptionFilter } from './system-log-exception.filter';
 import { SystemLogService } from './system-log.service';
 import { AutomaticStudyPlanSettingsController } from '../automatic-study-plan/automatic-study-plan-settings.controller';
 import { AutomaticStudyPlanSettingsService } from '../automatic-study-plan/automatic-study-plan-settings.service';
+import { StudyContentBankController } from './study-content-bank.controller';
+import { StudyContentBankService } from './study-content-bank.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -36,6 +38,7 @@ class AdminController {
     SystemUpdateController,
     SystemLogController,
     AutomaticStudyPlanSettingsController,
+    StudyContentBankController,
   ],
   providers: [
     AiModelConfigService,
@@ -43,6 +46,7 @@ class AdminController {
     SystemLogService,
     SystemLogExceptionFilter,
     AutomaticStudyPlanSettingsService,
+    StudyContentBankService,
   ],
   exports: [AiModelConfigService, SystemLogService, SystemLogExceptionFilter],
 })

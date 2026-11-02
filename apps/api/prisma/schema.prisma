@@ -70,6 +70,19 @@ enum StudyPlanMode {
   EXAM
 }
 
+enum StudyContentFeedbackRating {
+  UP
+  DOWN
+}
+
+enum StudyContentFeedbackReason {
+  ANSWER_INCORRECT
+  QUESTION_UNCLEAR
+  OPTIONS_INCORRECT
+  EXPLANATION_UNCLEAR
+  OTHER
+}
+
 enum StudyPlanPurpose {
   NORMAL
   WEAKNESS
@@ -309,6 +322,8 @@ model User {
   labLessons LabLesson[]
   microProgress MicroProgress?
   microErrors MicroError[]
+  disabledStudyContentCaches StudyContentCache[] @relation("StudyContentCacheDisabledBy")
+  studyContentQuestionFeedback StudyContentQuestionFeedback[]
 }
 
 model MicroProgress {
@@ -619,20 +634,45 @@ model TutorDailyUsage {
   @@unique([userId, usageDate])
 }
 
-// AI-generated materials and questions are global reusable content. They do
-// not belong to a user and survive deletion of personal learning records.
+// Only materials from verified, ownerless system books are publicly reusable.
+// Private materials stay in plan snapshots rather than this shared pool.
 model StudyContentCache {
-  id          String        @id @default(cuid())
-  signature   String
-  mode        StudyPlanMode
-  material    Json
-  hitCount    Int           @default(0)
-  lastUsedAt  DateTime      @default(now())
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  planItems   StudyPlanItem[]
+  id                String                        @id @default(cuid())
+  signature         String
+  mode              StudyPlanMode
+  material          Json
+  hitCount          Int                           @default(0)
+  isPublic          Boolean                       @default(false)
+  isActive          Boolean                       @default(true)
+  disabledAt        DateTime?
+  disabledReason    String?                       @db.VarChar(200)
+  disabledByUserId  String?
+  lastUsedAt        DateTime                      @default(now())
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  planItems         StudyPlanItem[]
+  disabledByUser    User?                         @relation("StudyContentCacheDisabledBy", fields: [disabledByUserId], references: [id], onDelete: SetNull)
+  questionFeedbacks StudyContentQuestionFeedback[]
 
   @@index([signature, mode, createdAt])
+  @@index([isPublic, isActive, mode, createdAt])
+}
+
+model StudyContentQuestionFeedback {
+  id                  String                      @id @default(cuid())
+  userId              String
+  contentCacheId      String
+  questionFingerprint String                      @db.VarChar(64)
+  questionSnapshot    Json
+  rating              StudyContentFeedbackRating
+  reason              StudyContentFeedbackReason?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  user                User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentCache        StudyContentCache           @relation(fields: [contentCacheId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentCacheId, questionFingerprint])
+  @@index([contentCacheId, questionFingerprint, rating])
 }
 
 model WordReviewAttempt {

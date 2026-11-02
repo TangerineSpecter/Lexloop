@@ -326,9 +326,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           savedPlans.every((plan) => plan.status === 'ACTIVE' && plan.generationError === null),
         ).toBe(true);
         expect(savedPlans.every((plan) => plan.generationPhase === null)).toBe(true);
+        // Personal vocabulary stays private; its successful material remains in
+        // each plan snapshot and is never published into the shared cache.
         expect(
           await prisma.studyContentCache.count({ where: { signature: { in: cacheSignatures } } }),
-        ).toBe(2);
+        ).toBe(0);
         expect(await prisma.userWordProgress.count({ where: { userId: user.id } })).toBe(2);
         expect(await prisma.wordReviewAttempt.count({ where: { userId: user.id } })).toBe(0);
       } finally {
@@ -478,6 +480,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           data: {
             signature,
             mode: StudyPlanMode.GROUP,
+            isPublic: true,
             material: historicalGroup,
           },
           select: { id: true },
@@ -582,7 +585,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const repairedCache = await prisma.studyContentCache.findFirstOrThrow({
           where: { signature },
         });
-        expect(repairedCache.hitCount).toBe(1);
+        expect(repairedCache.hitCount).toBe(0);
         expect(
           (repairedCache.material as { questions: Array<{ options: string[] }> }).questions[0]
             .options,

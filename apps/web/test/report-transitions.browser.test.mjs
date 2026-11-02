@@ -1524,7 +1524,7 @@ test(
         await evaluate(
           '[...document.querySelectorAll(".settings-layout nav button")].map(button => button.textContent.trim()).join("|")',
         ),
-        '账号设置|系统设置|系统日志|关于系统',
+        '账号设置|公共题库|系统设置|系统日志|关于系统',
       );
       await evaluate(`(() => {
         const state = { lexloopDashboardPage: 'settings', lexloopDashboardUserId: 'report-user-a' };

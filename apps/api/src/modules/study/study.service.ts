@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  StudyContentFeedbackRating,
+  StudyContentFeedbackReason,
   StudyPlanItemSource,
   StudyPlanMode,
   StudyPlanPurpose,
@@ -25,6 +27,7 @@ import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
+import { studyQuestionFingerprint } from './study-content-bank';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
 import { chinaDateRange } from '../automatic-study-plan/automatic-study-plan.rules';
 import {
@@ -117,6 +120,7 @@ type ResolvedGroup = {
   cacheId?: string;
   signature: string;
   reused: boolean;
+  publicEligible: boolean;
 };
 type GradedAnswer = {
   isCorrect: boolean;
@@ -136,6 +140,17 @@ const studyPlanInclude = (userId: string) =>
             weaknesses: {
               where: { userId, status: WeaknessStatus.ACTIVE },
               select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
+            },
+          },
+        },
+        contentCache: {
+          select: {
+            isPublic: true,
+            questionFeedbacks: {
+              where: { userId },
+              orderBy: { updatedAt: 'desc' },
+              take: 50,
+              select: { questionFingerprint: true, rating: true, reason: true },
             },
           },
         },
@@ -327,7 +342,7 @@ export class StudyService {
       include: {
         items: {
           orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
-          include: { bookWord: { include: { word: true } } },
+          include: { bookWord: { include: { word: true, book: true } } },
         },
       },
     });
@@ -356,7 +371,7 @@ export class StudyService {
       include: {
         items: {
           orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
-          include: { bookWord: { include: { word: true } } },
+          include: { bookWord: { include: { word: true, book: true } } },
         },
       },
     });
@@ -404,6 +419,9 @@ export class StudyService {
         items
           .filter((item) => item.targetQuestionType)
           .map((item) => [item.bookWordId, item.targetQuestionType!]),
+      ),
+      publicEligible: items.every(
+        (item) => item.bookWord.book.kind === 'SYSTEM' && item.bookWord.book.ownerId === null,
       ),
     }));
 
@@ -463,7 +481,18 @@ export class StudyService {
         spec,
         signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
       }));
-      const signatures = [...new Set(cacheLookupSpecs.map(({ signature }) => signature))];
+      const signatures = [
+        ...new Set(
+          cacheLookupSpecs
+            .filter(({ spec }) => spec.publicEligible)
+            .map(({ signature }) => signature),
+        ),
+      ];
+      // The plan selector already limits the groups to new or due, non-mastered
+      // words. For an exact public material version, a missing or latest-wrong
+      // answer is a concrete low-familiarity signal. Fully correct versions are
+      // left out so a due word can get fresh material when no suitable cache
+      // variant remains; this adds no separate mastery threshold.
       const cacheCandidates = signatures.length
         ? await this.prisma.$queryRaw<
             Array<{ id: string; signature: string; material: Prisma.JsonValue }>
@@ -473,21 +502,47 @@ export class StudyService {
                 cache."id",
                 cache."signature",
                 cache."material",
+                familiarity."hasUnfamiliarQuestion",
                 ROW_NUMBER() OVER (
                   PARTITION BY cache."signature"
-                  ORDER BY cache."hitCount" DESC, cache."createdAt" ASC
+                  ORDER BY familiarity."hasUnfamiliarQuestion" DESC,
+                           cache."hitCount" DESC,
+                           cache."createdAt" ASC
                 ) AS candidate_rank
               FROM "public"."StudyContentCache" AS cache
+              CROSS JOIN LATERAL (
+                SELECT CASE
+                  WHEN COALESCE(jsonb_typeof(cache."material"->'questions'), 'null') <> 'array'
+                  THEN TRUE
+                  WHEN jsonb_array_length(cache."material"->'questions') = 0 THEN TRUE
+                  ELSE EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(cache."material"->'questions')
+                      AS material_question(question)
+                    LEFT JOIN LATERAL (
+                      SELECT attempt."isCorrect"
+                      FROM "public"."StudyPlanItem" AS item
+                      JOIN "public"."StudyPlan" AS plan
+                        ON plan."id" = item."planId"
+                       AND plan."userId" = ${userId}
+                      JOIN "public"."WordReviewAttempt" AS attempt
+                        ON attempt."planItemId" = item."id"
+                       AND attempt."userId" = ${userId}
+                      WHERE item."contentCacheId" = cache."id"
+                        AND item."bookWordId" = material_question.question->>'bookWordId'
+                        AND item."question" = material_question.question
+                      ORDER BY attempt."createdAt" DESC, attempt."id" DESC
+                      LIMIT 1
+                    ) AS latest_attempt ON TRUE
+                    WHERE latest_attempt."isCorrect" IS DISTINCT FROM TRUE
+                  )
+                END AS "hasUnfamiliarQuestion"
+              ) AS familiarity
               WHERE cache."mode" = ${plan.mode}::"StudyPlanMode"
+                AND cache."isPublic" = TRUE
+                AND cache."isActive" = TRUE
                 AND cache."signature" IN (${Prisma.join(signatures)})
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM "public"."StudyPlanItem" AS item
-                  JOIN "public"."WordReviewAttempt" AS attempt
-                    ON attempt."planItemId" = item."id"
-                  WHERE item."contentCacheId" = cache."id"
-                    AND attempt."userId" = ${userId}
-                )
+                AND familiarity."hasUnfamiliarQuestion" = TRUE
             )
             SELECT "id", "signature", "material"
             FROM ranked_cache
@@ -502,6 +557,7 @@ export class StudyService {
         cacheCandidatesBySignature.set(candidate.signature, matches);
       }
       const cached = cacheLookupSpecs.map(({ spec, signature }): ResolvedGroup | null => {
+        if (!spec.publicEligible) return null;
         let firstInvalidCacheId: string | undefined;
         for (const cache of cacheCandidatesBySignature.get(signature) ?? []) {
           const group = { ...(cache.material as unknown as GeneratedGroup), index: spec.index };
@@ -515,6 +571,7 @@ export class StudyService {
             cacheId: cache.id,
             signature,
             reused: true,
+            publicEligible: true,
             group,
           };
         }
@@ -621,6 +678,7 @@ export class StudyService {
             spec.targetQuestionTypes,
           ),
           reused: false,
+          publicEligible: spec.publicEligible,
         };
       });
       const generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
@@ -650,11 +708,11 @@ export class StudyService {
 
         for (const resolvedGroup of resolved) {
           let cacheId = resolvedGroup.cacheId;
-          if (cacheId) {
+          if (resolvedGroup.publicEligible && cacheId) {
             await tx.studyContentCache.update({
               where: { id: cacheId },
               data: {
-                hitCount: { increment: 1 },
+                hitCount: resolvedGroup.reused ? { increment: 1 } : 0,
                 lastUsedAt: new Date(),
                 ...(!resolvedGroup.reused
                   ? {
@@ -666,12 +724,13 @@ export class StudyService {
                   : {}),
               },
             });
-          } else {
+          } else if (resolvedGroup.publicEligible) {
             const created = await tx.studyContentCache.create({
               data: {
                 signature: resolvedGroup.signature,
                 mode: plan.mode,
                 material: { ...resolvedGroup.group, index: 0 } as unknown as Prisma.InputJsonValue,
+                isPublic: true,
               },
             });
             cacheId = created.id;
@@ -680,7 +739,7 @@ export class StudyService {
             await tx.studyPlanItem.updateMany({
               where: { planId, bookWordId: question.bookWordId },
               data: {
-                contentCacheId: cacheId,
+                contentCacheId: resolvedGroup.publicEligible ? (cacheId ?? null) : null,
                 question: question as unknown as Prisma.InputJsonValue,
               },
             });
@@ -751,6 +810,54 @@ export class StudyService {
 
   async getPlan(userId: string, planId: string) {
     return this.serializePlan(planId, userId);
+  }
+
+  async ratePublicQuestion(
+    userId: string,
+    planId: string,
+    bookWordId: string,
+    rating: StudyContentFeedbackRating,
+    reason?: StudyContentFeedbackReason,
+  ) {
+    const item = await this.prisma.studyPlanItem.findFirst({
+      where: {
+        planId,
+        bookWordId,
+        completedAt: { not: null },
+        plan: { userId },
+        attempts: { some: { userId } },
+        contentCache: { is: { isPublic: true } },
+      },
+      select: { question: true, contentCacheId: true },
+    });
+    if (!item?.question || !item.contentCacheId) {
+      throw new NotFoundException('只有完成并查看过的公共题目可以评价');
+    }
+    const questionFingerprint = studyQuestionFingerprint(item.question);
+    const feedback = await this.prisma.studyContentQuestionFeedback.upsert({
+      where: {
+        userId_contentCacheId_questionFingerprint: {
+          userId,
+          contentCacheId: item.contentCacheId,
+          questionFingerprint,
+        },
+      },
+      create: {
+        userId,
+        contentCacheId: item.contentCacheId,
+        questionFingerprint,
+        questionSnapshot: item.question,
+        rating,
+        reason: rating === StudyContentFeedbackRating.DOWN ? (reason ?? null) : null,
+      },
+      update: {
+        questionSnapshot: item.question,
+        rating,
+        reason: rating === StudyContentFeedbackRating.DOWN ? (reason ?? null) : null,
+      },
+      select: { rating: true, reason: true },
+    });
+    return { ...feedback, saved: true };
   }
 
   async getGenerationStatus(userId: string, planId: string) {
@@ -989,6 +1096,18 @@ export class StudyService {
             remainingCorrect: Math.max(0, MISTAKE_CORRECTION_STREAK - signal.consecutiveCorrect),
           }))
         : [],
+      ...(item.contentCache?.isPublic
+        ? {
+            publicBankMaterial: true,
+            questionFeedback:
+              item.question && item.completedAt
+                ? (item.contentCache.questionFeedbacks.find(
+                    (feedback) =>
+                      feedback.questionFingerprint === studyQuestionFingerprint(item.question),
+                  ) ?? null)
+                : null,
+          }
+        : {}),
     }));
     const attempts = plan.items.flatMap((item) => item.attempts);
     const blocksNewPlanCreation =

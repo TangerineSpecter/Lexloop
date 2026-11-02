@@ -77,12 +77,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         prisma as never,
         ai as never,
         { selectedProvider } as never,
-        {} as never,
+        { recordAttempt: vi.fn(async () => undefined) } as never,
       );
 
       try {
         const learners = await Promise.all(
-          ['cache-only', 'partial-cache'].map((suffix) =>
+          ['cache-only', 'partial-cache', 'inactive-cache'].map((suffix) =>
             prisma.user.create({
               data: {
                 email: `study-cache-${fixtureId}-${suffix}@example.invalid`,
@@ -152,12 +152,14 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             mode: StudyPlanMode.INDIVIDUAL,
             material: invalidCachedGroup,
             hitCount: 20 - index,
+            isPublic: true,
           })),
         });
         const validCache = await prisma.studyContentCache.create({
           data: {
             signature: signatures[0],
             mode: StudyPlanMode.INDIVIDUAL,
+            isPublic: true,
             material: generatedGroup(
               0,
               book.bookWords[0].id,
@@ -186,32 +188,21 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           where: { planId: cachedPlan.id },
           select: { id: true, bookWordId: true },
         });
-        const answeredAt = new Date();
-        await prisma.wordReviewAttempt.create({
-          data: {
-            userId: users[0],
-            bookWordId: usedPlanItem.bookWordId,
-            planItemId: usedPlanItem.id,
-            isCorrect: true,
-            questionType: 'MEANING_RECOGNITION',
-            selectedAnswer: ['稳定的'],
-            responseTimeMs: 650,
-            createdAt: answeredAt,
+        await service.completeGroup(users[0], cachedPlan.id, 0, [
+          { bookWordId: usedPlanItem.bookWordId, selectedAnswer: ['稳定的'] },
+        ]);
+        await prisma.userWordProgress.update({
+          where: {
+            userId_bookWordId: { userId: users[0], bookWordId: usedPlanItem.bookWordId },
           },
-        });
-        await prisma.studyPlanItem.update({
-          where: { id: usedPlanItem.id },
-          data: { completedAt: answeredAt },
-        });
-        await prisma.studyPlan.update({
-          where: { id: cachedPlan.id },
-          data: { status: 'COMPLETED', completedAt: answeredAt },
+          data: { nextReviewAt: new Date(Date.now() - 60_000) },
         });
 
         const alternateCache = await prisma.studyContentCache.create({
           data: {
             signature: signatures[0],
             mode: StudyPlanMode.INDIVIDUAL,
+            isPublic: true,
             material: generatedGroup(
               0,
               book.bookWords[0].id,
@@ -221,22 +212,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           },
           select: { id: true },
         });
-        const sameLearnerPlan = await prisma.studyPlan.create({
-          data: {
-            userId: users[0],
-            mode: StudyPlanMode.INDIVIDUAL,
-            purpose: StudyPlanPurpose.NORMAL,
-            status: 'GENERATING',
-            items: {
-              create: {
-                bookWordId: book.bookWords[0].id,
-                source: 'NEW',
-                groupIndex: 0,
-              },
-            },
-          },
-          select: { id: true },
-        });
+        const sameLearnerPlan = await service.createPlan(users[0], 1, 'individual', 0, 'due');
         const completedForSameLearner = await service.generatePlan(users[0], sameLearnerPlan.id);
         expect(completedForSameLearner.status).toBe('ACTIVE');
         expect(completedForSameLearner.content).toMatchObject({
@@ -248,6 +224,35 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         });
         expect(sameLearnerPlanItem.contentCacheId).toBe(alternateCache.id);
         expect(selectedProvider).not.toHaveBeenCalled();
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+
+        const alternatePlanItem = await prisma.studyPlanItem.findFirstOrThrow({
+          where: { planId: sameLearnerPlan.id },
+          select: { id: true, bookWordId: true },
+        });
+        await service.completeGroup(users[0], sameLearnerPlan.id, 0, [
+          { bookWordId: alternatePlanItem.bookWordId, selectedAnswer: ['急促的'] },
+        ]);
+        await prisma.userWordProgress.update({
+          where: {
+            userId_bookWordId: {
+              userId: users[0],
+              bookWordId: alternatePlanItem.bookWordId,
+            },
+          },
+          data: { nextReviewAt: new Date(Date.now() - 60_000) },
+        });
+        const lowFamiliarityPlan = await service.createPlan(users[0], 1, 'individual', 0, 'due');
+        const lowFamiliarityResult = await service.generatePlan(users[0], lowFamiliarityPlan.id);
+        expect(lowFamiliarityResult.status).toBe('ACTIVE');
+        expect(lowFamiliarityResult.content).toMatchObject({
+          groups: [{ title: 'Alternate lesson for the same learner' }],
+        });
+        const lowFamiliarityItem = await prisma.studyPlanItem.findFirstOrThrow({
+          where: { planId: lowFamiliarityPlan.id },
+          select: { bookWordId: true, contentCacheId: true },
+        });
+        expect(lowFamiliarityItem.contentCacheId).toBe(alternateCache.id);
         expect(ai.generateForUser).not.toHaveBeenCalled();
 
         const partialPlan = await service.createPlan(users[1], 2, 'individual', 0, 'book');
@@ -271,7 +276,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const retriedPlan = await service.generatePlan(users[1], partialPlan.id);
         expect(retriedPlan.status).toBe('ACTIVE');
         expect(retriedPlan.content).toMatchObject({
-          groups: [{ title: 'Shared cached lesson' }, { title: 'Fresh context for gentle' }],
+          groups: [
+            { title: 'Alternate lesson for the same learner' },
+            { title: 'Fresh context for gentle' },
+          ],
         });
         expect(selectedProvider).toHaveBeenCalledTimes(2);
         expect(ai.generateForUser).toHaveBeenCalledTimes(1);
@@ -282,7 +290,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const cacheRows = await prisma.studyContentCache.findMany({
           where: { signature: { in: signatures } },
           orderBy: [{ signature: 'asc' }, { hitCount: 'desc' }],
-          select: { id: true, signature: true, hitCount: true, material: true },
+          select: { id: true, signature: true, hitCount: true, material: true, isPublic: true },
         });
         const steadyVariants = cacheRows.filter((row) => row.signature === signatures[0]);
         const originalCache = steadyVariants.find((row) => row.id === validCache.id);
@@ -291,8 +299,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           (row) => row.id !== validCache.id && row.id !== alternateCache.id,
         );
         expect(steadyVariants).toHaveLength(21);
-        expect(originalCache?.hitCount).toBe(2);
-        expect(alternateCacheRow?.hitCount).toBe(1);
+        expect(originalCache?.hitCount).toBe(1);
+        expect(alternateCacheRow?.hitCount).toBe(3);
         expect(untouchedInvalidVariants).toHaveLength(19);
         expect(untouchedInvalidVariants.map((row) => row.hitCount).sort((a, b) => b - a)).toEqual(
           Array.from({ length: 19 }, (_, index) => 20 - index),
@@ -301,8 +309,71 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           Array.from({ length: 19 }, () => invalidCachedGroup),
         );
         expect(cacheRows.filter((row) => row.signature === signatures[1])).toEqual([
-          expect.objectContaining({ signature: signatures[1], hitCount: 0 }),
+          expect.objectContaining({ signature: signatures[1], hitCount: 0, isPublic: true }),
         ]);
+
+        await service.completeGroup(users[0], lowFamiliarityPlan.id, 0, [
+          { bookWordId: lowFamiliarityItem.bookWordId, selectedAnswer: ['稳定的'] },
+        ]);
+        await prisma.userWordProgress.update({
+          where: {
+            userId_bookWordId: {
+              userId: users[0],
+              bookWordId: lowFamiliarityItem.bookWordId,
+            },
+          },
+          data: { nextReviewAt: new Date(Date.now() - 60_000) },
+        });
+        const familiarOnlyPlan = await service.createPlan(users[0], 1, 'individual', 0, 'due');
+        const freshMaterial = await service.generatePlan(users[0], familiarOnlyPlan.id);
+        expect(freshMaterial.status).toBe('ACTIVE');
+        expect(freshMaterial.content).toMatchObject({
+          groups: [{ title: 'Fresh context for steady' }],
+        });
+        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+        const freshMaterialItem = await prisma.studyPlanItem.findFirstOrThrow({
+          where: { planId: familiarOnlyPlan.id },
+          select: { contentCacheId: true },
+        });
+        expect(freshMaterialItem.contentCacheId).not.toBe(validCache.id);
+        expect(freshMaterialItem.contentCacheId).not.toBe(alternateCache.id);
+
+        modelAvailable = false;
+        const unusedGeneratedCache = await prisma.studyContentCache.findFirstOrThrow({
+          where: { signature: signatures[1] },
+          select: { id: true },
+        });
+        await prisma.studyContentCache.update({
+          where: { id: unusedGeneratedCache.id },
+          data: { isActive: false },
+        });
+        const inactiveCachePlan = await prisma.studyPlan.create({
+          data: {
+            userId: users[2],
+            mode: StudyPlanMode.INDIVIDUAL,
+            purpose: StudyPlanPurpose.NORMAL,
+            status: 'GENERATING',
+            items: {
+              create: {
+                bookWordId: book.bookWords[1].id,
+                source: 'NEW',
+                groupIndex: 0,
+              },
+            },
+          },
+          select: { id: true },
+        });
+        await expect(service.generatePlan(users[2], inactiveCachePlan.id)).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+        expect(selectedProvider).toHaveBeenLastCalledWith(users[2]);
+        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+        expect(
+          await prisma.studyPlanItem.findFirstOrThrow({
+            where: { planId: inactiveCachePlan.id },
+            select: { contentCacheId: true },
+          }),
+        ).toEqual({ contentCacheId: null });
       } finally {
         if (users.length) await prisma.user.deleteMany({ where: { id: { in: users } } });
         if (signatures.length)

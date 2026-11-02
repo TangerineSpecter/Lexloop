@@ -235,6 +235,7 @@ test(
               words: [
                 { id: 'word-1', word: 'bright', part: 'adj.', meaning: '明亮的', source: 'REVIEW', groupIndex: 0,
                   question: firstSubmitted ? questionAfterSubmit : questionBeforeSubmit, completed: firstSubmitted, result: firstSubmitted ? false : undefined,
+                  publicBankMaterial: firstSubmitted, questionFeedback: null,
                   ...(firstSubmitted ? { savedContext: { scenario: '微故事 · 上班路上 · 第 1 段', example: 'Maya missed the bus, so she called a taxi.' } } : {}),
                   nextReviewAt: firstSubmitted ? nextReviewAt[0] : null,
                   activeWeaknesses: firstSubmitted ? [{ questionType: 'MEANING_RECOGNITION', wrongCount: 1, consecutiveCorrect: 0, remainingCorrect: 2 }] : [] },
@@ -328,6 +329,22 @@ test(
           window.studyAlerts = [];
           window.mistakeRequests = [];
           window.apiFetchLog = [];
+          window.questionFeedbackRequests = [];
+          window.studyBankListRequests = [];
+          window.studyBankFixture = {
+            page: 1, pageSize: 20, total: 1, quarantinedCount: 2,
+            items: [{
+              id: 'cache-fixture', mode: 'GROUP',
+              material: { title: 'Fixture public lesson', wordOccurrences: { bright: 1 }, sentences: [] },
+              reuseHits: 3, planReferences: 4, isActive: true, disabledAt: null, disabledReason: null,
+              createdAt: '2026-10-31T12:00:00.000Z', provenance: '生成模型来源未记录（题库未保存该字段）',
+              questions: [{
+                bookWordId: 'word-1', type: 'MEANING_RECOGNITION', prompt: 'Choose the meaning of bright.',
+                options: ['暗的', '明亮的'], correctAnswers: ['明亮的'], explanation: 'bright 描述光线充足。',
+                feedback: { up: 2, down: 1, reasonCounts: { QUESTION_UNCLEAR: 1 } },
+              }],
+            }],
+          };
           window.tutorRequests = [];
           window.alert = (message) => window.studyAlerts.push(String(message));
           if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
@@ -397,6 +414,27 @@ test(
             if (path.includes('/api/v1/mistakes?')) {
               window.mistakeRequests.push({ method, url: path });
               return Response.json({ items: [], page: 1, pageSize: 20, total: 0, hasMore: false });
+            }
+            if (path.includes('/api/v1/admin/study-content-bank')) {
+              if (method === 'PATCH') {
+                const body = JSON.parse(options.body);
+                window.studyBankFixture.items[0].isActive = body.isActive;
+                window.studyBankFixture.items[0].disabledReason = body.isActive ? null : body.reason ?? '管理员停用';
+                window.studyBankFixture.items[0].disabledAt = body.isActive ? null : new Date().toISOString();
+                return Response.json({ id: 'cache-fixture', ...body });
+              }
+              window.studyBankListRequests.push(path);
+              const url = new URL(path, location.href);
+              const status = url.searchParams.get('status');
+              const items = window.studyBankFixture.items.filter((item) =>
+                status === 'active' ? item.isActive : status === 'disabled' ? !item.isActive : true,
+              );
+              return Response.json({ ...window.studyBankFixture, items, total: items.length });
+            }
+            if (path.includes('/api/v1/study/plans/plan-1/public-questions/') && path.endsWith('/feedback') && method === 'POST') {
+              const body = JSON.parse(options.body);
+              window.questionFeedbackRequests.push({ path, body });
+              return Response.json({ ...body, saved: true });
             }
             const generationPath = '/api/v1/study/plans/first-plan-book-b/generate';
             if (path.endsWith(generationPath) && method === 'POST' && window.firstPlanJourney) {
@@ -1939,6 +1977,37 @@ test(
         /bright 描述光线充足/,
       );
       assert.equal(
+        await evaluate('document.querySelector(".public-question-feedback") !== null'),
+        true,
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("有问题")).click()',
+      );
+      await evaluate(`(() => {
+        const reason = document.querySelector('.public-question-feedback select');
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(reason, 'QUESTION_UNCLEAR');
+        reason.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("提交评价")).click()',
+      );
+      await until('document.querySelector(".public-question-feedback [role=status]")');
+      assert.deepEqual(await evaluate('window.questionFeedbackRequests[0].body'), {
+        rating: 'DOWN',
+        reason: 'QUESTION_UNCLEAR',
+      });
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("题目清楚")).click()',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("更新评价")).click()',
+      );
+      await until('window.questionFeedbackRequests.length === 2');
+      assert.deepEqual(await evaluate('window.questionFeedbackRequests[1].body'), {
+        rating: 'UP',
+        reason: null,
+      });
+      assert.equal(
         await evaluate('document.querySelector(".saved-review-context p")?.textContent'),
         'Maya missed the bus, so she called a taxi.',
       );
@@ -2516,8 +2585,122 @@ test(
         JSON.stringify(mobileHistoryLayout),
       );
       assert.ok(mobileHistoryLayout.review > 0, JSON.stringify(mobileHistoryLayout));
+      await evaluate(`(() => {
+        const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.user.role = 'USER';
+        localStorage.setItem('lexloop.session', JSON.stringify(session));
+      })()`);
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=settings&section=bank', baseUrl).href,
+      });
+      await until('document.querySelector(".settings-page h1")?.textContent === "设置"');
+      assert.equal(
+        await evaluate('document.querySelector("#study-content-bank-title") === null'),
+        true,
+      );
+      assert.equal(await evaluate('window.studyBankListRequests.length'), 0);
+      await evaluate(`(() => {
+        const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.user.role = 'ADMIN';
+        localStorage.setItem('lexloop.session', JSON.stringify(session));
+      })()`);
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=settings&section=bank', baseUrl).href,
+      });
+      await until(
+        'document.querySelector("#study-content-bank-title") && document.body.innerText.includes("Fixture public lesson")',
+      );
+      await until('window.studyBankListRequests.length === 1');
+      assert.equal(
+        await evaluate('document.body.innerText.includes("来源无法确认已隔离停用")'),
+        true,
+      );
+      await evaluate('document.querySelector("details summary").click()');
+      assert.equal(
+        await evaluate('document.querySelector("details").innerText.includes("参考答案：明亮的")'),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const bankDesktop = await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="study-content-bank-title"]');
+        const panel = section.getBoundingClientRect();
+        const filters = section.querySelector('form').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, filtersRight: filters.right };
+      })()`);
+      await capture('public-study-bank-desktop.png');
+      assert.equal(bankDesktop.viewport, 1440);
+      assert.ok(bankDesktop.document <= bankDesktop.viewport, JSON.stringify(bankDesktop));
+      assert.ok(
+        bankDesktop.panelLeft >= 0 && bankDesktop.panelRight <= bankDesktop.viewport,
+        JSON.stringify(bankDesktop),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 768,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const bankMid =
+        await evaluate(`({ viewport: innerWidth, document: document.documentElement.scrollWidth,
+        filters: document.querySelector('[aria-labelledby="study-content-bank-title"] form').getBoundingClientRect().toJSON() })`);
+      assert.ok(bankMid.document <= bankMid.viewport, JSON.stringify(bankMid));
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const bankMobile = await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="study-content-bank-title"]');
+        const panel = section.getBoundingClientRect();
+        const card = section.querySelector('article').getBoundingClientRect();
+        const footer = section.querySelector('article footer').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panelLeft: panel.left, panelRight: panel.right, cardLeft: card.left, cardRight: card.right, footerLeft: footer.left, footerRight: footer.right };
+      })()`);
+      await capture('public-study-bank-390.png');
+      assert.equal(bankMobile.viewport, 390);
+      assert.ok(bankMobile.document <= bankMobile.viewport, JSON.stringify(bankMobile));
+      assert.ok(
+        bankMobile.panelLeft >= 0 && bankMobile.panelRight <= bankMobile.viewport,
+        JSON.stringify(bankMobile),
+      );
+      assert.ok(
+        bankMobile.cardLeft >= 0 && bankMobile.cardRight <= bankMobile.viewport,
+        JSON.stringify(bankMobile),
+      );
+      assert.ok(
+        bankMobile.footerLeft >= 0 && bankMobile.footerRight <= bankMobile.viewport,
+        JSON.stringify(bankMobile),
+      );
+      await evaluate(`(() => {
+        const status = document.querySelector('[aria-labelledby="study-content-bank-title"] form select');
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(status, 'all');
+        status.dispatchEvent(new Event('change', { bubbles: true }));
+        document.querySelector('[aria-labelledby="study-content-bank-title"] form button[type=submit]').click();
+      })()`);
+      await until('document.querySelector("details summary")');
+      await evaluate(`(() => {
+        const reason = document.querySelector('input[maxlength="200"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(reason, 'fixture review');
+        reason.dispatchEvent(new Event('input', { bubbles: true }));
+        [...document.querySelectorAll('button')].find((button) => button.textContent.includes('停用材料')).click();
+      })()`);
+      await until(
+        'document.body.innerText.includes("材料已停用") && [...document.querySelectorAll("button")].some((button) => button.textContent.includes("恢复材料"))',
+      );
+      assert.equal(await evaluate('window.studyBankFixture.items[0].isActive'), false);
+      await evaluate(
+        '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("恢复材料")).click()',
+      );
+      await until('document.body.innerText.includes("材料已恢复")');
+      assert.equal(await evaluate('window.studyBankFixture.items[0].isActive'), true);
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
-      console.log(`keyboard learning journey: 390px picker → practice answer → history review`);
+      console.log(`keyboard learning journey and public bank feedback/admin: 1440px/768px/390px`);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

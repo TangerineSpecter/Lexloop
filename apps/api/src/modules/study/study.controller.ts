@@ -11,6 +11,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { StudyContentFeedbackRating, StudyContentFeedbackReason } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { StudyService } from './study.service';
@@ -23,6 +24,13 @@ class AnswerDto {
 }
 class CompleteGroupDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => AnswerDto) answers!: AnswerDto[];
+}
+class PublicQuestionFeedbackDto {
+  @IsIn([StudyContentFeedbackRating.UP, StudyContentFeedbackRating.DOWN])
+  rating!: StudyContentFeedbackRating;
+  @IsOptional()
+  @IsIn(Object.values(StudyContentFeedbackReason))
+  reason?: StudyContentFeedbackReason;
 }
 class CreatePlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100) newWordCount?: number;
@@ -96,5 +104,19 @@ export class StudyController {
     @Body() dto: CompleteGroupDto,
   ) {
     return this.study.completeGroup(request.user.sub, planId, Number(groupIndex), dto.answers);
+  }
+  @Post('plans/:planId/public-questions/:bookWordId/feedback') feedback(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+    @Param('bookWordId') bookWordId: string,
+    @Body() dto: PublicQuestionFeedbackDto,
+  ) {
+    return this.study.ratePublicQuestion(
+      request.user.sub,
+      planId,
+      bookWordId,
+      dto.rating,
+      dto.reason,
+    );
   }
 }

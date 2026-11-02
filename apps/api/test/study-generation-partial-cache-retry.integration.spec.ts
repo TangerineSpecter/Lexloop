@@ -124,6 +124,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           data: {
             signature: signatures[0],
             mode: StudyPlanMode.INDIVIDUAL,
+            isPublic: true,
             material: cachedGroup,
           },
           select: { id: true },

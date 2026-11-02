@@ -24,6 +24,7 @@ import {
   CircleX,
   Check,
   Copy,
+  Database,
   Eye,
   EyeOff,
   Flame,
@@ -47,6 +48,8 @@ import {
   Trophy,
   Swords,
   Trash2,
+  ThumbsDown,
+  ThumbsUp,
   Undo2,
   UserRound,
   Volume2,
@@ -179,6 +182,10 @@ const SystemSettings = dynamic(
   () => import('./system-settings').then((module) => module.SystemSettings),
   { loading: () => <DashboardLoadingCard label="正在加载系统设置…" announce /> },
 );
+const StudyContentBankPanel = dynamic(
+  () => import('./study-content-bank-panel').then((module) => module.StudyContentBankPanel),
+  { loading: () => <DashboardLoadingCard label="正在读取公共题库…" announce /> },
+);
 const NotebookPage = dynamic(
   () => import('./learning-lab/notebook-page').then((module) => module.NotebookPage),
   { loading: () => <DashboardPageLoading page="notebook" title="生词本与学习笔记" /> },
@@ -243,6 +250,17 @@ type Word = {
     consecutiveCorrect: number;
     remainingCorrect: number;
   }>;
+  publicBankMaterial?: boolean;
+  questionFeedback?: {
+    rating: 'UP' | 'DOWN';
+    reason:
+      | 'ANSWER_INCORRECT'
+      | 'QUESTION_UNCLEAR'
+      | 'OPTIONS_INCORRECT'
+      | 'EXPLANATION_UNCLEAR'
+      | 'OTHER'
+      | null;
+  } | null;
 };
 type DashboardWords = {
   defaultNewWordCount: number;
@@ -288,7 +306,7 @@ export type LearningPlan = {
   completedAt?: string | null;
 };
 type StudyPlanListStatus = 'loading' | 'ready' | 'error';
-type SettingsSection = 'account' | 'system' | 'logs' | 'about';
+type SettingsSection = 'account' | 'system' | 'logs' | 'about' | 'bank';
 type DashboardPage =
   | 'study'
   | 'travel'
@@ -359,6 +377,7 @@ function settingsSectionFromLocation(
   if (legacyTab === 'updates' || legacyTab === 'system-update') return 'about';
   if (legacyTab === 'logs' || legacyTab === 'system-logs') return 'logs';
   const requested = params.get('section') ?? legacyTab;
+  if (requested === 'bank' || requested === 'study-content-bank') return 'bank';
   if (requested === 'logs' || requested === 'system-logs') return 'logs';
   if (requested === 'about' || requested === 'updates' || requested === 'system-update') {
     return 'about';
@@ -372,7 +391,9 @@ function settingsSectionFromLocation(
   ) {
     const saved = (state as { lexloopDashboardSettingsSection?: unknown })
       .lexloopDashboardSettingsSection;
-    if (saved === 'system' || saved === 'logs' || saved === 'about') return saved;
+    if (saved === 'system' || saved === 'logs' || saved === 'about' || saved === 'bank') {
+      return saved;
+    }
   }
   return 'account';
 }
@@ -3089,6 +3110,16 @@ function AccountSettings({
           {session.user.role === 'ADMIN' && (
             <>
               <button
+                className={section === 'bank' ? 'active' : ''}
+                onClick={() => {
+                  setSection('bank');
+                  onSectionChange('bank');
+                }}
+              >
+                <Database size={19} />
+                公共题库
+              </button>
+              <button
                 className={section === 'system' ? 'active' : ''}
                 onClick={() => {
                   setSection('system');
@@ -3132,6 +3163,10 @@ function AccountSettings({
         ) : section === 'about' && session.user.role === 'ADMIN' ? (
           <DashboardChunkErrorBoundary title="关于系统" onRetry={onRetryDeferredPage}>
             <SystemUpdatePanel session={session} />
+          </DashboardChunkErrorBoundary>
+        ) : section === 'bank' && session.user.role === 'ADMIN' ? (
+          <DashboardChunkErrorBoundary title="公共题库" onRetry={onRetryDeferredPage}>
+            <StudyContentBankPanel session={session} />
           </DashboardChunkErrorBoundary>
         ) : (
           <section className="account-settings-content">
@@ -5601,6 +5636,29 @@ function GeneratedStudyPage({
       setSubmitting(false);
     }
   };
+  const saveQuestionFeedback = async (
+    bookWordId: string,
+    rating: 'UP' | 'DOWN',
+    reason: NonNullable<Word['questionFeedback']>['reason'],
+  ) => {
+    const feedback = await request<NonNullable<Word['questionFeedback']>>(
+      `/study/plans/${encodeURIComponent(activePlan.id)}/public-questions/${encodeURIComponent(bookWordId)}/feedback`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ rating, reason }),
+      },
+      session.accessToken,
+    );
+    const updated: LearningPlan = {
+      ...activePlan,
+      words: activePlan.words.map((item) =>
+        item.id === bookWordId ? { ...item, questionFeedback: feedback } : item,
+      ),
+    };
+    setSubmittedPlan(updated);
+    onPlanUpdated(updated);
+    return feedback;
+  };
   if (finishedPlan && !showingFeedback) {
     const retest = wrongRetestPlan(finishedPlan.words);
     if (retestPhase === 'pending' && retest.items.length > 0) {
@@ -5743,6 +5801,11 @@ function GeneratedStudyPage({
                   busy={!draftReady || submitting || showingFeedback}
                   revealed={showingFeedback}
                   onAnswer={(selected, confirmed) => recordAnswer(question, selected, confirmed)}
+                  publicBankMaterial={word.publicBankMaterial === true}
+                  questionFeedback={word.questionFeedback ?? null}
+                  onSaveFeedback={(rating, reason) =>
+                    saveQuestionFeedback(word.id!, rating, reason)
+                  }
                 />
               );
             })}
@@ -6130,6 +6193,9 @@ function GeneratedQuestionCard({
   busy,
   revealed,
   onAnswer,
+  publicBankMaterial = false,
+  questionFeedback = null,
+  onSaveFeedback,
 }: {
   question: GeneratedQuestion;
   word: Word;
@@ -6138,11 +6204,31 @@ function GeneratedQuestionCard({
   busy: boolean;
   revealed: boolean;
   onAnswer: (selected: string[], confirmed: boolean) => void;
+  publicBankMaterial?: boolean;
+  questionFeedback?: NonNullable<Word['questionFeedback']> | null;
+  onSaveFeedback?: (
+    rating: 'UP' | 'DOWN',
+    reason: NonNullable<Word['questionFeedback']>['reason'],
+  ) => Promise<NonNullable<Word['questionFeedback']>>;
 }) {
   const selected = answer?.selected ?? [];
   const isMultiple = question.type === 'WORD_MNEMONIC';
   const keyboardSubmissionPending = useRef(false);
   const answerStatusRef = useRef<HTMLParagraphElement>(null);
+  const [feedbackRating, setFeedbackRating] = useState<'UP' | 'DOWN' | null>(
+    questionFeedback?.rating ?? null,
+  );
+  const [feedbackReason, setFeedbackReason] = useState<
+    NonNullable<Word['questionFeedback']>['reason']
+  >(questionFeedback?.reason ?? null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [feedbackSaved, setFeedbackSaved] = useState(Boolean(questionFeedback));
+  useEffect(() => {
+    setFeedbackRating(questionFeedback?.rating ?? null);
+    setFeedbackReason(questionFeedback?.reason ?? null);
+    setFeedbackSaved(Boolean(questionFeedback));
+  }, [questionFeedback?.rating, questionFeedback?.reason]);
   const correct = Boolean(
     answer?.confirmed && revealed && gradeGeneratedAnswer(question, answer.selected),
   );
@@ -6160,6 +6246,24 @@ function GeneratedQuestionCard({
     : question.type === 'WORD_MATCHING' && question.pairs?.length
       ? `正确配对为：${question.pairs.map((pair) => `${pair.left} 对应 ${pair.right}`).join('；')}。`
       : `正确答案为：${question.correctAnswers?.join('、') ?? '交卷后揭晓'}。请结合文章语境和单词释义理解本题。`;
+  const saveFeedback = async () => {
+    if (!feedbackRating || !onSaveFeedback || feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackError('');
+    try {
+      const saved = await onSaveFeedback(
+        feedbackRating,
+        feedbackRating === 'DOWN' ? feedbackReason : null,
+      );
+      setFeedbackRating(saved.rating);
+      setFeedbackReason(saved.reason);
+      setFeedbackSaved(true);
+    } catch (error) {
+      setFeedbackError(userFacingError(error, '评价没有保存，请重试。'));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
   return (
     <article className="exercise-card generated-question">
       <span className="exercise-kind">{exerciseLabels[question.type]}</span>
@@ -6247,6 +6351,68 @@ function GeneratedQuestionCard({
           <p className="question-explanation">{explanation}</p>
           <WordMeaningCard word={word} />
           {word.savedContext && <SavedReviewContext context={word.savedContext} />}
+          {publicBankMaterial && onSaveFeedback && (
+            <fieldset className="public-question-feedback">
+              <legend>这道题对你来说怎么样？</legend>
+              <div className="public-question-feedback-options">
+                <button
+                  type="button"
+                  aria-pressed={feedbackRating === 'UP'}
+                  onClick={() => {
+                    setFeedbackRating('UP');
+                    setFeedbackReason(null);
+                    setFeedbackError('');
+                  }}
+                >
+                  <ThumbsUp size={17} aria-hidden="true" />
+                  题目清楚
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={feedbackRating === 'DOWN'}
+                  onClick={() => {
+                    setFeedbackRating('DOWN');
+                    setFeedbackError('');
+                  }}
+                >
+                  <ThumbsDown size={17} aria-hidden="true" />
+                  有问题
+                </button>
+              </div>
+              {feedbackRating === 'DOWN' && (
+                <label>
+                  原因（可选）
+                  <select
+                    value={feedbackReason ?? ''}
+                    onChange={(event) =>
+                      setFeedbackReason(
+                        (event.target.value || null) as NonNullable<
+                          Word['questionFeedback']
+                        >['reason'],
+                      )
+                    }
+                  >
+                    <option value="">不补充原因</option>
+                    <option value="ANSWER_INCORRECT">参考答案有误</option>
+                    <option value="QUESTION_UNCLEAR">题意不清</option>
+                    <option value="OPTIONS_INCORRECT">选项有误</option>
+                    <option value="EXPLANATION_UNCLEAR">解析不清</option>
+                    <option value="OTHER">其他</option>
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                className="public-question-feedback-save"
+                disabled={!feedbackRating || feedbackBusy}
+                onClick={() => void saveFeedback()}
+              >
+                {feedbackBusy ? '保存中…' : feedbackSaved ? '更新评价' : '提交评价'}
+              </button>
+              {feedbackSaved && !feedbackError && <p role="status">评价已保存，可随时修改。</p>}
+              {feedbackError && <p role="alert">{feedbackError}</p>}
+            </fieldset>
+          )}
         </>
       )}
     </article>
