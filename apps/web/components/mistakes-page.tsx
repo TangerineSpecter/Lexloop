@@ -99,6 +99,7 @@ export function MistakesPage({
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ListResponse | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedItems, setSelectedItems] = useState<Record<string, MistakeWord>>({});
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailMessage, setDetailMessage] = useState('');
@@ -108,12 +109,13 @@ export function MistakesPage({
   const [showPracticeChoices, setShowPracticeChoices] = useState(false);
   const [revision, setRevision] = useState(0);
   const listRequestId = useRef(0);
+  const selectionScope = useRef<string | null>(null);
   const listAbort = useRef<AbortController | null>(null);
   const detailRequestId = useRef(0);
   const detailAbort = useRef<AbortController | null>(null);
   const attemptHistoryHeadingRef = useRef<HTMLDivElement>(null);
 
-  const prepareForListChange = () => {
+  const prepareForListChange = (preserveSelection = false) => {
     listRequestId.current += 1;
     listAbort.current?.abort();
     listAbort.current = null;
@@ -121,7 +123,10 @@ export function MistakesPage({
     detailAbort.current?.abort();
     detailAbort.current = null;
     setResult(null);
-    setSelected([]);
+    if (!preserveSelection) {
+      setSelected([]);
+      setSelectedItems({});
+    }
     setDetail(null);
     setDetailLoading(false);
     setDetailMessage('');
@@ -138,7 +143,6 @@ export function MistakesPage({
     setLoading(true);
     setMessage('');
     setResult(null);
-    setSelected([]);
     detailRequestId.current += 1;
     detailAbort.current?.abort();
     detailAbort.current = null;
@@ -156,9 +160,13 @@ export function MistakesPage({
       );
       if (requestId !== listRequestId.current) return;
       setResult(response);
-      setSelected(
-        status === 'active' ? response.items.slice(0, 10).map((item) => item.bookWordId) : [],
-      );
+      const nextSelectionScope = `${status}:${questionType}`;
+      if (selectionScope.current !== nextSelectionScope) {
+        const defaults = status === 'active' ? response.items.slice(0, 10) : [];
+        setSelected(defaults.map((item) => item.bookWordId));
+        setSelectedItems(Object.fromEntries(defaults.map((item) => [item.bookWordId, item])));
+        selectionScope.current = nextSelectionScope;
+      }
     } catch (error) {
       if (requestId === listRequestId.current)
         setMessage(error instanceof Error ? error.message : '错题本加载失败');
@@ -246,6 +254,18 @@ export function MistakesPage({
   const selectDetailForPractice = () => {
     if (!detail || detail.status !== 'active') return;
     setSelected([detail.bookWordId]);
+    setSelectedItems({
+      [detail.bookWordId]: {
+        bookWordId: detail.bookWordId,
+        word: detail.word,
+        part: detail.part,
+        meaning: detail.meaning,
+        meanings: detail.meanings,
+        bookTitle: detail.bookTitle,
+        lastWrongAt: detail.lastWrongAt,
+        weaknesses: [detail],
+      },
+    });
     setShowPracticeChoices(false);
     closeDetail();
   };
@@ -267,13 +287,19 @@ export function MistakesPage({
         session.accessToken,
       );
       setDetail(null);
+      selectionScope.current = null;
+      setSelected([]);
+      setSelectedItems({});
       setRevision((value) => value + 1);
     } catch (error) {
       setDetail(null);
       setMessage(error instanceof Error ? error.message : '更新薄弱项状态失败');
     }
   };
-  const selectedPractice = partitionMistakePracticeSelection(result?.items ?? [], selected);
+  const selectedPractice = partitionMistakePracticeSelection(
+    Object.values(selectedItems),
+    selected,
+  );
   const detailDirection = detail ? getMistakeLearningDirection(detail.questionType) : null;
   const hasSpecialPractice =
     selectedPractice.outputWordIds.length > 0 || selectedPractice.confusionWordIds.length > 0;
@@ -359,6 +385,11 @@ export function MistakesPage({
       <p className="mistakes-order-note">
         当前筛选内先按该词各题型中较低的连对次数排序，再看较高的累计错答次数和最近错答时间；每个题型分别显示自己的记录。
       </p>
+      {status === 'active' && (
+        <p className="mistakes-selection-note">
+          最多选择 20 词，翻页会保留选择；切换状态或题型后会重新选择当前页前 10 词。
+        </p>
+      )}
       {message && result && (
         <p className="book-message" role="alert">
           {message}
@@ -432,15 +463,19 @@ export function MistakesPage({
                   <button
                     className="mistake-check"
                     aria-label={`${checked ? '取消选择' : '选择'} ${item.word}`}
-                    onClick={() =>
-                      setSelected((current) =>
-                        checked
-                          ? current.filter((id) => id !== item.bookWordId)
-                          : current.length < 20
-                            ? [...current, item.bookWordId]
-                            : current,
-                      )
-                    }
+                    onClick={() => {
+                      if (checked) {
+                        setSelected((current) => current.filter((id) => id !== item.bookWordId));
+                        setSelectedItems((current) => {
+                          const next = { ...current };
+                          delete next[item.bookWordId];
+                          return next;
+                        });
+                      } else if (selected.length < 20) {
+                        setSelected((current) => [...current, item.bookWordId]);
+                        setSelectedItems((current) => ({ ...current, [item.bookWordId]: item }));
+                      }
+                    }}
                   >
                     <i>{checked && <Check size={14} />}</i>
                   </button>
@@ -471,7 +506,7 @@ export function MistakesPage({
           <button
             disabled={page === 1 || loading}
             onClick={() => {
-              prepareForListChange();
+              prepareForListChange(true);
               setPage((value) => value - 1);
             }}
           >
@@ -482,7 +517,7 @@ export function MistakesPage({
           <button
             disabled={!result.hasMore || loading}
             onClick={() => {
-              prepareForListChange();
+              prepareForListChange(true);
               setPage((value) => value + 1);
             }}
           >

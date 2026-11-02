@@ -203,6 +203,13 @@
   font-size: 13px;
   line-height: 1.5;
 }
+.mistakes-selection-note {
+  margin: -12px 0 18px;
+  padding: 0 2px;
+  color: rgba(8, 40, 119, 0.72);
+  font-size: 13px;
+  line-height: 1.5;
+}
 .mistake-signals {
   display: flex;
   gap: 8px;

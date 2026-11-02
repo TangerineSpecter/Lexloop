@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.128',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '错题专项支持跨页选词',
+        entry: '待巩固 → 选择单词 → 翻页',
+        usage:
+          '选择最多 20 个待巩固词时，翻页会保留已选内容并一并用于专项；切换状态或题型筛选后，会按新列表重新选择前 10 个词。',
+      },
+    ],
+  },
+  {
     version: '1.27.127',
     date: '2026-11-02',
     items: [

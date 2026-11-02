@@ -192,6 +192,16 @@ test(
           weaknesses: [weaknesses('confusion-signal', 'CONFUSION')],
         },
       ];
+      const paginatedItems = Array.from({ length: 40 }, (_, index) => ({
+        bookWordId: `page-word-${index + 1}`,
+        word: `page-word-${index + 1}`,
+        part: 'n.',
+        meaning: '示例释义',
+        bookTitle: 'Pagination fixture',
+        severity: 56,
+        lastWrongAt: '2026-10-26T10:00:00.000Z',
+        weaknesses: [weaknesses(`page-signal-${index + 1}`, 'READING_COMPREHENSION', 2)],
+      }));
 
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
@@ -233,8 +243,9 @@ test(
               const query = new URL(path, location.origin).searchParams;
               const status = query.get('status');
               const questionType = query.get('questionType') || '';
+              const page = Number(query.get('page') || 1);
               const activeRace = new URL(location.href).searchParams.has('activeRace');
-              window.mistakeListRequests.push({ status, questionType, activeRace });
+              window.mistakeListRequests.push({ status, questionType, activeRace, page });
               if (activeRace && questionType === 'OUTPUT') {
                 await new Promise(resolve => setTimeout(resolve, 700));
                 return Response.json({ items: [{ ...${JSON.stringify(items[1])}, bookWordId: 'stale-output', word: 'stale-output' }], page: 1, total: 1, hasMore: false });
@@ -255,6 +266,9 @@ test(
               }
               if (new URL(location.href).searchParams.has('race') && status === 'resolved') {
                 return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'resolved-only', word: 'resolved-only' }], page: 1, total: 1, hasMore: false });
+              }
+              if (new URL(location.href).searchParams.has('pagination')) {
+                return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
               }
               if (sessionUserId === 'mistake-user-b') {
                 return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'account-b-word', word: 'B-only' }], page: 1, total: 1, hasMore: false });
@@ -865,6 +879,108 @@ test(
       );
       assert.equal(await evaluate('window.mistakePlanWrites.length'), 0);
       await send('Emulation.clearDeviceMetricsOverride');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      await evaluate('document.querySelector(".sidebar-scrim")?.click()');
+      await until('!document.querySelector(".sidebar-scrim")');
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes&pagination=1', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 20');
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".mistakes-selection-note").getBoundingClientRect().right <= innerWidth',
+        ),
+        true,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（10）/,
+      );
+      await clickVisible('button[aria-label="选择 page-word-11"]');
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（11）/,
+      );
+      await clickVisible('.mistakes-pagination button:last-child');
+      await until(
+        'document.querySelectorAll(".mistakes-list > article").length === 20 && document.querySelector(".mistakes-pagination span")?.textContent.includes("第 2 页")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（11）/,
+      );
+      for (let word = 21; word <= 29; word++) {
+        await clickVisible(`button[aria-label="选择 page-word-${word}"]`);
+      }
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（20）/,
+      );
+      await clickVisible('button[aria-label="选择 page-word-30"]');
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（20）/,
+      );
+      await clickVisible('.mistakes-pagination button:first-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（20）/,
+      );
+      await clickVisible('.mistakes-pagination button:last-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 2 页")',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].find((button) => button.getAttribute("aria-label") === "取消选择 page-word-21") !== undefined',
+        ),
+        true,
+        'selected words from both pages should remain checked when returning to the page',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].find((button) => button.getAttribute("aria-label") === "选择 page-word-30") !== undefined',
+        ),
+        true,
+        'the 20-word cap should prevent selecting an additional word',
+      );
+      await clickVisible('.mistakes-create');
+      await until('window.mistakePlanWrites.length === 1');
+      assert.deepEqual(
+        await evaluate('window.mistakePlanWrites[0].bookWordIds'),
+        [
+          ...Array.from({ length: 10 }, (_, index) => `page-word-${index + 1}`),
+          'page-word-11',
+          ...Array.from({ length: 9 }, (_, index) => `page-word-${index + 21}`),
+        ],
+        'the practice request should include selected words from both pages exactly once',
+      );
+      await selectQuestionType('WORD_MATCHING', '单词匹配');
+      await until(
+        'document.querySelectorAll(".mistakes-list > article").length === 20 && document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页")',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（10）/,
+        'changing the question-type filter should start a new selection scope',
+      );
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      await send('Emulation.clearDeviceMetricsOverride');
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes', baseUrl).href,
+      });
+      await until('document.querySelectorAll(".mistakes-list > article").length === 3');
 
       await evaluate('window.deferNextMistakeDetail = true');
       await evaluate(
