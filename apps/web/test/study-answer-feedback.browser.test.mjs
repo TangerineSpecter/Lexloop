@@ -2109,6 +2109,33 @@ test(
       await evaluate(
         '[...document.querySelectorAll("button")].find((button) => button.textContent.includes("查看今日总结")).click()',
       );
+      await until('document.querySelector("#retest-title")');
+      assert.equal(
+        await evaluate('document.querySelector("#retest-title").textContent'),
+        '再练刚才答错的词',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".retest-page header").textContent'),
+        /这一步不提交新作答，也不改复习时间或错题记录/,
+      );
+      const retestActionLabels = await evaluate(
+        '[...document.querySelectorAll(".retest-page .retest-actions button")].map((button) => button.textContent.trim())',
+      );
+      assert.ok(retestActionLabels.some((label) => label.includes('跳过，查看总结')));
+      assert.ok(retestActionLabels.includes('返回学习序列'));
+      assert.equal(
+        await evaluate('window.studySubmissionAttempts.length'),
+        4,
+        'the optional wrong-answer retest does not submit another study attempt',
+      );
+      assert.equal(
+        await evaluate('window.studyPlanWrites.length'),
+        2,
+        'the optional wrong-answer retest does not write the saved plan again',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".retest-actions button")].find((button) => button.textContent.includes("跳过，查看总结")).click()',
+      );
       await until('document.querySelector("#settlement-title")');
       assert.match(
         await evaluate('document.querySelector("#settlement-title").textContent'),
@@ -2328,6 +2355,7 @@ test(
         newWordCount: 2,
         reviewWordCount: 0,
         mode: 'group',
+        skipReviewWordIds: [],
       });
       await evaluate('document.querySelector(".switch-book").click()');
       await until('document.querySelector(".book-drawer")');

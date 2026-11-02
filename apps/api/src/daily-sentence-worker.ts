@@ -22,6 +22,7 @@ import { OutputService } from './modules/practice/output.service';
 import { PracticeEvidenceService } from './modules/practice/practice-evidence.service';
 import { MistakesService } from './modules/mistakes/mistakes.service';
 import { gradeOutput } from './modules/practice/output.processor';
+import { appendSystemLogEvent } from './modules/admin/system-log-file';
 
 @Module({
   imports: [
@@ -84,30 +85,85 @@ async function bootstrap() {
     },
     { connection, concurrency: 3 },
   );
-  worker.on('failed', (job) =>
-    console.error(JSON.stringify({ event: 'daily-sentence.failed', jobId: job?.id })),
+  worker.on(
+    'failed',
+    (job) =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_failed',
+        code: 'DAILY_SENTENCE_FAILED',
+        reason: '每日内容后台任务失败；用户内容和任务标识未记录。',
+        phase: queueFailurePhase(job?.attemptsMade, job?.opts.attempts),
+        attemptsMade: job?.attemptsMade,
+        maxAttempts: job?.opts.attempts,
+      }),
   );
-  worker.on('error', () => console.error('Daily sentence queue connection error'));
+  worker.on(
+    'error',
+    () =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_error',
+        code: 'DAILY_SENTENCE_QUEUE_ERROR',
+        reason: '每日内容队列连接发生错误；原始错误详情已隐藏。',
+      }),
+  );
   const outputWorker = new Worker(
     'practice-output',
     (job) => gradeOutput(job, app.get(OutputService)),
     { connection, concurrency: 2, limiter: { max: 6, duration: 60_000 } },
   );
-  outputWorker.on('failed', (job) =>
-    console.error(
-      JSON.stringify({ event: 'output.failed', id: job?.id, attempts: job?.attemptsMade }),
-    ),
+  outputWorker.on(
+    'failed',
+    (job) =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_failed',
+        code: 'PRACTICE_OUTPUT_FAILED',
+        reason: '输出批改后台任务失败；学习者输入和任务标识未记录。',
+        phase: queueFailurePhase(job?.attemptsMade, job?.opts.attempts),
+        attemptsMade: job?.attemptsMade,
+        maxAttempts: job?.opts.attempts,
+      }),
   );
-  outputWorker.on('error', () => console.error('Output queue connection error'));
+  outputWorker.on(
+    'error',
+    () =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_error',
+        code: 'PRACTICE_OUTPUT_QUEUE_ERROR',
+        reason: '输出批改队列连接发生错误；原始错误详情已隐藏。',
+      }),
+  );
   const labWorker = new Worker('learning-lab', (job) => generateLab(job, app.get(LabService)), {
     connection,
     concurrency: 2,
     limiter: { max: 6, duration: 60_000 },
   });
-  labWorker.on('failed', (job) =>
-    console.error(JSON.stringify({ event: 'learning-lab.failed', id: job?.id })),
+  labWorker.on(
+    'failed',
+    (job) =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_failed',
+        code: 'LEARNING_LAB_FAILED',
+        reason: '精读语法后台任务失败；学习者输入和任务标识未记录。',
+        phase: queueFailurePhase(job?.attemptsMade, job?.opts.attempts),
+        attemptsMade: job?.attemptsMade,
+        maxAttempts: job?.opts.attempts,
+      }),
   );
-  labWorker.on('error', () => console.error('Learning lab queue connection error'));
+  labWorker.on(
+    'error',
+    () =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_error',
+        code: 'LEARNING_LAB_QUEUE_ERROR',
+        reason: '精读语法队列连接发生错误；原始错误详情已隐藏。',
+      }),
+  );
   // Five-minute checks recover downtime and interrupted reservations. The per-user
   // date and unread guards ensure only one successful sentence per day.
   await queue.upsertJobScheduler(
@@ -133,6 +189,18 @@ async function bootstrap() {
 }
 
 void bootstrap().catch(() => {
+  void appendSystemLogEvent({
+    source: 'worker',
+    kind: 'worker.startup_error',
+    code: 'DAILY_WORKER_STARTUP_FAILED',
+    reason: '后台任务服务启动失败；原始错误详情已隐藏。',
+  });
   console.error('Daily sentence worker startup failed');
   process.exit(1);
 });
+
+function queueFailurePhase(attemptsMade?: number, maxAttempts?: number): string {
+  return attemptsMade !== undefined && maxAttempts !== undefined && attemptsMade >= maxAttempts
+    ? 'final'
+    : 'retry';
+}

@@ -200,6 +200,9 @@ test(
           keyEvents: window.reportKeyEvents ?? null,
           focusedStyle: document.activeElement ? { tag: document.activeElement.tagName, className: document.activeElement.className, display: getComputedStyle(document.activeElement).display, visibility: getComputedStyle(document.activeElement).visibility } : null,
           pageState: window.history.state?.lexloopDashboardPage ?? null,
+          fixtureReady: Boolean(window.reportFixture),
+          fetchFixtureReady: window.reportFetchPatched === true,
+          location: location.pathname,
         })`);
         assert.fail(
           `Timed out waiting for ${expression}; route state: ${JSON.stringify(routeState)}`,
@@ -285,6 +288,37 @@ test(
             learningWordsNextResponse: ${JSON.stringify(emptyArchivePage)},
             masteredWordsResponse: ${JSON.stringify(emptyArchivePage)},
             masteredWordsNextResponse: ${JSON.stringify(emptyArchivePage)},
+            modelTestRequests: [],
+            pendingModelTests: [],
+            holdModelTest: false,
+            systemLogRequests: [],
+            systemLogExportRequests: [],
+            systemLogClearRequests: [],
+            systemLogsResponse: {
+              timeZone: 'Asia/Shanghai',
+              range: { from: '2026-10-27', to: '2026-11-02' },
+              retentionDays: 14,
+              storage: { usedBytes: 1024, maxBytes: 104857600, droppedEvents: 0, apiWriteFailuresSinceStart: 0, unreadableRecords: 0 },
+              totalGroups: 1,
+              truncatedGroups: 0,
+              groups: [{
+                fingerprint: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                source: 'api', kind: 'http.exception', code: 'UPSTREAM_unsupported_value', count: 3,
+                firstAt: '2026-11-01T01:00:00.000Z', lastAt: '2026-11-02T01:30:00.000Z',
+                latestDetail: { at: '2026-11-02T01:30:00.000Z', source: 'api', kind: 'http.exception', code: 'UPSTREAM_unsupported_value', status: 502, upstreamStatus: 400, param: 'response_format', method: 'POST', route: '/api/v1/admin/ai-models/:id/test', reason: '供应商未接受本次请求，请核对模型名称和请求参数。' }
+              }]
+            },
+            modelTestResponse: {
+              success: false,
+              endpoint: 'responded',
+              authentication: 'rejected',
+              selectedModel: 'unknown',
+              structuredGeneration: 'not_run',
+              upstreamStatus: 401,
+              code: 'invalid_api_key',
+              param: 'authorization',
+              reason: '模型认证未通过，请检查已保存的 API Key 和供应商权限。'
+            },
             resolveHistory() { this.pendingHistory.shift()?.(Response.json(this.historyResponse)); },
             resolveStatistics() { this.pendingStatistics.shift()?.(Response.json(this.statisticsResponse)); },
             resolveLearningWords(status = 200) { this.pendingLearningWords.shift()?.(Response.json(status === 200 ? this.learningWordsResponse : { message: 'learning words unavailable' }, { status })); },
@@ -399,14 +433,53 @@ test(
             if (path.includes('/api/v1/learning-lab/lessons')) return Response.json({ items: [], page: 1, pageSize: 10, total: 0, hasMore: false });
             if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
             if (path.includes('/api/v1/practice/output/today')) return Response.json(null);
+            if (path === '/api/v1/admin/ai-models' && options.method !== 'POST') return Response.json([
+              { id: 'saved-model-fixture', displayName: 'Fixture model', provider: 'OPENAI_COMPATIBLE', model: 'fixture-model', baseUrl: 'https://provider.example.invalid/v1', isEnabled: true, hasApiKey: true }
+            ]);
+            if (path === '/api/v1/admin/ai-models/saved-model-fixture/test' && options.method === 'POST') {
+              window.reportFixture.modelTestRequests.push({ method: options.method, authorization: new Headers(options.headers).get('Authorization'), body: options.body ?? null });
+              if (window.reportFixture.holdModelTest) return new Promise(resolve => window.reportFixture.pendingModelTests.push(resolve));
+              return Response.json(window.reportFixture.modelTestResponse);
+            }
+            if (path === '/api/v1/admin/system-logs' && options.method !== 'DELETE') {
+              const query = { from: parsed.searchParams.get('from'), to: parsed.searchParams.get('to'), source: parsed.searchParams.get('source'), search: parsed.searchParams.get('search') };
+              window.reportFixture.systemLogRequests.push(query);
+              return Response.json({
+                ...window.reportFixture.systemLogsResponse,
+                range: {
+                  from: query.from ?? window.reportFixture.systemLogsResponse.range.from,
+                  to: query.to ?? window.reportFixture.systemLogsResponse.range.to,
+                },
+              });
+            }
+            if (path === '/api/v1/admin/system-logs/export') {
+              window.reportFixture.systemLogExportRequests.push({ fingerprint: parsed.searchParams.get('fingerprint'), from: parsed.searchParams.get('from'), to: parsed.searchParams.get('to'), source: parsed.searchParams.get('source'), search: parsed.searchParams.get('search') });
+              return new Response('fingerprint,count\\r\\nfixture,3\\r\\n', { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="fixture.csv"' } });
+            }
+            if (path === '/api/v1/admin/system-logs/clear' && options.method === 'DELETE') {
+              window.reportFixture.systemLogClearRequests.push(options.method);
+              window.reportFixture.systemLogsResponse = { ...window.reportFixture.systemLogsResponse, totalGroups: 0, groups: [] };
+              return Response.json({ clearedAt: '2026-11-02T12:00:00.000Z', timeZone: 'Asia/Shanghai' });
+            }
             if (path.startsWith('/api/v1/')) return Response.json({ message: 'unexpected fixture API request: ' + path }, { status: 404 });
             return nativeFetch(url, options);
           };
+          window.reportFetchPatched = true;
         `,
       });
 
       await send('Page.navigate', { url: new URL('/', baseUrl).href });
       await until('document.querySelector(".welcome-page")');
+      assert.equal(
+        await evaluate('window.reportFixture !== undefined'),
+        true,
+        'browser fixture should install on the initial page',
+      );
+      assert.equal(
+        await evaluate('window.reportFetchPatched === true'),
+        true,
+        'browser API interception should install on the initial page',
+      );
       const publicHomeChunks = await evaluate(
         'performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname)',
       );
@@ -817,6 +890,183 @@ test(
       await send('Fetch.continueRequest', { requestId: delayedSystemSettingsChunk.requestId });
       await send('Fetch.disable');
       await until('document.querySelector(".system-settings")');
+      await until('document.querySelector(".model-test-button")');
+      await evaluate('window.reportFixture.holdModelTest = true');
+      await evaluate('document.querySelector(".model-test-button").click()');
+      await until('window.reportFixture.pendingModelTests.length === 1');
+      assert.deepEqual(
+        await evaluate(`({
+          buttonDisabled: document.querySelector('.model-test-button').disabled,
+          repeatedControlsDisabled: [...document.querySelectorAll('.model-test-button')].every(button => button.disabled),
+          requestCount: window.reportFixture.modelTestRequests.length,
+          request: window.reportFixture.modelTestRequests[0],
+        })`),
+        {
+          buttonDisabled: true,
+          repeatedControlsDisabled: true,
+          requestCount: 1,
+          request: { method: 'POST', authorization: 'Bearer fixture-token', body: null },
+        },
+      );
+      await evaluate('document.querySelector(".model-test-button").click()');
+      assert.equal(await evaluate('window.reportFixture.modelTestRequests.length'), 1);
+      await evaluate(
+        'window.reportFixture.pendingModelTests.shift()?.(Response.json(window.reportFixture.modelTestResponse))',
+      );
+      await until('document.querySelector(".model-test-result[role=alert]")');
+      const modelTestFeedback = await evaluate(`(() => {
+        const result = document.querySelector('.model-test-result');
+        const rect = result.getBoundingClientRect();
+        return {
+          visible: result.innerText.includes('本次测试未通过'),
+          status: result.innerText.includes('HTTP 401'),
+          code: result.innerText.includes('invalid_api_key'),
+          requestExplanation: result.innerText.includes('结构化生成'),
+          leakedFixtureModelName: result.innerText.includes('Fixture model'),
+          width: rect.width,
+          scrollWidth: document.documentElement.scrollWidth,
+        };
+      })()`);
+      assert.equal(modelTestFeedback.visible, true, JSON.stringify(modelTestFeedback));
+      assert.equal(modelTestFeedback.status, true, JSON.stringify(modelTestFeedback));
+      assert.equal(modelTestFeedback.code, true, JSON.stringify(modelTestFeedback));
+      assert.equal(modelTestFeedback.requestExplanation, true, JSON.stringify(modelTestFeedback));
+      assert.equal(
+        modelTestFeedback.leakedFixtureModelName,
+        false,
+        JSON.stringify(modelTestFeedback),
+      );
+      assert.ok(
+        modelTestFeedback.width > 0 && modelTestFeedback.scrollWidth <= 1440,
+        JSON.stringify(modelTestFeedback),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(100);
+      const modelTestMobile = await evaluate(`(() => {
+        const result = document.querySelector('.model-test-result').getBoundingClientRect();
+        return {
+          left: result.left,
+          right: result.right,
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          screenWidth: screen.width,
+        };
+      })()`);
+      assert.ok(
+        modelTestMobile.left >= 0 &&
+          modelTestMobile.right <= 390 &&
+          modelTestMobile.scrollWidth <= 390 &&
+          modelTestMobile.clientWidth === 390 &&
+          modelTestMobile.screenWidth === 390,
+        JSON.stringify(modelTestMobile),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统日志')).click()`,
+      );
+      await until('document.querySelector(".system-log-card")');
+      const systemLogsDesktop = await evaluate(`(() => {
+        const panel = document.querySelector('.system-log-panel').getBoundingClientRect();
+        const filters = document.querySelector('.system-log-filters').getBoundingClientRect();
+        const card = document.querySelector('.system-log-card').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panel: panel.width, filters: filters.width, card: card.width, count: document.querySelector('.system-log-card header b')?.textContent.trim(), latest: document.querySelector('.system-log-card dt')?.textContent.trim() };
+      })()`);
+      assert.ok(
+        systemLogsDesktop.document <= systemLogsDesktop.viewport,
+        JSON.stringify(systemLogsDesktop),
+      );
+      assert.equal(systemLogsDesktop.count, '3 次');
+      assert.equal(systemLogsDesktop.latest, '最近发生');
+      assert.equal(await evaluate('window.reportFixture.systemLogRequests.length'), 1);
+      await capture('system-logs-panel-1440.png');
+
+      await evaluate(`(() => {
+        const fields = document.querySelectorAll('.system-log-filters input[type="date"]');
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setValue.call(fields[0], '2026-10-31'); fields[0].dispatchEvent(new Event('input', { bubbles: true })); fields[0].dispatchEvent(new Event('change', { bubbles: true }));
+        setValue.call(fields[1], '2026-11-01'); fields[1].dispatchEvent(new Event('input', { bubbles: true })); fields[1].dispatchEvent(new Event('change', { bubbles: true }));
+        const select = document.querySelector('.system-log-filters select');
+        const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+        setSelect.call(select, 'worker'); select.dispatchEvent(new Event('change', { bubbles: true }));
+        const search = document.querySelector('.system-log-search input');
+        const setText = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setText.call(search, 'UPSTREAM'); search.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('.system-log-filters button[type="submit"]').click();
+      })()`);
+      await until('window.reportFixture.systemLogRequests.length === 2');
+      assert.deepEqual(await evaluate('window.reportFixture.systemLogRequests[1]'), {
+        from: '2026-10-31',
+        to: '2026-11-01',
+        source: 'worker',
+        search: 'UPSTREAM',
+      });
+      await evaluate('document.querySelector(".system-log-card footer button").click()');
+      await until('window.reportFixture.systemLogExportRequests.length === 1');
+      assert.deepEqual(await evaluate('window.reportFixture.systemLogExportRequests[0]'), {
+        fingerprint: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        from: '2026-10-31',
+        to: '2026-11-01',
+        source: 'worker',
+        search: 'UPSTREAM',
+      });
+
+      await evaluate('document.querySelector(".system-log-clear").click()');
+      await until('document.querySelector(".system-log-confirm[role=alertdialog]")');
+      assert.equal(await evaluate('document.activeElement.textContent.trim()'), '取消');
+      await evaluate(
+        'document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))',
+      );
+      await until('document.querySelector(".system-log-confirm") === null');
+      assert.equal(
+        await evaluate('document.activeElement.classList.contains("system-log-clear")'),
+        true,
+      );
+      assert.equal(await evaluate('window.reportFixture.systemLogClearRequests.length'), 0);
+      await evaluate('document.querySelector(".system-log-clear").click()');
+      await until('document.querySelector(".system-log-confirm")');
+      await evaluate('document.querySelector(".system-log-confirm button.danger").click()');
+      await until('window.reportFixture.systemLogClearRequests.length === 1');
+      await until('document.querySelector(".system-log-notice[role=status]")');
+      assert.equal(await evaluate('document.querySelector(".system-log-card") === null'), true);
+      assert.match(
+        await evaluate('document.querySelector(".system-log-notice").textContent'),
+        /清空后新发生的日志仍会记录/,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const systemLogsMobile = await evaluate(`(() => {
+        const panel = document.querySelector('.system-log-panel').getBoundingClientRect();
+        const filters = document.querySelector('.system-log-filters').getBoundingClientRect();
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, panelRight: panel.right, filtersRight: filters.right, columns: getComputedStyle(document.querySelector('.system-log-filters')).gridTemplateColumns };
+      })()`);
+      assert.ok(
+        systemLogsMobile.document <= 390 &&
+          systemLogsMobile.panelRight <= 390 &&
+          systemLogsMobile.filtersRight <= 390,
+        JSON.stringify(systemLogsMobile),
+      );
+      await capture('system-logs-panel-390.png');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await evaluate('window.navigationAuditFrames = []');
       await delay(180);
       const delayedStatisticsFrames = await evaluate('window.navigationAuditFrames');

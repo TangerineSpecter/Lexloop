@@ -7,3 +7,4 @@ coverage
 .env.local
 *.log
 *.tsbuildinfo
+apps/api/var/system-logs/

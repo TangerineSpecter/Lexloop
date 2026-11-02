@@ -10,6 +10,9 @@ import { AiModelConfigService } from './ai-model-config.service';
 import { SystemBackupController } from './system-backup.controller';
 import { SystemUpdateController } from './system-update.controller';
 import { SystemUpdateService } from './system-update.service';
+import { SystemLogController } from './system-log.controller';
+import { SystemLogExceptionFilter } from './system-log-exception.filter';
+import { SystemLogService } from './system-log.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -29,8 +32,14 @@ class AdminController {
     AdminController,
     AiModelConfigController,
     SystemUpdateController,
+    SystemLogController,
   ],
-  providers: [AiModelConfigService, SystemUpdateService],
-  exports: [AiModelConfigService],
+  providers: [
+    AiModelConfigService,
+    SystemUpdateService,
+    SystemLogService,
+    SystemLogExceptionFilter,
+  ],
+  exports: [AiModelConfigService, SystemLogService, SystemLogExceptionFilter],
 })
 export class AdminModule {}

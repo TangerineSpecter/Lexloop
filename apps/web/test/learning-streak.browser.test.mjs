@@ -173,7 +173,25 @@ test(
         source: `
       if (!localStorage.getItem('lexloop.session')) localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }));
       const query = new URL(location.href).searchParams;
-      window.streakFixture = { currentStreak: query.has('streak-empty') ? 0 : 4, todayActive: query.has('today-active'), failed: query.has('streak-error'), loading: query.has('streak-loading'), requests: [] };
+      let savedGoal = null;
+      try {
+        savedGoal = JSON.parse(localStorage.getItem('lexloop.fixture.streakGoal') || 'null');
+      } catch {
+        savedGoal = null;
+      }
+      window.streakFixture = {
+        currentStreak: query.has('streak-empty') ? 0 : 4,
+        todayActive: query.has('today-active'),
+        failed: query.has('streak-error'),
+        loading: query.has('streak-loading'),
+        goal: savedGoal ?? {
+          kind: 'activity', target: 1, progress: query.has('today-active') ? 1 : 0,
+          met: query.has('today-active'),
+        },
+        goalUpdates: [],
+        failNextGoalUpdate: 0,
+        requests: [],
+      };
       window.progressFixture = {
         failAll: query.has('progress-error'),
         holdInitialRequests: query.has('progress-race'),
@@ -190,6 +208,16 @@ test(
       window.defaultBookFixture = {
         fail: query.has('default-book-error'),
         hold: query.has('default-book-loading'),
+        duePreview: {
+          timeZone: 'Asia/Shanghai',
+          days: [
+            { date: '2026-11-02', label: '今天', count: 3 },
+            { date: '2026-11-03', label: '明天', count: 4 },
+            { date: '2026-11-04', label: '后天', count: 5 },
+            { date: '2026-11-05', label: '大后天', count: 6 },
+          ],
+          weakFocusCount: 2,
+        },
         requests: [],
         resolvers: [],
         resolve: (index, response) => {
@@ -257,12 +285,44 @@ test(
           return Response.json({
             currentStreak: window.streakFixture.currentStreak,
             todayActive: window.streakFixture.todayActive,
-            goal: {
-              kind: 'activity',
-              target: 1,
-              progress: window.streakFixture.todayActive ? 1 : 0,
-              met: Boolean(window.streakFixture.todayActive),
+            goal: window.streakFixture.goal,
+            week: {
+              activeDays: 3,
+              answeredWords: 6,
+              newWords: 2,
+              reviewWords: 4,
+              days: [
+                { label: '一', active: true },
+                { label: '二', active: true },
+                { label: '三', active: false },
+                { label: '四', active: false },
+                { label: '五', active: true },
+                { label: '六', active: false },
+                { label: '日', active: false },
+              ],
             },
+          });
+        }
+        if (path.includes('/api/v1/reports/daily-goal') && options.method === 'PATCH') {
+          const body = JSON.parse(options.body);
+          window.streakFixture.goalUpdates.push(body);
+          if (window.streakFixture.failNextGoalUpdate > 0) {
+            window.streakFixture.failNextGoalUpdate -= 1;
+            return Response.json({ message: '今日目标暂时无法保存' }, { status: 503 });
+          }
+          const progress = body.kind === 'reviews' ? 2 : Number(window.streakFixture.todayActive);
+          const goal = {
+            kind: body.kind,
+            target: body.target,
+            progress: Math.min(progress, body.target),
+            met: progress >= body.target,
+          };
+          window.streakFixture.goal = goal;
+          localStorage.setItem('lexloop.fixture.streakGoal', JSON.stringify(goal));
+          return Response.json({
+            currentStreak: window.streakFixture.currentStreak,
+            todayActive: window.streakFixture.todayActive,
+            goal,
           });
         }
         if (path.includes('/api/v1/vocabulary/default')) {
@@ -354,6 +414,8 @@ test(
             newWords: window.defaultBookFixture.book
               ? [{ id: 'starter-word', word: 'begin', part: 'v.', meaning: '开始' }]
               : [],
+            duePreview: window.defaultBookFixture.duePreview,
+            weakFocusCount: window.defaultBookFixture.duePreview.weakFocusCount,
           });
         if (path.includes('/api/v1/study/plans')) return Response.json([]);
         if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
@@ -368,6 +430,171 @@ test(
       });
       await until('document.querySelector(".streak-count b")?.textContent === "4"');
       await until('document.body.textContent.includes("今天还没有已完成的学习活动")');
+      const desktopStreakLayout = await evaluate(`(() => {
+        const card = document.querySelector('.streak-card');
+        const rect = card.getBoundingClientRect();
+        const story = card.querySelector('.streak-start-link').getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          document: document.documentElement.scrollWidth,
+          cardHeight: Math.round(rect.height),
+          storyInsideCard: story.left >= rect.left && story.right <= rect.right && story.bottom <= rect.bottom,
+          targetMentions: (card.innerText.match(/今日目标/g) ?? []).length,
+          weekDays: card.querySelectorAll('.week-glance span').length,
+          targetToggleVisible: card.querySelector('.streak-goal-toggle').getBoundingClientRect().width > 0,
+        };
+      })()`);
+      assert.equal(desktopStreakLayout.viewport, 1440, JSON.stringify(desktopStreakLayout));
+      assert.ok(desktopStreakLayout.cardHeight <= 235, JSON.stringify(desktopStreakLayout));
+      assert.equal(
+        desktopStreakLayout.document <= desktopStreakLayout.viewport,
+        true,
+        JSON.stringify(desktopStreakLayout),
+      );
+      assert.equal(desktopStreakLayout.storyInsideCard, true, JSON.stringify(desktopStreakLayout));
+      assert.equal(desktopStreakLayout.targetMentions, 1, JSON.stringify(desktopStreakLayout));
+      assert.equal(desktopStreakLayout.weekDays, 7, JSON.stringify(desktopStreakLayout));
+      assert.equal(
+        desktopStreakLayout.targetToggleVisible,
+        true,
+        JSON.stringify(desktopStreakLayout),
+      );
+      await capture('streak-card-desktop.png');
+
+      await evaluate('document.querySelector(".streak-goal-toggle").focus()');
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.querySelector("#streak-goal-settings")');
+      await until('document.activeElement?.id === "streak-goal-select"');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".streak-goal-toggle").getAttribute("aria-expanded")',
+        ),
+        'true',
+      );
+      await capture('streak-card-settings-open-desktop.png');
+      await pressKey('Escape', 'Escape', 27);
+      await until('document.querySelector("#streak-goal-settings") === null');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".streak-goal-toggle")'),
+        true,
+      );
+
+      await evaluate('window.streakFixture.failNextGoalUpdate = 1');
+      await pressKey('Enter', 'Enter', 13);
+      await until('document.activeElement?.id === "streak-goal-select"');
+      await evaluate(`(() => {
+        const select = document.querySelector('#streak-goal-select');
+        select.value = 'reviews:5';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await until('document.querySelector(".streak-goal-error[role=alert]")');
+      assert.equal(
+        await evaluate('document.querySelector("#streak-goal-settings") !== null'),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".streak-goal").textContent.includes("完成 1 次学习")',
+        ),
+        true,
+      );
+      await evaluate(`(() => {
+        const select = document.querySelector('#streak-goal-select');
+        select.value = 'reviews:5';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await until('document.querySelector(".streak-goal")?.textContent.includes("复习 5 个词")');
+      await until('document.querySelector(".streak-goal-settings-panel") === null');
+      assert.deepEqual(await evaluate('window.streakFixture.goalUpdates'), [
+        { kind: 'reviews', target: 5 },
+        { kind: 'reviews', target: 5 },
+      ]);
+      assert.equal(await evaluate('window.streakFixture.requests.length'), 1);
+      assert.equal(await evaluate('document.querySelector(".streak-count b").textContent'), '4');
+      assert.equal(
+        await evaluate('document.activeElement === document.querySelector(".streak-goal-toggle")'),
+        true,
+      );
+      assert.equal(await evaluate('document.querySelector(".streak-goal-error") === null'), true);
+
+      await send('Page.reload');
+      await until('document.querySelector(".streak-goal")?.textContent.includes("复习 5 个词")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".streak-goal-toggle").getAttribute("aria-expanded")',
+        ),
+        'false',
+      );
+      assert.equal(await evaluate('document.querySelector(".streak-count b").textContent'), '4');
+      assert.equal(
+        await evaluate('document.querySelector(".streak-goal-bar b").style.width'),
+        '40%',
+      );
+      await capture('streak-card-goal-saved-desktop.png');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until(
+        '!document.querySelector(".study-sidebar").classList.contains("is-open") && new DOMMatrixReadOnly(getComputedStyle(document.querySelector(".study-sidebar")).transform).m41 <= -219',
+      );
+      const mobileStreakLayout = await evaluate(`(() => {
+        const card = document.querySelector('.streak-card');
+        const rect = card.getBoundingClientRect();
+        const toggle = card.querySelector('.streak-goal-toggle').getBoundingClientRect();
+        const story = card.querySelector('.streak-start-link').getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          document: document.documentElement.scrollWidth,
+          cardHeight: Math.round(rect.height),
+          cardLeft: rect.left,
+          cardRight: rect.right,
+          toggleLeft: toggle.left,
+          toggleRight: toggle.right,
+          storyLeft: story.left,
+          storyRight: story.right,
+          storyBottom: story.bottom,
+          cardBottom: rect.bottom,
+          weekDays: card.querySelectorAll('.week-glance span').length,
+        };
+      })()`);
+      assert.equal(mobileStreakLayout.viewport, 390, JSON.stringify(mobileStreakLayout));
+      assert.equal(
+        mobileStreakLayout.document <= mobileStreakLayout.viewport,
+        true,
+        JSON.stringify(mobileStreakLayout),
+      );
+      assert.ok(mobileStreakLayout.cardHeight <= 260, JSON.stringify(mobileStreakLayout));
+      assert.ok(
+        mobileStreakLayout.cardLeft >= 0 && mobileStreakLayout.cardRight <= 390,
+        JSON.stringify(mobileStreakLayout),
+      );
+      assert.ok(
+        mobileStreakLayout.toggleLeft >= mobileStreakLayout.cardLeft &&
+          mobileStreakLayout.toggleRight <= mobileStreakLayout.cardRight,
+        JSON.stringify(mobileStreakLayout),
+      );
+      assert.ok(
+        mobileStreakLayout.storyLeft >= mobileStreakLayout.cardLeft &&
+          mobileStreakLayout.storyRight <= mobileStreakLayout.cardRight &&
+          mobileStreakLayout.storyBottom <= mobileStreakLayout.cardBottom,
+        JSON.stringify(mobileStreakLayout),
+      );
+      assert.equal(mobileStreakLayout.weekDays, 7, JSON.stringify(mobileStreakLayout));
+      console.log(
+        `streak card layout: desktop 1440px ${desktopStreakLayout.cardHeight}px; mobile 390px ${mobileStreakLayout.cardHeight}px; goal shown once; seven day markers; no horizontal overflow`,
+      );
+      await capture('streak-card-mobile.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
       await until(
         'document.querySelectorAll(".progress-grid .metric-card")[1]?.querySelector(".metric-front b")?.textContent === "0"',
       );
@@ -602,6 +829,111 @@ test(
       await pressKey('Escape', 'Escape', 27);
       await until('document.querySelector(".book-drawer") === null');
       await until('document.querySelector(".word-row strong")?.textContent === "begin"');
+      await until('document.querySelector(".due-preview .due-preview-note")');
+      const scrollBeforeDuePreviewCapture = await evaluate('window.scrollY');
+      await evaluate('document.querySelector(".due-preview").scrollIntoView({ block: "center" })');
+      const duePreviewMobileLayout = await evaluate(`(() => {
+        const panel = document.querySelector('.words-panel').getBoundingClientRect();
+        const preview = document.querySelector('.due-preview');
+        const dates = [...preview.querySelectorAll(':scope > div > span')].map((item) => item.getBoundingClientRect());
+        const quickRows = [...document.querySelectorAll('.quick-drills > .quick-drill-row')].map((item) => item.getBoundingClientRect());
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          panelLeft: panel.left,
+          panelRight: panel.right,
+          dateRows: new Set(dates.map((rect) => Math.round(rect.top))).size,
+          dateCount: dates.length,
+          dateBoundsFit: dates.every((rect) => rect.left >= panel.left && rect.right <= panel.right),
+          quickRows: quickRows.length,
+          quickRowsStacked: quickRows.length === 2 && quickRows[1].top > quickRows[0].top,
+          quickBoundsFit: quickRows.every((rect) => rect.left >= panel.left && rect.right <= panel.right),
+          note: preview.querySelector('.due-preview-note').textContent.trim(),
+        };
+      })()`);
+      assert.equal(duePreviewMobileLayout.viewport, 390, JSON.stringify(duePreviewMobileLayout));
+      assert.ok(duePreviewMobileLayout.page <= 390, JSON.stringify(duePreviewMobileLayout));
+      assert.equal(duePreviewMobileLayout.dateCount, 4, JSON.stringify(duePreviewMobileLayout));
+      assert.equal(duePreviewMobileLayout.dateRows, 2, JSON.stringify(duePreviewMobileLayout));
+      assert.equal(
+        duePreviewMobileLayout.dateBoundsFit,
+        true,
+        JSON.stringify(duePreviewMobileLayout),
+      );
+      assert.equal(duePreviewMobileLayout.quickRows, 2, JSON.stringify(duePreviewMobileLayout));
+      assert.equal(
+        duePreviewMobileLayout.quickRowsStacked,
+        true,
+        JSON.stringify(duePreviewMobileLayout),
+      );
+      assert.equal(
+        duePreviewMobileLayout.quickBoundsFit,
+        true,
+        JSON.stringify(duePreviewMobileLayout),
+      );
+      assert.doesNotMatch(duePreviewMobileLayout.note, /Asia\/Shanghai|按 .* 的日期/);
+      assert.match(duePreviewMobileLayout.note, /今天含已逾期.*首页待复习只列出已经到点的词/);
+      await capture('dashboard-due-preview-mobile.png');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await until('innerWidth === 1440');
+      const duePreviewDesktopLayout = await evaluate(`(() => {
+        const panel = document.querySelector('.words-panel').getBoundingClientRect();
+        const preview = document.querySelector('.due-preview');
+        const title = preview.querySelector(':scope > p:first-child').getBoundingClientRect();
+        const dates = [...preview.querySelectorAll(':scope > div > span')].map((item) => item.getBoundingClientRect());
+        const quickRows = [...document.querySelectorAll('.quick-drills > .quick-drill-row')].map((item) => item.getBoundingClientRect());
+        return {
+          viewport: innerWidth,
+          page: document.documentElement.scrollWidth,
+          dateRows: new Set(dates.map((rect) => Math.round(rect.top))).size,
+          dateCount: dates.length,
+          dateBoundsFit: dates.every((rect) => rect.left >= panel.left && rect.right <= panel.right),
+          headingBeforeDates: dates.length > 0 && title.left < dates[0].left,
+          quickRows: quickRows.length,
+          quickRowsSideBySide: quickRows.length === 2 && Math.abs(quickRows[1].top - quickRows[0].top) <= 1 && quickRows[1].left > quickRows[0].left,
+          quickBoundsFit: quickRows.every((rect) => rect.left >= panel.left && rect.right <= panel.right),
+        };
+      })()`);
+      assert.equal(duePreviewDesktopLayout.viewport, 1440, JSON.stringify(duePreviewDesktopLayout));
+      assert.ok(duePreviewDesktopLayout.page <= 1440, JSON.stringify(duePreviewDesktopLayout));
+      assert.equal(duePreviewDesktopLayout.dateCount, 4, JSON.stringify(duePreviewDesktopLayout));
+      assert.equal(duePreviewDesktopLayout.dateRows, 1, JSON.stringify(duePreviewDesktopLayout));
+      assert.equal(
+        duePreviewDesktopLayout.dateBoundsFit,
+        true,
+        JSON.stringify(duePreviewDesktopLayout),
+      );
+      assert.equal(
+        duePreviewDesktopLayout.headingBeforeDates,
+        true,
+        JSON.stringify(duePreviewDesktopLayout),
+      );
+      assert.equal(duePreviewDesktopLayout.quickRows, 2, JSON.stringify(duePreviewDesktopLayout));
+      assert.equal(
+        duePreviewDesktopLayout.quickRowsSideBySide,
+        true,
+        JSON.stringify(duePreviewDesktopLayout),
+      );
+      assert.equal(
+        duePreviewDesktopLayout.quickBoundsFit,
+        true,
+        JSON.stringify(duePreviewDesktopLayout),
+      );
+      await capture('dashboard-due-preview-desktop.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('innerWidth === 390');
+      await evaluate(`window.scrollTo(0, ${scrollBeforeDuePreviewCapture})`);
       const focusAfterBookSelection = await evaluate(`(() => ({
         tag: document.activeElement?.tagName,
         className: document.activeElement?.className,

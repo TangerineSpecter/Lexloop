@@ -4,7 +4,12 @@ import {
   AlertTriangle,
   Bot,
   ChevronDown,
+  CheckCircle2,
+  CircleAlert,
+  FileSearch,
+  LoaderCircle,
   PackageSearch,
+  PlugZap,
   Settings2,
   Pencil,
   Plus,
@@ -17,6 +22,7 @@ import { Tooltip } from './tooltip';
 import { SystemBackupPanel } from './system-backup/system-backup-panel';
 import { SystemUpdatePanel } from './system-update-panel';
 import { DailySentenceSettings } from './daily-sentence/daily-sentence-settings';
+import { SystemLogsPanel } from './system-logs-panel';
 
 type AiModel = {
   id: string;
@@ -28,19 +34,38 @@ type AiModel = {
   hasApiKey: boolean;
 };
 
+type ModelConnectionTestResult = {
+  success: boolean;
+  endpoint: 'responded' | 'unreachable';
+  authentication: 'accepted' | 'rejected' | 'unknown';
+  selectedModel: 'accepted' | 'unknown';
+  structuredGeneration: 'passed' | 'failed' | 'not_run';
+  upstreamStatus?: number;
+  code?: string;
+  param?: string;
+  reason: string;
+};
+
+type ModelTestState =
+  | { state: 'loading' }
+  | { state: 'done'; result: ModelConnectionTestResult }
+  | { state: 'error'; message: string };
+
 const DEEPSEEK_MODELS = [
   { value: 'deepseek-v4-flash', label: 'Flash' },
   { value: 'deepseek-v4-pro', label: 'Pro' },
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
-  const [tab, setTab] = useState<'models' | 'updates' | 'features' | 'backups'>('models');
+  const [tab, setTab] = useState<'models' | 'logs' | 'updates' | 'features' | 'backups'>('models');
   const [models, setModels] = useState<AiModel[]>([]);
   const [modal, setModal] = useState<AiModel | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [message, setMessage] = useState('');
+  const [testingModelId, setTestingModelId] = useState<string | null>(null);
+  const [modelTestStates, setModelTestStates] = useState<Record<string, ModelTestState>>({});
   const load = () =>
     request<AiModel[]>('/admin/ai-models', {}, session.accessToken)
       .then(setModels)
@@ -73,6 +98,29 @@ export function SystemSettings({ session }: { session: Session }) {
       setDeleting(false);
     }
   };
+  const testModel = async (model: AiModel) => {
+    if (testingModelId || !model.hasApiKey) return;
+    setTestingModelId(model.id);
+    setModelTestStates((states) => ({ ...states, [model.id]: { state: 'loading' } }));
+    try {
+      const result = await request<ModelConnectionTestResult>(
+        `/admin/ai-models/${model.id}/test`,
+        { method: 'POST' },
+        session.accessToken,
+      );
+      setModelTestStates((states) => ({ ...states, [model.id]: { state: 'done', result } }));
+    } catch (error) {
+      setModelTestStates((states) => ({
+        ...states,
+        [model.id]: {
+          state: 'error',
+          message: error instanceof Error ? error.message : '测试请求未完成，请稍后重试。',
+        },
+      }));
+    } finally {
+      setTestingModelId(null);
+    }
+  };
   return (
     <section className="system-settings">
       <h2>系统设置</h2>
@@ -94,6 +142,15 @@ export function SystemSettings({ session }: { session: Session }) {
         >
           <Settings2 size={18} />
           功能开关
+        </button>
+        <button
+          className={tab === 'logs' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'logs'}
+          onClick={() => setTab('logs')}
+        >
+          <FileSearch size={18} />
+          系统日志
         </button>
         <button
           className={tab === 'models' ? 'active' : ''}
@@ -118,6 +175,8 @@ export function SystemSettings({ session }: { session: Session }) {
         <SystemBackupPanel session={session} />
       ) : tab === 'features' ? (
         <DailySentenceSettings session={session} />
+      ) : tab === 'logs' ? (
+        <SystemLogsPanel session={session} />
       ) : tab === 'updates' ? (
         <SystemUpdatePanel session={session} />
       ) : (
@@ -143,53 +202,87 @@ export function SystemSettings({ session }: { session: Session }) {
             </p>
           )}
           {models.length ? (
-            <div className="model-list">
-              {models.map((model) => (
-                <article key={model.id}>
-                  <div className="model-provider-mark">
-                    {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
-                  </div>
-                  <div className="model-copy">
-                    <strong>{model.displayName}</strong>
-                    <span>
-                      {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} · {model.model}
-                    </span>
-                    <small>{model.baseUrl}</small>
-                  </div>
-                  <Tooltip label={model.isEnabled ? '点击关闭模型' : '点击启用模型'}>
-                    <button
-                      type="button"
-                      className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
-                      onClick={() => void toggle(model)}
-                      aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
+            <>
+              <p className="model-test-warning" id="model-test-warning">
+                测试仅使用已保存配置，会向对应模型发送一次简短生成请求，可能产生费用；不会保存或修改配置，也不会自动重试。
+              </p>
+              <div className="model-list">
+                {models.map((model) => (
+                  <article key={model.id}>
+                    <div className="model-provider-mark">
+                      {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
+                    </div>
+                    <div className="model-copy">
+                      <strong>{model.displayName}</strong>
+                      <span>
+                        {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} ·{' '}
+                        {model.model}
+                      </span>
+                      <small>{model.baseUrl}</small>
+                    </div>
+                    <Tooltip label={model.isEnabled ? '点击关闭模型' : '点击启用模型'}>
+                      <button
+                        type="button"
+                        className={`model-status ${model.isEnabled ? 'enabled' : ''}`}
+                        onClick={() => void toggle(model)}
+                        aria-label={`${model.isEnabled ? '关闭' : '启用'} ${model.displayName}`}
+                      >
+                        {model.isEnabled ? '已启用' : '已关闭'}
+                      </button>
+                    </Tooltip>
+                    <Tooltip
+                      label={model.hasApiKey ? '测试已保存的模型配置' : '请先为该模型配置 API Key'}
                     >
-                      {model.isEnabled ? '已启用' : '已关闭'}
-                    </button>
-                  </Tooltip>
-                  <Tooltip label="编辑模型">
-                    <button
-                      className="model-icon-button"
-                      onClick={() => setModal(model)}
-                      aria-label={`编辑 ${model.displayName}`}
-                    >
-                      <Pencil size={17} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label="删除模型">
-                    <button
-                      className="model-icon-button danger"
-                      onClick={() => {
-                        setDeleteError('');
-                        setDeleteTarget(model);
-                      }}
-                      aria-label={`删除 ${model.displayName}`}
-                    >
-                      <Trash2 size={17} />
-                    </button>
-                  </Tooltip>
-                </article>
-              ))}
-            </div>
+                      <button
+                        type="button"
+                        className="model-test-button"
+                        onClick={() => void testModel(model)}
+                        disabled={!model.hasApiKey || testingModelId !== null}
+                        aria-describedby="model-test-warning"
+                        aria-label={`测试 ${model.displayName} 的连接`}
+                      >
+                        {testingModelId === model.id ? (
+                          <LoaderCircle
+                            size={16}
+                            className="model-test-spinner"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <PlugZap size={16} aria-hidden="true" />
+                        )}
+                        {testingModelId === model.id ? '正在测试…' : '测试连接'}
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="编辑模型">
+                      <button
+                        className="model-icon-button model-edit-button"
+                        disabled={testingModelId === model.id}
+                        onClick={() => setModal(model)}
+                        aria-label={`编辑 ${model.displayName}`}
+                      >
+                        <Pencil size={17} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="删除模型">
+                      <button
+                        className="model-icon-button model-delete-button danger"
+                        disabled={testingModelId === model.id}
+                        onClick={() => {
+                          setDeleteError('');
+                          setDeleteTarget(model);
+                        }}
+                        aria-label={`删除 ${model.displayName}`}
+                      >
+                        <Trash2 size={17} />
+                      </button>
+                    </Tooltip>
+                    {modelTestStates[model.id] && (
+                      <ModelTestFeedback testState={modelTestStates[model.id]} />
+                    )}
+                  </article>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="model-empty">
               <Bot size={28} />
@@ -227,6 +320,92 @@ export function SystemSettings({ session }: { session: Session }) {
         </>
       )}
     </section>
+  );
+}
+
+function ModelTestFeedback({ testState }: { testState: ModelTestState }) {
+  if (testState.state === 'loading') {
+    return (
+      <div className="model-test-result pending" role="status" aria-live="polite">
+        <LoaderCircle size={17} className="model-test-spinner" aria-hidden="true" />
+        正在等待一次模型响应；不会自动重试。
+      </div>
+    );
+  }
+  if (testState.state === 'error') {
+    return (
+      <div className="model-test-result failed" role="alert">
+        <CircleAlert size={18} aria-hidden="true" />
+        <p>{testState.message}</p>
+      </div>
+    );
+  }
+
+  const { result } = testState;
+  return (
+    <div
+      className={`model-test-result ${result.success ? 'passed' : 'failed'}`}
+      role={result.success ? 'status' : 'alert'}
+      aria-live="polite"
+    >
+      {result.success ? (
+        <CheckCircle2 size={18} aria-hidden="true" />
+      ) : (
+        <CircleAlert size={18} aria-hidden="true" />
+      )}
+      <div className="model-test-result-copy">
+        <strong>{result.success ? '本次结构化生成测试通过' : '本次测试未通过'}</strong>
+        <dl>
+          <div>
+            <dt>接口响应</dt>
+            <dd>{result.endpoint === 'responded' ? '已响应' : '未收到响应'}</dd>
+          </div>
+          <div>
+            <dt>认证</dt>
+            <dd>
+              {result.authentication === 'accepted'
+                ? '已接受'
+                : result.authentication === 'rejected'
+                  ? '被拒绝'
+                  : '未确认'}
+            </dd>
+          </div>
+          <div>
+            <dt>所选模型</dt>
+            <dd>{result.selectedModel === 'accepted' ? '已接受请求' : '未确认'}</dd>
+          </div>
+          <div>
+            <dt>结构化生成</dt>
+            <dd>
+              {result.structuredGeneration === 'passed'
+                ? '通过'
+                : result.structuredGeneration === 'failed'
+                  ? '未通过'
+                  : '未执行'}
+            </dd>
+          </div>
+          {result.upstreamStatus !== undefined && (
+            <div>
+              <dt>上游状态</dt>
+              <dd>HTTP {result.upstreamStatus}</dd>
+            </div>
+          )}
+          {result.code && (
+            <div>
+              <dt>code</dt>
+              <dd>{result.code}</dd>
+            </div>
+          )}
+          {result.param && (
+            <div>
+              <dt>param</dt>
+              <dd>{result.param}</dd>
+            </div>
+          )}
+        </dl>
+        <p>{result.reason}</p>
+      </div>
+    </div>
   );
 }
 

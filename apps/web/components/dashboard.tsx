@@ -76,7 +76,12 @@ import {
   writeDailyGoalVisit,
   type DailyGoalProgress,
 } from '../lib/daily-goal';
-import { dismissDueClear, nextDueClearState, readDueClearState, writeDueClearState } from '../lib/due-cleared';
+import {
+  dismissDueClear,
+  nextDueClearState,
+  readDueClearState,
+  writeDueClearState,
+} from '../lib/due-cleared';
 import { emptyStudyGuide } from '../lib/empty-study-guide';
 import {
   QUICK_DRILL_WORD_COUNT,
@@ -85,7 +90,12 @@ import {
 } from '../lib/quick-drill';
 import { parseDuePreview, type DuePreview } from '../lib/due-preview';
 import { reviewQueueOrderNote } from '../lib/review-queue-order';
-import { orderWithSkips, readReviewSkips, toggleReviewSkip, writeReviewSkips } from '../lib/review-skip';
+import {
+  orderWithSkips,
+  readReviewSkips,
+  toggleReviewSkip,
+  writeReviewSkips,
+} from '../lib/review-skip';
 import { reviewDueReason } from '../lib/review-due-reason';
 import { getMistakeLearningDirection } from '../lib/mistake-learning-directions';
 import {
@@ -2026,9 +2036,12 @@ function StreakCard({ session }: { session: Session }) {
   const [summary, setSummary] = useState<LearningStreakSummary | null>(null);
   const [failed, setFailed] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
+  const [goalSettingsOpen, setGoalSettingsOpen] = useState(false);
   const [goalError, setGoalError] = useState('');
   const [celebration, setCelebration] = useState(false);
   const [milestone, setMilestone] = useState<number | null>(null);
+  const goalSettingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const goalSelectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -2049,6 +2062,10 @@ function StreakCard({ session }: { session: Session }) {
       active = false;
     };
   }, [session.accessToken]);
+
+  useEffect(() => {
+    if (goalSettingsOpen) goalSelectRef.current?.focus();
+  }, [goalSettingsOpen]);
 
   useEffect(() => {
     if (!summary?.goal) return;
@@ -2096,11 +2113,18 @@ function StreakCard({ session }: { session: Session }) {
       const normalized = normalizeLearningStreakSummary(result);
       if (!normalized) throw new Error('今日目标保存后的学习记录无效');
       setSummary(normalized);
+      setGoalSettingsOpen(false);
+      goalSettingsTriggerRef.current?.focus();
     } catch (error) {
       setGoalError(error instanceof Error ? error.message : '今日目标保存失败，请重试。');
     } finally {
       setSavingGoal(false);
     }
+  };
+
+  const closeGoalSettings = () => {
+    setGoalSettingsOpen(false);
+    goalSettingsTriggerRef.current?.focus();
   };
 
   const dismissMilestone = () => {
@@ -2142,14 +2166,66 @@ function StreakCard({ session }: { session: Session }) {
                   : '今天还没有已完成的学习活动。'}
             </p>
             {summary?.goal && (
-              <>
-                <p className="streak-goal" role="status">
-                  {dailyGoalStatusText(summary.goal)}
-                </p>
-                <div className="streak-goal-bar" aria-hidden="true">
-                  <b style={{ width: `${dailyGoalProgressPercent(summary.goal)}%` }} />
+              <div className="streak-goal-row">
+                <div className="streak-goal-progress">
+                  <p className="streak-goal" role="status">
+                    {dailyGoalStatusText(summary.goal)}
+                  </p>
+                  <div className="streak-goal-bar" aria-hidden="true">
+                    <b style={{ width: `${dailyGoalProgressPercent(summary.goal)}%` }} />
+                  </div>
                 </div>
-              </>
+                <button
+                  ref={goalSettingsTriggerRef}
+                  type="button"
+                  className="streak-goal-toggle"
+                  aria-expanded={goalSettingsOpen}
+                  aria-controls="streak-goal-settings"
+                  onClick={() => {
+                    if (goalSettingsOpen) closeGoalSettings();
+                    else setGoalSettingsOpen(true);
+                  }}
+                >
+                  <Settings2 size={14} aria-hidden="true" />
+                  <span>设置目标</span>
+                  <ChevronDown size={14} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            {goalSettingsOpen && summary?.goal && (
+              <div
+                id="streak-goal-settings"
+                className="streak-goal-settings-panel"
+                role="group"
+                aria-label="选择今日学习目标"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeGoalSettings();
+                  }
+                }}
+              >
+                <label className="sr-only" htmlFor="streak-goal-select">
+                  今日学习目标
+                </label>
+                <select
+                  ref={goalSelectRef}
+                  id="streak-goal-select"
+                  aria-label="今日学习目标"
+                  value={goalOptionValue(summary.goal)}
+                  disabled={savingGoal}
+                  onChange={(event) => void saveGoal(event.target.value)}
+                >
+                  <option value="activity">完成 1 次学习</option>
+                  <option value="reviews:5">复习 5 个词</option>
+                  <option value="reviews:10">复习 10 个词</option>
+                  <option value="reviews:15">复习 15 个词</option>
+                </select>
+                <span className="streak-goal-settings-hint">选择后立即保存</span>
+                <button type="button" onClick={closeGoalSettings} disabled={savingGoal}>
+                  收起
+                </button>
+              </div>
             )}
             {celebration && (
               <p className="streak-goal-done" role="status">
@@ -2168,22 +2244,6 @@ function StreakCard({ session }: { session: Session }) {
               </p>
             )}
             {summary?.week && <WeekGlanceStrip week={summary.week} />}
-            {summary?.goal && (
-              <label className="streak-goal-setting">
-                今日目标
-                <select
-                  aria-label="今日学习目标"
-                  value={goalOptionValue(summary.goal)}
-                  disabled={savingGoal}
-                  onChange={(event) => void saveGoal(event.target.value)}
-                >
-                  <option value="activity">完成 1 次学习</option>
-                  <option value="reviews:5">复习 5 个词</option>
-                  <option value="reviews:10">复习 10 个词</option>
-                  <option value="reviews:15">复习 15 个词</option>
-                </select>
-              </label>
-            )}
             {goalError && (
               <p className="streak-goal-error" role="alert">
                 {goalError}
@@ -2268,7 +2328,8 @@ function WeekGlanceStrip({ week }: { week: WeekGlance }) {
   return (
     <div className="week-glance" aria-label={`近 7 天有 ${week.activeDays} 天学习`}>
       <p>
-        近 7 天 {week.activeDays} 天有学习。计划里新词 {week.newWords} 个、复习 {week.reviewWords} 个。
+        近 7 天 {week.activeDays} 天有学习。计划里新词 {week.newWords} 个、复习 {week.reviewWords}{' '}
+        个。
       </p>
       <div>
         {week.days.map((day, index) => (
@@ -3177,7 +3238,10 @@ function WordsPanel({
   const [creatingDrill, setCreatingDrill] = useState(false);
   const [creatingWeak, setCreatingWeak] = useState(false);
   const [tomorrowDismissedOn, setTomorrowDismissedOn] = useState<string | null>(null);
-  const [skipState, setSkipState] = useState<{ date: string; ids: string[] }>({ date: '', ids: [] });
+  const [skipState, setSkipState] = useState<{ date: string; ids: string[] }>({
+    date: '',
+    ids: [],
+  });
   const [dueClear, setDueClear] = useState<ReturnType<typeof readDueClearState>>(null);
   const [storageReady, setStorageReady] = useState(false);
   const [resumeCount, setResumeCount] = useState(0);
@@ -3382,8 +3446,11 @@ function WordsPanel({
           newWordCount: newWordCandidates.length,
         })
       : null;
-  const tomorrowCount = visibleDashboardWords.duePreview?.days.find((day) => day.label === '明天')?.count;
-  const tomorrowLine = typeof tomorrowCount === 'number' ? tomorrowPreviewLine(tomorrowCount) : null;
+  const tomorrowCount = visibleDashboardWords.duePreview?.days.find(
+    (day) => day.label === '明天',
+  )?.count;
+  const tomorrowLine =
+    typeof tomorrowCount === 'number' ? tomorrowPreviewLine(tomorrowCount) : null;
   const queueNote = bookWordsReady
     ? reviewQueueOrderNote(orderedReviewWords, { skipped: skippedVisibleCount })
     : null;
@@ -3548,11 +3615,11 @@ function WordsPanel({
                   ? '打开并重试当前计划'
                   : existingPlan && resumeCount > 0
                     ? '继续上次的作答'
-                  : existingPlan
-                    ? '打开当前学习计划'
-                    : needsBookSelection
-                      ? '先选择词表'
-                      : '创建学习计划'}
+                    : existingPlan
+                      ? '打开当前学习计划'
+                      : needsBookSelection
+                        ? '先选择词表'
+                        : '创建学习计划'}
           </button>
           <Tooltip label="模型设置">
             <button
@@ -3570,50 +3637,52 @@ function WordsPanel({
           当前词书已掌握 {bookProgress.mastered} / {bookProgress.total}（{bookProgress.percent}%）
         </p>
       )}
-      <div className="quick-drill-row">
-        <button
-          type="button"
-          className="quick-drill"
-          disabled={drillDisabled}
-          onClick={() => void startQuickDrill()}
-        >
-          {creatingDrill ? '正在创建快练…' : '5 分钟快练'}
-        </button>
-        <p>
-          {!planListReady
-            ? '先读取已有计划，再开始快练。'
-            : existingPlan
-              ? '先完成当前学习计划，再开始快练。'
-              : !bookWordsReady
-                ? '先确认词表和到期词，再开始快练。'
-                : reviewCandidateCount === 0
-                  ? '今天没有带可用释义的到期词。'
-                  : `最多 ${QUICK_DRILL_WORD_COUNT} 个到期词，走独立单词练习，建议 5 分钟内做完。`}
-        </p>
-      </div>
-      {weakFocusCount !== undefined && (
+      <div className="quick-drills">
         <div className="quick-drill-row">
           <button
             type="button"
             className="quick-drill"
-            disabled={weakDisabled}
-            onClick={() => void startWeakFocus()}
+            disabled={drillDisabled}
+            onClick={() => void startQuickDrill()}
           >
-            {creatingWeak ? '正在创建薄弱词快练…' : '薄弱词快练'}
+            {creatingDrill ? '正在创建快练…' : '5 分钟快练'}
           </button>
           <p>
             {!planListReady
-              ? '先读取已有计划，再决定要不要练薄弱词。'
+              ? '先读取已有计划，再开始快练。'
               : existingPlan
-                ? '先完成当前学习计划。薄弱词快练可以留到下次。'
+                ? '先完成当前学习计划，再开始快练。'
                 : !bookWordsReady
-                  ? '先确认词表，再看有没有可练的薄弱词。'
-                  : weakFocusCount === 0
-                    ? '近期没有待练错题，可以跳过。这和交卷后的错题回炉不同。'
-                    : `有 ${weakFocusCount} 个近期仍待巩固的词，这次最多 ${WEAK_FOCUS_WORD_COUNT} 个。可以不做。提交后会正常更新复习时间。`}
+                  ? '先确认词表和到期词，再开始快练。'
+                  : reviewCandidateCount === 0
+                    ? '今天没有带可用释义的到期词。'
+                    : `最多 ${QUICK_DRILL_WORD_COUNT} 个到期词，走独立单词练习，建议 5 分钟内做完。`}
           </p>
         </div>
-      )}
+        {weakFocusCount !== undefined && (
+          <div className="quick-drill-row">
+            <button
+              type="button"
+              className="quick-drill"
+              disabled={weakDisabled}
+              onClick={() => void startWeakFocus()}
+            >
+              {creatingWeak ? '正在创建薄弱词快练…' : '薄弱词快练'}
+            </button>
+            <p>
+              {!planListReady
+                ? '先读取已有计划，再决定要不要练薄弱词。'
+                : existingPlan
+                  ? '先完成当前学习计划。薄弱词快练可以留到下次。'
+                  : !bookWordsReady
+                    ? '先确认词表，再看有没有可练的薄弱词。'
+                    : weakFocusCount === 0
+                      ? '近期没有待练错题，可以跳过。这和交卷后的错题回炉不同。'
+                      : `有 ${weakFocusCount} 个近期仍待巩固的词，这次最多 ${WEAK_FOCUS_WORD_COUNT} 个。可以不做。提交后会正常更新复习时间。`}
+            </p>
+          </div>
+        )}
+      </div>
       {dueClearNotice && (
         <p className="due-clear-note" role="status">
           <span>今天已经到点的词都处理完了。</span>
@@ -3790,8 +3859,7 @@ function WordsPanel({
             ))}
           </div>
           <p className="due-preview-note">
-            按 {visibleDashboardWords.duePreview.timeZone}{' '}
-            的日期。今天含已逾期和今天稍后才到点的词；首页待复习只列出已经到点的词。
+            今天含已逾期和今天稍后才到点的词；首页待复习只列出已经到点的词。
           </p>
           {tomorrowLine && tomorrowDismissedOn !== todayKey && (
             <p className="tomorrow-note">
@@ -3986,9 +4054,7 @@ function WordColumn({
             onMarkMastered={onMarkMastered}
             onDefer={onDefer}
             skipped={Boolean(word.id && skippedIds.includes(word.id))}
-            onSkipToday={
-              onSkipToday && word.id ? () => onSkipToday(word.id as string) : undefined
-            }
+            onSkipToday={onSkipToday && word.id ? () => onSkipToday(word.id as string) : undefined}
           />
         ))}
         {hasMore && (
@@ -4930,7 +4996,11 @@ function GroupSettlement({
                 {durationMinutes ?? '—'}
                 {durationMinutes !== null && <em>min</em>}
               </strong>
-              <p>{durationMinutes === null ? '这次没有记录用时。' : '这是各组从打开到提交的记录用时。'}</p>
+              <p>
+                {durationMinutes === null
+                  ? '这次没有记录用时。'
+                  : '这是各组从打开到提交的记录用时。'}
+              </p>
             </article>
           </section>
           <section className="settlement-card settlement-exercises">

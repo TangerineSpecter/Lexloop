@@ -4,12 +4,14 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookie from '@fastify/cookie';
 import { AppModule } from './app.module';
+import { SystemLogExceptionFilter } from './modules/admin/system-log-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+  app.useGlobalFilters(app.get(SystemLogExceptionFilter));
   await app.register(cookie);
   app.setGlobalPrefix('api/v1');
   app.enableCors({

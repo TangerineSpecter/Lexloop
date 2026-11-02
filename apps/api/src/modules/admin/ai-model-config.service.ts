@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiModelProvider } from '@prisma/client';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -116,6 +121,22 @@ export class AiModelConfigService {
     });
     const model = user?.selectedAiModel;
     if (!model?.isEnabled) return null;
+    return {
+      id: model.id,
+      displayName: model.displayName,
+      baseUrl: model.baseUrl,
+      model: model.model,
+      apiKey: this.decrypt(model.encryptedApiKey),
+      provider: model.provider,
+    };
+  }
+
+  async providerForTest(id: string) {
+    const model = await this.prisma.aiModelConfig.findUnique({ where: { id } });
+    if (!model) throw new NotFoundException('模型配置不存在');
+    if (!model.encryptedApiKey) {
+      throw new ServiceUnavailableException('该模型尚未配置 API Key');
+    }
     return {
       id: model.id,
       displayName: model.displayName,

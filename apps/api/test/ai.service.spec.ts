@@ -134,14 +134,12 @@ describe('AiService', () => {
       { activeProvider: vi.fn().mockResolvedValue(null) } as never,
     );
 
-    await expect(
-      service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] }),
-    ).rejects.toMatchObject({
-      constructor: BadGatewayException,
-      message: expect.stringContaining('模型认证失败'),
-    });
-    await expect(
-      service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] }),
-    ).rejects.not.toThrow('sk-secret');
+    const failure = service.chatCompletions({ messages: [{ role: 'user', content: 'Hi' }] });
+    const caught: unknown = await failure.catch((value: unknown) => value);
+    const error = caught as BadGatewayException;
+    expect(error).toBeInstanceOf(BadGatewayException);
+    expect(error.message).toContain('模型认证未通过');
+    expect(error.message).toContain('上游 HTTP 401');
+    expect(error.message).not.toContain('sk-secret');
   });
 });

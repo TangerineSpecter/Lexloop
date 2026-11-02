@@ -291,6 +291,7 @@ test(
         newWordCount: 0,
         reviewWordCount: 2,
         mode: 'group',
+        skipReviewWordIds: [],
       });
       await until(
         'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
@@ -309,6 +310,7 @@ test(
         newWordCount: 0,
         reviewWordCount: 2,
         mode: 'exam',
+        skipReviewWordIds: [],
       });
       await until(
         'document.querySelector(".book-message")?.textContent.includes("Fixture stopped before plan generation")',
