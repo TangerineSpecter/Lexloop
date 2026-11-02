@@ -286,6 +286,15 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
         StudyContentFeedbackReason.QUESTION_UNCLEAR,
       );
       expect(firstVote).toMatchObject({ rating: 'DOWN', reason: 'QUESTION_UNCLEAR' });
+      const bank = new StudyContentBankService(prisma as never);
+      const initiallyNegative = await bank.list({
+        status: 'active',
+        pageSize: 10,
+        search: fixtureId,
+        feedback: 'negative',
+      });
+      expect(initiallyNegative).toMatchObject({ total: 1, items: [{ id: cache.id }] });
+      expect(initiallyNegative.items[0].feedbackSummary).toEqual({ up: 0, down: 1 });
       await expect(
         study.ratePublicQuestion(
           users[1].id,
@@ -333,9 +342,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
       expect(afterProgress).toEqual(beforeProgress);
       expect(await prisma.wordReviewAttempt.count({ where: { userId: users[0].id } })).toBe(1);
 
-      const bank = new StudyContentBankService(prisma as never);
       const listed = await bank.list({ status: 'active', pageSize: 10, search: fixtureId });
       expect(listed.items[0].questions[0].feedback).toEqual({ up: 1, down: 0, reasonCounts: {} });
+      expect(listed.items[0].feedbackSummary).toEqual({ up: 1, down: 0 });
+      expect(
+        await bank.list({ status: 'active', search: fixtureId, feedback: 'negative' }),
+      ).toMatchObject({ total: 0, items: [] });
       await bank.setActive(cache.id, false, '题目反馈核查中', users[2].id);
       expect(await bank.list({ status: 'active', search: fixtureId })).toMatchObject({
         total: 0,

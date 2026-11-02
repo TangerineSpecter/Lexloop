@@ -11,6 +11,7 @@ export type StudyContentBankFilters = {
   from?: string;
   to?: string;
   search?: string;
+  feedback?: 'all' | 'negative';
 };
 
 type BankQuestion = Record<string, unknown> & { bookWordId?: string };
@@ -64,6 +65,14 @@ export class StudyContentBankService {
     if (filters.mode) clauses.push(Prisma.sql`"mode" = ${filters.mode}::"StudyPlanMode"`);
     if (filters.from) clauses.push(Prisma.sql`"createdAt" >= ${dateBoundary(filters.from)}`);
     if (filters.to) clauses.push(Prisma.sql`"createdAt" < ${dateBoundary(filters.to, true)}`);
+    if (filters.feedback === 'negative') {
+      clauses.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM "public"."StudyContentQuestionFeedback" AS feedback
+        WHERE feedback."contentCacheId" = "public"."StudyContentCache"."id"
+          AND feedback."rating" = 'DOWN'::"StudyContentFeedbackRating"
+      )`);
+    }
     const search = filters.search?.trim();
     if (search) {
       const pattern = `%${search}%`;
@@ -123,11 +132,15 @@ export class StudyContentBankService {
         `)
       : [];
     const aggregatesByQuestion = new Map<string, VoteAggregate[]>();
+    const feedbackByCache = new Map<string, { up: number; down: number }>();
     for (const aggregate of aggregates) {
       const key = `${aggregate.contentCacheId}:${aggregate.questionFingerprint}`;
       const values = aggregatesByQuestion.get(key) ?? [];
       values.push(aggregate);
       aggregatesByQuestion.set(key, values);
+      const summary = feedbackByCache.get(aggregate.contentCacheId) ?? { up: 0, down: 0 };
+      summary[aggregate.rating === 'UP' ? 'up' : 'down'] += Number(aggregate.count);
+      feedbackByCache.set(aggregate.contentCacheId, summary);
     }
 
     return {
@@ -135,35 +148,38 @@ export class StudyContentBankService {
       pageSize,
       total: Number(total),
       quarantinedCount,
-      items: orderedCaches.map((cache) => ({
-        id: cache.id,
-        mode: cache.mode,
-        material: cache.material,
-        reuseHits: cache.hitCount,
-        planReferences: cache._count.planItems,
-        isActive: cache.isActive,
-        disabledAt: cache.disabledAt,
-        disabledReason: cache.disabledReason,
-        createdAt: cache.createdAt,
-        updatedAt: cache.updatedAt,
-        provenance: '生成模型来源未记录（题库未保存该字段）',
-        questions: questionsFromMaterial(cache.material).map((question) => {
-          const fingerprint = studyQuestionFingerprint(question);
-          const votes = aggregatesByQuestion.get(`${cache.id}:${fingerprint}`) ?? [];
-          const reasonCounts: Record<string, number> = {};
-          let up = 0;
-          let down = 0;
-          for (const vote of votes) {
-            const count = Number(vote.count);
-            if (vote.rating === 'UP') up += count;
-            else down += count;
-            if (vote.rating === 'DOWN' && vote.reason) {
-              reasonCounts[vote.reason] = (reasonCounts[vote.reason] ?? 0) + count;
+      items: orderedCaches.map((cache) => {
+        return {
+          id: cache.id,
+          mode: cache.mode,
+          material: cache.material,
+          reuseHits: cache.hitCount,
+          planReferences: cache._count.planItems,
+          isActive: cache.isActive,
+          disabledAt: cache.disabledAt,
+          disabledReason: cache.disabledReason,
+          createdAt: cache.createdAt,
+          updatedAt: cache.updatedAt,
+          provenance: '生成模型来源未记录（题库未保存该字段）',
+          feedbackSummary: feedbackByCache.get(cache.id) ?? { up: 0, down: 0 },
+          questions: questionsFromMaterial(cache.material).map((question) => {
+            const fingerprint = studyQuestionFingerprint(question);
+            const votes = aggregatesByQuestion.get(`${cache.id}:${fingerprint}`) ?? [];
+            const reasonCounts: Record<string, number> = {};
+            let up = 0;
+            let down = 0;
+            for (const vote of votes) {
+              const count = Number(vote.count);
+              if (vote.rating === 'UP') up += count;
+              else down += count;
+              if (vote.rating === 'DOWN' && vote.reason) {
+                reasonCounts[vote.reason] = (reasonCounts[vote.reason] ?? 0) + count;
+              }
             }
-          }
-          return { ...question, feedback: { up, down, reasonCounts } };
-        }),
-      })),
+            return { ...question, feedback: { up, down, reasonCounts } };
+          }),
+        };
+      }),
     };
   }
 

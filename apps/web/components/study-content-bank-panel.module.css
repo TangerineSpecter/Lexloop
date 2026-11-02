@@ -46,7 +46,7 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(12rem, 2fr) repeat(4, minmax(7rem, 1fr)) auto;
+  grid-template-columns: minmax(12rem, 2fr) repeat(5, minmax(7rem, 1fr)) auto;
   gap: 0.75rem;
   align-items: end;
   margin: 1.1rem 0 1.3rem;

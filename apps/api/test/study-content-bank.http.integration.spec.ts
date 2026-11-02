@@ -11,6 +11,7 @@ import { StudyContentBankController } from '../src/modules/admin/study-content-b
 import { StudyContentBankService } from '../src/modules/admin/study-content-bank.service';
 import { JwtAuthGuard } from '../src/modules/auth/jwt-auth.guard';
 import { RolesGuard } from '../src/modules/auth/roles.guard';
+import { studyQuestionFingerprint } from '../src/modules/study/study-content-bank';
 
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'public study material bank HTTP authorization in an isolated database',
@@ -65,6 +66,24 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           select: { id: true },
         });
         cacheId = cache.id;
+        const question = {
+          bookWordId: `word-${fixtureId}`,
+          type: 'MEANING_RECOGNITION',
+          prompt: 'What does steady mean?',
+          options: ['平稳的', '急促的'],
+          correctAnswers: ['平稳的'],
+          explanation: '隔离 HTTP 测试题目。',
+        };
+        await prisma.studyContentQuestionFeedback.create({
+          data: {
+            userId: user.id,
+            contentCacheId: cache.id,
+            questionFingerprint: studyQuestionFingerprint(question),
+            questionSnapshot: question,
+            rating: 'DOWN',
+            reason: 'QUESTION_UNCLEAR',
+          },
+        });
 
         const jwt = new JwtService({ secret: jwtSecret });
         const moduleRef = await Test.createTestingModule({
@@ -103,7 +122,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const anonymousRead = await fastify.inject({ method: 'GET', url: route });
         const userRead = await fastify.inject({
           method: 'GET',
-          url: route,
+          url: `${route}?feedback=negative`,
           headers: { authorization: `Bearer ${userToken}` },
         });
         const anonymousWrite = await fastify.inject({
@@ -131,12 +150,18 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         const adminRead = await fastify.inject({
           method: 'GET',
-          url: route,
+          url: `${route}?feedback=negative`,
           headers: { authorization: `Bearer ${adminToken}` },
         });
         expect(adminRead.statusCode).toBe(200);
         expect(adminRead.json().items).toEqual(
-          expect.arrayContaining([expect.objectContaining({ id: cache.id, isActive: true })]),
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: cache.id,
+              isActive: true,
+              feedbackSummary: { up: 0, down: 1 },
+            }),
+          ]),
         );
 
         const adminWrite = await fastify.inject({

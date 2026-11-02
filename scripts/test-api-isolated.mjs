@@ -14,6 +14,8 @@ const id = `${process.pid}-${randomUUID().slice(0, 8)}`;
 const pgName = `lexloop-api-test-${id}-pg`;
 const redisName = `lexloop-api-test-${id}-redis`;
 const containers = [];
+const dockerArgs = (args) =>
+  process.platform === 'linux' ? ['--host=unix:///var/run/docker.sock', ...args] : args;
 let activeChild;
 let interruptedBy;
 
@@ -83,7 +85,9 @@ function getPublishedPort(output, label) {
 async function waitForContainer(name, checkArgs, label) {
   for (let attempt = 0; attempt < 90; attempt += 1) {
     if (interruptedBy) throw new Error(`Interrupted by ${interruptedBy}.`);
-    const result = await execute('docker', ['exec', name, ...checkArgs], { capture: true });
+    const result = await execute('docker', dockerArgs(['exec', name, ...checkArgs]), {
+      capture: true,
+    });
     if (result.status === 0) return;
     await delay(500);
   }
@@ -93,7 +97,7 @@ async function waitForContainer(name, checkArgs, label) {
 function cleanupContainers() {
   let failed = false;
   for (const name of containers) {
-    const result = spawnSync('docker', ['rm', '--force', name], {
+    const result = spawnSync('docker', dockerArgs(['rm', '--force', name]), {
       cwd: rootDir,
       encoding: 'utf8',
     });
@@ -116,7 +120,7 @@ function parseTestSummary(output) {
 async function main() {
   const dockerVersion = await run(
     'docker',
-    ['info', '--format', '{{.ServerVersion}}'],
+    dockerArgs(['info', '--format', '{{.ServerVersion}}']),
     'Docker engine check (Docker is required for isolated API integration tests)',
     { capture: true },
   );
@@ -126,12 +130,15 @@ async function main() {
   containers.push(pgName);
   await run(
     'docker',
-    [
+    dockerArgs([
       'run',
       '--detach',
       '--rm',
+      '--pull=never',
       '--name',
       pgName,
+      '--tmpfs',
+      '/var/lib/postgresql/data:rw,size=1g',
       '--publish',
       '127.0.0.1::5432',
       '--env',
@@ -141,26 +148,36 @@ async function main() {
       '--env',
       `POSTGRES_PASSWORD=${pgPassword}`,
       pgImage,
-    ],
+    ]),
     'Starting the temporary PostgreSQL container',
     { capture: true },
   );
   containers.push(redisName);
   await run(
     'docker',
-    ['run', '--detach', '--rm', '--name', redisName, '--publish', '127.0.0.1::6379', redisImage],
+    dockerArgs([
+      'run',
+      '--detach',
+      '--rm',
+      '--pull=never',
+      '--name',
+      redisName,
+      '--publish',
+      '127.0.0.1::6379',
+      redisImage,
+    ]),
     'Starting the temporary Redis container',
     { capture: true },
   );
 
   const pgPort = getPublishedPort(
-    await run('docker', ['port', pgName, '5432/tcp'], 'Reading PostgreSQL test port', {
+    await run('docker', dockerArgs(['port', pgName, '5432/tcp']), 'Reading PostgreSQL test port', {
       capture: true,
     }),
     'PostgreSQL',
   );
   const redisPort = getPublishedPort(
-    await run('docker', ['port', redisName, '6379/tcp'], 'Reading Redis test port', {
+    await run('docker', dockerArgs(['port', redisName, '6379/tcp']), 'Reading Redis test port', {
       capture: true,
     }),
     'Redis',

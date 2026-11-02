@@ -25,6 +25,7 @@ type BankItem = {
   material: BankMaterial;
   reuseHits: number;
   planReferences: number;
+  feedbackSummary?: { up: number; down: number };
   isActive: boolean;
   disabledAt: string | null;
   disabledReason: string | null;
@@ -45,9 +46,17 @@ type Filters = {
   mode: '' | 'GROUP' | 'INDIVIDUAL' | 'EXAM';
   from: string;
   to: string;
+  feedback: 'all' | 'negative';
 };
 
-const EMPTY_FILTERS: Filters = { search: '', status: 'active', mode: '', from: '', to: '' };
+const EMPTY_FILTERS: Filters = {
+  search: '',
+  status: 'active',
+  mode: '',
+  from: '',
+  to: '',
+  feedback: 'all',
+};
 const MODE_LABELS = { GROUP: '分组阅读', INDIVIDUAL: '单词练习', EXAM: '测评题型' };
 const REASON_LABELS: Record<string, string> = {
   ANSWER_INCORRECT: '答案错误',
@@ -94,6 +103,7 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
     if (filters.mode) query.set('mode', filters.mode);
     if (filters.from) query.set('from', filters.from);
     if (filters.to) query.set('to', filters.to);
+    if (filters.feedback === 'negative') query.set('feedback', filters.feedback);
     setLoading(true);
     setError('');
     try {
@@ -205,6 +215,18 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
           </select>
         </label>
         <label>
+          <span>题目评价</span>
+          <select
+            value={draft.feedback}
+            onChange={(event) =>
+              setDraft({ ...draft, feedback: event.target.value as Filters['feedback'] })
+            }
+          >
+            <option value="all">全部评价</option>
+            <option value="negative">有负面评价（含历史版本）</option>
+          </select>
+        </label>
+        <label>
           <span>生成日期起</span>
           <input
             type="date"
@@ -261,6 +283,14 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
                   </span>
                   <span>
                     计划引用 <strong>{item.planReferences}</strong>
+                  </span>
+                  <span>
+                    材料累计赞踩{' '}
+                    <strong
+                      aria-label={`赞 ${item.feedbackSummary?.up ?? 0}，踩 ${item.feedbackSummary?.down ?? 0}`}
+                    >
+                      {item.feedbackSummary?.up ?? 0} 赞 · {item.feedbackSummary?.down ?? 0} 踩
+                    </strong>
                   </span>
                 </div>
               </header>
