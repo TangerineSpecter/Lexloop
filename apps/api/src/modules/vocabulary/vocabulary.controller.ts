@@ -5,6 +5,7 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
@@ -59,6 +60,18 @@ function missingMeaningPageOptions(pageSize?: string, cursor?: string) {
   return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
 }
 
+function wordAttemptPageOptions(pageSize?: string, cursor?: string) {
+  const parsedSize =
+    pageSize === undefined ? 20 : /^(?:[1-9]\d*)$/.test(pageSize) ? Number(pageSize) : NaN;
+  if (!Number.isInteger(parsedSize) || parsedSize < 1 || parsedSize > 50) {
+    throw new BadRequestException('每页学习记录数量必须是 1 到 50 的整数');
+  }
+  if (cursor !== undefined && (cursor.length === 0 || cursor.length > 512)) {
+    throw new BadRequestException('学习记录游标无效，请重新加载');
+  }
+  return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
+}
+
 class UpdateNewWordCountDto {
   @IsInt() @Min(5) @Max(40) defaultNewWordCount!: number;
 }
@@ -101,7 +114,7 @@ class PersonalVocabularyImportDto {
 @UseGuards(JwtAuthGuard)
 @Controller('vocabulary')
 export class VocabularyController {
-  constructor(private readonly vocabulary: VocabularyService) {}
+  constructor(@Inject(VocabularyService) private readonly vocabulary: VocabularyService) {}
 
   @Get('system') system(
     @Req() request: AuthenticatedRequest,
@@ -126,6 +139,18 @@ export class VocabularyController {
   }
   @Get('notebook') notebook(@Req() req: AuthenticatedRequest, @Query() dto: NotebookQuery) {
     return this.vocabulary.notebook(req.user.sub, dto.page, dto.search.trim(), dto.source);
+  }
+  @Get('personal/items/:id/history') wordHistory(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.vocabulary.notebookWordHistory(
+      req.user.sub,
+      id,
+      wordAttemptPageOptions(pageSize, cursor),
+    );
   }
   @Delete('personal/items/:id') removePersonal(
     @Req() req: AuthenticatedRequest,

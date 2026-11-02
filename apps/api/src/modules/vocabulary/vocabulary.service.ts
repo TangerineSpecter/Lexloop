@@ -83,6 +83,92 @@ function decodeArchiveCursor(
 
 type MissingMeaningCursor = { bookId: string; position: number };
 
+type NotebookWordHistoryCursor = {
+  userId: string;
+  bookWordId: string;
+  id: string;
+  createdAt: Date;
+};
+
+function encodeNotebookWordHistoryCursor(
+  userId: string,
+  bookWordId: string,
+  id: string,
+  createdAt: Date,
+) {
+  return Buffer.from(
+    JSON.stringify({
+      kind: 'NOTEBOOK_WORD_HISTORY',
+      userId,
+      bookWordId,
+      id,
+      createdAt: createdAt.toISOString(),
+    }),
+  ).toString('base64url');
+}
+
+function decodeNotebookWordHistoryCursor(
+  value: string,
+  expectedUserId: string,
+  expectedBookWordId: string,
+): NotebookWordHistoryCursor {
+  const invalid = () => new BadRequestException('学习记录游标无效，请重新加载');
+  if (!value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  let decoded: unknown;
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    if (Buffer.from(raw).toString('base64url') !== value) throw invalid();
+    decoded = JSON.parse(raw);
+  } catch {
+    throw invalid();
+  }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw invalid();
+  const cursor = decoded as Record<string, unknown>;
+  if (
+    cursor.kind !== 'NOTEBOOK_WORD_HISTORY' ||
+    cursor.userId !== expectedUserId ||
+    cursor.bookWordId !== expectedBookWordId ||
+    typeof cursor.id !== 'string' ||
+    cursor.id.length < 1 ||
+    cursor.id.length > 100 ||
+    typeof cursor.createdAt !== 'string'
+  ) {
+    throw invalid();
+  }
+  const createdAt = new Date(cursor.createdAt);
+  if (Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== cursor.createdAt)
+    throw invalid();
+  return { userId: expectedUserId, bookWordId: expectedBookWordId, id: cursor.id, createdAt };
+}
+
+function record(value: Prisma.JsonValue | null): Record<string, Prisma.JsonValue> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, Prisma.JsonValue>)
+    : null;
+}
+
+function historicalQuestionSnapshot(attempt: {
+  item: { question: Prisma.JsonValue | null } | null;
+  selectedAnswer: Prisma.JsonValue | null;
+  adventureAction: { feedback: Prisma.JsonValue } | null;
+}) {
+  if (attempt.item?.question !== null && attempt.item?.question !== undefined)
+    return attempt.item.question;
+  const savedAnswer = record(attempt.selectedAnswer);
+  if (savedAnswer?.question !== undefined) return savedAnswer.question;
+  const feedback = record(attempt.adventureAction?.feedback ?? null);
+  if (typeof feedback?.prompt === 'string') {
+    return {
+      prompt: feedback.prompt,
+      ...(typeof feedback.word === 'string' ? { word: feedback.word } : {}),
+      ...(typeof feedback.meaning === 'string' ? { meaning: feedback.meaning } : {}),
+      ...(typeof feedback.answer === 'string' ? { referenceAnswer: feedback.answer } : {}),
+      ...(typeof feedback.message === 'string' ? { explanation: feedback.message } : {}),
+    };
+  }
+  return null;
+}
+
 function encodeMissingMeaningCursor(bookId: string, position: number) {
   return Buffer.from(JSON.stringify({ bookId, position })).toString('base64url');
 }
@@ -730,6 +816,79 @@ export class VocabularyService {
         state: item.progress[0]?.state ?? 'NEW',
         nextReviewAt: item.progress[0]?.nextReviewAt ?? null,
       })),
+    };
+  }
+
+  async notebookWordHistory(
+    userId: string,
+    bookWordId: string,
+    options: { pageSize: number; cursor?: string },
+  ) {
+    const ownedWord = await this.prisma.vocabularyBookWord.findFirst({
+      where: {
+        id: bookWordId,
+        isCollected: true,
+        book: { ownerId: userId, kind: VocabularyBookKind.PERSONAL },
+      },
+      select: { id: true },
+    });
+    if (!ownedWord) throw new NotFoundException('生词本词条不存在');
+
+    const cursor = options.cursor
+      ? decodeNotebookWordHistoryCursor(options.cursor, userId, bookWordId)
+      : null;
+    const attempts = await this.prisma.wordReviewAttempt.findMany({
+      where: {
+        userId,
+        bookWordId,
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: options.pageSize + 1,
+      select: {
+        id: true,
+        createdAt: true,
+        isCorrect: true,
+        questionType: true,
+        planItemId: true,
+        adventureActionId: true,
+        selectedAnswer: true,
+        item: { select: { question: true } },
+        adventureAction: { select: { feedback: true } },
+      },
+    });
+    const hasMore = attempts.length > options.pageSize;
+    const items = attempts.slice(0, options.pageSize);
+    const last = items.at(-1);
+    return {
+      items: items.map((attempt) => {
+        const answerRecord = record(attempt.selectedAnswer);
+        return {
+          id: attempt.id,
+          createdAt: attempt.createdAt,
+          isCorrect: attempt.isCorrect,
+          questionType: attempt.questionType,
+          source: attempt.adventureActionId
+            ? 'ADVENTURE'
+            : attempt.planItemId
+              ? 'STUDY_PLAN'
+              : 'OTHER',
+          selectedAnswer: answerRecord?.answer ?? attempt.selectedAnswer,
+          questionSnapshot: historicalQuestionSnapshot(attempt),
+        };
+      }),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeNotebookWordHistoryCursor(userId, bookWordId, last.id, last.createdAt)
+          : null,
     };
   }
 

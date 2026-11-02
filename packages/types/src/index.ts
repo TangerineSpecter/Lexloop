@@ -565,6 +565,20 @@ export interface NotebookPage {
   hasMore: boolean;
   total: number;
 }
+export interface NotebookWordAttempt {
+  id: string;
+  createdAt: string;
+  isCorrect: boolean;
+  questionType: string | null;
+  source: 'STUDY_PLAN' | 'ADVENTURE' | 'OTHER';
+  selectedAnswer: unknown;
+  questionSnapshot: unknown | null;
+}
+export interface NotebookWordAttemptPage {
+  items: NotebookWordAttempt[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
 export type LabKind = 'READING' | 'GRAMMAR';
 export interface LabQuestion {
   id: string;

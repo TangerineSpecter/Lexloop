@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { NotebookPage, NotebookSource, NotebookWord } from '@lexloop/types';
 import { request, userFacingError, type Session } from '../../lib/api';
+import { NotebookWordHistoryDialog } from './notebook-word-history-dialog';
 import { CollectWordForm } from './collect-word-form';
 import { PersonalVocabularyImport } from './personal-vocabulary-import';
 import { NotebookSpellingPractice } from './notebook-spelling-practice';
@@ -56,6 +57,7 @@ export function NotebookPanel({
   const [recallMode, setRecallMode] = useState(false);
   const [revealedMeaningIds, setRevealedMeaningIds] = useState<Set<string>>(() => new Set());
   const [spellingPracticeUserId, setSpellingPracticeUserId] = useState<string | null>(null);
+  const [historyWord, setHistoryWord] = useState<NotebookWord | null>(null);
   const spellingPracticeActive = spellingPracticeUserId === session.user.id;
   const loadKey = JSON.stringify([session.user.id, page, query, source, revision]);
   const currentLoad = loadState?.key === loadKey ? loadState : null;
@@ -298,6 +300,14 @@ export function NotebookPanel({
                   <div className={styles.actions}>
                     <button
                       className={styles.button}
+                      type="button"
+                      data-word-history
+                      onClick={() => setHistoryWord(word)}
+                    >
+                      学习记录
+                    </button>
+                    <button
+                      className={styles.button}
                       disabled={busy !== null}
                       onClick={() => void action(word, 'review')}
                     >
@@ -352,6 +362,14 @@ export function NotebookPanel({
           </button>
         </nav>
       </div>
+      {historyWord && (
+        <NotebookWordHistoryDialog
+          key={`${session.user.id}:${historyWord.id}`}
+          session={session}
+          word={historyWord}
+          onClose={() => setHistoryWord(null)}
+        />
+      )}
     </section>
   );
 }

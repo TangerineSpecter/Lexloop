@@ -217,6 +217,10 @@ test(
       window.deferImportOnce = false;
       window.apiRequests = [];
       window.failNotebookPageTwoOnce = false;
+      window.failWordHistoryOnce = false;
+      window.deferWordHistoryOnce = false;
+      window.wordHistoryResolvers = [];
+      window.wordHistoryRequests = [];
       window.failFavoritePageTwoOnce = false;
       window.notebookSpeechAudit = [];
       window.notebookSpeechVoices = [{ lang: 'en-US', localService: true }];
@@ -256,6 +260,37 @@ test(
           const items = notebookPages[userId] || [];
           const filtered = search ? items.filter(item => item.text.toLowerCase().includes(search)) : items;
           return Response.json({ items: filtered.slice((page - 1) * 20, page * 20), page, pageSize: 20, total: filtered.length, hasMore: page * 20 < filtered.length });
+        }
+        if (path.includes('/api/v1/vocabulary/personal/items/') && path.includes('/history?')) {
+          const url = new URL(path, location.origin);
+          const wordId = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+          const params = url.searchParams;
+          const cursor = params.get('cursor');
+          window.wordHistoryRequests.push({ wordId, cursor, pageSize: params.get('pageSize') });
+          if (wordId === 'fixture-word-2') return Response.json({ items: [], hasMore: false, nextCursor: null });
+          if (window.failWordHistoryOnce) {
+            window.failWordHistoryOnce = false;
+            return Response.json({ message: '模拟学习记录暂时不可用' }, { status: 503 });
+          }
+          if (cursor === 'older-1') return Response.json({
+            items: [{ id: 'attempt-old-no-snapshot', createdAt: '2026-10-20T10:00:00.000Z', isCorrect: false, questionType: null, source: 'OTHER', selectedAnswer: 'unknown', questionSnapshot: null }],
+            hasMore: true, nextCursor: 'older-late',
+          });
+          if (cursor === 'older-late' && window.deferWordHistoryOnce) {
+            window.deferWordHistoryOnce = false;
+            return await new Promise(resolve => window.wordHistoryResolvers.push(() => resolve(Response.json({
+              items: [{ id: 'late-old-attempt', createdAt: '2026-10-19T10:00:00.000Z', isCorrect: true, questionType: 'SPELLING', source: 'STUDY_PLAN', selectedAnswer: 'river', questionSnapshot: { prompt: '迟到的历史题' } }],
+              hasMore: false, nextCursor: null,
+            }))));
+          }
+          return Response.json({
+            items: [{
+              id: 'attempt-with-snapshot', createdAt: '2026-11-01T09:00:00.000Z', isCorrect: true,
+              questionType: 'CONTEXT_CHOICE', source: 'STUDY_PLAN', selectedAnswer: 'river bank',
+              questionSnapshot: { prompt: 'Historical prompt saved at answer time.', options: ['河岸', '山顶'], correctAnswers: ['河岸'], explanation: 'Historical explanation.' },
+            }],
+            hasMore: true, nextCursor: 'older-1',
+          });
         }
         if (path.includes('/api/v1/daily-sentences?')) {
           const params = new URL(path, location.origin).searchParams;
@@ -338,6 +373,111 @@ test(
         url: new URL('/dashboard/notebook?tab=words', baseUrl).href,
       });
       await until('document.querySelectorAll("article[data-notebook-word]").length === 20');
+      const historyTrigger = 'article[data-notebook-word="fixture-word-0"] [data-word-history]';
+      await evaluate(`(() => {
+        window.failWordHistoryOnce = true;
+        document.querySelector(${JSON.stringify(historyTrigger)}).focus();
+      })()`);
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title]")?.open',
+      );
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [role=alert]")?.innerText.includes("模拟学习记录暂时不可用")',
+      );
+      const failedHistoryLayout = await evaluate(`(() => {
+        const box = document.querySelector('dialog[aria-labelledby=notebook-word-history-title]').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: box.left, right: box.right, width: box.width };
+      })()`);
+      assert.equal(failedHistoryLayout.viewport, 1440);
+      assert.ok(failedHistoryLayout.page <= failedHistoryLayout.viewport);
+      assert.ok(
+        failedHistoryLayout.left >= 0 && failedHistoryLayout.right <= failedHistoryLayout.viewport,
+      );
+      await evaluate(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [role=alert] button").click()',
+      );
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [data-history-attempt]")?.innerText.includes("Historical prompt saved at answer time.")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog[aria-labelledby=notebook-word-history-title]").innerText.includes("当时说明")',
+        ),
+        true,
+      );
+      assert.deepEqual(await evaluate('window.wordHistoryRequests[0]'), {
+        wordId: 'fixture-word-0',
+        cursor: null,
+        pageSize: '20',
+      });
+      await evaluate(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [data-history-load-more]").click()',
+      );
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title]")?.innerText.includes("这条旧记录没有保存当时的题目快照")',
+      );
+      await evaluate(`(() => {
+        window.deferWordHistoryOnce = true;
+        document.querySelector('dialog[aria-labelledby=notebook-word-history-title] [data-history-load-more]').click();
+      })()`);
+      await until('window.wordHistoryResolvers.length === 1');
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until(
+        '!document.querySelector("dialog[aria-labelledby=notebook-word-history-title]")?.open',
+      );
+      assert.equal(
+        await evaluate(
+          `document.activeElement === document.querySelector(${JSON.stringify(historyTrigger)})`,
+        ),
+        true,
+      );
+      await evaluate('window.wordHistoryResolvers.shift()()');
+      await delay(100);
+      assert.equal(await evaluate('document.body.innerText.includes("迟到的历史题")'), false);
+
+      await evaluate(
+        'document.querySelector("article[data-notebook-word=fixture-word-2] [data-word-history]").click()',
+      );
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [role=status]")?.innerText.includes("还没有已保存的作答记录")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("dialog[aria-labelledby=notebook-word-history-title]").innerText.includes("没有保存当时的题目快照")',
+        ),
+        false,
+      );
+      await evaluate(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [aria-label=关闭学习记录]").click()',
+      );
+      await until(
+        '!document.querySelector("dialog[aria-labelledby=notebook-word-history-title]")?.open',
+      );
       const desktopLayout = await evaluate(`(() => {
         const cards = [...document.querySelectorAll('article[data-notebook-word]')];
         const first = cards[0]?.getBoundingClientRect();
@@ -855,6 +995,32 @@ test(
       assert.equal(mobileLayout.importVisible, true);
       assert.ok(mobileLayout.importInputRight <= mobileLayout.viewport);
       assert.ok(mobileLayout.importButtonRight <= mobileLayout.viewport);
+
+      await evaluate(
+        'document.querySelector("article[data-notebook-word=fixture-word-0] [data-word-history]").click()',
+      );
+      await until(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [data-history-attempt]")',
+      );
+      const mobileHistoryLayout = await evaluate(`(() => {
+        const dialog = document.querySelector('dialog[aria-labelledby=notebook-word-history-title]');
+        const box = dialog.getBoundingClientRect();
+        const close = dialog.querySelector('[aria-label="关闭学习记录"]').getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: box.left, right: box.right, closeRight: close.right, attemptRight: dialog.querySelector('[data-history-attempt]').getBoundingClientRect().right };
+      })()`);
+      assert.equal(mobileHistoryLayout.viewport, 390);
+      assert.ok(mobileHistoryLayout.page <= mobileHistoryLayout.viewport);
+      assert.ok(
+        mobileHistoryLayout.left >= 0 && mobileHistoryLayout.right <= mobileHistoryLayout.viewport,
+      );
+      assert.ok(mobileHistoryLayout.closeRight <= mobileHistoryLayout.right);
+      assert.ok(mobileHistoryLayout.attemptRight <= mobileHistoryLayout.right);
+      await evaluate(
+        'document.querySelector("dialog[aria-labelledby=notebook-word-history-title] [aria-label=关闭学习记录]").click()',
+      );
+      await until(
+        '!document.querySelector("dialog[aria-labelledby=notebook-word-history-title]")?.open',
+      );
 
       await evaluate(`(() => {
         const form = document.querySelector('[data-notebook-filters]');

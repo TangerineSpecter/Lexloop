@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.135',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '查看词条学习轨迹',
+        entry: '个人生词本 → 词卡 → 学习记录',
+        usage:
+          '按当前账号和具体词书词条分页查看正误、题型、时间、作答和当时保存的题目。旧记录缺少题目快照时会明确标记；此处只读，不改变掌握度或复习状态。',
+      },
+    ],
+  },
+  {
     version: '1.27.134',
     date: '2026-11-02',
     items: [
