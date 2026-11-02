@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
 
 test(
-  'A2 completion opens the B1 story without revealing its answer before recall',
+  'preserves the existing B1 sequence and serves appended B1 stories after prior progress',
   { skip: !baseUrl, timeout: 30_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-micro-progression-test-'));
@@ -129,13 +129,19 @@ test(
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
-          const lesson = {
+          const existingLesson = {
             key: 'deadline-01', series: '项目改期', part: 1, level: 'B1',
             english: 'The client moves the deadline up by a week. Nina realizes the design team is already running behind schedule.',
             interpretation: null,
           };
+          const newLesson = {
+            key: 'grocery-01', series: '超市补货', part: 1, level: 'B1',
+            english: 'After checking the cupboard, Riley realizes she has run out of rice. She adds it to her shopping list before heading to the supermarket.',
+            interpretation: null,
+          };
+          const extension = new URL(location.href).searchParams.has('new-stories');
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'b1-learner', email: 'b1@example.invalid', displayName: 'Fixture', role: 'USER' } }));
-          window.storyFixture = { requests: [], lesson };
+          window.storyFixture = { requests: [], lesson: extension ? newLesson : existingLesson, completed: extension ? 21 : 15, total: 27 };
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
@@ -143,10 +149,10 @@ test(
             const method = options.method ?? 'GET';
             window.storyFixture.requests.push({ path, method, body: options.body ? JSON.parse(options.body) : null });
             if (path.endsWith('/api/v1/auth/me')) return Response.json({ id: 'b1-learner' });
-            if (path.endsWith('/api/v1/micro-stories/current')) return Response.json({ completed: 15, total: 21, lesson, review: null });
+            if (path.endsWith('/api/v1/micro-stories/current')) return Response.json({ completed: window.storyFixture.completed, total: window.storyFixture.total, lesson: window.storyFixture.lesson, review: null });
             if (path.endsWith('/api/v1/micro-stories/deadline-01/interpret') && method === 'POST') {
               return Response.json({
-                ...lesson,
+                ...existingLesson,
                 interpretation: JSON.parse(options.body).interpretation,
                 reference: '客户把截止日期提前了一周。妮娜意识到设计团队已经落后于进度。',
                 explanation: 'move the deadline up 表示把截止日期提前；run behind schedule 表示工作进度落后于原计划。',
@@ -164,7 +170,7 @@ test(
         url: new URL('/dashboard/micro-stories', baseUrl).href,
       });
       await until('document.querySelector("#story-heading")?.textContent.includes("项目改期")');
-      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/21")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/27")'), true);
       assert.equal(
         await evaluate('document.body.textContent.includes("客户把截止日期提前了一周")'),
         false,
@@ -219,6 +225,19 @@ test(
         ),
         false,
       );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?new-stories=1', baseUrl).href,
+      });
+      await until('document.querySelector("#story-heading")?.textContent.includes("超市补货")');
+      assert.equal(await evaluate('document.body.textContent.includes("B1 · 22/27")'), true);
+      assert.equal(
+        await evaluate(
+          'document.body.textContent.includes("After checking the cupboard, Riley realizes she has run out of rice.")',
+        ),
+        true,
+      );
+      assert.equal(await evaluate('document.body.textContent.includes("米已经吃完了")'), false);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

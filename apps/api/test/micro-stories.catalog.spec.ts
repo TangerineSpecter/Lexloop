@@ -46,4 +46,66 @@ describe('micro-story English learning content', () => {
     expect(story?.explanation).toContain('周五当天也在期限内');
     expect(story?.focusMeaning).toContain('周五或更早完成');
   });
+
+  it('keeps the grocery restocking arc factually ordered and its target phrases contextual', () => {
+    const first = storyByKey('grocery-01');
+    const second = storyByKey('grocery-02');
+    const third = storyByKey('grocery-03');
+
+    expect([first, second, third].map((story) => story?.key)).toEqual([
+      'grocery-01',
+      'grocery-02',
+      'grocery-03',
+    ]);
+    expect(
+      [first, second, third].every(
+        (story, index) =>
+          story?.series === '超市补货' && story.level === 'B1' && story.part === index + 1,
+      ),
+    ).toBe(true);
+
+    expect(first?.english).toContain('has run out of rice');
+    expect(first?.reference).toContain('米已经吃完');
+    expect(first?.explanation).toContain('已经用完');
+    expect(second?.english).toContain('shelf is empty');
+    expect(second?.english).toContain('checks, finds none');
+    expect(second?.english).toContain('next delivery is due tomorrow');
+    expect(second?.reference).toContain('预计明天到');
+    expect(second?.explanation).toContain('不表示已经到店');
+    expect(third?.english).toContain('does not want to wait');
+    expect(third?.english).toContain('after the delivery arrives');
+    expect(third?.reference).toContain('今晚换一道晚餐');
+    expect(third?.reference).toContain('新货到了');
+  });
+
+  it('keeps the library renewal, hold and return arc consistent about each book', () => {
+    const first = storyByKey('library-return-01');
+    const second = storyByKey('library-return-02');
+    const third = storyByKey('library-return-03');
+
+    expect([first, second, third].map((story) => story?.key)).toEqual([
+      'library-return-01',
+      'library-return-02',
+      'library-return-03',
+    ]);
+    expect(
+      [first, second, third].every(
+        (story, index) =>
+          story?.series === '归还图书' && story.level === 'B1' && story.part === index + 1,
+      ),
+    ).toBe(true);
+
+    expect(first?.english).toContain('two library books due on Monday');
+    expect(first?.english).toContain('renew one of the books');
+    expect(first?.reference).toContain('其中一本');
+    expect(second?.english).toContain('cannot');
+    expect(second?.english).toContain('another reader has placed a hold on it');
+    expect(second?.english).toContain('must be returned by Monday');
+    expect(second?.reference).toContain('所以不能续借');
+    expect(second?.reference).toContain('最迟要在周一归还');
+    expect(third?.english).toContain('due date has been extended by a week');
+    expect(third?.english).toContain('Evan returns the reserved book at the front desk');
+    expect(third?.reference).toContain('归还了被预约的那本书');
+    expect(third?.reference).toContain('并留下第一本');
+  });
 });

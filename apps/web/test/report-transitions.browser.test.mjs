@@ -498,7 +498,7 @@ test(
             if (path.includes('/api/v1/vocabulary/dashboard-words')) return Response.json({ defaultNewWordCount: 0, reviewWords: [], newWords: [] });
             if (path.includes('/api/v1/study/plans')) return Response.json([]);
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
-            if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: 0, total: 21, lesson: null, review: null });
+            if (path.includes('/api/v1/micro-stories/current')) return Response.json({ completed: 0, total: 27, lesson: null, review: null });
             if (path.includes('/api/v1/learning-lab/lessons')) return Response.json({ items: [], page: 1, pageSize: 10, total: 0, hasMore: false });
             if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
             if (path.includes('/api/v1/practice/output/today')) return Response.json(null);

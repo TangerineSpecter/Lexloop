@@ -314,6 +314,96 @@ export const MICRO_STORIES: readonly MicroStory[] = [
     focusPhrase: 'collects the bike',
     focusMeaning: '从修理店取回已经修好的自行车。',
   },
+  {
+    key: 'grocery-01',
+    series: '超市补货',
+    part: 1,
+    level: 'B1',
+    english:
+      'After checking the cupboard, Riley realizes she has run out of rice. She adds it to her shopping list before heading to the supermarket.',
+    reference: '看过橱柜后，Riley 发现米已经吃完了。去超市前，她把米加进购物清单。',
+    explanation: 'run out of 表示某物已经用完；这里是米已经吃完，不是字面上的“跑出去”。',
+    frame: 'We have run out of ___.',
+    example: "We've run out of coffee.",
+    focusPhrase: 'run out of rice',
+    focusMeaning: '米已经用完；run out of 表示某种东西没有剩余。',
+  },
+  {
+    key: 'grocery-02',
+    series: '超市补货',
+    part: 2,
+    level: 'B1',
+    english:
+      'The rice shelf is empty, so Riley asks an employee whether there is any in the stockroom. The employee checks, finds none, and says the next delivery is due tomorrow.',
+    reference:
+      '米货架空了，Riley 便问店员库房里还有没有米。店员查看后发现也没有，并说下一批货预计明天到。',
+    explanation:
+      'in the stockroom 是“在库房里”；the delivery is due tomorrow 表示下一批货预计或安排明天送到，不表示已经到店。',
+    frame: 'Is there any ___ in the stockroom?',
+    example: 'Is there any oat milk in the stockroom?',
+    focusPhrase: 'in the stockroom',
+    focusMeaning: '在库房里；这里指店员检查货架后方是否还有米。',
+  },
+  {
+    key: 'grocery-03',
+    series: '超市补货',
+    part: 3,
+    level: 'B1',
+    english:
+      'Riley does not want to wait, so she buys a small bag of pasta and plans to cook a different dinner tonight. She will come back for rice after the delivery arrives.',
+    reference: 'Riley 不想等，于是买了一小袋意面，打算今晚换一道晚餐。等新货到了，她再回来买米。',
+    explanation: 'come back for rice 表示之后回来买米；今晚 Riley 打算吃意面，买米要等新货送到后。',
+    frame: 'I will come back for ___.',
+    example: "I'll come back for the rice tomorrow.",
+    focusPhrase: 'come back for rice',
+    focusMeaning: '之后回来买米；故事里不是当天立刻拿到米。',
+  },
+  {
+    key: 'library-return-01',
+    series: '归还图书',
+    part: 1,
+    level: 'B1',
+    english:
+      'Evan has two library books due on Monday. He goes online to renew one of the books because he needs another week to finish it.',
+    reference: 'Evan 有两本图书馆借来的书周一到期。他还需要一周才能读完其中一本，于是在网上续借。',
+    explanation: 'renew a book 是“续借一本书”；这里 Evan 为其中一本申请多一周阅读时间。',
+    frame: 'Can I renew ___ online?',
+    example: 'Can I renew this book online?',
+    focusPhrase: 'renew one of the books',
+    focusMeaning: '续借其中一本书；不是把两本书都续借。',
+  },
+  {
+    key: 'library-return-02',
+    series: '归还图书',
+    part: 2,
+    level: 'B1',
+    english:
+      'When Evan tries to renew the second book, the website says he cannot because another reader has placed a hold on it. He sees that this book must be returned by Monday.',
+    reference:
+      'Evan 尝试续借第二本书时，网站提示另一位读者已经预约了这本书，所以不能续借。他看到这本书最迟要在周一归还。',
+    explanation:
+      'place a hold on a book 是“预约一本书”；这里另一位读者已经预约了第二本，因此网站不允许续借。',
+    frame: 'Someone has placed a hold on ___.',
+    example: 'Someone has placed a hold on this book.',
+    focusPhrase: 'placed a hold on it',
+    focusMeaning: '已经预约了它；it 指第二本书，不是 Evan 自己的预约。',
+  },
+  {
+    key: 'library-return-03',
+    series: '归还图书',
+    part: 3,
+    level: 'B1',
+    english:
+      "The website confirms that the first book's due date has been extended by a week. On Sunday, Evan returns the reserved book at the front desk and keeps the first one.",
+    reference:
+      '网站确认第一本书的到期日延长了一周。周日，Evan 在服务台归还了被预约的那本书，并留下第一本。',
+    explanation:
+      'extend the due date by one week 表示把到期日延后一周；Evan 周日归还的是第二本，获准续借后留下的是第一本。',
+    frame: 'I returned the book at the front desk.',
+    example: 'I returned the form at the front desk.',
+    focusPhrase: 'returns the reserved book',
+    focusMeaning: '归还被预约的那本书；这里指第二本书。',
+  },
 ];
 
 export function storyByKey(key: string) {

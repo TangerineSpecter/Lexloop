@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.136',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '新增两组生活微故事',
+        entry: '一分钟微故事 → B1 生活故事',
+        usage:
+          '新增超市补货和归还图书各三段。原有 21 段及其进度 key 保持不变，新段落接在旧故事之后；总数现为 27 段。',
+      },
+    ],
+  },
+  {
     version: '1.27.135',
     date: '2026-11-02',
     items: [

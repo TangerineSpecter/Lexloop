@@ -239,7 +239,7 @@ describe('one-minute stories', () => {
     expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
   });
 
-  it('preserves published story order and unlocks the appended B1 arc after the existing stories', async () => {
+  it('preserves published story order and appends both new B1 arcs after existing progress', async () => {
     const originalA1Keys = [
       'bus-01',
       'bus-02',
@@ -263,13 +263,22 @@ describe('one-minute stories', () => {
     const originalProjectKeys = ['deadline-01', 'deadline-02', 'deadline-03'];
     const previouslyPublishedKeys = [...originalKeys, ...originalProjectKeys];
     const additionalB1Keys = ['bike-repair-01', 'bike-repair-02', 'bike-repair-03'];
+    const newB1Keys = [
+      'grocery-01',
+      'grocery-02',
+      'grocery-03',
+      'library-return-01',
+      'library-return-02',
+      'library-return-03',
+    ];
+    const allPreviouslyPublishedKeys = [...previouslyPublishedKeys, ...additionalB1Keys];
     expect(MICRO_STORIES.slice(0, originalA1Keys.length).map((story) => story.key)).toEqual(
       originalA1Keys,
     );
     expect(
       MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).map((story) => story.key),
     ).toEqual(originalA2Keys);
-    expect(MICRO_STORIES).toHaveLength(21);
+    expect(MICRO_STORIES).toHaveLength(27);
     expect(MICRO_STORIES.slice(0, originalKeys.length).map((story) => story.key)).toEqual(
       originalKeys,
     );
@@ -278,9 +287,14 @@ describe('one-minute stories', () => {
         (story) => story.key,
       ),
     ).toEqual(originalProjectKeys);
-    expect(MICRO_STORIES.slice(previouslyPublishedKeys.length).map((story) => story.key)).toEqual(
-      additionalB1Keys,
-    );
+    expect(
+      MICRO_STORIES.slice(previouslyPublishedKeys.length, allPreviouslyPublishedKeys.length).map(
+        (story) => story.key,
+      ),
+    ).toEqual(additionalB1Keys);
+    expect(
+      MICRO_STORIES.slice(allPreviouslyPublishedKeys.length).map((story) => story.key),
+    ).toEqual(newB1Keys);
     expect(
       MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).every(
         (story) => story.level === 'A2' && story.english && story.reference && story.example,
@@ -293,9 +307,24 @@ describe('one-minute stories', () => {
       ),
     ).toBe(true);
     expect(
-      MICRO_STORIES.slice(previouslyPublishedKeys.length).every(
+      MICRO_STORIES.slice(previouslyPublishedKeys.length, allPreviouslyPublishedKeys.length).every(
         (story, index) =>
           story.level === 'B1' && story.part === index + 1 && story.series === '单车维修',
+      ),
+    ).toBe(true);
+    expect(
+      MICRO_STORIES.slice(
+        allPreviouslyPublishedKeys.length,
+        allPreviouslyPublishedKeys.length + 3,
+      ).every(
+        (story, index) =>
+          story.level === 'B1' && story.part === index + 1 && story.series === '超市补货',
+      ),
+    ).toBe(true);
+    expect(
+      MICRO_STORIES.slice(allPreviouslyPublishedKeys.length + 3).every(
+        (story, index) =>
+          story.level === 'B1' && story.part === index + 1 && story.series === '归还图书',
       ),
     ).toBe(true);
     expect(MICRO_STORIES.find((story) => story.key === 'deadline-01')).toMatchObject({
@@ -322,7 +351,7 @@ describe('one-minute stories', () => {
     const nextA2 = await f.service.current('owner');
     expect(nextA2).toMatchObject({
       completed: 9,
-      total: 21,
+      total: 27,
       lesson: { key: 'weekend-01', level: 'A2', interpretation: null },
     });
     expect(nextA2.lesson).not.toHaveProperty('reference');
@@ -331,7 +360,7 @@ describe('one-minute stories', () => {
     const existingB1 = await f.service.current('owner');
     expect(existingB1).toMatchObject({
       completed: 15,
-      total: 21,
+      total: 27,
       lesson: { key: 'deadline-01', level: 'B1', interpretation: null },
     });
     expect(existingB1.lesson).not.toHaveProperty('reference');
@@ -340,10 +369,19 @@ describe('one-minute stories', () => {
     const nextB1 = await f.service.current('owner');
     expect(nextB1).toMatchObject({
       completed: 18,
-      total: 21,
+      total: 27,
       lesson: { key: 'bike-repair-01', level: 'B1', interpretation: null },
     });
     expect(nextB1.lesson).not.toHaveProperty('reference');
+
+    f.progress.completedKeys = allPreviouslyPublishedKeys;
+    const firstNewStory = await f.service.current('owner');
+    expect(firstNewStory).toMatchObject({
+      completed: 21,
+      total: 27,
+      lesson: { key: 'grocery-01', series: '超市补货', part: 1, level: 'B1', interpretation: null },
+    });
+    expect(firstNewStory.lesson).not.toHaveProperty('reference');
   });
 
   it('keeps the next unread story stable when content is reordered or inserted', () => {

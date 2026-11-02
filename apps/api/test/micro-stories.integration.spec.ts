@@ -104,14 +104,17 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           where: { userId: users[0].id },
           data: {
             completedKeys: MICRO_STORIES.filter(
-              (story) => !story.key.startsWith('bike-repair-'),
+              (story) =>
+                !story.key.startsWith('bike-repair-') &&
+                !story.key.startsWith('grocery-') &&
+                !story.key.startsWith('library-return-'),
             ).map((story) => story.key),
           },
         });
         const nextStory = await service.current(users[0].id);
         expect(nextStory).toMatchObject({
           completed: 18,
-          total: 21,
+          total: 27,
           lesson: { key: 'bike-repair-01', series: '单车维修', part: 1, level: 'B1' },
         });
         expect(nextStory.lesson).not.toHaveProperty('reference');
