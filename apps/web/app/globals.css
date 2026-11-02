@@ -8509,6 +8509,12 @@ button {
   font-size: 13px;
   font-weight: 700;
 }
+.update-notice small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
 .update-version-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr);
@@ -8574,6 +8580,156 @@ button {
   align-items: center;
   gap: 5px;
   color: var(--teal);
+}
+.update-auto-settings {
+  display: grid;
+  gap: 13px;
+  padding: 17px;
+  border: 3px solid var(--border-color);
+  border-radius: 10px;
+  background: #fff;
+}
+.update-auto-settings > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.update-auto-settings > header p {
+  margin: 0 0 3px;
+  color: var(--coral);
+  font:
+    900 10px 'DM Mono',
+    monospace;
+  letter-spacing: 0.1em;
+}
+.update-auto-settings h4 {
+  margin: 0;
+  font-size: 18px;
+}
+.update-auto-settings > header strong {
+  padding: 5px 9px;
+  border: 2px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--soft);
+  font-size: 12px;
+}
+.update-auto-settings > header strong.is-enabled {
+  background: #fff4b9;
+}
+.update-auto-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--coral);
+  background: #fff4b9;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+.update-auto-settings form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.update-auto-toggle,
+.update-auto-acknowledge {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 900;
+}
+.update-auto-toggle input,
+.update-auto-acknowledge input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--teal);
+}
+.update-auto-interval {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.update-auto-interval input {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--soft);
+  color: var(--border-color);
+  font: inherit;
+}
+.update-auto-interval small {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+.update-auto-acknowledge,
+.update-auto-settings form > .update-auto-error,
+.update-auto-settings form > .update-auto-message {
+  grid-column: 1/-1;
+}
+.update-auto-settings form > button {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 3px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--border-color);
+  box-shadow: 3px 3px 0 var(--border-color);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.update-auto-settings form > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.update-auto-error,
+.update-auto-message {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+}
+.update-auto-error {
+  color: #9f2c1c;
+}
+.update-auto-message {
+  color: #176b51;
+}
+.update-auto-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+}
+.update-auto-status > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(8, 40, 119, 0.18);
+  border-radius: 7px;
+  background: var(--soft);
+}
+.update-auto-status dt {
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.68;
+}
+.update-auto-status dd {
+  overflow-wrap: anywhere;
+  margin: 3px 0 0;
+  font-size: 12px;
+  font-weight: 900;
+}
+.update-auto-code {
+  font:
+    700 11px 'DM Mono',
+    monospace;
+  overflow-wrap: anywhere;
 }
 .update-safety-note {
   display: flex;
@@ -8864,6 +9020,17 @@ button {
   }
   .update-version-grid {
     grid-template-columns: 1fr;
+  }
+  .update-auto-settings form {
+    grid-template-columns: 1fr;
+  }
+  .update-auto-acknowledge,
+  .update-auto-settings form > .update-auto-error,
+  .update-auto-settings form > .update-auto-message {
+    grid-column: auto;
+  }
+  .update-auto-settings form > button {
+    width: 100%;
   }
   .update-version-arrow {
     justify-self: center;

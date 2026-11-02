@@ -294,6 +294,41 @@ test(
             systemLogRequests: [],
             systemLogExportRequests: [],
             systemLogClearRequests: [],
+            systemUpdateRequests: [],
+            systemUpdateChecks: [],
+            pendingSystemUpdateChecks: [],
+            systemUpdateApplyRequests: [],
+            systemAutoUpdateRequests: [],
+            systemAutoUpdateSaves: [],
+            holdSystemUpdateCheck: false,
+            systemAutoUpdateStatus: {
+              available: true,
+              enabled: false,
+              intervalHours: 24,
+              lastCheckAt: null,
+              nextCheckAt: null,
+              lastCheckResult: 'never',
+              lastCheckErrorCode: null,
+              lastUpdateAt: null,
+              lastUpdateResult: 'never',
+              lastUpdateError: null,
+            },
+            systemUpdateStatus: {
+              currentVersion: '1.27.118',
+              currentSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              updaterAvailable: true,
+              error: null,
+              checkErrorCode: null,
+              checkAttemptId: '11111111-1111-4111-8111-111111111111',
+              checkAttemptedAt: '2026-11-02T10:00:00.000Z',
+              checkAttempts: 1,
+              checkInProgress: false,
+              latest: { version: '1.27.119', sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', tag: 'v1.27.119', compareUrl: 'https://github.com/example/repo/compare/a...b' },
+              updateAvailable: true,
+              sameVersionRevision: false,
+              checkedAt: '2026-11-02T09:55:00.000Z',
+              job: null,
+            },
             systemLogsResponse: {
               timeZone: 'Asia/Shanghai',
               range: { from: '2026-10-27', to: '2026-11-02' },
@@ -460,6 +495,36 @@ test(
               window.reportFixture.systemLogClearRequests.push(options.method);
               window.reportFixture.systemLogsResponse = { ...window.reportFixture.systemLogsResponse, totalGroups: 0, groups: [] };
               return Response.json({ clearedAt: '2026-11-02T12:00:00.000Z', timeZone: 'Asia/Shanghai' });
+            }
+            if (path === '/api/v1/admin/system/update' && options.method !== 'POST') {
+              window.reportFixture.systemUpdateRequests.push('GET');
+              return Response.json(window.reportFixture.systemUpdateStatus);
+            }
+            if (path === '/api/v1/admin/system/update/check' && options.method === 'POST') {
+              window.reportFixture.systemUpdateChecks.push('POST');
+              if (window.reportFixture.holdSystemUpdateCheck) {
+                return new Promise(resolve => window.reportFixture.pendingSystemUpdateChecks.push(resolve));
+              }
+              return Response.json(window.reportFixture.systemUpdateCheckResponse ?? window.reportFixture.systemUpdateStatus);
+            }
+            if (path === '/api/v1/admin/system/update/auto' && options.method === 'POST') {
+              const body = JSON.parse(options.body ?? '{}');
+              window.reportFixture.systemAutoUpdateSaves.push(body);
+              window.reportFixture.systemAutoUpdateStatus = {
+                ...window.reportFixture.systemAutoUpdateStatus,
+                ...body,
+                lastCheckResult: body.enabled ? 'scheduled' : window.reportFixture.systemAutoUpdateStatus.lastCheckResult,
+                nextCheckAt: body.enabled ? '2026-11-02T16:00:00.000Z' : null,
+              };
+              return Response.json(window.reportFixture.systemAutoUpdateStatus);
+            }
+            if (path === '/api/v1/admin/system/update/auto') {
+              window.reportFixture.systemAutoUpdateRequests.push('GET');
+              return Response.json(window.reportFixture.systemAutoUpdateStatus);
+            }
+            if (path === '/api/v1/admin/system/update/apply' && options.method === 'POST') {
+              window.reportFixture.systemUpdateApplyRequests.push(options.body ?? null);
+              return Response.json({ jobId: 'fixture-update-job', stage: 'CHECKING' }, { status: 202 });
             }
             if (path.startsWith('/api/v1/')) return Response.json({ message: 'unexpected fixture API request: ' + path }, { status: 404 });
             return nativeFetch(url, options);
@@ -1067,6 +1132,226 @@ test(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await evaluate(`(() => {
+        window.__autoUpdatePolls = [];
+        const originalSetInterval = window.setInterval.bind(window);
+        window.setInterval = (callback, delayMs, ...args) => {
+          if (delayMs === 30_000) window.__autoUpdatePolls.push(callback);
+          return originalSetInterval(callback, delayMs, ...args);
+        };
+      })()`);
+      await evaluate(
+        `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统更新')).click()`,
+      );
+      await until('document.querySelector(".system-update-panel")');
+      await until('window.reportFixture.systemUpdateRequests.length >= 1');
+      assert.match(
+        await evaluate('document.querySelector(".system-update-panel h3").textContent'),
+        /发现新版本/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".update-meta-row").textContent'),
+        /最近成功检查/,
+      );
+
+      await evaluate('window.reportFixture.holdSystemUpdateCheck = true');
+      await clickElement('.update-check-button');
+      await until('window.reportFixture.pendingSystemUpdateChecks.length === 1');
+      assert.equal(
+        await evaluate('document.querySelector(".system-update-panel h3").textContent.trim()'),
+        '正在检查更新',
+      );
+      assert.equal(await evaluate('document.querySelector(".update-check-button").disabled'), true);
+      assert.match(
+        await evaluate('document.querySelector(".update-notice").textContent'),
+        /确认完成前不会允许安装/,
+      );
+      assert.equal(await evaluate('document.querySelector(".update-apply-button").disabled'), true);
+      await evaluate('document.querySelector(".update-check-button").click()');
+      assert.equal(await evaluate('window.reportFixture.systemUpdateChecks.length'), 1);
+      assert.equal(await evaluate('window.reportFixture.systemUpdateApplyRequests.length'), 0);
+
+      const updateFailure = {
+        ...JSON.parse(await evaluate('JSON.stringify(window.reportFixture.systemUpdateStatus)')),
+        error: 'GitHub TLS 连接中断；已有限重试，远端版本尚未确认。',
+        checkErrorCode: 'GIT_TLS_INTERRUPTED',
+        checkAttemptId: '22222222-2222-4222-8222-222222222222',
+        checkAttemptedAt: '2026-11-02T10:10:00.000Z',
+        checkAttempts: 3,
+        checkInProgress: false,
+      };
+      await evaluate(
+        `window.reportFixture.systemUpdateCheckResponse = ${JSON.stringify(updateFailure)}`,
+      );
+      await evaluate(
+        'window.reportFixture.pendingSystemUpdateChecks.shift()?.(Response.json(window.reportFixture.systemUpdateCheckResponse))',
+      );
+      await until(
+        'document.querySelector(".system-update-panel h3").textContent.trim() === "检查更新失败"',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".update-notice").textContent'),
+        /上次成功检查/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".update-notice").textContent'),
+        /已尝试 3 次/,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".update-version-grid article:nth-child(3) strong").textContent',
+        ),
+        'v1.27.119',
+        'a failed fetch retains the last successful release as stale information',
+      );
+      assert.equal(await evaluate('document.querySelector(".update-apply-button").disabled'), true);
+      await capture('system-update-failed-1440.png');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const updateFailureMobile = await evaluate(`(() => ({
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+        panelRight: document.querySelector('.system-update-panel').getBoundingClientRect().right,
+        noticeRight: document.querySelector('.update-notice').getBoundingClientRect().right,
+        retryDisabled: document.querySelector('.update-check-button').disabled,
+      }))()`);
+      assert.ok(
+        updateFailureMobile.document <= 390 &&
+          updateFailureMobile.panelRight <= 390 &&
+          updateFailureMobile.noticeRight <= 390,
+        JSON.stringify(updateFailureMobile),
+      );
+      await capture('system-update-failed-390.png');
+
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(`window.reportFixture.holdSystemUpdateCheck = false`);
+      const updateSuccess = {
+        ...updateFailure,
+        error: null,
+        checkErrorCode: null,
+        checkAttemptId: '33333333-3333-4333-8333-333333333333',
+        checkAttemptedAt: '2026-11-02T10:15:00.000Z',
+        checkAttempts: 2,
+        checkedAt: '2026-11-02T10:15:03.000Z',
+        latest: { version: '1.27.120', sha: 'c'.repeat(40), tag: 'v1.27.120', compareUrl: null },
+      };
+      await evaluate(
+        `window.reportFixture.systemUpdateCheckResponse = ${JSON.stringify(updateSuccess)}`,
+      );
+      await clickElement('.update-check-button');
+      await until(
+        'window.reportFixture.systemUpdateChecks.length === 2 && document.querySelector(".system-update-panel h3").textContent.includes("发现新版本")',
+      );
+      assert.equal(await evaluate('window.reportFixture.systemUpdateApplyRequests.length'), 0);
+      assert.equal(
+        await evaluate('document.querySelector(".update-apply-button").disabled'),
+        false,
+      );
+      assert.equal(await evaluate('window.reportFixture.systemUpdateChecks.length'), 2);
+      await capture('system-update-recovered-1440.png');
+
+      const autoToggle = '.update-auto-toggle input[type="checkbox"]';
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
+        false,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".update-auto-warning").textContent'),
+        /可能中断服务/,
+      );
+      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
+      await until('document.querySelector(".update-auto-acknowledge input[type=checkbox]")');
+      await evaluate(`(() => {
+        const input = document.querySelector('.update-auto-interval input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, '6');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(
+        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
+      );
+      await until('document.querySelector(".update-auto-error")');
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      await evaluate('window.__autoUpdatePolls[0]?.()');
+      await until('window.reportFixture.systemAutoUpdateRequests.length >= 2');
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".update-auto-interval input").value'),
+        '6',
+        'background status polling must preserve unsaved automatic update choices',
+      );
+      await evaluate('document.querySelector(".update-auto-acknowledge input").click()');
+      await evaluate(
+        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
+      );
+      await until('window.reportFixture.systemAutoUpdateSaves.length === 1');
+      assert.deepEqual(await evaluate('window.reportFixture.systemAutoUpdateSaves[0]'), {
+        enabled: true,
+        intervalHours: 6,
+      });
+      assert.match(
+        await evaluate(
+          'document.querySelector(".update-auto-settings > header strong").textContent',
+        ),
+        /已开启/,
+      );
+      assert.match(
+        await evaluate('document.querySelector(".update-auto-status").textContent'),
+        /下次检查/,
+      );
+      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
+      await evaluate(
+        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
+      );
+      await until('window.reportFixture.systemAutoUpdateSaves.length === 2');
+      assert.deepEqual(await evaluate('window.reportFixture.systemAutoUpdateSaves[1]'), {
+        enabled: false,
+        intervalHours: 6,
+      });
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateStatus.nextCheckAt'), null);
+      assert.equal(await evaluate('window.reportFixture.systemUpdateApplyRequests.length'), 0);
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const autoSettingsMobile = await evaluate(`(() => ({
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+        panelRight: document.querySelector('.update-auto-settings').getBoundingClientRect().right,
+        formRight: document.querySelector('.update-auto-settings form').getBoundingClientRect().right,
+        controls: [...document.querySelectorAll('.update-auto-settings input')].every(node => node.getBoundingClientRect().width > 0)
+      }))()`);
+      assert.ok(
+        autoSettingsMobile.document <= 390 &&
+          autoSettingsMobile.panelRight <= 390 &&
+          autoSettingsMobile.formRight <= 390,
+        JSON.stringify(autoSettingsMobile),
+      );
+      assert.equal(autoSettingsMobile.controls, true);
+      await capture('system-auto-update-settings-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
       await evaluate('window.navigationAuditFrames = []');
       await delay(180);
       const delayedStatisticsFrames = await evaluate('window.navigationAuditFrames');

@@ -42,6 +42,7 @@ export interface SystemUpdateJob {
   startedAt: string;
   finishedAt: string | null;
   logs: string[];
+  trigger?: 'manual' | 'automatic';
 }
 
 export interface SystemUpdateStatus {
@@ -52,8 +53,39 @@ export interface SystemUpdateStatus {
   latest: SystemUpdateRelease | null;
   updateAvailable: boolean;
   sameVersionRevision: boolean;
+  /** Time of the latest completed successful remote check. */
   checkedAt: string | null;
+  /** Attempt state fields are optional for clients talking to an older updater. */
+  checkInProgress?: boolean;
+  checkAttemptId?: string | null;
+  checkAttemptedAt?: string | null;
+  checkFinishedAt?: string | null;
+  checkAttempts?: number;
+  checkErrorCode?: string | null;
   job: SystemUpdateJob | null;
+}
+
+export type SystemAutoUpdateCheckResult =
+  | 'never'
+  | 'scheduled'
+  | 'checking'
+  | 'up_to_date'
+  | 'update_available'
+  | 'check_failed'
+  | 'updating';
+export type SystemAutoUpdateResult = 'never' | 'running' | 'succeeded' | 'failed';
+
+export interface SystemAutoUpdateStatus {
+  available: boolean;
+  enabled: boolean;
+  intervalHours: number;
+  lastCheckAt: string | null;
+  nextCheckAt: string | null;
+  lastCheckResult: SystemAutoUpdateCheckResult;
+  lastCheckErrorCode: string | null;
+  lastUpdateAt: string | null;
+  lastUpdateResult: SystemAutoUpdateResult;
+  lastUpdateError: string | null;
 }
 
 export type StatisticsRange = '7d' | '30d' | '365d';

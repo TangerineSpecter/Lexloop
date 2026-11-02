@@ -6,13 +6,30 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { RemoteBackupStatus, SystemUpdateJob, SystemUpdateStatus } from '@lexloop/types';
+import type {
+  RemoteBackupStatus,
+  SystemAutoUpdateStatus,
+  SystemUpdateJob,
+  SystemUpdateStatus,
+} from '@lexloop/types';
 import { request } from 'node:http';
 import { AuthService } from '../auth/auth.service';
 
 import type { BackupSettingsDto } from './system-backup.dto';
 
 type Actor = { sub: string; email: string };
+
+const SAFE_CHECK_ERRORS: Record<string, string> = {
+  GIT_TLS_INTERRUPTED: 'GitHub TLS 连接中断；已有限重试，远端版本尚未确认。',
+  GIT_FETCH_TIMEOUT: '连接 GitHub 超时；已有限重试，远端版本尚未确认。',
+  GIT_NETWORK_INTERRUPTED: '与 GitHub 的网络连接中断；已有限重试，远端版本尚未确认。',
+  GIT_AUTH_FAILED: '读取受信任 GitHub 仓库时认证或权限不足；未自动重试。',
+  GIT_REPOSITORY_UNAVAILABLE: '无法读取已配置的受信任仓库；未自动重试。',
+  GIT_FETCH_FAILED: '读取受信任仓库失败；未自动重试。',
+  GIT_CHECK_TIMEOUT: '更新检查超过总时限；远端版本尚未确认。',
+  UPDATER_CHECK_INTERRUPTED: '更新检查因 updater 重启而中断；当前保留上次成功检查结果。',
+  UPDATER_REFRESH_FAILED: '应用已更新，但更新服务刷新失败；请检查 updater 日志。',
+};
 
 @Injectable()
 export class SystemUpdateService {
@@ -23,14 +40,39 @@ export class SystemUpdateService {
 
   async status(): Promise<SystemUpdateStatus> {
     try {
-      return await this.call<SystemUpdateStatus>('GET', '/status');
+      return this.safeStatus(await this.call<SystemUpdateStatus>('GET', '/status'));
     } catch {
       return this.unavailableStatus();
     }
   }
 
   async check(): Promise<SystemUpdateStatus> {
-    return this.call<SystemUpdateStatus>('POST', '/check', this.buildIdentity());
+    return this.safeStatus(
+      await this.call<SystemUpdateStatus>('POST', '/check', this.buildIdentity()),
+    );
+  }
+
+  async autoUpdateStatus(): Promise<SystemAutoUpdateStatus> {
+    try {
+      return await this.call<SystemAutoUpdateStatus>('GET', '/auto-update');
+    } catch {
+      return {
+        available: false,
+        enabled: false,
+        intervalHours: 24,
+        lastCheckAt: null,
+        nextCheckAt: null,
+        lastCheckResult: 'never',
+        lastCheckErrorCode: null,
+        lastUpdateAt: null,
+        lastUpdateResult: 'never',
+        lastUpdateError: null,
+      };
+    }
+  }
+
+  saveAutoUpdate(settings: { enabled: boolean; intervalHours: number }) {
+    return this.call<SystemAutoUpdateStatus>('POST', '/auto-update', settings);
   }
 
   async apply(actor: Actor, input: { targetVersion: string; targetSha: string; password: string }) {
@@ -85,6 +127,33 @@ export class SystemUpdateService {
     };
   }
 
+  private safeStatus(status: SystemUpdateStatus): SystemUpdateStatus {
+    if (!status.error || !status.updaterAvailable) return status;
+    const code = status.checkErrorCode;
+    if (code && SAFE_CHECK_ERRORS[code]) {
+      return { ...status, error: SAFE_CHECK_ERRORS[code] };
+    }
+    if (status.error.startsWith('应用已更新，但更新服务刷新失败')) {
+      return {
+        ...status,
+        checkErrorCode: 'UPDATER_REFRESH_FAILED',
+        error: SAFE_CHECK_ERRORS.UPDATER_REFRESH_FAILED,
+      };
+    }
+    // Older updater releases could return raw Git stderr. Never pass that text to the UI.
+    return {
+      ...status,
+      checkErrorCode: code ?? 'GIT_FETCH_FAILED',
+      latest: null,
+      updateAvailable: false,
+      sameVersionRevision: false,
+      checkedAt: null,
+      checkAttemptedAt: status.checkAttemptedAt ?? status.checkedAt,
+      checkFinishedAt: status.checkFinishedAt ?? status.checkedAt,
+      error: '更新检查失败，旧版服务未保存成功检查结果；远端版本尚未确认。',
+    };
+  }
+
   private unavailableStatus(): SystemUpdateStatus {
     return {
       ...this.buildIdentity(),
@@ -94,6 +163,12 @@ export class SystemUpdateService {
       updateAvailable: false,
       sameVersionRevision: false,
       checkedAt: null,
+      checkInProgress: false,
+      checkAttemptId: null,
+      checkAttemptedAt: null,
+      checkFinishedAt: null,
+      checkAttempts: 0,
+      checkErrorCode: null,
       job: null,
     };
   }

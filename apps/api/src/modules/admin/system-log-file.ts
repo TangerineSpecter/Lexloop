@@ -70,6 +70,7 @@ const SAFE_REASONS = new Set([
   '请求被限流或额度策略拒绝。',
   '供应商暂时无法处理请求。',
   '供应商未接受本次请求，请核对模型名称和请求参数。',
+  '更新仓库检查失败；原始 Git 输出已隐藏。',
 ]);
 
 export function systemLogDirectory(): string {

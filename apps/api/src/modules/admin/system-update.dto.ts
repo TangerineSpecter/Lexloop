@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsString, Matches, Max, Min, MinLength } from 'class-validator';
 
 export class ApplySystemUpdateDto {
   @ApiProperty({ example: '1.0.1' })
@@ -16,4 +16,16 @@ export class ApplySystemUpdateDto {
   @IsString()
   @MinLength(8)
   password!: string;
+}
+
+export class SystemAutoUpdateSettingsDto {
+  @ApiProperty({ description: '管理员主动授权自动安装可信版本' })
+  @IsBoolean()
+  enabled!: boolean;
+
+  @ApiProperty({ minimum: 6, maximum: 168, description: '检查间隔（小时）' })
+  @IsInt()
+  @Min(6)
+  @Max(168)
+  intervalHours!: number;
 }

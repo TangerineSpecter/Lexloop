@@ -80,6 +80,34 @@ describe('file-backed administrator system logs', () => {
     expect(result.groups[0].latestDetail.reason).toContain('HTTP 502');
   });
 
+  it('stores only the safe final system-update check summary and attempt count', async () => {
+    const logs = new SystemLogService();
+    await logs.record({
+      source: 'api',
+      kind: 'system.update_check',
+      code: 'UPDATE_CHECK_GIT_TLS_INTERRUPTED',
+      method: 'GET',
+      route: '/api/v1/admin/system/update',
+      phase: 'final',
+      attemptsMade: 3,
+      maxAttempts: 3,
+      reason: '更新仓库检查失败；原始 Git 输出已隐藏。',
+      at: new Date('2026-11-02T12:00:00.000Z'),
+    });
+
+    const result = await logs.list({ from: '2026-11-02', to: '2026-11-02' });
+
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].latestDetail).toMatchObject({
+      source: 'api',
+      kind: 'system.update_check',
+      code: 'UPDATE_CHECK_GIT_TLS_INTERRUPTED',
+      attemptsMade: 3,
+      maxAttempts: 3,
+      reason: '更新仓库检查失败；原始 Git 输出已隐藏。',
+    });
+  });
+
   it('does not persist arbitrary exception text, secrets, prompts, query strings, or unknown JSON fields', async () => {
     const secret = 'sk-live-secret-123456789';
     await appendSystemLogEvent({

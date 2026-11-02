@@ -5,6 +5,7 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -17,6 +18,8 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { RemoteBackups } from './backup.mjs';
 import { evaluateUpdate, parseStableVersion, selectLatestRelease } from './core.mjs';
+import { classifyRepositoryFetchError, retryRepositoryFetch } from './check-retry.mjs';
+import { connect as connectSocket } from 'node:net';
 
 const config = {
   socket: process.env.UPDATER_SOCKET ?? '/run/lexloop/updater.sock',
@@ -32,6 +35,9 @@ const config = {
 };
 
 const remoteBackups = new RemoteBackups(config);
+const AUTO_UPDATE_DEFAULT_INTERVAL_HOURS = 24;
+const AUTO_UPDATE_MIN_INTERVAL_HOURS = 6;
+const AUTO_UPDATE_MAX_INTERVAL_HOURS = 168;
 
 const initialDeployment = {
   version: process.env.APP_VERSION ?? 'development',
@@ -47,8 +53,25 @@ if (activeJob) {
   activeJob.message = 'updater 曾在任务执行期间重启，请检查应用状态后重试。';
   activeJob.finishedAt = new Date().toISOString();
   recordHistory(activeJob);
+  if (activeJob.trigger === 'automatic') {
+    state.autoUpdate.lastUpdateAt ??= activeJob.startedAt;
+    state.autoUpdate.lastUpdateResult = 'failed';
+    state.autoUpdate.lastUpdateError = 'updater 在自动更新过程中重启；请检查更新任务状态。';
+    state.autoUpdate.lastCheckResult = 'update_available';
+  }
   persist();
   activeJob = null;
+} else if (state.autoUpdate.lastUpdateResult === 'running') {
+  state.autoUpdate.lastUpdateResult = 'failed';
+  state.autoUpdate.lastUpdateError = 'updater 重启后未找到自动更新任务；请检查更新任务记录。';
+  state.autoUpdate.lastCheckResult = 'update_available';
+  persist();
+}
+if (state.autoUpdate.lastCheckResult === 'checking') {
+  state.autoUpdate.lastCheckResult = 'check_failed';
+  state.autoUpdate.lastCheckErrorCode = 'UPDATER_CHECK_INTERRUPTED';
+  state.autoUpdate.lastCheckAt ??= new Date().toISOString();
+  persist();
 }
 
 function loadState() {
@@ -61,6 +84,42 @@ function loadState() {
       saved.latest = null;
       saved.checkedAt = null;
       saved.checkError = null;
+      saved.checkErrorCode = null;
+      saved.checkAttemptId = null;
+      saved.checkAttemptedAt = null;
+      saved.checkFinishedAt = null;
+      saved.checkAttempts = 0;
+      saved.checkInProgress = false;
+    }
+
+    saved.checkAttemptId ??= null;
+    saved.checkAttemptedAt ??= saved.checkedAt ?? null;
+    saved.checkFinishedAt ??= saved.checkedAt ?? null;
+    saved.checkAttempts ??= saved.checkedAt ? 1 : 0;
+    saved.checkErrorCode ??= null;
+    saved.checkInProgress ??= false;
+    saved.autoUpdate = normalizeAutoUpdate(saved.autoUpdate);
+    if (saved.checkError && !saved.checkErrorCode) {
+      if (String(saved.checkError).startsWith('应用已更新，但更新服务刷新失败：')) {
+        saved.checkErrorCode = 'UPDATER_REFRESH_FAILED';
+        saved.checkError = '应用已更新，但更新服务刷新失败；请检查 updater 日志。';
+      } else {
+        const previousAttemptAt = saved.checkedAt;
+        const classified = classifyRepositoryFetchError(saved.checkError, saved.checkAttempts || 1);
+        saved.checkErrorCode = classified.code;
+        saved.checkError = classified.message;
+        saved.checkedAt = null;
+        saved.checkAttemptedAt = saved.checkAttemptedAt ?? previousAttemptAt;
+        saved.checkFinishedAt = saved.checkFinishedAt ?? previousAttemptAt;
+        saved.checkAttemptId ??= randomUUID();
+      }
+    }
+    if (saved.checkInProgress) {
+      saved.checkInProgress = false;
+      saved.checkErrorCode = 'UPDATER_CHECK_INTERRUPTED';
+      saved.checkError = '更新检查因 updater 重启而中断；当前保留上次成功检查结果。';
+      saved.checkAttemptId ??= randomUUID();
+      saved.checkFinishedAt = new Date().toISOString();
     }
     return saved;
   } catch {
@@ -69,16 +128,88 @@ function loadState() {
       latest: null,
       checkedAt: null,
       checkError: null,
+      checkErrorCode: null,
+      checkAttemptId: null,
+      checkAttemptedAt: null,
+      checkFinishedAt: null,
+      checkAttempts: 0,
+      checkInProgress: false,
+      autoUpdate: defaultAutoUpdate(),
       job: null,
       history: [],
     };
   }
 }
 
+function defaultAutoUpdate() {
+  return {
+    enabled: false,
+    intervalHours: AUTO_UPDATE_DEFAULT_INTERVAL_HOURS,
+    lastCheckAt: null,
+    nextCheckAt: null,
+    lastCheckResult: 'never',
+    lastCheckErrorCode: null,
+    lastUpdateAt: null,
+    lastUpdateResult: 'never',
+    lastUpdateError: null,
+  };
+}
+
+function normalizeAutoUpdate(value) {
+  const fallback = defaultAutoUpdate();
+  if (!value || typeof value !== 'object') return fallback;
+  const intervalHours = Number.isInteger(value.intervalHours)
+    ? value.intervalHours
+    : AUTO_UPDATE_DEFAULT_INTERVAL_HOURS;
+  const validInterval =
+    intervalHours >= AUTO_UPDATE_MIN_INTERVAL_HOURS &&
+    intervalHours <= AUTO_UPDATE_MAX_INTERVAL_HOURS;
+  const checkResults = new Set([
+    'never',
+    'scheduled',
+    'checking',
+    'up_to_date',
+    'update_available',
+    'check_failed',
+    'updating',
+  ]);
+  const updateResults = new Set(['never', 'running', 'succeeded', 'failed']);
+  const enabled = value.enabled === true && validInterval;
+  const persistedNextCheck =
+    typeof value.nextCheckAt === 'string' && !Number.isNaN(Date.parse(value.nextCheckAt))
+      ? value.nextCheckAt
+      : null;
+  return {
+    ...fallback,
+    enabled,
+    intervalHours: validInterval ? intervalHours : AUTO_UPDATE_DEFAULT_INTERVAL_HOURS,
+    lastCheckAt: typeof value.lastCheckAt === 'string' ? value.lastCheckAt : null,
+    nextCheckAt: enabled
+      ? (persistedNextCheck ?? new Date(Date.now() + intervalHours * 60 * 60_000).toISOString())
+      : null,
+    lastCheckResult: checkResults.has(value.lastCheckResult) ? value.lastCheckResult : 'never',
+    lastCheckErrorCode:
+      typeof value.lastCheckErrorCode === 'string' &&
+      /^[A-Z0-9_]{1,64}$/.test(value.lastCheckErrorCode)
+        ? value.lastCheckErrorCode
+        : null,
+    lastUpdateAt: typeof value.lastUpdateAt === 'string' ? value.lastUpdateAt : null,
+    lastUpdateResult: updateResults.has(value.lastUpdateResult) ? value.lastUpdateResult : 'never',
+    lastUpdateError:
+      typeof value.lastUpdateError === 'string' && value.lastUpdateError.length <= 180
+        ? value.lastUpdateError
+        : null,
+  };
+}
+
 function persist() {
+  persistState(state);
+}
+
+function persistState(value) {
   mkdirSync(dirname(config.stateFile), { recursive: true });
   const temporary = `${config.stateFile}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   renameSync(temporary, config.stateFile);
 }
 
@@ -132,6 +263,9 @@ function runAsync(command, args, options = {}) {
       timeout: options.timeout,
       killSignal: 'SIGKILL',
     });
+    const abortChild = () => child.kill('SIGKILL');
+    if (options.signal?.aborted) abortChild();
+    else options.signal?.addEventListener('abort', abortChild, { once: true });
     let output = '';
     const collect = (chunk) => {
       output = `${output}${chunk}`.slice(-20_000);
@@ -139,9 +273,12 @@ function runAsync(command, args, options = {}) {
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
     child.on('error', reject);
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
+      options.signal?.removeEventListener('abort', abortChild);
       if (code === 0) resolve(output.trim());
-      else reject(new Error(sanitize(output || `${command} 执行失败 (${code})`)));
+      else if (options.timeout && signal === 'SIGKILL') {
+        reject(new Error(`${command} timed out after ${options.timeout} ms`));
+      } else reject(new Error(sanitize(output || `${command} 执行失败 (${code})`)));
     });
   });
 }
@@ -158,18 +295,20 @@ function ensureRepository() {
 
 async function fetchRepository() {
   ensureRepository();
-  await runAsync(
-    'git',
-    [
-      '--git-dir',
-      config.bareRepository,
-      'fetch',
-      '--prune',
-      'origin',
-      `+refs/heads/${config.trustedBranch}:refs/remotes/origin/${config.trustedBranch}`,
-      '+refs/tags/v*:refs/tags/v*',
-    ],
-    { timeout: 60_000 },
+  return retryRepositoryFetch(({ timeoutMs, signal }) =>
+    runAsync(
+      'git',
+      [
+        '--git-dir',
+        config.bareRepository,
+        'fetch',
+        '--prune',
+        'origin',
+        `+refs/heads/${config.trustedBranch}:refs/remotes/origin/${config.trustedBranch}`,
+        '+refs/tags/v*:refs/tags/v*',
+      ],
+      { timeout: timeoutMs, signal },
+    ),
   );
 }
 
@@ -185,7 +324,7 @@ function packageVersionAt(sha, path) {
 }
 
 async function discoverLatest() {
-  await fetchRepository();
+  const fetch = await fetchRepository();
   const tags = git(['for-each-ref', '--format=%(refname:short)', 'refs/tags/v*'])
     .split('\n')
     .filter(Boolean);
@@ -221,7 +360,7 @@ async function discoverLatest() {
       compareUrl: `https://github.com/${config.githubRepository}/compare/${state.deployment.sha}...${sha}`,
     });
   }
-  return selectLatestRelease(candidates);
+  return { latest: selectLatestRelease(candidates), attempts: fetch.attempts };
 }
 
 function currentStatus() {
@@ -238,6 +377,12 @@ function currentStatus() {
     currentSha: current.sha,
     updaterAvailable: true,
     error: state.checkError,
+    checkErrorCode: state.checkErrorCode ?? null,
+    checkAttemptId: state.checkAttemptId ?? null,
+    checkAttemptedAt: state.checkAttemptedAt ?? null,
+    checkFinishedAt: state.checkFinishedAt ?? null,
+    checkAttempts: state.checkAttempts ?? 0,
+    checkInProgress: state.checkInProgress ?? false,
     latest,
     ...evaluation,
     checkedAt: state.checkedAt,
@@ -245,19 +390,72 @@ function currentStatus() {
   };
 }
 
+function currentAutoUpdateStatus() {
+  return { available: true, ...state.autoUpdate };
+}
+
+function saveAutoUpdate(input) {
+  if (
+    typeof input.enabled !== 'boolean' ||
+    !Number.isInteger(input.intervalHours) ||
+    input.intervalHours < AUTO_UPDATE_MIN_INTERVAL_HOURS ||
+    input.intervalHours > AUTO_UPDATE_MAX_INTERVAL_HOURS
+  ) {
+    return null;
+  }
+  const previous = state.autoUpdate;
+  const changed =
+    previous.enabled !== input.enabled || previous.intervalHours !== input.intervalHours;
+  const next = {
+    ...previous,
+    enabled: input.enabled,
+    intervalHours: input.intervalHours,
+    nextCheckAt: input.enabled
+      ? changed || !previous.nextCheckAt
+        ? new Date(Date.now() + input.intervalHours * 60 * 60_000).toISOString()
+        : previous.nextCheckAt
+      : null,
+    ...(changed && input.enabled ? { lastCheckResult: 'scheduled', lastCheckErrorCode: null } : {}),
+  };
+  state.autoUpdate = next;
+  try {
+    persist();
+  } catch (error) {
+    state.autoUpdate = previous;
+    throw error;
+  }
+  return currentAutoUpdateStatus();
+}
+
 let pendingCheck = null;
 function performCheck() {
   if (pendingCheck) return pendingCheck;
   pendingCheck = (async () => {
-    try {
-      state.latest = await discoverLatest();
-      state.checkError = null;
-    } catch (error) {
-      state.latest = null;
-      state.checkError = sanitize(error instanceof Error ? error.message : error);
-    }
-    state.checkedAt = new Date().toISOString();
+    state.checkAttemptId = randomUUID();
+    state.checkAttemptedAt = new Date().toISOString();
+    state.checkFinishedAt = null;
+    state.checkAttempts = 0;
+    state.checkInProgress = true;
+    state.checkError = null;
+    state.checkErrorCode = null;
     persist();
+    try {
+      const result = await discoverLatest();
+      state.latest = result.latest;
+      state.checkAttempts = result.attempts;
+      state.checkError = null;
+      state.checkErrorCode = null;
+      state.checkedAt = new Date().toISOString();
+    } catch (error) {
+      const classified = classifyRepositoryFetchError(error, error?.attempts ?? 1);
+      state.checkError = classified.message;
+      state.checkErrorCode = classified.code;
+      state.checkAttempts = classified.attempts;
+    } finally {
+      state.checkInProgress = false;
+      state.checkFinishedAt = new Date().toISOString();
+      persist();
+    }
     return currentStatus();
   })().finally(() => {
     pendingCheck = null;
@@ -413,6 +611,9 @@ async function runUpdate(job, target) {
   try {
     updateStage(job, 'CHECKING', '正在重新验证版本和提交关系…');
     const status = await performCheck();
+    if (status.error || status.checkInProgress || !status.checkedAt) {
+      throw new Error('无法完成更新前的远端检查，未启动安装。');
+    }
     if (
       !status.updateAvailable ||
       status.latest?.version !== target.version ||
@@ -486,6 +687,12 @@ async function runUpdate(job, target) {
     job.stage = 'SUCCEEDED';
     job.message = `已更新到 v${target.version} (${target.sha.slice(0, 12)})`;
     job.finishedAt = new Date().toISOString();
+    if (job.trigger === 'automatic') {
+      state.autoUpdate.lastUpdateAt = job.startedAt;
+      state.autoUpdate.lastUpdateResult = 'succeeded';
+      state.autoUpdate.lastUpdateError = null;
+      state.autoUpdate.lastCheckResult = 'update_available';
+    }
     appendLog(job, job.message);
     recordHistory(job);
     persist();
@@ -530,9 +737,118 @@ async function runUpdate(job, target) {
     job.message = message;
     job.finishedAt = new Date().toISOString();
     state.job = job;
+    if (job.trigger === 'automatic') {
+      state.autoUpdate.lastUpdateAt = job.startedAt;
+      state.autoUpdate.lastUpdateResult = 'failed';
+      state.autoUpdate.lastUpdateError = '自动更新失败；请检查更新任务记录。';
+      state.autoUpdate.lastCheckResult = 'update_available';
+    }
     recordHistory(job);
     activeJob = null;
     persist();
+  }
+}
+
+function createUpdateJob(target, { trigger = 'manual', actorId, actorEmail }) {
+  const previousJob = state.job;
+  const previousActiveJob = activeJob;
+  const previousAutoUpdate = state.autoUpdate;
+  const job = {
+    id: randomUUID(),
+    stage: 'CHECKING',
+    message: trigger === 'automatic' ? '自动更新任务已创建' : '更新任务已创建',
+    targetVersion: target.version,
+    targetSha: target.sha,
+    actorId,
+    actorEmail,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    logs: [],
+    trigger,
+  };
+  activeJob = job;
+  state.job = job;
+  if (trigger === 'automatic') {
+    state.autoUpdate = {
+      ...state.autoUpdate,
+      lastUpdateAt: job.startedAt,
+      lastUpdateResult: 'running',
+      lastUpdateError: null,
+      lastCheckResult: 'updating',
+    };
+  }
+  try {
+    persist();
+  } catch (error) {
+    state.job = previousJob;
+    activeJob = previousActiveJob;
+    state.autoUpdate = previousAutoUpdate;
+    throw error;
+  }
+  setImmediate(() => void runUpdate(job, target));
+  return job;
+}
+
+let automaticUpdateTickInProgress = false;
+
+async function automaticUpdateTick() {
+  if (automaticUpdateTickInProgress) return;
+  const settings = state.autoUpdate;
+  const nextCheck = settings.nextCheckAt ? Date.parse(settings.nextCheckAt) : Number.NaN;
+  if (
+    !settings.enabled ||
+    !Number.isFinite(nextCheck) ||
+    Date.now() < nextCheck ||
+    activeJob ||
+    remoteBackups.state.running ||
+    pendingCheck
+  ) {
+    return;
+  }
+
+  automaticUpdateTickInProgress = true;
+  try {
+    settings.nextCheckAt = new Date(
+      Date.now() + settings.intervalHours * 60 * 60_000,
+    ).toISOString();
+    settings.lastCheckResult = 'checking';
+    settings.lastCheckErrorCode = null;
+    persist();
+
+    const status = await performCheck();
+    const currentSettings = state.autoUpdate;
+    currentSettings.lastCheckAt = status.checkFinishedAt ?? new Date().toISOString();
+    currentSettings.lastCheckErrorCode = status.checkErrorCode ?? null;
+    if (status.error || status.checkInProgress || !status.checkedAt) {
+      currentSettings.lastCheckResult = 'check_failed';
+      persist();
+      return;
+    }
+    if (!status.updateAvailable || !status.latest) {
+      currentSettings.lastCheckResult = 'up_to_date';
+      persist();
+      return;
+    }
+
+    currentSettings.lastCheckResult = 'update_available';
+    persist();
+    if (!state.autoUpdate.enabled || activeJob || remoteBackups.state.running) return;
+    createUpdateJob(status.latest, {
+      trigger: 'automatic',
+      actorId: 'system-auto-update',
+      actorEmail: '自动更新',
+    });
+  } catch {
+    state.autoUpdate.lastCheckAt = new Date().toISOString();
+    state.autoUpdate.lastCheckResult = 'check_failed';
+    state.autoUpdate.lastCheckErrorCode = 'UPDATER_CHECK_FAILED';
+    try {
+      persist();
+    } catch {
+      // Keep the in-memory next check time; an unavailable state disk must not spin checks.
+    }
+  } finally {
+    automaticUpdateTickInProgress = false;
   }
 }
 
@@ -572,7 +888,8 @@ const server = createServer(async (request, response) => {
       }
     }
     if (request.url === '/backups/run' && request.method === 'POST') {
-      if (activeJob) return reply(response, 409, { message: '系统正在更新，请稍后备份' });
+      if (activeJob || automaticUpdateTickInProgress || pendingCheck)
+        return reply(response, 409, { message: '系统正在更新或自动检查更新，请稍后备份' });
       try {
         return reply(response, 202, remoteBackups.start());
       } catch (error) {
@@ -582,7 +899,26 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/status') {
       return reply(response, 200, currentStatus());
     }
+    if (request.method === 'GET' && request.url === '/auto-update') {
+      return reply(response, 200, currentAutoUpdateStatus());
+    }
+    if (request.method === 'POST' && request.url === '/auto-update') {
+      const input = await readJson(request);
+      if (
+        typeof input.enabled !== 'boolean' ||
+        !Number.isInteger(input.intervalHours) ||
+        input.intervalHours < AUTO_UPDATE_MIN_INTERVAL_HOURS ||
+        input.intervalHours > AUTO_UPDATE_MAX_INTERVAL_HOURS
+      ) {
+        return reply(response, 400, {
+          message: `自动更新周期必须是 ${AUTO_UPDATE_MIN_INTERVAL_HOURS} 至 ${AUTO_UPDATE_MAX_INTERVAL_HOURS} 小时的整数，且必须明确选择启用状态。`,
+        });
+      }
+      return reply(response, 200, saveAutoUpdate(input));
+    }
     if (request.method === 'POST' && request.url === '/check') {
+      if (activeJob || remoteBackups.state.running)
+        return reply(response, 409, { message: '系统正在更新或备份，请稍后再检查版本' });
       return reply(response, 200, await performCheck());
     }
     if (request.method === 'GET' && request.url?.startsWith('/jobs/')) {
@@ -592,10 +928,15 @@ const server = createServer(async (request, response) => {
         : reply(response, 404, { message: '更新任务不存在' });
     }
     if (request.method === 'POST' && request.url === '/apply') {
-      if (activeJob || remoteBackups.state.running)
+      if (activeJob || remoteBackups.state.running || pendingCheck || automaticUpdateTickInProgress)
         return reply(response, 409, { message: '已有更新或备份任务正在执行' });
       const input = await readJson(request);
-      if (activeJob || remoteBackups.state.running) {
+      if (
+        activeJob ||
+        remoteBackups.state.running ||
+        pendingCheck ||
+        automaticUpdateTickInProgress
+      ) {
         return reply(response, 409, { message: '已有更新或备份任务正在执行' });
       }
       if (
@@ -606,23 +947,9 @@ const server = createServer(async (request, response) => {
       ) {
         return reply(response, 400, { message: '更新请求参数无效' });
       }
-      const job = {
-        id: randomUUID(),
-        stage: 'CHECKING',
-        message: '更新任务已创建',
-        targetVersion: input.targetVersion,
-        targetSha: input.targetSha,
-        actorId: input.actorId,
-        actorEmail: input.actorEmail,
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        logs: [],
-      };
-      activeJob = job;
-      state.job = job;
-      persist();
-      setImmediate(
-        () => void runUpdate(job, { version: input.targetVersion, sha: input.targetSha }),
+      const job = createUpdateJob(
+        { version: input.targetVersion, sha: input.targetSha },
+        { trigger: 'manual', actorId: input.actorId, actorEmail: input.actorEmail },
       );
       return reply(response, 202, { jobId: job.id, stage: job.stage });
     }
@@ -635,16 +962,73 @@ const server = createServer(async (request, response) => {
 });
 
 mkdirSync(dirname(config.socket), { recursive: true });
-if (existsSync(config.socket)) rmSync(config.socket);
+await prepareSocketPath(config.socket);
+server.on('error', (error) => {
+  console.error(
+    error?.code === 'EADDRINUSE'
+      ? 'Lexloop updater 启动失败：已有实例占用更新服务 socket。'
+      : `Lexloop updater 启动失败：${sanitize(error)}`,
+  );
+  process.exitCode = 1;
+});
 server.listen(config.socket, () => {
   chmodSync(config.socket, 0o660);
   console.log(`Lexloop updater listening on ${config.socket}`);
 });
 
+async function prepareSocketPath(socketPath) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let observed;
+    try {
+      observed = lstatSync(socketPath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+    if (!observed.isSocket()) {
+      throw new Error('更新服务 socket 路径已存在但不是 Unix socket；未删除该文件。');
+    }
+
+    const probe = await new Promise((resolveProbe) => {
+      const client = connectSocket(socketPath);
+      const timer = setTimeout(() => {
+        client.destroy();
+        resolveProbe({ connected: false, error: new Error('检查现有 updater socket 超时') });
+      }, 500);
+      client.once('connect', () => {
+        clearTimeout(timer);
+        client.destroy();
+        resolveProbe({ connected: true });
+      });
+      client.once('error', (error) => {
+        clearTimeout(timer);
+        resolveProbe({ connected: false, error });
+      });
+    });
+    if (probe.connected) throw new Error('已有 Lexloop updater 实例正在监听；未接管它的 socket。');
+    if (!['ECONNREFUSED', 'ENOENT'].includes(probe.error?.code)) throw probe.error;
+
+    let current;
+    try {
+      current = lstatSync(socketPath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+    if (current.dev !== observed.dev || current.ino !== observed.ino) continue;
+    rmSync(socketPath);
+    return;
+  }
+  throw new Error('更新服务 socket 状态持续变化；为避免接管其他实例而停止启动。');
+}
+
 const backgroundCheck = () => {
   void performCheck().catch((error) => console.error(sanitize(error)));
 };
 setInterval(backgroundCheck, 6 * 60 * 60 * 1_000).unref();
+
+setInterval(() => void automaticUpdateTick(), 60_000).unref();
+setTimeout(() => void automaticUpdateTick(), 5_000).unref();
 setTimeout(backgroundCheck, 5_000).unref();
 
 const scheduleBackup = () => {

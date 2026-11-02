@@ -17,7 +17,7 @@ async function until(check, description) {
   throw new Error(`Timed out: ${description}`);
 }
 
-async function fixture(t, { staleState = false } = {}) {
+async function fixture(t, { staleState = false, autoUpdate } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'lexloop-updater-test-'));
   const repository = join(root, 'repo');
   const bin = join(root, 'bin');
@@ -63,6 +63,25 @@ async function fixture(t, { staleState = false } = {}) {
       stateFile,
       JSON.stringify({ deployment: { version: '0.9.0', sha: 'old' }, history: [] }),
     );
+  if (autoUpdate)
+    writeFileSync(
+      stateFile,
+      JSON.stringify({
+        deployment: {
+          version: '1.0.0',
+          sha: previousSha,
+          imageTag: 'old',
+          releasePath: previousRelease,
+        },
+        latest: null,
+        checkedAt: null,
+        checkError: null,
+        checkInProgress: false,
+        autoUpdate,
+        job: null,
+        history: [],
+      }),
+    );
   function executable(name, source) {
     writeFileSync(join(bin, name), `#!${process.execPath}\n${source}`, { mode: 0o755 });
   }
@@ -73,6 +92,14 @@ async function fixture(t, { staleState = false } = {}) {
     const args = process.argv.slice(2);
     if (args.includes('fetch')) {
       fs.appendFileSync(${JSON.stringify(join(root, 'fetches'))}, 'fetch\\n');
+      const planFile = ${JSON.stringify(join(root, 'fetch-plan.json'))};
+      const plan = fs.existsSync(planFile) ? JSON.parse(fs.readFileSync(planFile, 'utf8')) : [];
+      const attempt = fs.readFileSync(${JSON.stringify(join(root, 'fetches'))}, 'utf8').trim().split('\\n').length;
+      if (plan[attempt - 1]) {
+        process.stderr.write(plan[attempt - 1]);
+        process.exitCode = 1;
+        return;
+      }
       const gate = ${JSON.stringify(join(root, 'hold-fetch'))};
       if (fs.existsSync(gate)) { const timer = setInterval(() => { if (!fs.existsSync(gate)) clearInterval(timer); }, 20); }
     } else {
@@ -96,31 +123,39 @@ async function fixture(t, { staleState = false } = {}) {
     `process.stdout.write(JSON.stringify({version: '1.0.3', commitSha: ${JSON.stringify(targetSha)}}));`,
   );
   const socket = join(root, 'updater.sock');
-  const child = spawn(process.execPath, [resolve('deploy/updater/server.mjs')], {
-    env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      UPDATER_SOCKET: socket,
-      UPDATER_STATE_FILE: stateFile,
-      BARE_REPOSITORY: join(repository, '.git'),
-      RELEASES_DIR: join(root, 'releases'),
-      BACKUPS_DIR: join(root, 'backups'),
-      PRODUCTION_ENV: productionEnv,
-      APP_VERSION: '1.0.0',
-      APP_COMMIT_SHA: previousSha,
-      LEXLOOP_IMAGE_TAG: 'old',
-      CURRENT_RELEASE_PATH: previousRelease,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const serverEnv = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    UPDATER_SOCKET: socket,
+    UPDATER_STATE_FILE: stateFile,
+    BARE_REPOSITORY: join(repository, '.git'),
+    RELEASES_DIR: join(root, 'releases'),
+    BACKUPS_DIR: join(root, 'backups'),
+    PRODUCTION_ENV: productionEnv,
+    APP_VERSION: '1.0.0',
+    APP_COMMIT_SHA: previousSha,
+    LEXLOOP_IMAGE_TAG: 'old',
+    CURRENT_RELEASE_PATH: previousRelease,
+  };
   let logs = '';
-  child.stdout.on('data', (data) => (logs += data));
-  child.stderr.on('data', (data) => (logs += data));
+  const spawnServer = () => {
+    const childProcess = spawn(process.execPath, [resolve('deploy/updater/server.mjs')], {
+      env: serverEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    childProcess.stdout.on('data', (data) => (logs += data));
+    childProcess.stderr.on('data', (data) => (logs += data));
+    return childProcess;
+  };
+  let child = spawnServer();
+  const extraChildren = [];
   t.after(async () => {
-    if (child.exitCode === null) {
-      const stopped = once(child, 'exit');
-      child.kill();
-      await stopped;
+    for (const childProcess of [child, ...extraChildren]) {
+      if (childProcess.exitCode === null) {
+        const stopped = once(childProcess, 'exit');
+        childProcess.kill();
+        await stopped;
+      }
     }
     rmSync(root, { recursive: true, force: true });
   });
@@ -146,6 +181,34 @@ async function fixture(t, { staleState = false } = {}) {
     previousSha,
     productionEnv,
     stateFile,
+    startDuplicate: () => {
+      const duplicate = spawnServer();
+      extraChildren.push(duplicate);
+      return duplicate;
+    },
+    restartAfterUncleanExit: async () => {
+      const stopped = once(child, 'exit');
+      child.kill('SIGKILL');
+      await stopped;
+      const logOffset = logs.length;
+      child = spawnServer();
+      await until(
+        () =>
+          logs.slice(logOffset).includes('Lexloop updater listening') ||
+          (child.exitCode !== null && assert.fail(logs.slice(logOffset))),
+        'server restart after an unclean exit',
+      );
+    },
+    holdFetch: () => writeFileSync(join(root, 'hold-fetch'), 'hold'),
+    releaseFetch: () => rmSync(join(root, 'hold-fetch'), { force: true }),
+    setFetchPlan: (plan) => {
+      writeFileSync(join(root, 'fetches'), '');
+      writeFileSync(join(root, 'fetch-plan.json'), JSON.stringify(plan));
+    },
+    fetchCount: () =>
+      existsSync(join(root, 'fetches'))
+        ? readFileSync(join(root, 'fetches'), 'utf8').trim().split('\n').filter(Boolean).length
+        : 0,
     commands: () =>
       existsSync(join(root, 'docker.log'))
         ? readFileSync(join(root, 'docker.log'), 'utf8')
@@ -171,6 +234,134 @@ test('reinstall reconciles persisted identity with the installed release', async
   assert.equal(body.currentSha, f.previousSha);
 });
 
+test('a second updater cannot remove or take over the active instance socket', async (t) => {
+  const f = await fixture(t);
+  const duplicate = f.startDuplicate();
+  const exit = await Promise.race([
+    once(duplicate, 'exit'),
+    new Promise((resolve) => setTimeout(() => resolve(null), 1_500)),
+  ]);
+
+  assert.ok(exit, 'the duplicate updater must refuse the active socket');
+  assert.notEqual(exit[0], 0);
+  const status = await f.call('GET', '/status');
+  assert.equal(status.status, 200, 'the original updater remains reachable');
+  assert.equal(status.body.currentSha, f.previousSha);
+});
+
+test('a restart removes a stale socket left by an unclean updater exit', async (t) => {
+  const f = await fixture(t);
+  await f.restartAfterUncleanExit();
+
+  const status = await f.call('GET', '/status');
+  assert.equal(status.status, 200);
+  assert.equal(status.body.currentSha, f.previousSha);
+  assert.equal(status.body.updaterAvailable, true);
+  assert.equal(status.body.checkInProgress, false);
+});
+
+test('automatic updates are disabled by default and settings enforce the configured interval range', async (t) => {
+  const f = await fixture(t);
+  const initial = await f.call('GET', '/auto-update');
+  assert.deepEqual(initial.body, {
+    available: true,
+    enabled: false,
+    intervalHours: 24,
+    lastCheckAt: null,
+    nextCheckAt: null,
+    lastCheckResult: 'never',
+    lastCheckErrorCode: null,
+    lastUpdateAt: null,
+    lastUpdateResult: 'never',
+    lastUpdateError: null,
+  });
+
+  assert.equal(
+    (await f.call('POST', '/auto-update', { enabled: true, intervalHours: 5 })).status,
+    400,
+  );
+  const enabled = await f.call('POST', '/auto-update', { enabled: true, intervalHours: 6 });
+  assert.equal(enabled.status, 200);
+  assert.equal(enabled.body.enabled, true);
+  assert.equal(enabled.body.intervalHours, 6);
+  assert.ok(Date.parse(enabled.body.nextCheckAt) > Date.now());
+  assert.equal(enabled.body.lastCheckResult, 'scheduled');
+
+  const disabled = await f.call('POST', '/auto-update', { enabled: false, intervalHours: 6 });
+  assert.equal(disabled.body.enabled, false);
+  assert.equal(disabled.body.nextCheckAt, null);
+  assert.equal(f.fetchCount(), 0, 'saving settings does not immediately check or install');
+  assert.equal(f.commands().length, 0);
+});
+
+test('a due opted-in automatic update shares checks and uses the validated install pipeline', async (t) => {
+  const f = await fixture(t, {
+    autoUpdate: {
+      enabled: true,
+      intervalHours: 6,
+      lastCheckResult: 'scheduled',
+      nextCheckAt: new Date(Date.now() - 1_000).toISOString(),
+    },
+  });
+  f.holdFetch();
+  await until(() => existsSync(join(f.root, 'fetches')), 'scheduled automatic check');
+
+  const manualApply = await f.apply();
+  assert.equal(manualApply.status, 409, 'manual update cannot race an automatic check');
+  f.releaseFetch();
+
+  const status = await until(async () => {
+    const { body } = await f.call('GET', '/status');
+    return body.job?.stage === 'SUCCEEDED' && body;
+  }, 'automatically installed update');
+  const settings = await f.call('GET', '/auto-update');
+
+  assert.equal(status.job.trigger, 'automatic');
+  assert.equal(status.currentSha, f.targetSha);
+  assert.equal(settings.body.enabled, true);
+  assert.equal(settings.body.lastCheckResult, 'update_available');
+  assert.equal(settings.body.lastUpdateResult, 'succeeded');
+  assert.ok(Date.parse(settings.body.nextCheckAt) > Date.now());
+  assert.ok(f.commands().some((command) => command.args[0] === 'exec'));
+  assert.ok(f.commands().some((command) => command.args.includes('up')));
+});
+
+test('disabling automatic updates during a read-only check prevents the subsequent install', async (t) => {
+  const f = await fixture(t, {
+    autoUpdate: {
+      enabled: true,
+      intervalHours: 6,
+      lastCheckResult: 'scheduled',
+      nextCheckAt: new Date(Date.now() - 1_000).toISOString(),
+    },
+  });
+  f.holdFetch();
+  await until(() => existsSync(join(f.root, 'fetches')), 'scheduled automatic check');
+
+  const disabled = await f.call('POST', '/auto-update', { enabled: false, intervalHours: 6 });
+  assert.equal(disabled.body.enabled, false);
+  assert.equal(disabled.body.nextCheckAt, null);
+  f.releaseFetch();
+
+  await until(async () => {
+    const { body } = await f.call('GET', '/status');
+    return !body.checkInProgress && body.checkedAt;
+  }, 'read-only check completed after disabling');
+  const result = await f.call('GET', '/auto-update');
+  const status = await f.call('GET', '/status');
+
+  assert.equal(result.body.enabled, false);
+  assert.equal(result.body.nextCheckAt, null);
+  assert.equal(result.body.lastCheckResult, 'update_available');
+  assert.equal(result.body.lastUpdateResult, 'never');
+  assert.equal(status.body.job, null);
+  assert.equal(
+    f.commands().length,
+    0,
+    'disabling during a check stops before any install side effect',
+  );
+});
+
 test('slow Git checks leave status responsive and concurrent checks share one fetch', async (t) => {
   const f = await fixture(t);
   const gate = join(f.root, 'hold-fetch');
@@ -181,14 +372,104 @@ test('slow Git checks leave status responsive and concurrent checks share one fe
     await until(() => existsSync(join(f.root, 'fetches')), 'fetch started');
     const { body } = await f.call('GET', '/status');
     assert.equal(body.updaterAvailable, true);
+    assert.equal(body.checkInProgress, true);
+    assert.equal(body.checkedAt, null, 'an in-progress attempt is not a successful check');
   } finally {
     rmSync(gate, { force: true });
   }
-  for (const result of await Promise.all([first, second])) {
+  const results = await Promise.all([first, second]);
+  for (const result of results) {
     assert.equal(result.body.latest.version, '1.0.3');
     assert.equal(result.body.updateAvailable, true);
+    assert.equal(result.body.checkAttempts, 1);
   }
+  assert.equal(results[0].body.checkAttemptId, results[1].body.checkAttemptId);
   assert.equal(readFileSync(join(f.root, 'fetches'), 'utf8').trim(), 'fetch');
+});
+
+test('transient TLS interruption retries once then caches the successful check', async (t) => {
+  const f = await fixture(t);
+  f.setFetchPlan([
+    "fatal: unable to access 'https://github.com/example/repo.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.",
+    null,
+  ]);
+
+  const result = await f.call('POST', '/check');
+
+  assert.equal(f.fetchCount(), 2);
+  assert.equal(result.body.latest.version, '1.0.3');
+  assert.equal(result.body.updateAvailable, true);
+  assert.equal(result.body.checkAttempts, 2);
+  assert.equal(result.body.checkInProgress, false);
+  assert.equal(result.body.checkErrorCode, null);
+  assert.ok(result.body.checkedAt);
+  assert.ok(result.body.checkAttemptedAt);
+  assert.equal(f.commands().length, 0, 'a read-only check must not call Docker or install');
+});
+
+test('persistent TLS failure preserves the last successful result and never installs', async (t) => {
+  const f = await fixture(t);
+  const first = await f.call('POST', '/check');
+  assert.equal(first.body.latest.version, '1.0.3');
+  const lastSuccessAt = first.body.checkedAt;
+  f.setFetchPlan([
+    "fatal: unable to access 'https://github.com/example/repo.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.",
+    "fatal: unable to access 'https://github.com/example/repo.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.",
+    "fatal: unable to access 'https://github.com/example/repo.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.",
+  ]);
+
+  const result = await f.call('POST', '/check');
+
+  assert.equal(f.fetchCount(), 3);
+  assert.equal(result.body.latest.version, '1.0.3');
+  assert.equal(result.body.checkedAt, lastSuccessAt);
+  assert.equal(result.body.checkErrorCode, 'GIT_TLS_INTERRUPTED');
+  assert.equal(result.body.checkAttempts, 3);
+  assert.equal(result.body.checkInProgress, false);
+  assert.match(result.body.error, /TLS.*远端版本尚未确认/);
+  assert.doesNotMatch(result.body.error, /fatal:|github\.com|repo\.git/);
+  assert.ok(result.body.checkAttemptedAt);
+  assert.equal(f.commands().length, 0, 'failed checks must not invoke install commands');
+});
+
+test('authentication failures do not retry or replace the last successful check', async (t) => {
+  const f = await fixture(t);
+  const first = await f.call('POST', '/check');
+  const lastSuccessAt = first.body.checkedAt;
+  f.setFetchPlan([
+    "fatal: Authentication failed for 'https://github.com/example/private.git'",
+    null,
+    null,
+  ]);
+
+  const result = await f.call('POST', '/check');
+
+  assert.equal(f.fetchCount(), 1);
+  assert.equal(result.body.latest.version, '1.0.3');
+  assert.equal(result.body.checkedAt, lastSuccessAt);
+  assert.equal(result.body.checkErrorCode, 'GIT_AUTH_FAILED');
+  assert.equal(result.body.checkAttempts, 1);
+  assert.match(result.body.error, /认证或权限不足/);
+  assert.doesNotMatch(result.body.error, /fatal:|github\.com|private\.git/);
+  assert.equal(f.commands().length, 0);
+});
+
+test('install revalidation cannot use a preserved stale check result after a fetch failure', async (t) => {
+  const f = await fixture(t);
+  const checked = await f.call('POST', '/check');
+  assert.equal(checked.body.updateAvailable, true);
+  f.setFetchPlan(["fatal: Authentication failed for 'https://github.com/example/private.git'"]);
+
+  const accepted = await f.apply();
+  assert.equal(accepted.status, 202);
+  const status = await until(async () => {
+    const { body } = await f.call('GET', '/status');
+    return body.job?.stage === 'FAILED' && body;
+  }, 'install revalidation failure');
+
+  assert.equal(status.latest.version, '1.0.3', 'last successful result remains visible');
+  assert.equal(status.checkErrorCode, 'GIT_AUTH_FAILED');
+  assert.equal(f.commands().length, 0, 'failed fresh revalidation must stop before Docker/install');
 });
 
 test('partial compose switch failures restore previous application images', async (t) => {
