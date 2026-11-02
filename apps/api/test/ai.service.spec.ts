@@ -80,6 +80,7 @@ describe('AiService', () => {
       baseUrl: 'https://models.example.test/v1',
       model: 'approved-model',
       provider: 'OPENAI_COMPATIBLE',
+      temperature: null,
     };
     const service = new AiService(
       { get: vi.fn() } as never,
@@ -87,7 +88,12 @@ describe('AiService', () => {
     );
 
     await service.chatCompletions(
-      { model: 'unapproved-model', messages: [{ role: 'user', content: 'Hi' }] },
+      {
+        model: 'unapproved-model',
+        messages: [{ role: 'user', content: 'Hi' }],
+        temperature: 0.7,
+        response_format: { type: 'json_object' },
+      },
       'user_1',
     );
 
@@ -95,12 +101,125 @@ describe('AiService', () => {
       'https://models.example.test/v1/chat/completions',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer system-key' }),
-        body: JSON.stringify({
-          model: 'approved-model',
-          messages: [{ role: 'user', content: 'Hi' }],
-        }),
+        body: expect.any(String),
       }),
     );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.model).toBe('approved-model');
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('omits the caller default for custom OpenAI models but retains structure and applies explicit model temperature', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const selected = {
+      apiKey: 'system-key',
+      baseUrl: 'https://models.example.test/v1',
+      model: 'approved-model',
+      provider: 'OPENAI_COMPATIBLE',
+      temperature: null,
+    };
+    const service = new AiService(
+      { get: vi.fn() } as never,
+      { selectedProvider: vi.fn().mockResolvedValue(selected) } as never,
+    );
+
+    await service.selectedChatCompletions(
+      {
+        messages: [{ role: 'user', content: 'Create a short practice.' }],
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 2048,
+        response_format: { type: 'json_object' },
+      },
+      'user_1',
+    );
+
+    const defaultRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(defaultRequest).not.toHaveProperty('temperature');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://models.example.test/v1/chat/completions',
+      expect.objectContaining({
+        body: expect.any(String),
+      }),
+    );
+    expect(defaultRequest.stream).toBe(true);
+    expect(defaultRequest.max_tokens).toBe(2048);
+    expect(defaultRequest.response_format).toEqual({ type: 'json_object' });
+
+    fetchMock.mockClear();
+    const configuredService = new AiService(
+      { get: vi.fn() } as never,
+      {
+        selectedProvider: vi.fn().mockResolvedValue({ ...selected, temperature: 0.65 }),
+      } as never,
+    );
+    await configuredService.selectedChatCompletions(
+      {
+        messages: [{ role: 'user', content: 'Explain this answer.' }],
+        temperature: 0.4,
+        response_format: { type: 'json_object' },
+      },
+      'user_1',
+    );
+
+    const explicitRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(explicitRequest.temperature).toBe(0.65);
+    expect(explicitRequest.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('uses the same supplier-default policy for study generation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ questions: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new AiService(
+      { get: vi.fn() } as never,
+      {
+        selectedProvider: vi.fn().mockResolvedValue({
+          apiKey: 'system-key',
+          baseUrl: 'https://models.example.test/v1',
+          model: 'approved-model',
+          provider: 'OPENAI_COMPATIBLE',
+          temperature: null,
+        }),
+      } as never,
+    );
+
+    await service.generateForUser(
+      {
+        purpose: 'study-plan',
+        prompt: 'Create structured lesson content.',
+        schema: { type: 'object' },
+      },
+      'user_1',
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('keeps the existing DeepSeek call-specific temperature when no model value is set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new AiService(
+      { get: vi.fn() } as never,
+      {
+        selectedProvider: vi.fn().mockResolvedValue({
+          apiKey: 'deepseek-key',
+          baseUrl: 'https://api.deepseek.com',
+          model: 'deepseek-v4-flash',
+          provider: 'DEEPSEEK',
+          temperature: null,
+        }),
+      } as never,
+    );
+
+    await service.selectedChatCompletions(
+      { messages: [{ role: 'user', content: 'Hi' }], temperature: 0.4 },
+      'user_1',
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).temperature).toBe(0.4);
   });
 
   it('rejects missing configuration without making a network request', async () => {

@@ -30,6 +30,7 @@ type AiModel = {
   provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
   model: string;
   baseUrl: string;
+  temperature?: number | null;
   isEnabled: boolean;
   hasApiKey: boolean;
 };
@@ -483,6 +484,9 @@ function AiModelDialog({
   const [baseUrl, setBaseUrl] = useState(
     model?.provider === 'OPENAI_COMPATIBLE' ? model.baseUrl : '',
   );
+  const [temperature, setTemperature] = useState(
+    model?.temperature == null ? '' : String(model.temperature),
+  );
   const [apiKey, setApiKey] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -496,6 +500,13 @@ function AiModelDialog({
       (provider === 'OPENAI_COMPATIBLE' && !baseUrl.trim())
     )
       return setMessage('请填写所有必填项。');
+    const temperatureValue = temperature.trim() ? Number(temperature) : null;
+    if (
+      temperatureValue !== null &&
+      (!Number.isFinite(temperatureValue) || temperatureValue < 0 || temperatureValue > 2)
+    ) {
+      return setMessage('温度请填写 0 到 2 之间的数字；留空则使用默认策略。');
+    }
     setBusy(true);
     setMessage('');
     try {
@@ -503,6 +514,7 @@ function AiModelDialog({
         displayName,
         provider,
         model: modelName,
+        temperature: temperatureValue,
         ...(provider === 'OPENAI_COMPATIBLE' ? { baseUrl } : {}),
         ...(apiKey ? { apiKey } : {}),
       };
@@ -625,6 +637,9 @@ function AiModelDialog({
               onChange={(event) => setBaseUrl(event.target.value)}
               placeholder="https://api.example.com/v1"
             />
+            <small>
+              填写兼容接口根地址（如 https://4sapi.org/v1）；系统会在末尾请求 /chat/completions。
+            </small>
           </label>
         )}
         <label>
@@ -636,6 +651,24 @@ function AiModelDialog({
             placeholder={model?.hasApiKey ? '已配置' : '输入 API 密钥'}
             autoComplete="off"
           />
+        </label>
+        <label>
+          温度（可选）
+          <input
+            type="number"
+            min="0"
+            max="2"
+            step="any"
+            inputMode="decimal"
+            value={temperature}
+            onChange={(event) => setTemperature(event.target.value)}
+            aria-describedby="model-temperature-help"
+            placeholder="留空使用默认策略"
+          />
+          <small id="model-temperature-help">
+            留空时，自定义 OpenAI 不发送 temperature，由供应商使用默认值；DeepSeek
+            保持现有功能默认值。填写后会覆盖该模型各功能的温度（0–2），具体支持范围请以供应商文档为准。
+          </small>
         </label>
         {message && (
           <p className="form-error model-message" role="alert">

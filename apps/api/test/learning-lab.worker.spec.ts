@@ -43,6 +43,50 @@ describe('learning lab worker boundaries', () => {
       true,
     );
   });
+  it('uses an explicit model temperature for custom OpenAI lab generation', async () => {
+    const service = {
+      claim: vi.fn().mockResolvedValue({
+        ...claim,
+        provider: { ...claim.provider, provider: 'OPENAI_COMPATIBLE', temperature: 0.65 },
+      }),
+      complete: vi.fn().mockResolvedValue({ done: true }),
+      fail: vi.fn().mockResolvedValue({ done: true }),
+    };
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: JSON.stringify({ grammarScore: 80 }) } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await generateLab(job as never, service as never);
+
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body.temperature).toBe(0.65);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+  it('omits call-site temperature for custom OpenAI lab generation when no setting exists', async () => {
+    const service = {
+      claim: vi.fn().mockResolvedValue({
+        ...claim,
+        provider: { ...claim.provider, provider: 'OPENAI_COMPATIBLE', temperature: null },
+      }),
+      complete: vi.fn().mockResolvedValue({ done: true }),
+      fail: vi.fn().mockResolvedValue({ done: true }),
+    };
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: JSON.stringify({ grammarScore: 80 }) } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await generateLab(job as never, service as never);
+
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
   it('does not call a model again when a repeated job is already complete', async () => {
     const service = {
       claim: vi.fn().mockResolvedValue({ done: true }),

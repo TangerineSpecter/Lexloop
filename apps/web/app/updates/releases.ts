@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.120',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '兼容自定义模型的温度参数',
+        entry: '系统设置 → AI 模型管理 → 编辑模型',
+        usage:
+          '自定义 OpenAI 兼容模型默认不发送 temperature，由供应商使用默认值；管理员也可按供应商文档填写显式值。学习生成、模型测试、导师与异步练习共用该设置，结构化输出校验保留。',
+      },
+    ],
+  },
+  {
     version: '1.27.119',
     date: '2026-11-02',
     items: [

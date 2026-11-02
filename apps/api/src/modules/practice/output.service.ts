@@ -399,7 +399,13 @@ export class OutputService {
       done: false,
       leaseToken,
       auditId: audit.id,
-      provider: { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey },
+      provider: {
+        baseUrl: provider.baseUrl,
+        model: provider.model,
+        apiKey: provider.apiKey,
+        provider: provider.provider,
+        temperature: provider.temperature,
+      },
       messages: [
         {
           role: 'system',

@@ -744,6 +744,7 @@ model AiModelConfig {
   provider        AiModelProvider
   model           String
   baseUrl         String
+  temperature     Float?
   encryptedApiKey String
   isEnabled       Boolean         @default(true)
   createdAt       DateTime        @default(now())

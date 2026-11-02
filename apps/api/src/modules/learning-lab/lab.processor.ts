@@ -1,4 +1,5 @@
 import { DelayedError, type Job } from 'bullmq';
+import { withProviderTemperature } from '../ai/model-temperature';
 import type { LabService } from './lab.service';
 
 type Task = { submissionId: string; workerToken: string };
@@ -7,7 +8,13 @@ type Claim = {
   waitUntil?: number;
   leaseToken?: string;
   auditId?: string;
-  provider?: { baseUrl: string; model: string; apiKey: string };
+  provider?: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+    provider?: string;
+    temperature?: number | null;
+  };
   messages?: Array<{ role: string; content: string }>;
 };
 
@@ -37,13 +44,18 @@ export async function generateLab(
         'content-type': 'application/json',
         authorization: `Bearer ${claim.provider.apiKey}`,
       },
-      body: JSON.stringify({
-        model: claim.provider.model,
-        messages: claim.messages,
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
-        max_tokens: 5000,
-      }),
+      body: JSON.stringify(
+        withProviderTemperature(
+          {
+            model: claim.provider.model,
+            messages: claim.messages,
+            temperature: 0.3,
+            response_format: { type: 'json_object' },
+            max_tokens: 5000,
+          },
+          claim.provider,
+        ),
+      ),
     });
     if (!response.ok) throw new Error('模型生成暂时不可用，请检查模型配置');
     const payload = (await response.json()) as {

@@ -49,7 +49,6 @@ describe('AI model connection test', () => {
             },
             { role: 'user', content: 'Return exactly {"ok":true}.' },
           ],
-          temperature: 0.7,
           response_format: { type: 'json_object' },
         }),
         signal: expect.any(AbortSignal),
@@ -64,6 +63,61 @@ describe('AI model connection test', () => {
       upstreamStatus: 200,
     });
     expect(JSON.stringify(result)).not.toContain('stored-secret-value');
+  });
+
+  it('uses an explicitly configured temperature while keeping structured JSON output enabled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const models = {
+      providerForTest: vi.fn().mockResolvedValue({ ...configuredModel, temperature: 0.65 }),
+    };
+    const service = new AiService({ get: vi.fn() } as never, models as never);
+
+    const result = await service.testConfiguredModel('model_1');
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+
+    expect(result.structuredGeneration).toBe('passed');
+    expect(request.temperature).toBe(0.65);
+    expect(request.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('still reports a provider rejected explicit temperature accurately without exposing its message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'unsupported_value',
+            param: 'temperature',
+            message: 'temperature 0.65 is not accepted for this model',
+          },
+        }),
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const models = {
+      providerForTest: vi.fn().mockResolvedValue({ ...configuredModel, temperature: 0.65 }),
+    };
+    const service = new AiService({ get: vi.fn() } as never, models as never);
+
+    const result = await service.testConfiguredModel('model_1');
+
+    expect(result).toMatchObject({
+      success: false,
+      endpoint: 'responded',
+      authentication: 'unknown',
+      selectedModel: 'unknown',
+      structuredGeneration: 'not_run',
+      upstreamStatus: 400,
+      code: 'unsupported_value',
+      param: 'temperature',
+    });
+    expect(JSON.stringify(result)).not.toContain('0.65 is not accepted');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('reports safe authentication and provider diagnostics without returning secrets or prompt data', async () => {

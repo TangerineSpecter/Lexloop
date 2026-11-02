@@ -15,6 +15,7 @@ export type AiModelInput = {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  temperature?: number | null;
 };
 
 @Injectable()
@@ -110,6 +111,7 @@ export class AiModelConfigService {
           model: model.model,
           apiKey: this.decrypt(model.encryptedApiKey),
           provider: model.provider,
+          temperature: model.temperature,
         }
       : null;
   }
@@ -128,6 +130,7 @@ export class AiModelConfigService {
       model: model.model,
       apiKey: this.decrypt(model.encryptedApiKey),
       provider: model.provider,
+      temperature: model.temperature,
     };
   }
 
@@ -144,6 +147,7 @@ export class AiModelConfigService {
       model: model.model,
       apiKey: this.decrypt(model.encryptedApiKey),
       provider: model.provider,
+      temperature: model.temperature,
     };
   }
 
@@ -152,6 +156,7 @@ export class AiModelConfigService {
     provider: AiModelProvider;
     model?: string;
     baseUrl?: string;
+    temperature?: number | null;
   }) {
     const displayName = input.displayName?.trim();
     const model = input.model?.trim();
@@ -161,12 +166,25 @@ export class AiModelConfigService {
         : input.baseUrl?.trim().replace(/\/+$/, '');
     if (!displayName || !model || !baseUrl)
       throw new BadRequestException('请填写展示名称、模型与 API 地址');
+    if (
+      input.temperature !== undefined &&
+      input.temperature !== null &&
+      (!Number.isFinite(input.temperature) || input.temperature < 0 || input.temperature > 2)
+    ) {
+      throw new BadRequestException('温度必须是 0 到 2 之间的数字');
+    }
     try {
       new URL(baseUrl);
     } catch {
       throw new BadRequestException('API 地址必须是完整的 URL');
     }
-    return { displayName, model, baseUrl, provider: input.provider };
+    return {
+      displayName,
+      model,
+      baseUrl,
+      provider: input.provider,
+      temperature: input.temperature ?? null,
+    };
   }
 
   private toPublic<T extends { encryptedApiKey: string }>(model: T) {

@@ -1,7 +1,17 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AiModelProvider, Role } from '@prisma/client';
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
@@ -13,13 +23,23 @@ class AiModelDto {
   @IsString() @MinLength(1) model!: string;
   @IsString() @MinLength(1) apiKey!: string;
   @IsOptional() @IsUrl({ require_tld: false }) baseUrl?: string;
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(2)
+  temperature?: number | null;
 }
-class UpdateAiModelDto {
+export class UpdateAiModelDto {
   @IsOptional() @IsString() @MinLength(1) displayName?: string;
   @IsOptional() @IsEnum(AiModelProvider) provider?: AiModelProvider;
   @IsOptional() @IsString() @MinLength(1) model?: string;
   @IsOptional() @IsString() @MinLength(1) apiKey?: string;
   @IsOptional() @IsUrl({ require_tld: false }) baseUrl?: string;
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(2)
+  temperature?: number | null;
 }
 class EnabledDto {
   @IsBoolean() isEnabled!: boolean;

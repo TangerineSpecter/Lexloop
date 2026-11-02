@@ -291,6 +291,7 @@ test(
             modelTestRequests: [],
             pendingModelTests: [],
             holdModelTest: false,
+            modelConfigSaves: [],
             systemLogRequests: [],
             systemLogExportRequests: [],
             systemLogClearRequests: [],
@@ -314,7 +315,7 @@ test(
               lastUpdateError: null,
             },
             systemUpdateStatus: {
-              currentVersion: '1.27.118',
+              currentVersion: '1.27.119',
               currentSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
               updaterAvailable: true,
               error: null,
@@ -323,7 +324,7 @@ test(
               checkAttemptedAt: '2026-11-02T10:00:00.000Z',
               checkAttempts: 1,
               checkInProgress: false,
-              latest: { version: '1.27.119', sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', tag: 'v1.27.119', compareUrl: 'https://github.com/example/repo/compare/a...b' },
+              latest: { version: '1.27.120', sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', tag: 'v1.27.120', compareUrl: 'https://github.com/example/repo/compare/a...b' },
               updateAvailable: true,
               sameVersionRevision: false,
               checkedAt: '2026-11-02T09:55:00.000Z',
@@ -469,8 +470,13 @@ test(
             if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
             if (path.includes('/api/v1/practice/output/today')) return Response.json(null);
             if (path === '/api/v1/admin/ai-models' && options.method !== 'POST') return Response.json([
-              { id: 'saved-model-fixture', displayName: 'Fixture model', provider: 'OPENAI_COMPATIBLE', model: 'fixture-model', baseUrl: 'https://provider.example.invalid/v1', isEnabled: true, hasApiKey: true }
+              { id: 'saved-model-fixture', displayName: 'Fixture model', provider: 'OPENAI_COMPATIBLE', model: 'fixture-model', baseUrl: 'https://provider.example.invalid/v1', temperature: null, isEnabled: true, hasApiKey: true }
             ]);
+            if (path === '/api/v1/admin/ai-models/saved-model-fixture' && options.method === 'PUT') {
+              const body = JSON.parse(options.body ?? '{}');
+              window.reportFixture.modelConfigSaves.push(body);
+              return Response.json({ id: 'saved-model-fixture', displayName: 'Fixture model', provider: 'OPENAI_COMPATIBLE', model: 'fixture-model', baseUrl: 'https://provider.example.invalid/v1', isEnabled: true, hasApiKey: true, ...body });
+            }
             if (path === '/api/v1/admin/ai-models/saved-model-fixture/test' && options.method === 'POST') {
               window.reportFixture.modelTestRequests.push({ method: options.method, authorization: new Headers(options.headers).get('Authorization'), body: options.body ?? null });
               if (window.reportFixture.holdModelTest) return new Promise(resolve => window.reportFixture.pendingModelTests.push(resolve));
@@ -1036,6 +1042,96 @@ test(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await clickElement('.model-edit-button');
+      await until('document.querySelector(".model-dialog input[type=number]")');
+      const temperatureDialog = await evaluate(`(() => ({
+        value: document.querySelector('.model-dialog input[type="number"]')?.value,
+        hint: document.querySelector('#model-temperature-help')?.textContent.trim() ?? null,
+        scrollWidth: document.documentElement.scrollWidth,
+      }))()`);
+      assert.equal(
+        temperatureDialog.value,
+        '',
+        'legacy model without a setting should use the provider default policy',
+      );
+      assert.match(temperatureDialog.hint, /自定义 OpenAI 不发送 temperature/);
+      assert.ok(temperatureDialog.scrollWidth <= 1440);
+      assert.match(
+        await evaluate(
+          `document.querySelector('.model-dialog input[placeholder="https://api.example.com/v1"]').parentElement.querySelector('small')?.textContent`,
+        ),
+        /https:\/\/4sapi\.org\/v1.*\/chat\/completions/,
+        'the administrator should see which path the service appends to the base URL',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileTemperatureDialog = await evaluate(`(() => {
+        const dialog = document.querySelector('.model-dialog');
+        const input = dialog?.querySelector('input[type="number"]');
+        const footer = dialog?.querySelector('footer');
+        const dialogRect = dialog?.getBoundingClientRect();
+        const inputRect = input?.getBoundingClientRect();
+        const temperatureVisible = Boolean(inputRect && inputRect.top >= 0 && inputRect.bottom <= innerHeight);
+        if (dialog) dialog.scrollTop = dialog.scrollHeight;
+        const footerRect = footer?.getBoundingClientRect();
+        const footerReachableByDialogScroll = Boolean(
+          footerRect && dialogRect && footerRect.top >= dialogRect.top && footerRect.bottom <= dialogRect.bottom + 1
+        );
+        if (dialog) dialog.scrollTop = 0;
+        return {
+          viewport: innerWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          dialogLeft: dialogRect?.left ?? null,
+          dialogRight: dialogRect?.right ?? null,
+          dialogClientHeight: dialog?.clientHeight ?? null,
+          dialogScrollHeight: dialog?.scrollHeight ?? null,
+          temperatureVisible,
+          footerReachableByDialogScroll,
+        };
+      })()`);
+      assert.equal(mobileTemperatureDialog.viewport, 390);
+      assert.ok(
+        mobileTemperatureDialog.scrollWidth <= 390,
+        JSON.stringify(mobileTemperatureDialog),
+      );
+      assert.ok(
+        mobileTemperatureDialog.dialogLeft >= 0 && mobileTemperatureDialog.dialogRight <= 390,
+        JSON.stringify(mobileTemperatureDialog),
+      );
+      assert.ok(
+        mobileTemperatureDialog.dialogScrollHeight >= mobileTemperatureDialog.dialogClientHeight,
+        JSON.stringify(mobileTemperatureDialog),
+      );
+      assert.equal(
+        mobileTemperatureDialog.temperatureVisible,
+        true,
+        JSON.stringify(mobileTemperatureDialog),
+      );
+      assert.equal(
+        mobileTemperatureDialog.footerReachableByDialogScroll,
+        true,
+        JSON.stringify(mobileTemperatureDialog),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await clickElement('.model-dialog input[type="number"]');
+      await send('Input.insertText', { text: '0.65' });
+      await clickElement('.model-dialog footer button:not(.secondary)');
+      await until('window.reportFixture.modelConfigSaves.length === 1');
+      assert.equal(
+        await evaluate('window.reportFixture.modelConfigSaves[0].temperature'),
+        0.65,
+        'an administrator should be able to save an explicit provider setting',
+      );
+      await until('document.querySelector(".model-dialog") === null');
       await evaluate(
         `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统日志')).click()`,
       );
@@ -1201,8 +1297,8 @@ test(
         await evaluate(
           'document.querySelector(".update-version-grid article:nth-child(3) strong").textContent',
         ),
-        'v1.27.119',
-        'a failed fetch retains the last successful release as stale information',
+        'v1.27.120',
+        'a failed fetch retains the last successfully observed remote version',
       );
       assert.equal(await evaluate('document.querySelector(".update-apply-button").disabled'), true);
       await capture('system-update-failed-1440.png');

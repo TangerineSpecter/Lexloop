@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
+import { withProviderTemperature } from './model-temperature';
 
 export interface ChatCompletionRequest {
   model?: string;
@@ -105,7 +106,7 @@ export class AiService implements AiProvider {
       response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, model }),
+        body: JSON.stringify(withProviderTemperature({ ...request, model }, configured)),
       });
     } catch {
       throw new BadGatewayException('AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试');
@@ -132,7 +133,9 @@ export class AiService implements AiProvider {
           Authorization: `Bearer ${configured.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ ...request, model: configured.model }),
+        body: JSON.stringify(
+          withProviderTemperature({ ...request, model: configured.model }, configured),
+        ),
         signal,
       });
     } catch {
@@ -154,15 +157,20 @@ export class AiService implements AiProvider {
           Authorization: `Bearer ${configured.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: configured.model,
-          messages: [
-            { role: 'system', content: MODEL_TEST_SYSTEM_PROMPT },
-            { role: 'user', content: MODEL_TEST_USER_PROMPT },
-          ],
-          temperature: 0.7,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(
+          withProviderTemperature(
+            {
+              model: configured.model,
+              messages: [
+                { role: 'system', content: MODEL_TEST_SYSTEM_PROMPT },
+                { role: 'user', content: MODEL_TEST_USER_PROMPT },
+              ],
+              temperature: 0.7,
+              response_format: { type: 'json_object' },
+            },
+            configured,
+          ),
+        ),
         signal: AbortSignal.timeout(MODEL_TEST_TIMEOUT_MS),
       });
     } catch (error) {

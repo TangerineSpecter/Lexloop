@@ -8233,6 +8233,7 @@ button {
   display: grid;
   place-items: center;
   padding: 24px;
+  overflow-y: auto;
 }
 .model-dialog-scrim {
   position: absolute;
@@ -8244,6 +8245,10 @@ button {
   position: relative;
   z-index: 1;
   width: min(580px, 100%);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px;
   border: 3px solid var(--border-color);
   border-radius: 13px;
@@ -8386,6 +8391,8 @@ button {
     padding: 12px;
   }
   .model-dialog {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
     padding: 20px;
   }
   .model-dialog footer {

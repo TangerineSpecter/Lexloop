@@ -43,6 +43,50 @@ describe('output worker boundaries', () => {
       true,
     );
   });
+  it('uses supplier-default temperature for custom OpenAI output grading', async () => {
+    const service = {
+      claim: vi.fn().mockResolvedValue({
+        ...claim,
+        provider: { ...claim.provider, provider: 'OPENAI_COMPATIBLE', temperature: null },
+      }),
+      complete: vi.fn().mockResolvedValue({ done: true }),
+      fail: vi.fn().mockResolvedValue({ done: true }),
+    };
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: JSON.stringify({ grammarScore: 80 }) } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await gradeOutput(job as never, service as never);
+
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+  it('honors an explicit model temperature in queued OpenAI output grading', async () => {
+    const service = {
+      claim: vi.fn().mockResolvedValue({
+        ...claim,
+        provider: { ...claim.provider, provider: 'OPENAI_COMPATIBLE', temperature: 0.65 },
+      }),
+      complete: vi.fn().mockResolvedValue({ done: true }),
+      fail: vi.fn().mockResolvedValue({ done: true }),
+    };
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: JSON.stringify({ grammarScore: 80 }) } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await gradeOutput(job as never, service as never);
+
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body.temperature).toBe(0.65);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
   it('does not call a model again when a repeated job is already complete', async () => {
     const service = {
       claim: vi.fn().mockResolvedValue({ done: true }),
