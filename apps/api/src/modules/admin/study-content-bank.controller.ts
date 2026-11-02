@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role, StudyPlanMode } from '@prisma/client';
 import { Type } from 'class-transformer';
@@ -45,7 +45,7 @@ class StudyContentBankStatusDto {
 @Roles(Role.ADMIN)
 @Controller('admin/study-content-bank')
 export class StudyContentBankController {
-  constructor(private readonly bank: StudyContentBankService) {}
+  constructor(@Inject(StudyContentBankService) private readonly bank: StudyContentBankService) {}
 
   @Get()
   list(@Query() query: StudyContentBankQueryDto) {

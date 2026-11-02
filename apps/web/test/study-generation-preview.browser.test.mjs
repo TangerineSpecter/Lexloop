@@ -454,6 +454,19 @@ test(
       );
       await until('window.generationAttempts.length === 1');
       assert.deepEqual(await evaluate('window.generationAttempts'), ['preview-a']);
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待可复用的公共材料")',
+      );
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+
+      // Reopening the same in-flight plan resumes its server phase. It must
+      // not POST another generation request while its server claim is recent.
+      await openRetry('分组学习');
+      await until(
+        'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待可复用的公共材料")',
+      );
+      assert.deepEqual(await evaluate('window.generationAttempts'), ['preview-a']);
       await evaluate('document.querySelector(".plan-preview header button").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
 

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.127',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '恢复查看生成中的学习计划',
+        entry: '今日学习历史 → 查看生成进度',
+        usage:
+          '关闭预习窗口后可重新打开同一计划查看进度；近期仍由服务端生成的计划继续同步状态，不会重复提交生成请求。',
+      },
+    ],
+  },
+  {
     version: '1.27.126',
     date: '2026-11-02',
     items: [

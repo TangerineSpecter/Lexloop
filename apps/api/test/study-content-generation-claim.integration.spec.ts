@@ -241,6 +241,149 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       }
     }, 60_000);
 
+    it('moves an existing waiter to cooldown when the lock owner fails without starting another provider request', async () => {
+      const fixtureId = randomUUID();
+      const admin = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const serviceClients = [
+        new PrismaClient({ datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } } }),
+        new PrismaClient({ datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } } }),
+      ];
+      const userIds: string[] = [];
+      const planIds: string[] = [];
+      let bookId: string | undefined;
+      let wordId: string | undefined;
+      let signature: string | undefined;
+      let rejectGeneration!: (error: Error) => void;
+      const generationGate = new Promise<never>((_, reject) => {
+        rejectGeneration = reject;
+      });
+      const firstAi = { generateForUser: vi.fn(async () => generationGate) };
+      const waitingAi = { generateForUser: vi.fn(async () => ({})) };
+
+      try {
+        const users = await Promise.all(
+          ['claim-owner', 'claim-waiter'].map((suffix) =>
+            admin.user.create({
+              data: {
+                email: `study-claim-failure-${fixtureId}-${suffix}@example.invalid`,
+                passwordHash: 'isolated-test-fixture',
+              },
+              select: { id: true },
+            }),
+          ),
+        );
+        userIds.push(...users.map((user) => user.id));
+        const book = await admin.vocabularyBook.create({
+          data: {
+            kind: 'SYSTEM',
+            sourceKey: `study-claim-failure-${fixtureId}`,
+            title: 'Claim failure vocabulary',
+            sourcePath: 'isolated-test',
+            category: 'GENERAL',
+            bookWords: {
+              create: {
+                position: 0,
+                word: {
+                  create: {
+                    normalized: `study-claim-failure-${fixtureId}`,
+                    text: 'steady',
+                    meaning: 'adj. 平稳的',
+                  },
+                },
+              },
+            },
+          },
+          select: { id: true, bookWords: { select: { id: true, wordId: true } } },
+        });
+        bookId = book.id;
+        wordId = book.bookWords[0].wordId;
+        const bookWordId = book.bookWords[0].id;
+        signature = contentSignature(StudyPlanMode.GROUP, [
+          { id: bookWordId, word: 'steady', part: 'adj.', meaning: '平稳的' },
+        ]);
+        const plans = await Promise.all(
+          users.map((user) =>
+            admin.studyPlan.create({
+              data: {
+                userId: user.id,
+                mode: StudyPlanMode.GROUP,
+                purpose: StudyPlanPurpose.NORMAL,
+                status: 'GENERATING',
+                items: {
+                  create: { bookWordId, source: 'NEW', groupIndex: 0 },
+                },
+              },
+              select: { id: true },
+            }),
+          ),
+        );
+        planIds.push(...plans.map((plan) => plan.id));
+
+        const makeService = (
+          client: PrismaClient,
+          ai: { generateForUser: ReturnType<typeof vi.fn> },
+        ) =>
+          new StudyService(
+            client as never,
+            ai as never,
+            { selectedProvider: vi.fn(async () => ({ id: 'isolated-fixture-model' })) } as never,
+            {} as never,
+          );
+        const ownerService = makeService(serviceClients[0], firstAi);
+        const waitingService = makeService(serviceClients[1], waitingAi);
+        Object.defineProperty(waitingService, 'cacheClaimPollIntervalMs', { value: 5 });
+        Object.defineProperty(waitingService, 'cacheClaimWaitTimeoutMs', { value: 2_000 });
+
+        const ownerGeneration = ownerService.generatePlan(users[0].id, planIds[0]);
+        await vi.waitFor(() => expect(firstAi.generateForUser).toHaveBeenCalledTimes(1));
+        const waitingGeneration = waitingService.generatePlan(users[1].id, planIds[1]);
+        await vi.waitFor(async () => {
+          const plan = await admin.studyPlan.findUniqueOrThrow({
+            where: { id: planIds[1] },
+            select: { status: true, generationPhase: true },
+          });
+          expect(plan).toEqual({ status: 'GENERATING', generationPhase: 'WAITING_PUBLIC_CACHE' });
+        });
+
+        rejectGeneration(new Error('controlled isolated provider failure'));
+        const results = await Promise.allSettled([ownerGeneration, waitingGeneration]);
+        expect(results[0].status).toBe('rejected');
+        expect(results[1].status).toBe('rejected');
+        expect((results[1] as PromiseRejectedResult).reason.message).toContain('短暂冷却');
+        expect(firstAi.generateForUser).toHaveBeenCalledTimes(1);
+        expect(waitingAi.generateForUser).not.toHaveBeenCalled();
+        expect(
+          await admin.studyPlan.findMany({
+            where: { id: { in: planIds } },
+            orderBy: { id: 'asc' },
+            select: { status: true, generationError: true },
+          }),
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ status: 'FAILED' }),
+            expect.objectContaining({
+              status: 'FAILED',
+              generationError: expect.stringContaining('短暂冷却'),
+            }),
+          ]),
+        );
+        expect(await getStudyContentClaimStatus(admin as never, signature!)).toBe('COOLDOWN');
+      } finally {
+        rejectGeneration(new Error('release isolated provider gate'));
+        if (signature) {
+          await admin.studyContentGenerationClaim.deleteMany({ where: { signature } });
+          await admin.studyContentCache.deleteMany({ where: { signature } });
+        }
+        if (planIds.length) await admin.studyPlan.deleteMany({ where: { id: { in: planIds } } });
+        if (userIds.length) await admin.user.deleteMany({ where: { id: { in: userIds } } });
+        if (bookId) await admin.vocabularyBook.delete({ where: { id: bookId } });
+        if (wordId) await admin.vocabularyWord.deleteMany({ where: { id: wordId } });
+        await Promise.all([...serviceClients, admin].map((client) => client.$disconnect()));
+      }
+    }, 60_000);
+
     it('takes over expired leases, fences stale owners, cools down failures, and frees unrelated signatures', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

@@ -381,6 +381,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               purpose: StudyPlanPurpose.NORMAL,
               status: 'GENERATING',
               autoDateKey,
+              createdAt: NOW,
             },
             select: { id: true },
           });

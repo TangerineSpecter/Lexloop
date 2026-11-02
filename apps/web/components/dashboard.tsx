@@ -1507,7 +1507,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <LearningHistory
                 plans={visiblePlans}
                 onContinue={(id) => setLessonPlanId(id)}
-                onRetry={openPlanPreview}
+                onOpenPreview={openPlanPreview}
               />
             )}
             <DailySentenceCard key={session.user.id} session={session} layout="strip" />
@@ -4492,7 +4492,12 @@ function PlanPreview({
   const visibleGenerationMessage =
     safeGenerationPreviewMessage(generationMessage) || persistedGenerationMessage;
   const needsModelSelection = visibleGenerationMessage.includes('阅读材料模型设置');
-  const generationStartedRef = useRef(false);
+  const generationStartedAt = plan.generationStartedAt ? Date.parse(plan.generationStartedAt) : NaN;
+  const hasRecentServerGeneration =
+    plan.status === 'GENERATING' &&
+    Number.isFinite(generationStartedAt) &&
+    Date.now() - generationStartedAt < 10 * 60 * 1000;
+  const generationStartedRef = useRef(hasRecentServerGeneration);
   const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
   const previous = () => setIndex((current) => Math.max(0, current - 1));
@@ -7166,11 +7171,11 @@ function StudyPlanLoadNotice({
 function LearningHistory({
   plans,
   onContinue,
-  onRetry,
+  onOpenPreview,
 }: {
   plans: LearningPlan[];
   onContinue: (id: string) => void;
-  onRetry: (plan: LearningPlan) => void;
+  onOpenPreview: (plan: LearningPlan) => void;
 }) {
   const todayPlans = plans.filter((plan) => isToday(plan.createdAt));
   if (!todayPlans.length)
@@ -7225,13 +7230,17 @@ function LearningHistory({
                 当前学习分组：{Math.min(plan.completed + 1, plan.wordCount)} / {plan.wordCount}
               </span>
               {active && (
-                <button onClick={() => onContinue(plan.id)} disabled={plan.status === 'GENERATING'}>
+                <button
+                  onClick={() =>
+                    plan.status === 'GENERATING' ? onOpenPreview(plan) : onContinue(plan.id)
+                  }
+                >
                   <BookOpen size={18} />
-                  {plan.status === 'GENERATING' ? '题目生成中' : '继续学习'}
+                  {plan.status === 'GENERATING' ? '查看生成进度' : '继续学习'}
                 </button>
               )}
               {failed && (
-                <button onClick={() => onRetry(plan)}>
+                <button onClick={() => onOpenPreview(plan)}>
                   <Sparkles size={18} />
                   重新生成
                 </button>
