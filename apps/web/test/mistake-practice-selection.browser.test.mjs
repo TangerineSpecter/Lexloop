@@ -270,6 +270,69 @@ test(
         meaning: '文具盒',
         bookTitle: 'Everyday Stationery',
       };
+      const mistakeJourneyItem = {
+        ...paginatedItems[34],
+        bookWordId: 'journey-word',
+        weaknesses: [weaknesses('journey-signal', 'READING_COMPREHENSION', 3)],
+      };
+      const mistakeJourneyQuestion = {
+        bookWordId: 'journey-word',
+        type: 'READING_COMPREHENSION',
+        prompt: 'What did Mina put in the box?',
+        options: ['Her pencils', 'Her lunch'],
+        correctAnswers: ['Her pencils'],
+        explanation: 'The passage says that Mina put her pencils in the box.',
+      };
+      const mistakeJourneyPlan = {
+        id: 'mistake-practice-journey',
+        mode: 'group',
+        purpose: 'weakness',
+        wordCount: 1,
+        words: [
+          {
+            id: 'journey-word',
+            word: 'pencil box',
+            part: 'n.',
+            meaning: '文具盒',
+            source: 'REVIEW',
+            groupIndex: 0,
+            completed: false,
+            nextReviewAt: '2026-11-04T09:00:00.000Z',
+            activeWeaknesses: [
+              {
+                questionType: 'READING_COMPREHENSION',
+                wrongCount: 3,
+                consecutiveCorrect: 0,
+                remainingCorrect: 2,
+              },
+            ],
+            question: mistakeJourneyQuestion,
+          },
+        ],
+        completed: 0,
+        groupCount: 1,
+        content: {
+          groups: [
+            {
+              index: 0,
+              title: 'A missing pencil',
+              wordOccurrences: { 'pencil box': 1 },
+              sentences: [
+                {
+                  english: 'Mina put her pencils into the pencil box.',
+                  chinese: '米娜把铅笔放进了文具盒。',
+                  simplified: '米娜把铅笔放进了盒子。',
+                },
+              ],
+              questions: [mistakeJourneyQuestion],
+            },
+          ],
+        },
+        status: 'ACTIVE',
+        blocksNewPlanCreation: true,
+        createdAt: '2026-11-02T10:00:00.000Z',
+        summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
+      };
 
       await send('Page.enable');
       await send('Page.addScriptToEvaluateOnNewDocument', {
@@ -290,6 +353,10 @@ test(
             requestAnimationFrame(sample);
           })();
           window.mistakePlanWrites = [];
+          window.mistakeJourneyEnabled = false;
+          window.mistakeJourneyPlan = ${JSON.stringify(mistakeJourneyPlan)};
+          window.mistakeJourneySelections = [];
+          window.mistakeJourneyCompletionWrites = [];
           window.mistakeListRequests = [];
           window.mistakeDetailRequests = [];
           window.addEventListener('beforeunload', () => {
@@ -317,6 +384,12 @@ test(
               const normalizedSearch = search.toLocaleLowerCase();
               const activeRace = new URL(location.href).searchParams.has('activeRace');
               window.mistakeListRequests.push({ status, questionType, activeRace, page, search });
+              if (window.mistakeJourneyEnabled) {
+                if (normalizedSearch === 'many') {
+                  return Response.json({ items: ${JSON.stringify(paginatedItems)}.slice((page - 1) * 20, page * 20), page, total: 40, hasMore: page * 20 < 40 });
+                }
+                return Response.json({ items: [${JSON.stringify(mistakeJourneyItem)}], page: 1, total: 1, hasMore: false });
+              }
               if (sessionUserId === 'mistake-user-b') {
                 return Response.json({ items: [{ ...${JSON.stringify(items[0])}, bookWordId: 'account-b-word', word: 'B-only' }], page: 1, total: 1, hasMore: false });
               }
@@ -404,10 +477,29 @@ test(
             if (path.endsWith('/api/v1/mistakes/practice-plans') && method === 'POST') {
               const selection = JSON.parse(options.body);
               window.mistakePlanWrites.push(selection);
+              if (window.mistakeJourneyEnabled) {
+                window.mistakeJourneySelections.push(selection);
+                return Response.json(window.mistakeJourneyPlan);
+              }
               const message = selection.bookWordIds.includes('current-standard')
                 ? '已有薄弱项专项包含其他选择，本次选择未应用。请先处理现有专项，再重新选择。'
                 : 'Fixture stopped before model generation';
               return Response.json({ message }, { status: 409 });
+            }
+            if (path.endsWith('/api/v1/study/plans/mistake-practice-journey/groups/0/complete') && method === 'POST') {
+              window.mistakeJourneyCompletionWrites.push(JSON.parse(options.body));
+              window.mistakeJourneyPlan = {
+                ...window.mistakeJourneyPlan,
+                status: 'COMPLETED',
+                completed: 1,
+                completedAt: '2026-11-02T10:01:00.000Z',
+                words: window.mistakeJourneyPlan.words.map((word) => ({ ...word, completed: true, result: true })),
+                summary: { totalQuestions: 1, correctQuestions: 1, durationSeconds: 12, typeStats: [{ type: 'READING_COMPREHENSION', total: 1, correct: 1 }] },
+              };
+              return Response.json(window.mistakeJourneyPlan);
+            }
+            if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
+              return Response.json(window.mistakeJourneyEnabled ? [window.mistakeJourneyPlan] : []);
             }
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });
@@ -1307,6 +1399,115 @@ test(
         /Saved source question/,
       );
       assert.equal(previousSession.user.id, 'mistake-user');
+
+      await evaluate(
+        `localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'mistake-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' } }))`,
+      );
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: 'window.mistakeJourneyEnabled = true;',
+      });
+      await send('Page.navigate', {
+        url: new URL('/dashboard?view=mistakes', baseUrl).href,
+      });
+      await until('document.querySelector("#mistakes-title")');
+      await until('document.querySelectorAll(".mistakes-list > article").length === 1');
+      await selectQuestionType('READING_COMPREHENSION', '阅读理解');
+      await fillSearchInput('many');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until(
+        'document.querySelector(".mistakes-search-summary")?.textContent.includes("40 个词")',
+      );
+      await clickVisible('.mistakes-pagination button:last-child');
+      await until(
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 2 页")',
+      );
+      await clickVisible('button[aria-label="选择 pencil box"]');
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（11）/,
+      );
+      assert.ok(
+        await evaluate(
+          '[...document.querySelectorAll(".mistakes-list article")].some((card) => card.textContent.includes("pencil box") && card.classList.contains("is-selected"))',
+        ),
+        'the page-two selection should be kept while selecting from the complete cross-page result set',
+      );
+
+      await fillSearchInput('pencil box');
+      await clickVisible('.mistakes-search button[type="submit"]');
+      await until(
+        'document.querySelector(".mistakes-search-summary")?.textContent.includes("1 个词")',
+      );
+      await until(
+        'document.querySelector(".mistakes-create")?.textContent.includes("生成专项（1）")',
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistakes-toolbar button")].find((button) => button.getAttribute("aria-label") === "按题型筛选")?.textContent.trim()',
+        ),
+        '阅读理解',
+      );
+      await clickVisible('.mistakes-create');
+      await until('window.mistakeJourneySelections.length === 1');
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeJourneySelections[0])')),
+        { bookWordIds: ['journey-word'] },
+      );
+      await until(
+        'document.querySelector(".plan-preview-layer")?.textContent.includes("薄弱词专项生成完毕")',
+      );
+      await clickVisible('.plan-preview .start-challenge');
+      await until('document.querySelector(".lesson-page .generated-question")');
+      await clickVisible('.lesson-page .generated-question .answer-options button');
+      await until(
+        'document.querySelector(".lesson-page .question-answer")?.textContent.includes("答案已记录")',
+      );
+      await clickVisible('.lesson-draft-actions .check-matches');
+      await until('window.mistakeJourneyCompletionWrites.length === 1');
+      const completedAnswers = JSON.parse(
+        await evaluate('JSON.stringify(window.mistakeJourneyCompletionWrites[0].answers)'),
+      );
+      assert.equal(completedAnswers.length, 1);
+      assert.equal(completedAnswers[0].bookWordId, 'journey-word');
+      assert.deepEqual(completedAnswers[0].selectedAnswer, ['Her pencils']);
+      assert.ok(Number.isFinite(completedAnswers[0].responseTimeMs));
+      assert.ok(completedAnswers[0].responseTimeMs >= 0);
+      await until(
+        'document.querySelector(".lesson-draft-actions .check-matches")?.textContent.includes("查看今日总结")',
+      );
+      await clickVisible('.lesson-draft-actions .check-matches');
+      await until('document.querySelector("#settlement-title")');
+      await clickVisible('.settlement-mistakes-link');
+      await until('document.querySelector("#mistakes-title")');
+      await until('document.querySelectorAll(".mistakes-list > article").length === 1');
+      assert.equal(
+        await evaluate('document.querySelector("#mistakes-search-input").value'),
+        'pencil box',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-search-summary").textContent'),
+        /pencil box.*1 个词/,
+      );
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistakes-toolbar button")].find((button) => button.getAttribute("aria-label") === "按题型筛选")?.textContent.trim()',
+        ),
+        '阅读理解',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
+      );
+      assert.deepEqual(
+        JSON.parse(await evaluate('JSON.stringify(window.mistakeListRequests.at(-1))')),
+        {
+          status: 'active',
+          questionType: 'READING_COMPREHENSION',
+          activeRace: false,
+          page: 1,
+          search: 'pencil box',
+        },
+      );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);
