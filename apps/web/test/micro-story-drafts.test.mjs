@@ -36,13 +36,14 @@ runInNewContext(compiled, { module, exports: module.exports, localStorage, encod
 const {
   clearMicroStoryDrafts,
   clearReviewDraft,
+  clearStoryDraft,
   readReviewDraft,
   readStoryDraft,
   saveStoryDraft,
   saveReviewDraft,
 } = module.exports;
 
-test('draft reads are bounded to a user and exact story and tolerate unavailable storage', () => {
+test('story drafts are bounded to a user and exact story and survive switching between stories', () => {
   storage.clear();
   saveStoryDraft('user.a', {
     storyKey: 'bus-01',
@@ -52,12 +53,50 @@ test('draft reads are bounded to a user and exact story and tolerate unavailable
   assert.equal(readStoryDraft('user.a', 'bus-01').interpretation, '汤姆错过了公交车。');
   assert.equal(readStoryDraft('user.b', 'bus-01'), null);
   assert.equal(readStoryDraft('user.a', 'bus-02'), null);
-  assert.equal(storage.has('lexloop.micro-story.story.user%2Ea'), false);
+  saveStoryDraft('user.a', {
+    storyKey: 'bus-02',
+    interpretation: '第二段理解',
+    ownSentence: '',
+  });
+  assert.equal(readStoryDraft('user.a', 'bus-01').interpretation, '汤姆错过了公交车。');
+  assert.equal(readStoryDraft('user.a', 'bus-02').interpretation, '第二段理解');
+  clearStoryDraft('user.a', 'bus-01');
+  assert.equal(readStoryDraft('user.a', 'bus-01'), null);
+  assert.equal(readStoryDraft('user.a', 'bus-02').interpretation, '第二段理解');
 
   storage.set('lexloop.micro-story.story.corrupt', '{invalid');
   assert.equal(readStoryDraft('corrupt', 'bus-01'), null);
   assert.equal(storage.has('lexloop.micro-story.story.corrupt'), false);
 
+  const mismatchedDirectKey = 'lexloop.micro-story.story.user%2Ec.bus-02';
+  storage.set(
+    mismatchedDirectKey,
+    JSON.stringify({ storyKey: 'bus-99', interpretation: '不匹配', ownSentence: '' }),
+  );
+  assert.equal(readStoryDraft('user.c', 'bus-02'), null);
+  assert.equal(storage.has(mismatchedDirectKey), false);
+});
+
+test('legacy story drafts migrate without losing a draft for another selected story', () => {
+  storage.clear();
+  storage.set(
+    'lexloop.micro-story.story.user%2Ea',
+    JSON.stringify({ storyKey: 'bus-02', interpretation: '旧理解', ownSentence: 'I called.' }),
+  );
+  assert.equal(readStoryDraft('user.a', 'bus-01'), null);
+  assert.equal(storage.has('lexloop.micro-story.story.user%2Ea'), true);
+  assert.equal(readStoryDraft('user.a', 'bus-02').interpretation, '旧理解');
+  assert.equal(storage.has('lexloop.micro-story.story.user%2Ea'), false);
+  assert.equal(readStoryDraft('user.a', 'bus-02').ownSentence, 'I called.');
+});
+
+test('story draft reads tolerate unavailable storage and writes fail safely', () => {
+  storage.clear();
+  saveStoryDraft('user.a', {
+    storyKey: 'bus-01',
+    interpretation: '汤姆错过了公交车。',
+    ownSentence: 'I missed the train.',
+  });
   failReads = true;
   assert.equal(readStoryDraft('user.a', 'bus-01'), null);
   failReads = false;
@@ -75,6 +114,11 @@ test('draft reads are bounded to a user and exact story and tolerate unavailable
 test('clear-all cleanup removes only this user’s story and review drafts', () => {
   storage.clear();
   storage.set('lexloop.micro-story.story.user%2Ea', 'story');
+  saveStoryDraft('user.a', {
+    storyKey: 'bus-01',
+    interpretation: 'saved',
+    ownSentence: '',
+  });
   saveReviewDraft('user.a', 'review.1', '2026-10-28T06:00:00.000Z', '汤姆错过公交车');
   storage.set('lexloop.micro-story.review.other.review%2E1', 'keep');
   storage.set('lexloop.output.draft.user.a', 'keep');
@@ -82,6 +126,7 @@ test('clear-all cleanup removes only this user’s story and review drafts', () 
   clearMicroStoryDrafts('user.a');
 
   assert.equal(storage.has('lexloop.micro-story.story.user%2Ea'), false);
+  assert.equal(storage.has('lexloop.micro-story.story.user%2Ea.bus-01'), false);
   assert.equal(storage.has('lexloop.micro-story.review.user%2Ea.review%2E1'), false);
   assert.equal(storage.get('lexloop.micro-story.review.other.review%2E1'), 'keep');
   assert.equal(storage.get('lexloop.output.draft.user.a'), 'keep');

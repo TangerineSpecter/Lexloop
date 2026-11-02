@@ -9,8 +9,12 @@ type StoryDraft = {
   ownSentence: string;
 };
 
-function storyDraftKey(userId: string) {
+function legacyStoryDraftKey(userId: string) {
   return `${STORY_DRAFT_PREFIX}${encodeKeyPart(userId)}`;
+}
+
+function storyDraftKey(userId: string, storyKey: string) {
+  return `${STORY_DRAFT_PREFIX}${encodeKeyPart(userId)}.${encodeKeyPart(storyKey)}`;
 }
 
 function reviewDraftKey(userId: string, reviewId: string) {
@@ -22,32 +26,45 @@ function encodeKeyPart(value: string) {
 }
 
 export function readStoryDraft(userId: string, storyKey: string | null): StoryDraft | null {
-  const key = storyDraftKey(userId);
+  if (!storyKey) return null;
+  const key = storyDraftKey(userId, storyKey);
   try {
-    const value = localStorage.getItem(key);
+    const directValue = localStorage.getItem(key);
+    const sourceKey = directValue === null ? legacyStoryDraftKey(userId) : key;
+    const value = directValue ?? localStorage.getItem(sourceKey);
     if (!value) return null;
     let parsed: unknown;
     try {
       parsed = JSON.parse(value);
     } catch {
-      localStorage.removeItem(key);
+      localStorage.removeItem(sourceKey);
       return null;
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      localStorage.removeItem(key);
+      localStorage.removeItem(sourceKey);
       return null;
     }
     const draft = parsed as Partial<StoryDraft>;
-    if (!storyKey || draft.storyKey !== storyKey) {
-      localStorage.removeItem(key);
+    if (draft.storyKey !== storyKey) {
+      if (sourceKey === key) localStorage.removeItem(key);
+      // Keep a legacy draft for its own story so selecting another story cannot erase it.
       return null;
     }
-    return {
+    const restored = {
       storyKey,
       interpretation:
         typeof draft.interpretation === 'string' ? draft.interpretation.slice(0, 500) : '',
       ownSentence: typeof draft.ownSentence === 'string' ? draft.ownSentence.slice(0, 280) : '',
     };
+    if (sourceKey !== key) {
+      try {
+        localStorage.setItem(key, JSON.stringify(restored));
+        localStorage.removeItem(sourceKey);
+      } catch {
+        // A legacy draft remains readable even if storage cannot migrate it.
+      }
+    }
+    return restored;
   } catch {
     return null;
   }
@@ -55,15 +72,25 @@ export function readStoryDraft(userId: string, storyKey: string | null): StoryDr
 
 export function saveStoryDraft(userId: string, draft: StoryDraft) {
   try {
-    localStorage.setItem(storyDraftKey(userId), JSON.stringify(draft));
+    localStorage.setItem(storyDraftKey(userId, draft.storyKey), JSON.stringify(draft));
   } catch {
     // Storage is optional; the in-memory draft remains usable.
   }
 }
 
-export function clearStoryDraft(userId: string) {
+export function clearStoryDraft(userId: string, storyKey: string) {
   try {
-    localStorage.removeItem(storyDraftKey(userId));
+    localStorage.removeItem(storyDraftKey(userId, storyKey));
+    const legacyKey = legacyStoryDraftKey(userId);
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy) {
+      try {
+        const parsed = JSON.parse(legacy) as Partial<StoryDraft>;
+        if (parsed.storyKey === storyKey) localStorage.removeItem(legacyKey);
+      } catch {
+        localStorage.removeItem(legacyKey);
+      }
+    }
   } catch {
     // Storage is optional.
   }
@@ -126,12 +153,19 @@ export function clearReviewDraft(userId: string, reviewId: string) {
 }
 
 export function clearMicroStoryDrafts(userId: string) {
+  const storyPrefix = `${STORY_DRAFT_PREFIX}${encodeKeyPart(userId)}.`;
   const reviewPrefix = `${REVIEW_DRAFT_PREFIX}${encodeKeyPart(userId)}.`;
   try {
-    localStorage.removeItem(storyDraftKey(userId));
     for (let index = localStorage.length - 1; index >= 0; index--) {
       const key = localStorage.key(index);
-      if (key?.startsWith(reviewPrefix)) localStorage.removeItem(key);
+      if (
+        key &&
+        (key === legacyStoryDraftKey(userId) ||
+          key.startsWith(storyPrefix) ||
+          key.startsWith(reviewPrefix))
+      ) {
+        localStorage.removeItem(key);
+      }
     }
   } catch {
     // Storage is optional.

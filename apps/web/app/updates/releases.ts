@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.138',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '浏览并选择未完成的微故事',
+        entry: '一分钟微故事 → 浏览未完成故事',
+        usage:
+          '可按宽泛练习分组找到其他未完成段落。选择不会计作完成；输入或保存理解后需先完成本段。完成后仍按默认顺序继续。',
+      },
+    ],
+  },
+  {
     version: '1.27.137',
     date: '2026-11-02',
     items: [

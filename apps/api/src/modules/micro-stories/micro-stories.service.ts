@@ -31,17 +31,21 @@ export class MicroStoriesService {
         orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
-    const story = nextStory(
-      MICRO_STORIES,
-      progress?.completedKeys ?? [],
-      progress?.interpretationKey,
-    );
+    const completedKeys = new Set(progress?.completedKeys ?? []);
+    const story = nextStory(MICRO_STORIES, [...completedKeys], progress?.interpretationKey);
     const interpretation =
       progress && progress.interpretationKey === story?.key ? progress.interpretation : null;
     const reviewStory = due && storyByKey(due.lessonKey);
     return {
-      completed: progress?.completedKeys.filter((key) => Boolean(storyByKey(key))).length ?? 0,
+      completed: [...completedKeys].filter((key) => Boolean(storyByKey(key))).length,
       total: MICRO_STORIES.length,
+      catalog: MICRO_STORIES.map(({ key, series, part, level }) => ({
+        key,
+        series,
+        part,
+        level,
+        completed: completedKeys.has(key),
+      })),
       lesson: story
         ? {
             key: story.key,
@@ -77,6 +81,31 @@ export class MicroStoriesService {
             }
           : null,
     };
+  }
+
+  async select(userId: string, key: string, expectedKey: string) {
+    if (!storyByKey(key)) throw new NotFoundException('故事不存在');
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, userId);
+      const progress = await tx.microProgress.findUnique({ where: { userId } });
+      const completedKeys = new Set(progress?.completedKeys ?? []);
+      const current = nextStory(MICRO_STORIES, [...completedKeys], progress?.interpretationKey);
+      if (!current || current.key !== expectedKey)
+        throw new ConflictException('故事选择已更新，请刷新后再选择。');
+      if (completedKeys.has(key)) throw new ConflictException('这段已经完成，请选择其他故事。');
+      if (key === current.key) return;
+      if (progress?.interpretationKey === current.key && progress.interpretation?.trim())
+        throw new ConflictException('请先完成当前理解，再选择其他故事。');
+
+      await tx.microProgress.upsert({
+        where: { userId },
+        create: { userId, interpretationKey: key, interpretation: null },
+        update: { interpretationKey: key, interpretation: null },
+      });
+    });
+
+    return this.current(userId);
   }
 
   async errors(userId: string) {
@@ -186,10 +215,11 @@ export class MicroStoriesService {
           },
         });
       }
+      const completedKeys = [...new Set([...progress.completedKeys, key])];
       await tx.microProgress.update({
         where: { userId },
         data: {
-          completedKeys: [...new Set([...progress.completedKeys, key])],
+          completedKeys,
           interpretationKey: null,
           interpretation: null,
         },
@@ -197,7 +227,10 @@ export class MicroStoriesService {
       await tx.learningEvent.create({
         data: { userId, type: 'MICRO_STORY_COMPLETED', payload: { lessonKey: key, mismatch } },
       });
-      return { completed: progress.completedKeys.length + 1, total: MICRO_STORIES.length };
+      return {
+        completed: completedKeys.filter((completedKey) => Boolean(storyByKey(completedKey))).length,
+        total: MICRO_STORIES.length,
+      };
     });
   }
 

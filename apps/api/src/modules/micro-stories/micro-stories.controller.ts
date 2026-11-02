@@ -14,6 +14,10 @@ class CompleteDto {
 class ReviewDto {
   @IsBoolean() remembered!: boolean;
 }
+class SelectStoryDto {
+  @IsString() @MinLength(1) @MaxLength(80) key!: string;
+  @IsString() @MinLength(1) @MaxLength(80) expectedKey!: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('micro-stories')
@@ -34,6 +38,9 @@ export class MicroStoriesController {
   @Header('Cache-Control', 'private, no-store')
   revisit(@Req() req: Actor, @Param('key') key: string) {
     return this.stories.revisit(req.user.sub, key);
+  }
+  @Post('selection') select(@Req() req: Actor, @Body() dto: SelectStoryDto) {
+    return this.stories.select(req.user.sub, dto.key, dto.expectedKey);
   }
   @Post(':key/interpret') interpret(
     @Req() req: Actor,

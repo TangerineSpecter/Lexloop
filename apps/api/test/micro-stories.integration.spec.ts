@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { MICRO_STORIES } from '../src/modules/micro-stories/micro-stories.catalog';
 import { MicroStoriesService } from '../src/modules/micro-stories/micro-stories.service';
 
@@ -119,6 +119,53 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         });
         expect(nextStory.lesson).not.toHaveProperty('reference');
         expect((await service.current(users[1].id)).lesson).toMatchObject({ key: 'bus-01' });
+
+        const beforeSelectionEvents = await prisma.learningEvent.count({
+          where: { userId: users[0].id },
+        });
+        const defaultKey = nextStoryKey(nextStory);
+        const [firstSelection, staleSelection] = await Promise.allSettled([
+          service.select(users[0].id, 'grocery-02', defaultKey),
+          service.select(users[0].id, 'library-return-02', defaultKey),
+        ]);
+        const successful = [firstSelection, staleSelection].find(
+          (result) => result.status === 'fulfilled',
+        );
+        const rejected = [firstSelection, staleSelection].find(
+          (result) => result.status === 'rejected',
+        );
+        expect(successful?.status).toBe('fulfilled');
+        expect(rejected?.status).toBe('rejected');
+        if (rejected?.status === 'rejected') {
+          expect(rejected.reason).toBeInstanceOf(ConflictException);
+        }
+        const selectedKey = (
+          successful as PromiseFulfilledResult<Awaited<ReturnType<typeof service.select>>>
+        ).value.lesson?.key;
+        expect(['grocery-02', 'library-return-02']).toContain(selectedKey);
+        expect((await service.current(users[0].id)).lesson?.key).toBe(selectedKey);
+        expect((await service.current(users[1].id)).lesson?.key).toBe('bus-01');
+        expect(await prisma.learningEvent.count({ where: { userId: users[0].id } })).toBe(
+          beforeSelectionEvents,
+        );
+        expect((await service.select(users[0].id, selectedKey!, selectedKey!)).lesson?.key).toBe(
+          selectedKey,
+        );
+
+        await service.interpret(users[0].id, selectedKey!, '这是本段的本机理解。');
+        const savedProgress = await prisma.microProgress.findUnique({
+          where: { userId: users[0].id },
+        });
+        const otherTarget = selectedKey === 'grocery-02' ? 'library-return-02' : 'grocery-02';
+        await expect(service.select(users[0].id, otherTarget, selectedKey!)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(await prisma.microProgress.findUnique({ where: { userId: users[0].id } })).toEqual(
+          savedProgress,
+        );
+        expect((await service.current(users[0].id)).lesson?.interpretation).toBe(
+          '这是本段的本机理解。',
+        );
       } finally {
         await prisma.user.deleteMany({ where: { id: { in: userIds } } });
         await prisma.$disconnect();
@@ -126,3 +173,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
     });
   },
 );
+
+function nextStoryKey(current: Awaited<ReturnType<MicroStoriesService['current']>>) {
+  if (!current.lesson) throw new Error('Expected the fixture to have an unfinished story');
+  return current.lesson.key;
+}

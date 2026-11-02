@@ -89,6 +89,20 @@
   margin: 0;
   font-size: 21px;
 }
+.storyHeadMeta {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.storyHeadMeta small {
+  flex: 1 1 100%;
+  color: #465b88;
+  font-size: 12px;
+  text-align: right;
+}
 .cardHead + .secondary {
   margin-top: 12px;
 }
@@ -310,6 +324,133 @@
   margin: 0;
   font-size: 17px;
 }
+.selectionDialog {
+  width: min(620px, calc(100vw - 32px));
+  max-width: 620px;
+  max-height: min(82vh, 760px);
+  padding: 0;
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--border-color);
+  background: var(--soft);
+  box-shadow: 7px 7px 0 var(--border-color);
+}
+.selectionDialog::backdrop {
+  background: rgba(8, 25, 62, 0.42);
+}
+.selectionDialogContent {
+  display: grid;
+  gap: 14px;
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  padding: 20px;
+}
+.selectionDialogHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border-color);
+}
+.selectionDialogHeader h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.selectionEyebrow {
+  margin: 0 0 4px;
+  font:
+    11px 'DM Mono',
+    monospace;
+  letter-spacing: 0.08em;
+}
+.selectionNote,
+.selectionFooter {
+  margin: 0;
+  font-size: 13px;
+}
+.selectionNotice,
+.selectionEmpty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #eaf2ff;
+}
+.levelFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.levelFilter,
+.levelFilterActive {
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--border-color);
+  background: var(--soft);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.levelFilterActive {
+  background: var(--gold);
+}
+.selectionList {
+  display: grid;
+  gap: 8px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 4px 2px;
+}
+.storyOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 9px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--border-color);
+  background: white;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.storyOption > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.storyOption strong {
+  overflow-wrap: anywhere;
+}
+.storyOption small {
+  color: #465b88;
+}
+.storyLevel {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1px 7px;
+  background: #fff1ae;
+  font-size: 12px;
+  font-weight: 800;
+}
+.selectionFooter {
+  padding-top: 10px;
+  border-top: 1px solid #b8c2d9;
+}
+.page :is(.selectionDialog, .selectionDialogContent) :focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 3px;
+}
 @media (max-width: 680px) {
   .embedded .shell {
     padding-right: 16px;
@@ -329,7 +470,31 @@
     grid-template-columns: 1fr;
     justify-items: start;
   }
+  .storyHeadMeta {
+    justify-content: start;
+  }
+  .storyHeadMeta small {
+    text-align: left;
+  }
   .actions button {
     flex: 1 1 180px;
+  }
+  .selectionDialog {
+    width: calc(100vw - 24px);
+    max-height: 88vh;
+    box-shadow: 4px 4px 0 var(--border-color);
+  }
+  .selectionDialogContent {
+    max-height: 88vh;
+    padding: 15px;
+  }
+  .selectionDialogHeader {
+    align-items: center;
+  }
+  .selectionDialogHeader h2 {
+    font-size: 18px;
+  }
+  .selectionList {
+    max-height: 48vh;
   }
 }

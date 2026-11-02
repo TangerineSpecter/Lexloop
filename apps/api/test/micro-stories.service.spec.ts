@@ -23,8 +23,8 @@ function fixture() {
             create,
             update,
           }: {
-            create: { interpretation: string; interpretationKey: string };
-            update: { interpretation: string; interpretationKey: string };
+            create: { interpretation: string | null; interpretationKey: string };
+            update: { interpretation: string | null; interpretationKey: string };
           }) => {
             progress.interpretation = (progress.interpretation ? update : create).interpretation;
             progress.interpretationKey = (
@@ -61,6 +61,74 @@ function fixture() {
 }
 
 describe('one-minute stories', () => {
+  it('selects an uncompleted story without marking it complete and keeps the selection idempotent', async () => {
+    const f = fixture();
+    const initial = await f.service.current('owner');
+    expect(initial.lesson?.key).toBe('bus-01');
+    expect(initial.catalog).toHaveLength(MICRO_STORIES.length);
+    expect(initial.catalog[0]).toMatchObject({ key: 'bus-01', level: 'A1', completed: false });
+    expect(initial.catalog[0]).not.toHaveProperty('english');
+
+    const selected = await f.service.select('owner', 'library-return-02', 'bus-01');
+    expect(selected).toMatchObject({
+      completed: 0,
+      total: MICRO_STORIES.length,
+      lesson: {
+        key: 'library-return-02',
+        series: '归还图书',
+        part: 2,
+        level: 'B1',
+        interpretation: null,
+      },
+    });
+    expect(selected.lesson).not.toHaveProperty('reference');
+    expect(f.progress).toMatchObject({
+      completedKeys: [],
+      interpretationKey: 'library-return-02',
+      interpretation: null,
+    });
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
+
+    const repeated = await f.service.select('owner', 'library-return-02', 'library-return-02');
+    expect(repeated.lesson?.key).toBe('library-return-02');
+    expect(f.tx.microProgress.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale, completed, unknown, and saved-understanding switches without changing progress', async () => {
+    const f = fixture();
+    await expect(f.service.select('owner', 'weekend-01', 'stale-key')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(f.service.select('owner', 'not-a-story', 'bus-01')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    f.progress.completedKeys = ['bus-02'];
+    await expect(f.service.select('owner', 'bus-02', 'bus-01')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(f.progress.interpretationKey).toBeNull();
+
+    await f.service.interpret('owner', 'bus-01', '汤姆没赶上公交车。');
+    const before = { ...f.progress };
+    await expect(f.service.select('owner', 'weekend-01', 'bus-01')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(f.progress).toEqual(before);
+  });
+
+  it('returns to the default next uncompleted story after a selected story is completed', async () => {
+    const f = fixture();
+    await f.service.select('owner', 'library-return-02', 'bus-01');
+    await f.service.interpret('owner', 'library-return-02', 'Evan 归还了被预约的第二本书。');
+    const result = await f.service.complete('owner', 'library-return-02', false);
+
+    expect(result.completed).toBe(1);
+    expect(f.progress.completedKeys).toEqual(['library-return-02']);
+    expect(f.progress.interpretationKey).toBeNull();
+    expect((await f.service.current('owner')).lesson?.key).toBe('bus-01');
+    expect(f.tx.learningEvent.create).toHaveBeenCalledTimes(1);
+  });
+
   it('hides reference meaning until an interpretation is saved and advances only once', async () => {
     const f = fixture();
     const before = await f.service.current('owner');

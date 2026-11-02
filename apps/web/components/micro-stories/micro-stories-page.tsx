@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Session, userFacingError } from '../../lib/api';
 import { CollectWordForm } from '../learning-lab/collect-word-form';
 import {
@@ -15,6 +15,7 @@ import styles from './micro-stories.module.css';
 import { EnglishAudioControls } from '../english-audio-controls';
 import { LocalSpeakingPractice } from './local-speaking-practice';
 import { DashboardBackButton } from '../dashboard-back-button';
+import { MicroStorySelectionDialog, type StoryCatalogEntry } from './micro-story-selection-dialog';
 
 type Lesson = {
   key: string;
@@ -41,7 +42,13 @@ type Review = {
   reviewCount: number;
   dueAt: string;
 };
-type Current = { completed: number; total: number; lesson: Lesson | null; review: Review | null };
+type Current = {
+  completed: number;
+  total: number;
+  lesson: Lesson | null;
+  review: Review | null;
+  catalog?: StoryCatalogEntry[];
+};
 type ErrorCard = Pick<
   Review,
   'id' | 'english' | 'interpretation' | 'reference' | 'explanation' | 'ownSentence'
@@ -83,25 +90,40 @@ export function MicroStoriesPage({
     useState<CompletedStoryPreview | null>(null);
   const [completedAttempt, setCompletedAttempt] = useState('');
   const [completedAnswer, setCompletedAnswer] = useState<CompletedStoryAnswer | null>(null);
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionError, setSelectionError] = useState('');
+  const currentRequestSequence = useRef(0);
 
-  function applyCurrent(next: Current) {
-    setCurrent(next);
-    setTranscriptHidden(false);
-    const storyDraft = readStoryDraft(session.user.id, next.lesson?.key ?? null);
-    setInterpretation(next.lesson?.interpretation ?? storyDraft?.interpretation ?? '');
-    setOwnSentence(storyDraft?.ownSentence ?? '');
-    const reviewDraft = next.review
-      ? readReviewDraft(session.user.id, next.review.id, next.review.dueAt)
-      : null;
-    setReviewAttempt(reviewDraft && !reviewDraft.requiresRestore ? reviewDraft.attempt : '');
-    setReviewDraftToRestore(reviewDraft?.requiresRestore ? reviewDraft.attempt : null);
-    setMismatch(null);
-    setReviewShown(false);
-  }
+  const applyCurrent = useCallback(
+    (next: Current) => {
+      setCurrent(next);
+      setTranscriptHidden(false);
+      const storyDraft = readStoryDraft(session.user.id, next.lesson?.key ?? null);
+      setInterpretation(next.lesson?.interpretation ?? storyDraft?.interpretation ?? '');
+      setOwnSentence(storyDraft?.ownSentence ?? '');
+      const reviewDraft = next.review
+        ? readReviewDraft(session.user.id, next.review.id, next.review.dueAt)
+        : null;
+      setReviewAttempt(reviewDraft && !reviewDraft.requiresRestore ? reviewDraft.attempt : '');
+      setReviewDraftToRestore(reviewDraft?.requiresRestore ? reviewDraft.attempt : null);
+      setMismatch(null);
+      setReviewShown(false);
+    },
+    [session.user.id],
+  );
+
+  const loadCurrent = useCallback(async () => {
+    const sequence = ++currentRequestSequence.current;
+    const next = await request<Current>('/micro-stories/current', {}, session.accessToken);
+    const applied = sequence === currentRequestSequence.current;
+    if (applied) applyCurrent(next);
+    return { next, applied };
+  }, [applyCurrent, session.accessToken]);
 
   async function load() {
-    const next = await request<Current>('/micro-stories/current', {}, session.accessToken);
-    applyCurrent(next);
+    const { applied } = await loadCurrent();
+    if (!applied) return;
     if (showErrors)
       setErrorCards(await request<ErrorCard[]>('/micro-stories/errors', {}, session.accessToken));
     if (showCompleted) {
@@ -120,18 +142,38 @@ export function MicroStoriesPage({
   }
   useEffect(() => {
     let active = true;
-    request<Current>('/micro-stories/current', {}, session.accessToken)
-      .then((next) => {
-        if (!active) return;
-        applyCurrent(next);
-      })
-      .catch((cause) => {
-        if (active) setError(userFacingError(cause));
-      });
+    void loadCurrent().catch((cause) => {
+      if (active) setError(userFacingError(cause));
+    });
     return () => {
       active = false;
+      currentRequestSequence.current += 1;
     };
-  }, [session.accessToken]);
+  }, [loadCurrent]);
+
+  useEffect(() => {
+    const key = `lexloop.micro-story.selection.${encodeURIComponent(session.user.id)}`;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      const storyKey = current?.lesson?.key;
+      if (storyKey && (interpretation || ownSentence)) {
+        const savedDraft = readStoryDraft(session.user.id, storyKey);
+        if (
+          !savedDraft ||
+          savedDraft.interpretation !== interpretation ||
+          savedDraft.ownSentence !== ownSentence
+        ) {
+          setSelectionError(
+            '另一个标签页已更改故事选择。为避免丢失尚未存入本机草稿的输入，本页暂未切换；请先复制或清除输入，再重新读取。',
+          );
+          return;
+        }
+      }
+      void loadCurrent().catch((cause) => setError(userFacingError(cause)));
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [current?.lesson?.key, interpretation, loadCurrent, ownSentence, session.user.id]);
 
   async function reveal() {
     const lesson = current?.lesson;
@@ -168,7 +210,7 @@ export function MicroStoriesPage({
         },
         session.accessToken,
       );
-      clearStoryDraft(session.user.id);
+      clearStoryDraft(session.user.id, lesson.key);
       setCompletedStories(null);
       await load();
     } catch (cause) {
@@ -257,8 +299,46 @@ export function MicroStoriesPage({
     }
   }
 
+  async function selectStory(key: string) {
+    const expectedKey = current?.lesson?.key;
+    if (!expectedKey) return;
+    const sequence = ++currentRequestSequence.current;
+    setSelectionBusy(true);
+    setSelectionError('');
+    try {
+      const next = await request<Current>(
+        '/micro-stories/selection',
+        { method: 'POST', body: JSON.stringify({ key, expectedKey }) },
+        session.accessToken,
+      );
+      if (sequence !== currentRequestSequence.current) return;
+      applyCurrent(next);
+      setSelectionOpen(false);
+      try {
+        localStorage.setItem(
+          `lexloop.micro-story.selection.${encodeURIComponent(session.user.id)}`,
+          String(Date.now()),
+        );
+      } catch {
+        // Cross-tab refresh is best effort; the server remains the source of truth.
+      }
+    } catch (cause) {
+      if (sequence === currentRequestSequence.current) {
+        setSelectionError(userFacingError(cause));
+        setSelectionOpen(false);
+        void loadCurrent().catch((refreshCause) =>
+          setSelectionError(userFacingError(refreshCause)),
+        );
+      }
+    } finally {
+      setSelectionBusy(false);
+    }
+  }
+
   const lesson = current?.lesson;
   const reviewCard = current?.review;
+  const selectionDraftExists = Boolean(interpretation || ownSentence);
+  const selectionBlockedByProgress = Boolean(lesson?.interpretation || selectionDraftExists);
   return (
     <div
       className={['dashboard-route-content', styles.page, embedded ? styles.embedded : '']
@@ -295,6 +375,20 @@ export function MicroStoriesPage({
           </p>
         )}
         {!current && !error && <p className={styles.status}>正在读取故事…</p>}
+        {selectionError && (
+          <p className={styles.error} role="alert">
+            {selectionError}{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectionError('');
+                void loadCurrent().catch((cause) => setSelectionError(userFacingError(cause)));
+              }}
+            >
+              重新读取
+            </button>
+          </p>
+        )}
 
         {reviewCard && (
           <section className={styles.card} aria-labelledby="review-heading">
@@ -446,9 +540,35 @@ export function MicroStoriesPage({
               <h2 id="story-heading">
                 {lesson.series} · 第 {lesson.part} 小段
               </h2>
-              <span className={styles.tag}>
-                {lesson.level} · {current.completed + 1}/{current.total}
-              </span>
+              <div className={styles.storyHeadMeta}>
+                <span className={styles.tag}>
+                  {lesson.level} · {current.completed + 1}/{current.total}
+                </span>
+                {current.catalog && (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    disabled={selectionBusy || busy || selectionBlockedByProgress}
+                    aria-haspopup="dialog"
+                    aria-describedby={
+                      selectionBlockedByProgress ? 'micro-story-selection-blocked' : undefined
+                    }
+                    onClick={() => {
+                      setSelectionError('');
+                      setSelectionOpen(true);
+                    }}
+                  >
+                    浏览未完成故事
+                  </button>
+                )}
+                {selectionBlockedByProgress && (
+                  <small id="micro-story-selection-blocked">
+                    {lesson.interpretation
+                      ? '完成当前故事后可切换。'
+                      : '提交或清除当前输入后可切换；未提交草稿仅保存在这台浏览器中。'}
+                  </small>
+                )}
+              </div>
             </div>
             {!lesson.reference && (
               <button
@@ -532,7 +652,7 @@ export function MicroStoriesPage({
                       onClick={() => {
                         setInterpretation('');
                         setOwnSentence('');
-                        clearStoryDraft(session.user.id);
+                        clearStoryDraft(session.user.id, lesson.key);
                       }}
                     >
                       清除本机草稿
@@ -576,7 +696,7 @@ export function MicroStoriesPage({
                       disabled={busy}
                       onClick={() => {
                         setOwnSentence('');
-                        clearStoryDraft(session.user.id);
+                        clearStoryDraft(session.user.id, lesson.key);
                       }}
                     >
                       清除本机英文尝试草稿
@@ -818,6 +938,17 @@ export function MicroStoriesPage({
           </section>
         )}
       </div>
+      {current?.lesson && current.catalog && (
+        <MicroStorySelectionDialog
+          open={selectionOpen}
+          catalog={current.catalog}
+          currentKey={current.lesson.key}
+          disabled={selectionBlockedByProgress}
+          busy={selectionBusy}
+          onClose={() => setSelectionOpen(false)}
+          onSelect={(key) => void selectStory(key)}
+        />
+      )}
     </div>
   );
 }
