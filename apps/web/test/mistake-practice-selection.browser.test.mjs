@@ -276,7 +276,7 @@ test(
         weaknesses: [weaknesses('journey-signal', 'READING_COMPREHENSION', 3)],
       };
       const mistakeJourneyQuestion = {
-        bookWordId: 'journey-word',
+        bookWordId: 'page-word-35',
         type: 'READING_COMPREHENSION',
         prompt: 'What did Mina put in the box?',
         options: ['Her pencils', 'Her lunch'],
@@ -290,7 +290,7 @@ test(
         wordCount: 1,
         words: [
           {
-            id: 'journey-word',
+            id: 'page-word-35',
             word: 'pencil box',
             part: 'n.',
             meaning: '文具盒',
@@ -1432,14 +1432,26 @@ test(
         ),
         'the page-two selection should be kept while selecting from the complete cross-page result set',
       );
-
-      await fillSearchInput('pencil box');
-      await clickVisible('.mistakes-search button[type="submit"]');
+      await clickVisible('.mistakes-pagination button:first-child');
       await until(
-        'document.querySelector(".mistakes-search-summary")?.textContent.includes("1 个词")',
+        'document.querySelector(".mistakes-pagination span")?.textContent.includes("第 1 页")',
       );
-      await until(
-        'document.querySelector(".mistakes-create")?.textContent.includes("生成专项（1）")',
+      for (let remaining = 11; remaining > 1; remaining -= 1) {
+        await clickVisible('.mistake-check[aria-label^="取消选择"]');
+        await until(
+          `document.querySelector(".mistakes-create")?.textContent.includes("生成专项（${remaining - 1}）")`,
+        );
+      }
+      assert.equal(
+        await evaluate(
+          '[...document.querySelectorAll(".mistake-check")].some((button) => button.getAttribute("aria-label") === "选择 pencil box")',
+        ),
+        false,
+        'the page-two word stays selected while the visible page-one selections are removed',
+      );
+      assert.match(
+        await evaluate('document.querySelector(".mistakes-create").textContent'),
+        /生成专项（1）/,
       );
       assert.equal(
         await evaluate(
@@ -1451,7 +1463,7 @@ test(
       await until('window.mistakeJourneySelections.length === 1');
       assert.deepEqual(
         JSON.parse(await evaluate('JSON.stringify(window.mistakeJourneySelections[0])')),
-        { bookWordIds: ['journey-word'] },
+        { bookWordIds: ['page-word-35'] },
       );
       await until(
         'document.querySelector(".plan-preview-layer")?.textContent.includes("薄弱词专项生成完毕")',
@@ -1468,7 +1480,7 @@ test(
         await evaluate('JSON.stringify(window.mistakeJourneyCompletionWrites[0].answers)'),
       );
       assert.equal(completedAnswers.length, 1);
-      assert.equal(completedAnswers[0].bookWordId, 'journey-word');
+      assert.equal(completedAnswers[0].bookWordId, 'page-word-35');
       assert.deepEqual(completedAnswers[0].selectedAnswer, ['Her pencils']);
       assert.ok(Number.isFinite(completedAnswers[0].responseTimeMs));
       assert.ok(completedAnswers[0].responseTimeMs >= 0);
@@ -1479,14 +1491,14 @@ test(
       await until('document.querySelector("#settlement-title")');
       await clickVisible('.settlement-mistakes-link');
       await until('document.querySelector("#mistakes-title")');
-      await until('document.querySelectorAll(".mistakes-list > article").length === 1');
+      await until('document.querySelectorAll(".mistakes-list > article").length === 20');
       assert.equal(
         await evaluate('document.querySelector("#mistakes-search-input").value'),
-        'pencil box',
+        'many',
       );
       assert.match(
         await evaluate('document.querySelector(".mistakes-search-summary").textContent'),
-        /pencil box.*1 个词/,
+        /many.*40 个词/,
       );
       assert.equal(
         await evaluate(
@@ -1496,7 +1508,7 @@ test(
       );
       assert.match(
         await evaluate('document.querySelector(".mistakes-create").textContent'),
-        /生成专项（1）/,
+        /生成专项（10）/,
       );
       assert.deepEqual(
         JSON.parse(await evaluate('JSON.stringify(window.mistakeListRequests.at(-1))')),
@@ -1505,7 +1517,7 @@ test(
           questionType: 'READING_COMPREHENSION',
           activeRace: false,
           page: 1,
-          search: 'pencil box',
+          search: 'many',
         },
       );
     } finally {
