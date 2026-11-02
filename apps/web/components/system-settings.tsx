@@ -23,6 +23,7 @@ import { SystemBackupPanel } from './system-backup/system-backup-panel';
 import { SystemUpdatePanel } from './system-update-panel';
 import { DailySentenceSettings } from './daily-sentence/daily-sentence-settings';
 import { SystemLogsPanel } from './system-logs-panel';
+import { AutomaticStudyPlanSettings } from './automatic-study-plan-settings';
 
 type AiModel = {
   id: string;
@@ -175,7 +176,10 @@ export function SystemSettings({ session }: { session: Session }) {
       {tab === 'backups' ? (
         <SystemBackupPanel session={session} />
       ) : tab === 'features' ? (
-        <DailySentenceSettings session={session} />
+        <>
+          <DailySentenceSettings session={session} />
+          <AutomaticStudyPlanSettings session={session} />
+        </>
       ) : tab === 'logs' ? (
         <SystemLogsPanel session={session} />
       ) : tab === 'updates' ? (

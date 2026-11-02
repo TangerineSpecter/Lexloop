@@ -48,6 +48,14 @@ enum StudyPlanStatus {
   FAILED
 }
 
+enum AutomaticStudyPlanRunStatus {
+  QUEUED
+  RUNNING
+  GENERATED
+  SKIPPED
+  FAILED
+}
+
 enum StudyPlanMode {
   GROUP
   INDIVIDUAL
@@ -283,6 +291,7 @@ model User {
   adventureProfile AdventureProfile?
   adventureRuns DungeonRun[]
   adventureEvidence AdventureLearningEvidence[]
+  automaticStudyPlanRuns AutomaticStudyPlanRun[]
   adventureFloorProgresses UserFloorProgress[]
   inventoryItems InventoryItem[]
   adventureDailyQuests AdventureDailyQuest[]
@@ -322,6 +331,7 @@ model MicroError {
 model SystemFeatureSetting {
   key String @id
   enabled Boolean @default(true)
+  scheduleTime String?
   updatedAt DateTime @updatedAt
 }
 
@@ -482,14 +492,36 @@ model StudyPlan {
   generatedAt      DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
+  autoDateKey      String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   items            StudyPlanItem[]
   tutorConversations TutorConversation[]
+  automaticStudyPlanRun AutomaticStudyPlanRun? @relation("AutomaticStudyPlanPlan")
 
   @@index([userId, purpose, status, createdAt])
   @@index([userId, status, completedAt, id])
+  @@unique([userId, autoDateKey])
+}
+
+model AutomaticStudyPlanRun {
+  id String @id @default(cuid())
+  userId String
+  dateKey String
+  status AutomaticStudyPlanRunStatus @default(QUEUED)
+  attempts Int @default(0)
+  planId String? @unique
+  reasonCode String?
+  startedAt DateTime?
+  nextAttemptAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan StudyPlan? @relation("AutomaticStudyPlanPlan", fields: [planId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, dateKey])
+  @@index([dateKey, status, nextAttemptAt])
 }
 
 model StudyPlanItem {

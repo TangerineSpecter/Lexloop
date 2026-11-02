@@ -21,6 +21,10 @@ import {
 import { OutputService } from './modules/practice/output.service';
 import { PracticeEvidenceService } from './modules/practice/practice-evidence.service';
 import { MistakesService } from './modules/mistakes/mistakes.service';
+import { StudyService } from './modules/study/study.service';
+import { AutomaticStudyPlanSettingsService } from './modules/automatic-study-plan/automatic-study-plan-settings.service';
+import { AutomaticStudyPlanWorkerService } from './modules/automatic-study-plan/automatic-study-plan.worker-service';
+import { AUTOMATIC_STUDY_PLAN_QUEUE } from './modules/automatic-study-plan/automatic-study-plan.rules';
 import { gradeOutput } from './modules/practice/output.processor';
 import { appendSystemLogEvent } from './modules/admin/system-log-file';
 
@@ -34,7 +38,11 @@ import { appendSystemLogEvent } from './modules/admin/system-log-file';
         connection: { url: config.getOrThrow<string>('REDIS_URL') },
       }),
     }),
-    BullModule.registerQueue({ name: 'practice-output' }, { name: 'learning-lab' }),
+    BullModule.registerQueue(
+      { name: 'practice-output' },
+      { name: 'learning-lab' },
+      { name: AUTOMATIC_STUDY_PLAN_QUEUE },
+    ),
   ],
   providers: [
     AiService,
@@ -45,6 +53,9 @@ import { appendSystemLogEvent } from './modules/admin/system-log-file';
     LabService,
     PracticeEvidenceService,
     MistakesService,
+    StudyService,
+    AutomaticStudyPlanSettingsService,
+    AutomaticStudyPlanWorkerService,
   ],
 })
 class DailySentenceWorkerModule {}
@@ -52,8 +63,10 @@ class DailySentenceWorkerModule {}
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(DailySentenceWorkerModule);
   const sentences = app.get(DailySentenceService);
+  const automaticPlans = app.get(AutomaticStudyPlanWorkerService);
   const connection = { url: app.get(ConfigService).getOrThrow<string>('REDIS_URL') };
   const queue = new Queue(DAILY_SENTENCE_QUEUE, { connection });
+  const automaticPlanQueue = new Queue(AUTOMATIC_STUDY_PLAN_QUEUE, { connection });
   const sweep = async () => {
     await sentences.expireExhausted();
     const { dateKey, due } = dailySentenceClock(new Date());
@@ -84,6 +97,40 @@ async function bootstrap() {
       throw new Error('Unknown daily sentence job');
     },
     { connection, concurrency: 3 },
+  );
+  const automaticPlanWorker = new Worker(
+    AUTOMATIC_STUDY_PLAN_QUEUE,
+    (job: Job) => {
+      if (job.name === 'sweep') return automaticPlans.sweep(automaticPlanQueue);
+      if (job.name === 'generate') {
+        return automaticPlans.process(job.data.userId, job.data.dateKey);
+      }
+      throw new Error('Unknown automatic study plan job');
+    },
+    { connection, concurrency: 2, limiter: { max: 4, duration: 60_000 } },
+  );
+  automaticPlanWorker.on(
+    'failed',
+    (job) =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_failed',
+        code: 'AUTOMATIC_STUDY_PLAN_FAILED',
+        reason: '自动学习计划后台任务失败；用户内容和任务标识未记录。',
+        phase: queueFailurePhase(job?.attemptsMade, job?.opts.attempts),
+        attemptsMade: job?.attemptsMade,
+        maxAttempts: job?.opts.attempts,
+      }),
+  );
+  automaticPlanWorker.on(
+    'error',
+    () =>
+      void appendSystemLogEvent({
+        source: 'worker',
+        kind: 'worker.queue_error',
+        code: 'AUTOMATIC_STUDY_PLAN_QUEUE_ERROR',
+        reason: '自动学习计划队列连接发生错误；原始错误详情已隐藏。',
+      }),
   );
   worker.on(
     'failed',
@@ -172,12 +219,23 @@ async function bootstrap() {
     { name: 'sweep', data: {}, opts: { removeOnComplete: true, removeOnFail: 100 } },
   );
   await queue.add('sweep', {}, { removeOnComplete: true, removeOnFail: 100 });
+  await automaticPlanQueue.upsertJobScheduler(
+    'automatic-study-plan-sweep',
+    { every: 60_000 },
+    { name: 'sweep', data: {}, opts: { removeOnComplete: true, removeOnFail: 100 } },
+  );
+  await automaticPlanQueue.add('sweep', {}, { removeOnComplete: true, removeOnFail: 100 });
   let closing = false;
   const close = async () => {
     if (closing) return;
     closing = true;
-    await Promise.all([worker.close(), outputWorker.close(), labWorker.close()]);
-    await queue.close();
+    await Promise.all([
+      worker.close(),
+      outputWorker.close(),
+      labWorker.close(),
+      automaticPlanWorker.close(),
+    ]);
+    await Promise.all([queue.close(), automaticPlanQueue.close()]);
     await app.close();
   };
   process.once('SIGTERM', () => {

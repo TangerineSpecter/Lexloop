@@ -13,6 +13,8 @@ import { SystemUpdateService } from './system-update.service';
 import { SystemLogController } from './system-log.controller';
 import { SystemLogExceptionFilter } from './system-log-exception.filter';
 import { SystemLogService } from './system-log.service';
+import { AutomaticStudyPlanSettingsController } from '../automatic-study-plan/automatic-study-plan-settings.controller';
+import { AutomaticStudyPlanSettingsService } from '../automatic-study-plan/automatic-study-plan-settings.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -33,12 +35,14 @@ class AdminController {
     AiModelConfigController,
     SystemUpdateController,
     SystemLogController,
+    AutomaticStudyPlanSettingsController,
   ],
   providers: [
     AiModelConfigService,
     SystemUpdateService,
     SystemLogService,
     SystemLogExceptionFilter,
+    AutomaticStudyPlanSettingsService,
   ],
   exports: [AiModelConfigService, SystemLogService, SystemLogExceptionFilter],
 })

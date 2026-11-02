@@ -22,6 +22,7 @@ import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
 import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 import { lexicalFields, presentLexicalWord, type MeaningLine } from '../vocabulary/lexical';
+import { chinaDateRange } from '../automatic-study-plan/automatic-study-plan.rules';
 
 const DAY = 86_400_000;
 const MAX_DAILY_REVIEW_WORDS = 40;
@@ -178,6 +179,7 @@ export class StudyService {
     requestedReviewWordCount?: number,
     selection?: IndividualWordSelection,
     skipReviewWordIds?: string[],
+    automaticDateKey?: string,
   ) {
     const mode = modeMap[requestedMode];
     if (!mode) throw new BadRequestException('不支持的学习模式');
@@ -204,6 +206,14 @@ export class StudyService {
       await tx.$queryRaw(Prisma.sql`
         SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL
       `);
+      if (automaticDateKey) {
+        const sameDay = await tx.studyPlan.findUnique({
+          where: { userId_autoDateKey: { userId, autoDateKey: automaticDateKey } },
+          select: { id: true },
+        });
+        if (sameDay) return sameDay.id;
+      }
+      const dayRange = automaticDateKey ? chinaDateRange(automaticDateKey) : null;
       const existing = await tx.studyPlan.findFirst({
         where: {
           userId,
@@ -211,7 +221,13 @@ export class StudyService {
           OR: [
             { status: StudyPlanStatus.GENERATING },
             { status: StudyPlanStatus.ACTIVE, generatedContent: { not: Prisma.DbNull } },
-            { status: StudyPlanStatus.FAILED, createdAt: { gte: startOfToday() } },
+            {
+              status: StudyPlanStatus.FAILED,
+              createdAt: {
+                gte: dayRange?.start ?? startOfToday(),
+                ...(dayRange ? { lt: dayRange.end } : {}),
+              },
+            },
           ],
         },
         include: { items: true },
@@ -247,6 +263,7 @@ export class StudyService {
           mode,
           purpose: StudyPlanPurpose.NORMAL,
           status: StudyPlanStatus.GENERATING,
+          ...(automaticDateKey ? { autoDateKey: automaticDateKey } : {}),
         },
       });
       let examIndex = 0;
@@ -524,7 +541,7 @@ export class StudyService {
           .filter((item) => item.source === StudyPlanItemSource.NEW)
           .map((item) => item.bookWordId)
           .sort();
-        if (newWordIds.length) {
+        if (newWordIds.length && !plan.autoDateKey) {
           await tx.userWordProgress.createMany({
             data: newWordIds.map((bookWordId) => ({
               userId,
@@ -609,7 +626,7 @@ export class StudyService {
         groupIndex,
         plan: { userId, status: { in: [StudyPlanStatus.ACTIVE, StudyPlanStatus.COMPLETED] } },
       },
-      include: { bookWord: true },
+      include: { bookWord: true, plan: { select: { autoDateKey: true } } },
     });
     if (!items.length) throw new NotFoundException('学习分组不存在或计划尚未生成完毕');
     if (items.some((item) => item.completedAt)) return this.serializePlan(planId, userId);
@@ -639,6 +656,20 @@ export class StudyService {
           where: { id: planId, startedAt: null },
           data: { startedAt: completedAt },
         });
+        const automaticNewWordIds = items
+          .filter((item) => item.plan.autoDateKey && item.source === StudyPlanItemSource.NEW)
+          .map((item) => item.bookWordId);
+        if (automaticNewWordIds.length) {
+          await tx.userWordProgress.createMany({
+            data: automaticNewWordIds.map((bookWordId) => ({
+              userId,
+              bookWordId,
+              state: WordProgressState.LEARNING,
+              firstLearnedAt: completedAt,
+            })),
+            skipDuplicates: true,
+          });
+        }
         await lockUserWordProgress(
           tx,
           userId,
@@ -1188,7 +1219,9 @@ function sanitizeSkipReviewIds(ids: string[] | undefined) {
 }
 
 function skippedReviewClause(ids: string[]) {
-  return ids.length ? Prisma.sql`AND progress."bookWordId" NOT IN (${Prisma.join(ids)})` : Prisma.empty;
+  return ids.length
+    ? Prisma.sql`AND progress."bookWordId" NOT IN (${Prisma.join(ids)})`
+    : Prisma.empty;
 }
 
 async function selectDailyWords(

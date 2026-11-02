@@ -146,6 +146,39 @@
   color: #082877b8;
   margin: 12px 0 0;
 }
+.automaticSettings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--border-color, #082877);
+  font-size: 14px;
+  font-weight: 700;
+}
+.automaticSettings input {
+  min-height: 40px;
+  padding: 7px 10px;
+  color: var(--border-color, #082877);
+  background: var(--soft, #fffefa);
+  border: 2px solid var(--border-color, #082877);
+  border-radius: 8px;
+  font: inherit;
+}
+.automaticSettings input:focus-visible {
+  outline: 3px solid #315eb6;
+  outline-offset: 3px;
+}
+.warning {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  color: #684600;
+  background: #fff5cf;
+  border: 1px solid #e6bd45;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
 .empty {
   padding: 18px 0;
   line-height: 1.8;
@@ -367,6 +400,19 @@
   }
   .chunk {
     flex-basis: 130px;
+  }
+  .automaticSettings {
+    align-items: stretch;
+  }
+  .automaticSettings label {
+    flex-basis: 100%;
+  }
+  .automaticSettings input {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .automaticSettings button {
+    flex: 1 1 120px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

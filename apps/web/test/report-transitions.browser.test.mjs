@@ -301,6 +301,14 @@ test(
             systemUpdateApplyRequests: [],
             systemAutoUpdateRequests: [],
             systemAutoUpdateSaves: [],
+            automaticStudyPlanSaves: [],
+            automaticStudyPlanSettings: {
+              enabled: false,
+              scheduleTime: '06:30',
+              timeZone: 'Asia/Shanghai',
+              today: { dateKey: '2026-11-02', QUEUED: 0, RUNNING: 0, GENERATED: 0, SKIPPED: 0, FAILED: 0 },
+              reasons: {},
+            },
             holdSystemUpdateCheck: false,
             systemAutoUpdateStatus: {
               available: true,
@@ -481,6 +489,14 @@ test(
               window.reportFixture.modelTestRequests.push({ method: options.method, authorization: new Headers(options.headers).get('Authorization'), body: options.body ?? null });
               if (window.reportFixture.holdModelTest) return new Promise(resolve => window.reportFixture.pendingModelTests.push(resolve));
               return Response.json(window.reportFixture.modelTestResponse);
+            }
+            if (path === '/api/v1/admin/automatic-study-plan/settings') {
+              if (options.method === 'PATCH') {
+                const body = JSON.parse(options.body ?? '{}');
+                window.reportFixture.automaticStudyPlanSaves.push(body);
+                window.reportFixture.automaticStudyPlanSettings = { ...window.reportFixture.automaticStudyPlanSettings, ...body };
+              }
+              return Response.json(window.reportFixture.automaticStudyPlanSettings);
             }
             if (path === '/api/v1/admin/system-logs' && options.method !== 'DELETE') {
               const query = { from: parsed.searchParams.get('from'), to: parsed.searchParams.get('to'), source: parsed.searchParams.get('source'), search: parsed.searchParams.get('search') };
@@ -1133,6 +1149,98 @@ test(
       );
       await until('document.querySelector(".model-dialog") === null');
       await evaluate(
+        `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('功能开关')).click()`,
+      );
+      await until('document.querySelector("#automatic-study-plan-settings-title")');
+      const automaticPlanDefaults = await evaluate(`(() => ({
+        enabled: document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelector('[role=switch]')?.getAttribute('aria-checked'),
+        time: document.querySelector('#automatic-study-plan-time')?.value,
+        globalWarning: document.querySelector('#automatic-study-plan-settings-title').closest('section').innerText,
+        bounds: (() => { const rect = document.querySelector('#automatic-study-plan-settings-title').closest('section').getBoundingClientRect(); return { left: rect.left, right: rect.right, scrollWidth: document.documentElement.scrollWidth }; })(),
+      }))()`);
+      assert.equal(automaticPlanDefaults.enabled, 'false');
+      assert.equal(automaticPlanDefaults.time, '06:30');
+      assert.match(automaticPlanDefaults.globalWarning, /可能产生模型费用/);
+      assert.ok(
+        automaticPlanDefaults.bounds.left >= 0 &&
+          automaticPlanDefaults.bounds.right <= 1440 &&
+          automaticPlanDefaults.bounds.scrollWidth <= 1440,
+        JSON.stringify(automaticPlanDefaults.bounds),
+      );
+      await capture('automatic-study-plan-settings-1440.png');
+      await evaluate(
+        `document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelector('[role=switch]').focus()`,
+      );
+      assert.equal(
+        await evaluate(
+          `document.activeElement === document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelector('[role=switch]')`,
+        ),
+        true,
+        'the global switch should be reachable by keyboard focus',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+      });
+      await until(
+        `document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelector('[role=switch]').getAttribute('aria-checked') === 'true'`,
+      );
+      await evaluate(`(() => {
+        const input = document.querySelector('#automatic-study-plan-time');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '07:20');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(
+        `(() => { const section = document.querySelector('#automatic-study-plan-settings-title').closest('section'); [...section.querySelectorAll('button')].find(button => button.textContent.includes('保存设置')).click(); })()`,
+      );
+      await until('window.reportFixture.automaticStudyPlanSaves.length === 1');
+      assert.deepEqual(await evaluate('window.reportFixture.automaticStudyPlanSaves[0]'), {
+        enabled: true,
+        scheduleTime: '07:20',
+      });
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const automaticPlanMobile = await evaluate(`(() => {
+        const section = document.querySelector('#automatic-study-plan-settings-title').closest('section');
+        const input = document.querySelector('#automatic-study-plan-time').getBoundingClientRect();
+        const save = [...section.querySelectorAll('button')].find(button => button.textContent.includes('保存设置')).getBoundingClientRect();
+        const warning = [...section.querySelectorAll('p')].find(item => item.textContent.includes('可能产生模型费用'));
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, left: section.getBoundingClientRect().left, right: section.getBoundingClientRect().right, inputRight: input.right, saveRight: save.right, warning: warning?.textContent, warningRight: warning?.getBoundingClientRect().right };
+      })()`);
+      assert.ok(
+        automaticPlanMobile.document <= 390 &&
+          automaticPlanMobile.left >= 0 &&
+          automaticPlanMobile.right <= 390,
+        JSON.stringify(automaticPlanMobile),
+      );
+      assert.ok(
+        automaticPlanMobile.inputRight <= 390 &&
+          automaticPlanMobile.saveRight <= 390 &&
+          automaticPlanMobile.warningRight <= 390,
+        JSON.stringify(automaticPlanMobile),
+      );
+      assert.match(automaticPlanMobile.warning, /可能产生模型费用/);
+      await capture('automatic-study-plan-settings-390.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
         `[...document.querySelectorAll('.system-tabs button[role="tab"]')].find(button => button.textContent.includes('系统日志')).click()`,
       );
       await until('document.querySelector(".system-log-card")');
@@ -1448,7 +1556,25 @@ test(
         mobile: false,
       });
 
-      await evaluate('window.navigationAuditFrames = []');
+      await evaluate(`window.navigationAuditFrames = []; (() => {
+        let frame = 0;
+        const sample = () => {
+          const pages = ['.study-content', '.travel-page', '.assessment-page', '.learning-words-page', '.mistakes-page', '.mastered-page', '.learning-history-page', '.statistics-page', '.settings-page'];
+          const page = pages.map(selector => document.querySelector(selector)).find(Boolean);
+          const heading = page?.querySelector('h1');
+          window.navigationAuditFrames.push({
+            at: performance.now(),
+            page: page?.className.split(/\\s+/)[0] ?? null,
+            title: heading?.textContent?.trim() ?? null,
+            activeNav: document.querySelector('.sidebar-nav .nav-item.nav-button.active span, .nav-children button.active')?.textContent?.trim() ?? null,
+            viewport: innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            headingTop: heading?.getBoundingClientRect().top ?? null
+          });
+          if (frame++ < 180) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      })()`);
       await delay(180);
       const delayedStatisticsFrames = await evaluate('window.navigationAuditFrames');
       assert.ok(
