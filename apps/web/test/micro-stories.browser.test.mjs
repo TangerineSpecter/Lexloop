@@ -13,7 +13,7 @@ test(
   'micro-stories support listening before revealing the text and refresh the notebook after a new error',
   {
     skip: !baseUrl,
-    timeout: 30_000,
+    timeout: 45_000,
   },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-micro-test-'));
@@ -184,7 +184,7 @@ test(
           return nativeSetItem.call(this, key, value);
         };
       }
-      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : params.has('due-review') ? 1 : 0), selectedStory: savedFixture.selectedStory || null, revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || (params.has('due-review') ? '之前的理解' : ''), errors: savedFixture.errors || (params.has('due-review') ? [{ id: 'card1', english: 'Tom misses the bus.', interpretation: '之前的理解', reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: 'I missed the train.', dueAt: new Date().toISOString() }] : []), reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0 };
+      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : params.has('due-review') ? 1 : 0), selectedStory: savedFixture.selectedStory || null, revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || (params.has('due-review') ? '之前的理解' : ''), errors: savedFixture.errors || (params.has('due-review') ? [{ id: 'card1', english: 'Tom misses the bus.', interpretation: '之前的理解', reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: 'I missed the train.', dueAt: new Date().toISOString() }] : []), reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0, selectionPending: false, releaseSelection: null };
       document.addEventListener('click', event => { if (event.target instanceof Element && event.target.closest('details form button')) window.microFixture.notebookButtonClicks += 1; });
       document.addEventListener('submit', event => { if (event.target instanceof HTMLFormElement && event.target.closest('details')) window.microFixture.notebookSubmits += 1; });
       const audioAuditKey = 'lexloop.test.local-audio-audit';
@@ -267,8 +267,16 @@ test(
         }
         if (path.endsWith('/api/v1/micro-stories/selection') && options.method === 'POST') {
           const { key, expectedKey } = JSON.parse(options.body);
-          if (expectedKey !== activeKey || !storyCatalog.some(story => story.key === key && !story.completed)) return Response.json({ message: '故事选择已更新，请刷新后再选择。' }, { status: 409 });
+          if (
+            expectedKey !== activeKey ||
+            !storyCatalog.some(story => story.key === key && !story.completed)
+          ) return Response.json({ message: '故事选择已更新，请刷新后再选择。' }, { status: 409 });
           f.selectedStory = key; persistFixture();
+          if (params.has('slow-selection')) {
+            f.selectionPending = true;
+            await new Promise(resolve => { f.releaseSelection = resolve; });
+            f.selectionPending = false;
+          }
           return Response.json({ ...currentPayload(), lesson: lessonForKey(key) });
         }
         if (path.includes('/api/v1/micro-stories/current')) return Response.json(currentPayload());
@@ -707,6 +715,76 @@ test(
         await evaluate('localStorage.getItem("lexloop.micro-story.story.storage.bus-01")'),
         null,
       );
+      await send('Page.navigate', {
+        url: new URL(
+          '/dashboard/micro-stories?user=storage&storage-fail=1&slow-selection=1',
+          baseUrl,
+        ).href,
+      });
+      await until('document.querySelector("#story-meaning")');
+      await clickVisible('button[aria-haspopup="dialog"]');
+      await until('document.querySelector("dialog")?.open');
+      await clickVisible('dialog [data-story-key="bus-02"]');
+      await until('window.microFixture.selectionPending');
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+        nativeVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+        nativeVirtualKeyCode: 27,
+      });
+      assert.equal(await evaluate('document.querySelector("dialog").open'), true);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: 5,
+        y: 5,
+        button: 'left',
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: 5,
+        y: 5,
+        button: 'left',
+        clickCount: 1,
+      });
+      assert.equal(await evaluate('document.querySelector("dialog").open'), true);
+      await send('Input.insertText', { text: '尝试在请求期间编辑背景输入' });
+      assert.equal(await evaluate('document.querySelector("#story-meaning").value'), '');
+      assert.equal(
+        await evaluate('localStorage.getItem("lexloop.micro-story.story.storage.bus-01")'),
+        null,
+      );
+      await evaluate('window.microFixture.releaseSelection()');
+      await until('document.querySelector("#story-heading")?.textContent.includes("第 2 小段")');
+      assert.equal(await evaluate('document.querySelector("#story-meaning").value'), '');
+      assert.equal(
+        await evaluate('localStorage.getItem("lexloop.micro-story.story.storage.bus-02")'),
+        null,
+      );
+      await clickVisible('button[aria-haspopup="dialog"]');
+      await until('document.querySelector("dialog")?.open');
+      await clickVisible('dialog [data-story-key="library-return-02"]');
+      await until('window.microFixture.selectionPending');
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=other', baseUrl).href,
+      });
+      await until('document.querySelector("#story-heading")?.textContent.includes("第 1 小段")');
+      assert.equal(
+        await evaluate('document.querySelector("#story-heading").textContent.includes("上班路上")'),
+        true,
+      );
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=storage', baseUrl).href,
+      });
+      await until('document.querySelector("#story-heading")?.textContent.includes("归还图书")');
       await send('Page.navigate', {
         url: new URL('/dashboard/micro-stories?user=corrupt&corrupt-story=1', baseUrl).href,
       });

@@ -57,7 +57,7 @@ export function MicroStorySelectionDialog({
       aria-busy={busy}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (!busy) onClose();
       }}
       onClose={onClose}
     >

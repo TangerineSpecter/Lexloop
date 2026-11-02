@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.139',
+    date: '2026-11-02',
+    items: [
+      {
+        title: '修复微故事切换等待时的输入保护',
+        entry: '一分钟微故事 → 浏览未完成故事',
+        usage:
+          '故事切换请求处理期间，选择窗口不会被 Escape 关闭；请求完成前页面保持模态，避免迟到响应覆盖新输入。',
+      },
+    ],
+  },
+  {
     version: '1.27.138',
     date: '2026-11-02',
     items: [
