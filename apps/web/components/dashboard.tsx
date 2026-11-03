@@ -39,6 +39,7 @@ import {
   PenLine,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Settings2,
@@ -636,6 +637,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const [plansLoadAttempt, setPlansLoadAttempt] = useState(0);
   const [previewPlan, setPreviewPlan] = useState<LearningPlan | null>(null);
   const [previewOwnerId, setPreviewOwnerId] = useState(session.user.id);
+  const [previewAutoStartsGeneration, setPreviewAutoStartsGeneration] = useState(false);
   const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
   const [lessonPlanId, setLessonPlanIdState] = useState<string | null>(null);
   const lessonPlanIdRef = useRef(lessonPlanId);
@@ -806,8 +808,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   planCreateContextRef.current = planCreateContext;
   const name = session.user.displayName || session.user.email.split('@')[0];
   const closeBookPicker = useCallback(() => setBookPickerOpen(false), []);
-  const openPlanPreview = (plan: LearningPlan) => {
+  const openPlanPreview = (plan: LearningPlan, autoStartGeneration = false) => {
     setPreviewOwnerId(session.user.id);
+    setPreviewAutoStartsGeneration(autoStartGeneration);
     setPreviewPlan(plan);
   };
   const openRecoverablePlan = useCallback(
@@ -828,7 +831,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         setLessonPlanId(plan.id);
         return 'opened';
       }
-      openPlanPreview(plan);
+      openPlanPreview(plan, false);
       return 'opened';
     },
     [session.accessToken, session.user.id],
@@ -840,7 +843,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
       planCreateIntentRef.current === planCreateIntent &&
       planCreateContextRef.current === planCreateContext
     ) {
-      openPlanPreview(plan);
+      openPlanPreview(plan, true);
     } else {
       setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
     }
@@ -1541,7 +1544,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 }
                 onContinue={(id) => {
                   const plan = visiblePlans.find((item) => item.id === id);
-                  if (plan?.status === 'GENERATING') openPlanPreview(plan);
+                  if (plan?.status === 'GENERATING') openPlanPreview(plan, true);
                   else setLessonPlanId(id);
                 }}
               />
@@ -1600,7 +1603,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               }
               onPlanCreated={(plan) => {
                 setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
-                openPlanPreview(plan);
+                openPlanPreview(plan, true);
               }}
             />
           </DashboardChunkErrorBoundary>
@@ -1730,6 +1733,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           key={`${previewOwnerId}:${visiblePreviewPlan.id}`}
           plan={visiblePreviewPlan}
           session={session}
+          autoStartGenerationOnOpen={previewAutoStartsGeneration}
           onPlanUpdated={(updated) => {
             if (currentUserIdRef.current !== previewOwnerId) return;
             setPlans((current) => {
@@ -1743,8 +1747,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               return updated;
             });
           }}
-          onClose={() => setPreviewPlan(null)}
+          onClose={() => {
+            setPreviewAutoStartsGeneration(false);
+            setPreviewPlan(null);
+          }}
           onOpenModelSettings={() => {
+            setPreviewAutoStartsGeneration(false);
             setPreviewPlan(null);
             setReadingSettingsOpen(true);
           }}
@@ -4514,6 +4522,7 @@ function safeGenerationPreviewMessage(value: unknown) {
 function PlanPreview({
   plan,
   session,
+  autoStartGenerationOnOpen,
   onClose,
   onOpenModelSettings,
   onStart,
@@ -4521,13 +4530,14 @@ function PlanPreview({
 }: {
   plan: LearningPlan;
   session: Session;
+  autoStartGenerationOnOpen: boolean;
   onClose: () => void;
   onOpenModelSettings: () => void;
   onStart: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
   const [index, setIndex] = useState(0);
-  const [generating, setGenerating] = useState(plan.status === 'GENERATING');
+  const [generating, setGenerating] = useState(false);
   const [generationMessage, setGenerationMessage] = useState('');
   const [generationStatusMessage, setGenerationStatusMessage] = useState('');
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
@@ -4550,7 +4560,7 @@ function PlanPreview({
     plan.status === 'GENERATING' &&
     Number.isFinite(generationStartedAt) &&
     Date.now() - generationStartedAt < 10 * 60 * 1000;
-  const generationStartedRef = useRef(hasRecentServerGeneration);
+  const generationStartedRef = useRef(hasRecentServerGeneration || !autoStartGenerationOnOpen);
   const generationRequestInFlightRef = useRef(false);
   const word = plan.words[index] ?? newWords[index % newWords.length];
   const previous = () => setIndex((current) => Math.max(0, current - 1));
@@ -4649,14 +4659,18 @@ function PlanPreview({
   }, [plan.id, refreshPlan, session.accessToken]);
 
   useEffect(() => {
-    if (plan.status === 'GENERATING' && !generationStartedRef.current) {
-      generationStartedRef.current = true;
-      void generate();
-    }
-  }, [generate, plan.status]);
+    if (plan.status !== 'GENERATING' || generationStartedRef.current) return;
+    generationStartedRef.current = true;
+    if (hasRecentServerGeneration || !autoStartGenerationOnOpen) return;
+    void generate();
+  }, [autoStartGenerationOnOpen, generate, hasRecentServerGeneration, plan.status]);
 
   useEffect(() => {
-    if (plan.status !== 'GENERATING' && !(generating && plan.status === 'FAILED')) return;
+    if (
+      (plan.status !== 'GENERATING' || (!hasRecentServerGeneration && !generating)) &&
+      !(generating && plan.status === 'FAILED')
+    )
+      return;
     let cancelled = false;
     let timer: number | undefined;
     let nextDelay = 1800;
@@ -4680,7 +4694,15 @@ function PlanPreview({
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [generating, plan.id, plan.status, publishPlanUpdate, refreshPlan, session.accessToken]);
+  }, [
+    generating,
+    hasRecentServerGeneration,
+    plan.id,
+    plan.status,
+    publishPlanUpdate,
+    refreshPlan,
+    session.accessToken,
+  ]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -4691,7 +4713,7 @@ function PlanPreview({
   }, []);
 
   useEffect(() => {
-    if (plan.status !== 'GENERATING' || !plan.generationStartedAt) {
+    if (plan.status !== 'GENERATING' || !plan.generationStartedAt || !hasRecentServerGeneration) {
       setGenerationElapsedSeconds(0);
       return;
     }
@@ -4702,10 +4724,14 @@ function PlanPreview({
     updateElapsed();
     const timer = window.setInterval(updateElapsed, 1000);
     return () => window.clearInterval(timer);
-  }, [plan.generationStartedAt, plan.status]);
+  }, [hasRecentServerGeneration, plan.generationStartedAt, plan.status]);
 
   useEffect(() => {
-    if (plan.generationPhase !== 'WAITING_MODEL' || prefersReducedMotion) {
+    if (
+      plan.generationPhase !== 'WAITING_MODEL' ||
+      !hasRecentServerGeneration ||
+      prefersReducedMotion
+    ) {
       setWaitingNoteIndex(0);
       return;
     }
@@ -4714,11 +4740,16 @@ function PlanPreview({
       9000,
     );
     return () => window.clearInterval(timer);
-  }, [plan.generationPhase, prefersReducedMotion]);
+  }, [hasRecentServerGeneration, plan.generationPhase, prefersReducedMotion]);
 
   const generationIsVisible = generating || plan.status === 'GENERATING';
-  const phaseLabel =
-    plan.status === 'GENERATING'
+  const needsExplicitGenerationRequest =
+    plan.status === 'GENERATING' &&
+    !hasRecentServerGeneration &&
+    (!autoStartGenerationOnOpen || (generationStartedRef.current && !generating));
+  const phaseLabel = needsExplicitGenerationRequest
+    ? '没有近期生成领取记录'
+    : plan.status === 'GENERATING'
       ? plan.generationPhase
         ? generationPhaseLabels[plan.generationPhase]
         : plan.generationStartedAt
@@ -4743,13 +4774,15 @@ function PlanPreview({
         <header>
           <div>
             <p>
-              {generationIsVisible
-                ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…`
-                : plan.status === 'FAILED'
-                  ? '学习计划生成失败'
-                  : plan.purpose === 'weakness'
-                    ? '薄弱词专项生成完毕'
-                    : '学习计划生成完毕'}
+              {needsExplicitGenerationRequest
+                ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}等待接续`
+                : generationIsVisible
+                  ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…`
+                  : plan.status === 'FAILED'
+                    ? '学习计划生成失败'
+                    : plan.purpose === 'weakness'
+                      ? '薄弱词专项生成完毕'
+                      : '学习计划生成完毕'}
             </p>
             <span>
               预习第 {index + 1} / {plan.wordCount} 个单词
@@ -4833,17 +4866,19 @@ function PlanPreview({
                 <Sparkles size={18} aria-hidden="true" />
                 <strong>{phaseLabel}</strong>
               </div>
-              {generationElapsedSeconds > 0 && (
+              {!needsExplicitGenerationRequest && generationElapsedSeconds > 0 && (
                 <span aria-live="off" className="plan-generation-elapsed">
                   {elapsedLabel}
                 </span>
               )}
             </div>
-            {plan.generationPhase === 'WAITING_MODEL' && (
+            {!needsExplicitGenerationRequest && plan.generationPhase === 'WAITING_MODEL' && (
               <p aria-live="off">{generationWaitNotes[waitingNoteIndex]}</p>
             )}
             <p className="plan-generation-reassurance">
-              关闭预习窗口不会取消已提交的生成；可从当前学习序列重新打开查看。
+              {needsExplicitGenerationRequest
+                ? '打开预习只读取状态，不会自动发起模型请求。'
+                : '关闭预习窗口不会取消已提交的生成；可从当前学习序列重新打开查看。'}
             </p>
             {generationStatusMessage && <p role="status">{generationStatusMessage}</p>}
           </div>
@@ -4853,7 +4888,21 @@ function PlanPreview({
             {visibleGenerationMessage}
           </p>
         )}
-        {plan.status === 'FAILED' || visibleGenerationMessage ? (
+        {needsExplicitGenerationRequest ? (
+          <div className="plan-retry-actions">
+            <p role="status">
+              计划没有近期生成领取记录。这里只查询状态；点击后才会请求服务端检查并接续生成。
+            </p>
+            <button
+              className="start-challenge"
+              onClick={() => void generate()}
+              disabled={generating}
+            >
+              <RotateCcw size={19} />
+              {generating ? '正在请求服务端接续…' : '请求服务端接续生成'}
+            </button>
+          </div>
+        ) : plan.status === 'FAILED' || visibleGenerationMessage ? (
           <div className="plan-retry-actions">
             <button
               className="start-challenge"

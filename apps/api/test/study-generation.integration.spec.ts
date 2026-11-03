@@ -160,6 +160,132 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       }
     }, 60_000);
 
+    it('keeps recovery reads passive and only reclaims unclaimed or expired generation on explicit request', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureId = randomUUID();
+      const user = await prisma.user.create({
+        data: {
+          email: `study-generation-recovery-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      const book = await prisma.vocabularyBook.create({
+        data: {
+          ownerId: user.id,
+          kind: 'PERSONAL',
+          sourceKey: fixtureId,
+          title: 'Study generation recovery test',
+          sourcePath: 'test',
+          category: 'GENERAL',
+        },
+        select: { id: true },
+      });
+      const words = await Promise.all(
+        [
+          { text: 'steady', meaning: '平稳的' },
+          { text: 'bright', meaning: '明亮的' },
+          { text: 'patient', meaning: '耐心的' },
+        ].map((entry, index) =>
+          prisma.vocabularyWord.create({
+            data: {
+              normalized: `study-generation-recovery-${fixtureId}-${index}`,
+              ...entry,
+              bookWords: { create: { bookId: book.id, position: index } },
+            },
+            select: { id: true, text: true, bookWords: { select: { id: true } } },
+          }),
+        ),
+      );
+      const now = new Date();
+      const plans = await Promise.all(
+        [
+          { generationStartedAt: null },
+          { generationStartedAt: new Date(now.getTime() - 11 * 60_000) },
+          { generationStartedAt: new Date(now.getTime() - 45_000) },
+        ].map(({ generationStartedAt }, index) =>
+          prisma.studyPlan.create({
+            data: {
+              userId: user.id,
+              mode: StudyPlanMode.GROUP,
+              purpose: StudyPlanPurpose.NORMAL,
+              status: 'GENERATING',
+              generationPhase: 'PREPARING',
+              generationStartedAt,
+              items: {
+                create: {
+                  bookWordId: words[index].bookWords[0].id,
+                  source: 'NEW',
+                  groupIndex: 0,
+                },
+              },
+            },
+            select: { id: true, generationStartedAt: true },
+          }),
+        ),
+      );
+      const ai = {
+        generateForUser: vi
+          .fn()
+          .mockResolvedValueOnce(
+            generatedResponse(
+              words[0].bookWords[0].id,
+              words[0].text,
+              'An explicit recovery lesson',
+            ),
+          )
+          .mockResolvedValueOnce(
+            generatedResponse(words[1].bookWords[0].id, words[1].text, 'A reclaimed lesson'),
+          ),
+      };
+      const selectedProvider = vi.fn(async () => ({ model: 'isolated-fixture' }));
+      const service = new StudyService(
+        prisma as never,
+        ai as never,
+        { selectedProvider } as never,
+        {} as MistakesService,
+      );
+
+      try {
+        const beforeReads = await Promise.all(
+          plans.map(async (plan) => ({
+            plan: await service.getPlan(user.id, plan.id),
+            status: await service.getGenerationStatus(user.id, plan.id),
+          })),
+        );
+        expect(
+          beforeReads.every(
+            ({ plan, status }) => plan.status === 'GENERATING' && status.status === 'GENERATING',
+          ),
+        ).toBe(true);
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+        expect(selectedProvider).not.toHaveBeenCalled();
+
+        const recentResult = await service.generatePlan(user.id, plans[2].id);
+        expect(recentResult.status).toBe('GENERATING');
+        expect(recentResult.generationStartedAt?.toISOString()).toBe(
+          plans[2].generationStartedAt?.toISOString(),
+        );
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+        expect(selectedProvider).not.toHaveBeenCalled();
+
+        const recoveredUnclaimed = await service.generatePlan(user.id, plans[0].id);
+        const recoveredExpired = await service.generatePlan(user.id, plans[1].id);
+        expect(recoveredUnclaimed.status).toBe('ACTIVE');
+        expect(recoveredExpired.status).toBe('ACTIVE');
+        expect(ai.generateForUser).toHaveBeenCalledTimes(2);
+        expect(selectedProvider).toHaveBeenCalledTimes(2);
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        await prisma.vocabularyWord.deleteMany({
+          where: { id: { in: words.map((word) => word.id) }, bookWords: { none: {} } },
+        });
+        await prisma.$disconnect();
+      }
+    }, 60_000);
+
     it('keeps a newer generation when an expired request later fails or succeeds', async () => {
       const prisma = new PrismaClient({
         datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },

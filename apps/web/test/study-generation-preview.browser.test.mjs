@@ -251,9 +251,23 @@ test(
           archivedActivePlan.words[0].completed = false;
           archivedActivePlan.words[0].groupIndex = 0;
           archivedActivePlan.groupCount = 1;
-          const recoveryDetails = [...archivedFailures, archivedActivePlan];
+          const unclaimedGenerationPlan = makePlan('recovery-unclaimed', 'unclaimed', 'GENERATING');
+          unclaimedGenerationPlan.generationStartedAt = null;
+          const expiredGenerationPlan = makePlan('recovery-expired', 'expired', 'GENERATING');
+          expiredGenerationPlan.generationStartedAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+          const recentGenerationPlan = makePlan('recovery-recent', 'recent', 'GENERATING');
+          recentGenerationPlan.generationStartedAt = new Date(Date.now() - 45000).toISOString();
+          const recoveryDetails = [
+            ...archivedFailures,
+            archivedActivePlan,
+            unclaimedGenerationPlan,
+            expiredGenerationPlan,
+            recentGenerationPlan,
+          ];
           window.recoveryDetails = { 'study-user': recoveryDetails, 'second-study-user': [] };
           window.recoveryDetailRequests = [];
+          window.recoveryStatusRequests = [];
+          window.recoveryGenerationRequests = [];
           window.recoveryPageCalls = [];
           window.recoveryFailNext = true;
           const safeRecoveryPlan = (plan) => ({
@@ -309,13 +323,16 @@ test(
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
             if (path.endsWith('/api/v1/ai/models')) return Response.json([]);
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], remaining: 30, limit: 30, hasMore: false });
-            if (path.includes('/api/v1/study/plans/recovery') && method === 'GET') {
+            const requestUrl = new URL(path, location.origin);
+            if (
+              requestUrl.pathname.endsWith('/api/v1/study/plans/recovery') &&
+              method === 'GET'
+            ) {
               if (window.recoveryFailNext) {
                 window.recoveryFailNext = false;
                 return Response.json({ message: 'Recovery fixture unavailable' }, { status: 503 });
               }
-              const url = new URL(path, location.origin);
-              const cursor = url.searchParams.get('cursor');
+              const cursor = requestUrl.searchParams.get('cursor');
               const start = cursor ? 20 : 0;
               const list = [...(window.recoveryPlanLists[session?.user.id] ?? [])]
                 .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
@@ -336,6 +353,13 @@ test(
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
             if (generation && method === 'POST') {
               const id = generation[1];
+              const recoveryPlan = Object.values(window.recoveryDetails).flat().find((item) => item.id === id);
+              if (recoveryPlan) {
+                window.recoveryGenerationRequests.push(id);
+                recoveryPlan.generationStartedAt = new Date().toISOString();
+                recoveryPlan.generationPhase = 'PREPARING';
+                return Response.json(recoveryPlan);
+              }
               const plan = Object.values(window.planLists).flat().find((item) => item.id === id);
               if (plan && plan.status !== 'GENERATING') {
                 plan.status = 'GENERATING';
@@ -349,7 +373,11 @@ test(
             }
             const generationStatus = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generation-status$'));
             if (generationStatus && method === 'GET') {
-              const plan = (window.planLists[session?.user.id] ?? []).find((item) => item.id === generationStatus[1]);
+              window.recoveryStatusRequests.push(generationStatus[1]);
+              const plan = [
+                ...(window.planLists[session?.user.id] ?? []),
+                ...(window.recoveryDetails[session?.user.id] ?? []),
+              ].find((item) => item.id === generationStatus[1]);
               if (!plan) return Response.json({ message: '学习计划不存在' }, { status: 404 });
               if (plan.status === 'GENERATING') {
                 const polls = (window.generationStatusPolls[plan.id] ?? 0) + 1;
@@ -401,12 +429,66 @@ test(
       await until(
         'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 20',
       );
+      assert.deepEqual(
+        await evaluate('window.recoveryGenerationRequests'),
+        [],
+        'loading the recovery list never starts generation',
+      );
       const safeRecoveryText = await evaluate(
         'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"]").innerText',
       );
       assert.doesNotMatch(safeRecoveryText, /secret-token|private\.invalid/);
       assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 1);
       await captureScreenshot('study-plan-recovery-desktop.png');
+
+      for (const planId of ['recovery-unclaimed', 'recovery-expired']) {
+        await openRecoveryPlan(planId);
+        assert.equal(
+          await evaluate(`window.recoveryGenerationRequests.includes(${JSON.stringify(planId)})`),
+          false,
+          `${planId} is read without an automatic generation request`,
+        );
+        if (planId === 'recovery-unclaimed') {
+          await delay(1100);
+          assert.equal(
+            await evaluate(`window.recoveryStatusRequests.includes(${JSON.stringify(planId)})`),
+            false,
+            'an unclaimed plan is not polled as if a generation were active',
+          );
+        }
+        assert.equal(
+          await evaluate(
+            'document.querySelector(".plan-preview").innerText.includes("没有近期生成领取记录")',
+          ),
+          true,
+        );
+        await evaluate(`(() => {
+          const button = [...document.querySelectorAll('.plan-preview .start-challenge')]
+            .find((candidate) => candidate.textContent.includes('请求服务端接续生成'));
+          if (!button) throw new Error('Explicit generation continuation action is missing');
+          button.click();
+        })()`);
+        await until(`window.recoveryGenerationRequests.includes(${JSON.stringify(planId)})`);
+        await evaluate('document.querySelector(".plan-preview header button").click()');
+        await until('document.querySelector(".plan-preview-layer") === null');
+      }
+      await openRecoveryPlan('recovery-recent');
+      assert.equal(
+        await evaluate('window.recoveryGenerationRequests.length'),
+        2,
+        'a recently claimed generation is viewed without a duplicate generation request',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview").innerText.includes("请求服务端接续生成")',
+        ),
+        false,
+      );
+      await until('window.generationStatusPolls["recovery-recent"] >= 1');
+      assert.equal(await evaluate('window.recoveryGenerationRequests.length'), 2);
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
         height: 844,
@@ -451,7 +533,7 @@ test(
         [...section.querySelectorAll('button')].find((button) => button.textContent.includes('加载更多计划')).click();
       })()`);
       await until(
-        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 28',
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 31',
       );
       assert.equal(
         await evaluate(
@@ -531,7 +613,7 @@ test(
         [...section.querySelectorAll('button')].find((button) => button.textContent.includes('加载更多计划')).click();
       })()`);
       await until(
-        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 28',
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 31',
       );
       await send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
