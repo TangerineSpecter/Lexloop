@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { auditDailyBoundaries } from './audit-daily-vocabulary-boundaries.mjs';
+
+test('coverage inventory distinguishes retained reviewed rows from rows not yet reviewed', () => {
+  const report = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [fileURLToPath(new URL('./vocabulary-coverage-inventory.mjs', import.meta.url))],
+      { encoding: 'utf8' },
+    ),
+  );
+  assert.equal(report.remainingUnclassifiedMultiTokenRows, 1019);
+  assert.equal(report.reviewedPhraseRows, 7);
+  assert.equal(report.reviewedAmbiguousRows, 29);
+});
 
 test('audits every source row with explicit classifications and distinct upgrade mappings', () => {
   const report = auditDailyBoundaries();
