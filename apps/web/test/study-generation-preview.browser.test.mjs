@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { closeChromium, spawnChromium } from './browser-process.mjs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 
 const baseUrl = process.env.LAB_BROWSER_TEST_URL;
+const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
   'study mode choices and late generation responses preserve the selected plan',
@@ -79,6 +80,15 @@ test(
           waiting.set(id, { resolve, reject });
           socket.send(JSON.stringify({ id, method, params }));
         });
+      const captureScreenshot = async (name) => {
+        if (!screenshotDir) return;
+        const { data } = await send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: false,
+        });
+        await mkdir(screenshotDir, { recursive: true });
+        await writeFile(join(screenshotDir, name), Buffer.from(data, 'base64'));
+      };
       const evaluate = async (expression) => {
         const result = await send('Runtime.evaluate', {
           expression,
@@ -113,24 +123,25 @@ test(
           '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("今日学习历史")).click()',
         );
       };
-      const openRetry = async (cardLabel) => {
-        await evaluate(`(() => {
-          const card = [...document.querySelectorAll('.history-grid article')]
-            .find((article) => article.innerText.includes(${JSON.stringify(cardLabel)}));
-          const button = card?.querySelector('footer button');
-          if (!button) throw new Error('No retry action found for history card: ' + ${JSON.stringify(cardLabel)});
-          button.click();
-        })()`);
-        await until('document.querySelector(".plan-preview-layer")');
-      };
       const openFailedPlan = async (planId) => {
         await evaluate(`(() => {
-          const card = document.querySelector('.history-grid article[data-plan-id="' + ${JSON.stringify(planId)} + '"]');
-          const button = card?.innerText.includes('生成失败') ? card.querySelector('footer button') : null;
+          const card = document.querySelector('[aria-labelledby="recoverable-study-plans-title"] article[data-plan-id="' + ${JSON.stringify(planId)} + '"]');
+          const button = card?.innerText.includes('生成失败') ? card.querySelector('button') : null;
           if (!button) throw new Error('No failed retry action found for plan: ' + ${JSON.stringify(planId)});
           button.click();
         })()`);
         await until('document.querySelector(".plan-preview-layer")');
+      };
+      const openRecoveryPlan = async (planId) => {
+        await evaluate(`(() => {
+          const card = document.querySelector('[aria-labelledby="recoverable-study-plans-title"] article[data-plan-id="' + ${JSON.stringify(planId)} + '"]');
+          const button = card?.querySelector('button');
+          if (!button) throw new Error('No recovery action found for plan: ' + ${JSON.stringify(planId)});
+          button.click();
+        })()`);
+        await until(
+          'document.querySelector(".plan-preview-layer") || document.querySelector(".lesson-page")',
+        );
       };
       const startGeneration = async (expectedCount) => {
         await evaluate('document.querySelector(".plan-preview .start-challenge").click()');
@@ -221,6 +232,45 @@ test(
             ],
             'second-study-user': [secondActivePlan],
           };
+          const archivedFailures = Array.from({ length: 22 }, (_, index) => {
+            const plan = makePlan('archived-failed-' + String(index).padStart(2, '0'), 'archived' + index, 'FAILED', 'individual');
+            plan.createdAt = new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString();
+            plan.generationError = '保存的失败原因 fixture ' + index;
+            return plan;
+          });
+          const archivedActivePlan = makePlan('archived-active', 'resumable', 'ACTIVE', 'group');
+          archivedActivePlan.createdAt = '2026-08-31T23:59:00.000Z';
+          archivedActivePlan.words[0].question = {
+            type: 'MEANING_RECOGNITION', prompt: 'Choose the meaning of resumable.',
+            options: ['可继续的', '遥远的', '昂贵的', '安静的'], correctAnswers: ['可继续的'],
+            explanation: 'fixture explanation',
+          };
+          archivedActivePlan.content = { groups: [{ index: 0, title: '恢复旧计划', wordOccurrences: { resumable: 1 },
+            sentences: [{ english: 'This plan is resumable.', chinese: '这个计划可以继续。', simplified: 'This plan is resumable.' }],
+            questions: [archivedActivePlan.words[0].question] }] };
+          archivedActivePlan.words[0].completed = false;
+          archivedActivePlan.words[0].groupIndex = 0;
+          archivedActivePlan.groupCount = 1;
+          const recoveryDetails = [...archivedFailures, archivedActivePlan];
+          window.recoveryDetails = { 'study-user': recoveryDetails, 'second-study-user': [] };
+          window.recoveryDetailRequests = [];
+          window.recoveryPageCalls = [];
+          window.recoveryFailNext = true;
+          const safeRecoveryPlan = (plan) => ({
+            ...plan,
+            generationError: plan.generationError?.includes('Bearer')
+              ? 'fixture failure（凭据已隐藏）'
+              : plan.generationError,
+          });
+          window.recoveryPlanLists = {
+            'study-user': [
+              ...window.planLists['study-user']
+                .filter((plan) => plan.status !== 'COMPLETED')
+                .map(safeRecoveryPlan),
+              ...recoveryDetails.map(safeRecoveryPlan),
+            ],
+            'second-study-user': [safeRecoveryPlan(secondActivePlan)],
+          };
           window.savedHistoricalPlan = savedHistoricalPlan;
           window.generationAttempts = [];
           window.generationStatusPolls = {};
@@ -258,6 +308,31 @@ test(
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/daily-sentences/current')) return Response.json({ state: 'DISABLED', item: null, canRetry: false });
             if (path.endsWith('/api/v1/ai/models')) return Response.json([]);
+            if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], remaining: 30, limit: 30, hasMore: false });
+            if (path.includes('/api/v1/study/plans/recovery') && method === 'GET') {
+              if (window.recoveryFailNext) {
+                window.recoveryFailNext = false;
+                return Response.json({ message: 'Recovery fixture unavailable' }, { status: 503 });
+              }
+              const url = new URL(path, location.origin);
+              const cursor = url.searchParams.get('cursor');
+              const start = cursor ? 20 : 0;
+              const list = [...(window.recoveryPlanLists[session?.user.id] ?? [])]
+                .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
+              const page = list.slice(start, start + 20);
+              window.recoveryPageCalls.push({ userId: session?.user.id, cursor, returned: page.map((plan) => plan.id) });
+              return Response.json({ items: page, hasMore: start + page.length < list.length, nextCursor: start + page.length < list.length ? 'recovery-page-2' : null });
+            }
+            const planDetail = path.match(new RegExp('/api/v1/study/plans/([^/?]+)$'));
+            if (planDetail && method === 'GET') {
+              const id = decodeURIComponent(planDetail[1]);
+              window.recoveryDetailRequests.push(id);
+              const plan = [
+                ...(window.planLists[session?.user.id] ?? []),
+                ...(window.recoveryDetails[session?.user.id] ?? []),
+              ].find((item) => item.id === id);
+              return plan ? Response.json(plan) : Response.json({ message: '学习计划不存在' }, { status: 404 });
+            }
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
             if (generation && method === 'POST') {
               const id = generation[1];
@@ -296,7 +371,7 @@ test(
               return Response.json(plan);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
-              return Response.json(window.planLists[session?.user.id] ?? []);
+              return Response.json((window.planLists[session?.user.id] ?? []).map(safeRecoveryPlan));
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
               window.studyPlanCreateBodies.push(JSON.parse(options.body));
@@ -310,7 +385,160 @@ test(
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 6');
+      await until(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] [role=alert]")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] .empty") === null',
+        ),
+        true,
+        'a failed recovery-list request is not presented as an empty list',
+      );
+      await evaluate(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] [role=alert] button").click()',
+      );
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 20',
+      );
+      const safeRecoveryText = await evaluate(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"]").innerText',
+      );
+      assert.doesNotMatch(safeRecoveryText, /secret-token|private\.invalid/);
+      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 1);
+      await captureScreenshot('study-plan-recovery-desktop.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('document.querySelector(".study-sidebar").getBoundingClientRect().right <= 0');
+      await evaluate(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"]").scrollIntoView({ block: "start" })',
+      );
+      const recoveryMobileBounds = await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="recoverable-study-plans-title"]');
+        const card = section.querySelector('article');
+        const button = card.querySelector('button');
+        const sectionBounds = section.getBoundingClientRect();
+        const cardBounds = card.getBoundingClientRect();
+        const buttonBounds = button.getBoundingClientRect();
+        return { viewport: innerWidth, clientWidth: document.documentElement.clientWidth,
+          pageWidth: document.documentElement.scrollWidth, sectionLeft: sectionBounds.left,
+          sectionRight: sectionBounds.right, cardLeft: cardBounds.left, cardRight: cardBounds.right,
+          buttonLeft: buttonBounds.left, buttonRight: buttonBounds.right, text: section.innerText };
+      })()`);
+      assert.ok(
+        recoveryMobileBounds.pageWidth <= recoveryMobileBounds.clientWidth,
+        JSON.stringify(recoveryMobileBounds),
+      );
+      assert.ok(
+        recoveryMobileBounds.sectionLeft >= 0 && recoveryMobileBounds.sectionRight <= 390,
+        JSON.stringify(recoveryMobileBounds),
+      );
+      assert.ok(
+        recoveryMobileBounds.cardLeft >= 0 && recoveryMobileBounds.cardRight <= 390,
+        JSON.stringify(recoveryMobileBounds),
+      );
+      assert.ok(
+        recoveryMobileBounds.buttonLeft >= 0 && recoveryMobileBounds.buttonRight <= 390,
+        JSON.stringify(recoveryMobileBounds),
+      );
+      await captureScreenshot('study-plan-recovery-mobile.png');
+      await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="recoverable-study-plans-title"]');
+        [...section.querySelectorAll('button')].find((button) => button.textContent.includes('加载更多计划')).click();
+      })()`);
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 28',
+      );
+      assert.equal(
+        await evaluate(
+          'Boolean(document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] article[data-plan-id=\\"archived-failed-00\\"]"))',
+        ),
+        true,
+        'a failed plan beyond the first 20 and outside today remains reachable',
+      );
+      await openFailedPlan('archived-failed-00');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".plan-preview").innerText.includes("保存的失败原因 fixture 0")',
+        ),
+        true,
+        'opening an old failed plan shows its saved safe reason without retrying automatically',
+      );
+      assert.equal(await evaluate('window.generationAttempts.length'), 0);
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 20',
+      );
+      await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="recoverable-study-plans-title"]');
+        [...section.querySelectorAll('button')].find((button) => button.textContent.includes('加载更多计划')).click();
+      })()`);
+      await until(
+        'Boolean(document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] article[data-plan-id=\\"archived-active\\"] button"))',
+      );
+      await evaluate(`(() => {
+        const card = document.querySelector('[aria-labelledby="recoverable-study-plans-title"] article[data-plan-id="archived-active"]');
+        const button = card.querySelector('button');
+        button.scrollIntoView({ block: 'center' });
+        button.focus();
+      })()`);
+      assert.equal(
+        await evaluate('document.activeElement?.getAttribute("aria-label")?.includes("继续")'),
+        true,
+        'the active plan recovery action is keyboard focusable on a narrow viewport',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        unmodifiedText: '\r',
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      await until('window.recoveryDetailRequests.includes("archived-active")');
+      await until('document.querySelector(".lesson-page")');
+      assert.equal(
+        await evaluate(
+          'document.querySelector(".lesson-page").innerText.includes("This plan is resumable.")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate('window.generationAttempts.length'),
+        0,
+        'resuming an active old plan does not generate new content',
+      );
+      await evaluate('document.querySelector(".lesson-page-head button").click()');
+      await until(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"]")',
+      );
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 20',
+      );
+      await evaluate(`(() => {
+        const section = document.querySelector('[aria-labelledby="recoverable-study-plans-title"]');
+        [...section.querySelectorAll('button')].find((button) => button.textContent.includes('加载更多计划')).click();
+      })()`);
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 28',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
 
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("单词列表")).click()',
@@ -440,11 +668,13 @@ test(
       );
       assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 3);
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 6');
+      await until(
+        'document.querySelectorAll("[aria-labelledby=\\"recoverable-study-plans-title\\"] article").length === 20',
+      );
 
       // Closing the first preview leaves its server request alive. A double
       // click still starts only one client request.
-      await openRetry('分组学习');
+      await openRecoveryPlan('preview-a');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'bright',
@@ -462,7 +692,7 @@ test(
 
       // Reopening the same in-flight plan resumes its server phase. It must
       // not POST another generation request while its server claim is recent.
-      await openRetry('分组学习');
+      await openRecoveryPlan('preview-a');
       await until(
         'document.querySelector(".plan-generation-phase strong")?.textContent.includes("等待可复用的公共材料")',
       );
@@ -472,7 +702,7 @@ test(
 
       // Escape acts like Back/close without cancelling the plan. The previous
       // success and failure must not replace the third plan selected below.
-      await openRetry('应试语境');
+      await openRecoveryPlan('preview-b');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'gentle',
@@ -492,7 +722,7 @@ test(
       });
       await until('document.querySelector(".plan-preview-layer") === null');
 
-      await openRetry('单词模式');
+      await openRecoveryPlan('preview-c');
       assert.equal(
         await evaluate('document.querySelector(".preview-word-title strong").textContent'),
         'calm',
@@ -500,7 +730,9 @@ test(
       await startGeneration(3);
       await resolvePlan('preview-a', 'ACTIVE', 'Response.json(window.planLists["study-user"][0])');
       await until('document.querySelector(".preview-word-title strong")?.textContent === "calm"');
-      await until('document.querySelector(".history-grid article")?.innerText.includes("学习中")');
+      await until(
+        'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] article[data-plan-id=\\"preview-a\\"]")?.innerText.includes("学习中")',
+      );
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") !== null'), true);
 
       await resolvePlan(
@@ -538,7 +770,7 @@ test(
 
       // An invalid or missing cache without a selected model exposes a direct
       // setup action and keeps the same failed plan available for retry.
-      await openRetry('应试语境');
+      await openRecoveryPlan('preview-b');
       await startGeneration(4);
       await resolvePlan(
         'preview-b',
@@ -611,7 +843,7 @@ test(
 
       // Simulate a configured model: regeneration can still fail validation.
       // The exact error is announced and the learner can retry the same plan.
-      await openRetry('应试语境');
+      await openRecoveryPlan('preview-b');
       assert.equal(
         await evaluate('document.querySelector(".plan-retry-after-settings")?.textContent.trim()'),
         '我已更新模型，重新生成',
@@ -1245,7 +1477,10 @@ test(
       await evaluate('document.querySelector(".plan-preview-scrim").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
       await clickHistory();
-      await until('document.querySelectorAll(".history-grid article").length === 1');
+      await until(
+        'Boolean(document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] article[data-plan-id=\\"second-active\\"]"))',
+      );
+      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 0);
       await resolvePlan(
         'preview-error',
         'ACTIVE',
@@ -1253,7 +1488,14 @@ test(
       );
       await delay(200);
       assert.equal(await evaluate('document.querySelector(".plan-preview-layer") === null'), true);
-      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 1);
+      assert.equal(
+        await evaluate(
+          'Boolean(document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] article[data-plan-id=\\"second-active\\"]"))',
+        ),
+        true,
+        'a late response from the previous account does not replace the current account recovery card',
+      );
+      assert.equal(await evaluate('document.querySelectorAll(".history-grid article").length'), 0);
       assert.deepEqual(browserErrors, []);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();

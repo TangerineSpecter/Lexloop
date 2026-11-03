@@ -178,6 +178,45 @@ type GradedAnswer = {
   questionType: GeneratedQuestion['type'];
   selectedAnswer: string[];
 };
+type RecoverablePlanCursor = { userId: string; id: string; createdAt: Date };
+
+function encodeRecoverablePlanCursor(cursor: RecoverablePlanCursor) {
+  return Buffer.from(
+    JSON.stringify({
+      userId: cursor.userId,
+      id: cursor.id,
+      createdAt: cursor.createdAt.toISOString(),
+    }),
+  ).toString('base64url');
+}
+
+function decodeRecoverablePlanCursor(value: string, expectedUserId: string): RecoverablePlanCursor {
+  const invalid = () => new BadRequestException('学习计划游标无效，请重新加载');
+  if (!value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw invalid();
+  let decoded: unknown;
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    if (Buffer.from(raw).toString('base64url') !== value) throw invalid();
+    decoded = JSON.parse(raw);
+  } catch {
+    throw invalid();
+  }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw invalid();
+  const cursor = decoded as Record<string, unknown>;
+  if (
+    cursor.userId !== expectedUserId ||
+    typeof cursor.id !== 'string' ||
+    cursor.id.length < 1 ||
+    cursor.id.length > 100 ||
+    typeof cursor.createdAt !== 'string'
+  ) {
+    throw invalid();
+  }
+  const createdAt = new Date(cursor.createdAt);
+  if (Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== cursor.createdAt)
+    throw invalid();
+  return { userId: expectedUserId, id: cursor.id, createdAt };
+}
 
 const studyPlanInclude = (userId: string) =>
   ({
@@ -1195,6 +1234,63 @@ export class StudyService {
       include: studyPlanInclude(userId),
     });
     return plans.map((plan) => this.serializePlanRecord(plan));
+  }
+
+  async listRecoverablePlans(userId: string, encodedCursor?: string, requestedPageSize = 20) {
+    const pageSize = Math.min(50, Math.max(1, Math.trunc(requestedPageSize)));
+    const cursor = encodedCursor ? decodeRecoverablePlanCursor(encodedCursor, userId) : null;
+    const plans = await this.prisma.studyPlan.findMany({
+      where: {
+        userId,
+        status: {
+          in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE, StudyPlanStatus.FAILED],
+        },
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pageSize + 1,
+      select: {
+        id: true,
+        mode: true,
+        purpose: true,
+        status: true,
+        createdAt: true,
+        generationError: true,
+        generationPhase: true,
+        generationStartedAt: true,
+        items: { select: { completedAt: true } },
+      },
+    });
+    const hasMore = plans.length > pageSize;
+    const page = plans.slice(0, pageSize);
+    const last = page.at(-1);
+    return {
+      items: page.map((plan) => ({
+        id: plan.id,
+        mode: plan.mode.toLowerCase(),
+        purpose: plan.purpose.toLowerCase(),
+        status: plan.status,
+        createdAt: plan.createdAt,
+        generationError: safeStoredGenerationError(plan.generationError),
+        generationPhase: plan.status === StudyPlanStatus.GENERATING ? plan.generationPhase : null,
+        generationStartedAt:
+          plan.status === StudyPlanStatus.GENERATING ? plan.generationStartedAt : null,
+        wordCount: plan.items.length,
+        completed: plan.items.filter((item) => item.completedAt !== null).length,
+      })),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeRecoverablePlanCursor({ userId, id: last.id, createdAt: last.createdAt })
+          : null,
+    };
   }
 
   async getPlan(userId: string, planId: string) {

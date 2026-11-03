@@ -162,6 +162,7 @@ import { DailySentenceCard } from './daily-sentence/daily-sentence-card';
 import { PracticeEntries } from './practice/practice-entries';
 import { QuickReviewSession } from './quick-review-session';
 import { DashboardBackButton } from './dashboard-back-button';
+import { RecoverableStudyPlans } from './recoverable-study-plans';
 
 const TravelScenarioPage = dynamic(
   () => import('./travel-scenario-page').then((module) => module.TravelScenarioPage),
@@ -809,6 +810,29 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setPreviewOwnerId(session.user.id);
     setPreviewPlan(plan);
   };
+  const openRecoverablePlan = useCallback(
+    async (planId: string): Promise<'opened' | 'completed'> => {
+      const ownerId = session.user.id;
+      const plan = await request<LearningPlan>(
+        `/study/plans/${encodeURIComponent(planId)}`,
+        {},
+        session.accessToken,
+      );
+      if (currentUserIdRef.current !== ownerId) throw new Error('账号已切换，请重新读取计划。');
+      setPlans((current) => {
+        if (currentUserIdRef.current !== ownerId) return current;
+        return [plan, ...current.filter((item) => item.id !== plan.id)];
+      });
+      if (plan.status === 'COMPLETED') return 'completed';
+      if (plan.status === 'ACTIVE') {
+        setLessonPlanId(plan.id);
+        return 'opened';
+      }
+      openPlanPreview(plan);
+      return 'opened';
+    },
+    [session.accessToken, session.user.id],
+  );
   const handleCreatedPlan = (plan: LearningPlan) => {
     const ownerId = session.user.id;
     if (currentUserIdRef.current !== ownerId) return;
@@ -1523,11 +1547,19 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               />
             )}
             {activeTab === 'history' && visiblePlansStatus === 'ready' && (
-              <LearningHistory
-                plans={visiblePlans}
-                onContinue={(id) => setLessonPlanId(id)}
-                onOpenPreview={openPlanPreview}
-              />
+              <>
+                <RecoverableStudyPlans
+                  key={session.user.id}
+                  session={session}
+                  knownPlans={visiblePlans}
+                  onOpenPlan={openRecoverablePlan}
+                />
+                <LearningHistory
+                  plans={visiblePlans.filter((plan) => plan.status === 'COMPLETED')}
+                  onContinue={(id) => setLessonPlanId(id)}
+                  onOpenPreview={openPlanPreview}
+                />
+              </>
             )}
             <DailySentenceCard key={session.user.id} session={session} layout="strip" />
             <PracticeEntries />
@@ -7291,13 +7323,13 @@ function LearningHistory({
   onContinue: (id: string) => void;
   onOpenPreview: (plan: LearningPlan) => void;
 }) {
-  const todayPlans = plans.filter((plan) => isToday(plan.createdAt));
+  const todayPlans = plans.filter((plan) => plan.status === 'COMPLETED' && isToday(plan.createdAt));
   if (!todayPlans.length)
     return (
       <section className="plan-empty">
         <CalendarDays size={32} />
-        <strong>今天还没有学习记录</strong>
-        <p>创建学习计划后，学习进度会保留在这里。</p>
+        <strong>今天还没有已完成的计划</strong>
+        <p>未完成或失败的计划显示在上方，可随时继续处理。</p>
       </section>
     );
   return (

@@ -2463,7 +2463,7 @@ test(
       await until('document.querySelector(".plan-empty")');
       assert.equal(
         await evaluate(
-          'document.querySelector(".plan-empty").innerText.includes("今天还没有学习记录")',
+          'document.querySelector(".plan-empty strong").innerText.includes("今天还没有已完成的计划")',
         ),
         true,
       );

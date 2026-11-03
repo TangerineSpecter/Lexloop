@@ -60,6 +60,10 @@ class CompletedHistoryQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize?: number;
 }
+class RecoverablePlansQueryDto {
+  @IsOptional() @IsString() @MaxLength(512) cursor?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize?: number;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('study')
@@ -67,6 +71,12 @@ export class StudyController {
   constructor(@Inject(StudyService) private readonly study: StudyService) {}
   @Get('plans') list(@Req() request: AuthenticatedRequest) {
     return this.study.listPlans(request.user.sub);
+  }
+  @Get('plans/recovery') recovery(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: RecoverablePlansQueryDto,
+  ) {
+    return this.study.listRecoverablePlans(request.user.sub, query.cursor, query.pageSize);
   }
   @Get('plans/history') history(
     @Req() request: AuthenticatedRequest,

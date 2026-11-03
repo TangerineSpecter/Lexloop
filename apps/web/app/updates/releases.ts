@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.141',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '找回跨日期未完成计划',
+        entry: '学习进度 → 今日学习历史 → 需要继续处理的计划',
+        usage:
+          '分页列出仍在学习、生成中或生成失败的计划。打开会先读取该计划的最新状态；ACTIVE 计划可继续，失败原因可查看并由你明确选择重试。浏览列表不会生成内容或改变复习进度。',
+      },
+    ],
+  },
+  {
     version: '1.27.140',
     date: '2026-11-03',
     items: [
