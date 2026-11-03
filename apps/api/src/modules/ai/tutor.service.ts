@@ -1,3 +1,4 @@
+import { progressivePresentationSeed, publicStudyQuestion } from '../study/study-content';
 import {
   BadRequestException,
   HttpException,
@@ -389,13 +390,23 @@ export class TutorService {
           Record<string, unknown> & { index?: number; questions?: Array<Record<string, unknown>> }
         >;
       } | null;
+      const presentationSeed =
+        plan.purpose === 'PROGRESSIVE'
+          ? progressivePresentationSeed(plan.generatedContent, plan.id)
+          : undefined;
       const group = generated?.groups?.find((item) => item.index === context.groupIndex);
       const safeGroup = group
         ? {
             ...group,
-            questions: group.questions?.map((question) =>
-              submitted ? question : omitAnswers(question),
-            ),
+            questions: group.questions?.map((question) => {
+              const presented = presentationSeed
+                ? (publicStudyQuestion(question, submitted, presentationSeed) as Record<
+                    string,
+                    unknown
+                  >)
+                : question;
+              return submitted ? presented : omitAnswers(presented);
+            }),
           }
         : null;
       return {
@@ -550,7 +561,13 @@ export class TutorService {
 }
 
 function omitAnswers(question: Record<string, unknown>) {
-  const { correctAnswers: _answers, explanation: _explanation, pairs, ...safe } = question;
+  const {
+    correctAnswers: _answers,
+    explanation: _explanation,
+    optionNotes: _notes,
+    pairs,
+    ...safe
+  } = question;
   return {
     ...safe,
     ...(Array.isArray(pairs)

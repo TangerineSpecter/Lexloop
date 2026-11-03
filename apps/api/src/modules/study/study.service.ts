@@ -36,7 +36,11 @@ import {
   usableSupplementMeaning,
 } from '../vocabulary/daily-supplement.service';
 import { lockUserWordProgress } from './user-word-progress-lock';
-import { publicStudyContent, publicStudyQuestion } from './study-content';
+import {
+  progressivePresentationSeed,
+  publicStudyContent,
+  publicStudyQuestion,
+} from './study-content';
 import { studyQuestionFingerprint } from './study-content-bank';
 import {
   getStudyContentClaimStatus,
@@ -1548,7 +1552,12 @@ export class StudyService {
                 generationStartedAt,
               },
               data: {
-                generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
+                generatedContent: {
+                  ...generatedContent,
+                  ...(plan.purpose === StudyPlanPurpose.PROGRESSIVE
+                    ? { optionOrderVersion: 1 }
+                    : {}),
+                } as unknown as Prisma.InputJsonValue,
                 generationError: null,
                 generationPhase: null,
                 generationStartedAt: null,
@@ -2139,6 +2148,10 @@ export class StudyService {
   }
 
   private serializePlanRecord(plan: StudyPlanWithItems, includeSelectedAnswers = false) {
+    const presentationSeed =
+      plan.purpose === StudyPlanPurpose.PROGRESSIVE
+        ? progressivePresentationSeed(plan.generatedContent, plan.id)
+        : undefined;
     const itemsByGroup = new Map<number, typeof plan.items>();
     for (const item of plan.items) {
       const groupItems = itemsByGroup.get(item.groupIndex) ?? [];
@@ -2157,7 +2170,11 @@ export class StudyService {
       ...presentLexicalWord(item.bookWord.word, item.bookWord.contextMeaning),
       source: item.source,
       groupIndex: item.groupIndex,
-      question: publicStudyQuestion(item.question, submittedGroups.has(item.groupIndex)),
+      question: publicStudyQuestion(
+        item.question,
+        submittedGroups.has(item.groupIndex),
+        presentationSeed,
+      ),
       targetQuestionType: item.targetQuestionType,
       completed: Boolean(item.completedAt),
       result: item.attempts[0]?.isCorrect,
@@ -2240,7 +2257,7 @@ export class StudyService {
       wordCount: items.length,
       groupCount: new Set(items.map((item) => item.groupIndex)).size,
       completed: items.filter((item) => item.completed).length,
-      content: publicStudyContent(plan.generatedContent, submittedGroups),
+      content: publicStudyContent(plan.generatedContent, submittedGroups, presentationSeed),
       summary: {
         totalQuestions: attempts.length,
         correctQuestions: attempts.filter((attempt) => attempt.isCorrect).length,
@@ -2483,6 +2500,7 @@ ${
 - 每个输入分组只有一个目标词。题目类型必须与输入 targetQuestionTypes 完全一致。
 - 阶段材料规则：${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].promptRules}
 - 正确答案必须唯一、由材料支持；解析指出实际线索。不得通过歧义或错误选项制造难度。
+- 选项将独立重排，不要添加 A/B/C/D 或数字标签；题干、选项和解析不得依赖选项位置（如以上全部、前者、第一项或选项 A），应直接引用具体内容。
 `
     : ''
 }

@@ -1,3 +1,4 @@
+import { publicStudyQuestion } from '../src/modules/study/study-content';
 import { describe, expect, it, vi } from 'vitest';
 import { TutorService } from '../src/modules/ai/tutor.service';
 
@@ -16,6 +17,7 @@ function serviceWith(completedAt: Date | null) {
                   options: ['A', 'B'],
                   correctAnswers: ['SECRET'],
                   explanation: 'SECRET_EXPLANATION',
+                  optionNotes: ['SECRET_NOTE'],
                   pairs: [{ left: 'left', right: 'SECRET_PAIR', tip: 'hint' }],
                 },
               ],
@@ -52,6 +54,49 @@ describe('TutorService learning context', () => {
     });
     expect(JSON.stringify(context)).toContain('SECRET_EXPLANATION');
     expect(context.submitted).toBe(true);
+  });
+
+  it('uses the same progressive option order for tutoring before and after submission', async () => {
+    const question = {
+      bookWordId: 'repair',
+      type: 'MEANING_RECOGNITION',
+      prompt: 'Choose the meaning.',
+      options: ['修理', '购买', '出售', '丢弃'],
+      correctAnswers: ['修理'],
+      explanation: 'SECRET',
+      optionNotes: ['SECRET', '', '', ''],
+    };
+    for (const submitted of [false, true]) {
+      const prisma = {
+        studyPlan: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'plan-1',
+            purpose: 'PROGRESSIVE',
+            generatedContent: {
+              optionOrderVersion: 1,
+              groups: [{ index: 0, questions: [question] }],
+            },
+            items: [
+              {
+                completedAt: submitted ? new Date() : null,
+                bookWord: { word: { text: 'repair', meaning: '修理' } },
+                attempts: [],
+              },
+            ],
+          }),
+        },
+      };
+      const service = new TutorService(prisma as any, {} as any, {} as any, {} as any);
+      const context = await (service as any).resolveContext('user-1', {
+        type: 'STUDY_GROUP',
+        planId: 'plan-1',
+        groupIndex: 0,
+      });
+      expect(context.group.questions[0]).toEqual(
+        publicStudyQuestion(question, submitted, 'plan-1'),
+      );
+      if (!submitted) expect(JSON.stringify(context)).not.toContain('SECRET');
+    }
   });
 
   it('bounds prompt history and learning context while retaining the newest conversation turns', () => {

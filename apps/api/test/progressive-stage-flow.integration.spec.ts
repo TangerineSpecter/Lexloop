@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { MistakesService } from '../src/modules/mistakes/mistakes.service';
+import { studyQuestionFingerprint } from '../src/modules/study/study-content-bank';
 import { StudyService } from '../src/modules/study/study.service';
 import { progressiveQualitySamples } from './fixtures/progressive-quality-samples';
 
@@ -146,6 +147,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             expect(item.targetQuestionType).toBe(materials[stage].questions[0].type);
             const callsBefore = ai.generateForUser.mock.calls.length;
             await service.generatePlan(userId, plan.id);
+            const presented = await service.getPlan(userId, plan.id);
+            const shownQuestion = presented.words[0]
+              .question as (typeof materials.foundation.questions)[0];
+            expect((presented.content as { optionOrderVersion: number }).optionOrderVersion).toBe(
+              1,
+            );
+            expect(
+              (presented.content as { groups: { questions: unknown[] }[] }).groups[0].questions[0],
+            ).toEqual(shownQuestion);
+            expect((await service.getPlan(userId, plan.id)).words[0].question).toEqual(
+              shownQuestion,
+            );
+            expect(shownQuestion).not.toHaveProperty('correctAnswers');
             expect(ai.generateForUser.mock.calls.length - callsBefore).toBe(
               learnerIndex === 0 ? 1 : 0,
             );
@@ -173,6 +187,21 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
                 selectedAnswer: [materials[stage].questions[0].options[learnerIndex === 0 ? 0 : 1]],
               },
             ]);
+            const revealed = await service.getPlan(userId, plan.id);
+            expect((revealed.words[0].question as typeof shownQuestion).options).toEqual(
+              shownQuestion.options,
+            );
+            const feedback = await service.ratePublicQuestion(userId, plan.id, bookWordId, 'UP');
+            expect(feedback.rating).toBe('UP');
+            const savedFeedback = await prisma.studyContentQuestionFeedback.findFirstOrThrow({
+              where: { userId, contentCacheId: link.contentCacheId! },
+            });
+            expect(savedFeedback.questionFingerprint).toBe(studyQuestionFingerprint(link.question));
+            expect(savedFeedback.questionSnapshot).toEqual(link.question);
+            await service.withdrawPublicQuestionFeedback(userId, plan.id, bookWordId);
+            expect(
+              (await prisma.studyPlanItem.findUniqueOrThrow({ where: { id: item.id } })).question,
+            ).toEqual(link.question);
             const after = await prisma.userWordProgress.findUniqueOrThrow({ where });
             expect(after.totalAttempts).toBe(stageIndex + 1);
             expect(after.correctAttempts).toBe(learnerIndex === 0 ? stageIndex + 1 : 0);

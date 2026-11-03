@@ -217,7 +217,7 @@ export function ProgressivePracticePanel({
       </header>
 
       <p className={styles.disclaimer}>
-        完成一组非空练习后解锁下一阶段；答错不会降级。阶段描述题目要求，不代表 CEFR
+        完成整份非空练习计划后解锁下一阶段；答错不会降级。阶段描述题目要求，不代表 CEFR
         认证或掌握度诊断。
       </p>
 
