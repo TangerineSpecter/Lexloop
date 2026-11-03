@@ -4241,12 +4241,17 @@ function WordsPanel({
           onDefer={async (word) => {
             if (!word.id) return;
             try {
-              await request(
+              const result = await request<{ deferred?: boolean }>(
                 `/vocabulary/words/${word.id}/defer-review`,
-                { method: 'POST' },
+                {
+                  method: 'POST',
+                  body: JSON.stringify({ expectedNextReviewAt: word.nextReviewAt ?? undefined }),
+                },
                 session.accessToken,
               );
               await loadWords(newWordCount);
+              if (result.deferred === false)
+                setMessage('这条复习安排已更新或尚未到期，没有再次推迟。');
             } catch (error) {
               setMessage(error instanceof Error ? error.message : '稍后再学失败');
             }

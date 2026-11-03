@@ -1260,20 +1260,49 @@ export class VocabularyService {
     return { success: true };
   }
 
-  async deferReview(userId: string, bookWordId: string) {
-    const progress = await this.prisma.userWordProgress.findUnique({
-      where: { userId_bookWordId: { userId, bookWordId } },
+  async deferReview(userId: string, bookWordId: string, expectedNextReviewAt?: string) {
+    const expected =
+      expectedNextReviewAt === undefined ? undefined : new Date(expectedNextReviewAt);
+    if (
+      expectedNextReviewAt !== undefined &&
+      (typeof expectedNextReviewAt !== 'string' || !Number.isFinite(expected!.getTime()))
+    )
+      throw new BadRequestException('原复习时间无效，请刷新词表');
+    return this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
+      await tx.$queryRaw`SELECT "id" FROM "UserWordProgress" WHERE "userId" = ${userId} AND "bookWordId" = ${bookWordId} FOR UPDATE`;
+      const progress = await tx.userWordProgress.findUnique({
+        where: { userId_bookWordId: { userId, bookWordId } },
+        include: { bookWord: { select: { wordId: true } } },
+      });
+      if (!progress) throw new NotFoundException('待复习单词不存在');
+      const unchanged = (reason: string) => ({
+        success: true,
+        deferred: false,
+        reason,
+        nextReviewAt: progress.nextReviewAt,
+      });
+      const mastered = await tx.userMasteredWord.findUnique({
+        where: { userId_wordId: { userId, wordId: progress.bookWord.wordId } },
+        select: { id: true },
+      });
+      if (progress.state !== WordProgressState.REVIEWING || mastered)
+        return unchanged('STATE_CHANGED');
+      if (expected && progress.nextReviewAt?.getTime() !== expected.getTime())
+        return unchanged('SCHEDULE_CHANGED');
+      const now = new Date();
+      if (!progress.nextReviewAt || progress.nextReviewAt > now) return unchanged('NOT_DUE');
+      // Preserve the existing server-local tomorrow boundary; this change only
+      // makes postponement conditional on the still-current due schedule.
+      const tomorrow = new Date(now);
+      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      await tx.userWordProgress.update({
+        where: { id: progress.id },
+        data: { nextReviewAt: tomorrow, postponedCount: { increment: 1 } },
+      });
+      return { success: true, deferred: true, nextReviewAt: tomorrow };
     });
-    if (!progress || progress.state !== WordProgressState.REVIEWING)
-      throw new NotFoundException('待复习单词不存在');
-    const tomorrow = new Date();
-    tomorrow.setHours(0, 0, 0, 0);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    await this.prisma.userWordProgress.update({
-      where: { id: progress.id },
-      data: { nextReviewAt: tomorrow, postponedCount: { increment: 1 } },
-    });
-    return { success: true, nextReviewAt: tomorrow };
   }
 
   private async findUserBookWord(userId: string, bookWordId: string) {

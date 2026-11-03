@@ -23,6 +23,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsDateString,
   IsString,
   Max,
   MaxLength,
@@ -70,6 +71,12 @@ function wordAttemptPageOptions(pageSize?: string, cursor?: string) {
     throw new BadRequestException('学习记录游标无效，请重新加载');
   }
   return { pageSize: parsedSize, ...(cursor === undefined ? {} : { cursor }) };
+}
+
+class DeferReviewDto {
+  @IsOptional()
+  @IsDateString({ strict: true })
+  expectedNextReviewAt?: string;
 }
 
 class UpdateNewWordCountDto {
@@ -245,8 +252,9 @@ export class VocabularyController {
   @Post('words/:bookWordId/defer-review') deferReview(
     @Req() request: AuthenticatedRequest,
     @Param('bookWordId') bookWordId: string,
+    @Body() dto: DeferReviewDto,
   ) {
-    return this.vocabulary.deferReview(request.user.sub, bookWordId);
+    return this.vocabulary.deferReview(request.user.sub, bookWordId, dto?.expectedNextReviewAt);
   }
   @Post('books/:bookId/start') start(
     @Req() request: AuthenticatedRequest,

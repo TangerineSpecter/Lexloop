@@ -130,7 +130,7 @@ test(
               const word = number === 1 && userId === 'quick-user-a' ? 'uncharacteristicallylongwordfornarrowlayout' : 'steady' + number;
               const missing = missingMode === 'all' || (missingMode === 'mixed' && [1, 3].includes(number));
               const meaning = missing ? '暂无释义' : ('稳定、持续的；释义示例 ' + number + '。').repeat(number === 1 ? 4 : 1);
-              return { id, word, part: 'adj.', meaning, meanings: missing ? [] : [{ part: 'adj.', text: meaning }], ukPhonetic: '/ˈstedi/' };
+              return { id, word, nextReviewAt: '2026-01-01T00:00:00.000Z', part: 'adj.', meaning, meanings: missing ? [] : [{ part: 'adj.', text: meaning }], ukPhonetic: '/ˈstedi/' };
             });
           };
           const nativeFetch = window.fetch;
@@ -141,6 +141,12 @@ test(
             const session = JSON.parse(localStorage.getItem('lexloop.session') || 'null');
             const userId = session?.user?.id ?? 'missing-user';
             window.quickReviewFixture.calls.push({ method, path, userId });
+            if (path.endsWith('/defer-review') && method === 'POST') {
+              window.deferralRequests ??= [];
+              window.deferralRequests.push(JSON.parse(options.body));
+              if (window.deferralRequests.length === 1) throw new TypeError('fixture deferral response lost');
+              return Response.json({success: true, deferred: false, reason: 'SCHEDULE_CHANGED', nextReviewAt: '2026-01-02T00:00:00.000Z'});
+            }
             if (path.endsWith('/auth/me')) return Response.json({ id: userId });
             if (path.endsWith('/auth/refresh')) return Response.json({ message: 'Fixture session is current' }, { status: 401 });
             if (path.endsWith('/vocabulary/default')) {
@@ -726,6 +732,23 @@ test(
       assert.match(emptyFormalPlanState.control, /原排期中，不会因缺少释义而被移除或计作已复习/);
       assert.equal(emptyFormalPlanState.disabled, true);
       assert.equal(emptyFormalPlanState.text, '创建学习计划');
+      await firstTab.evaluate('document.querySelector("button[aria-label=稍后再学]").click()');
+      await until(
+        firstTab,
+        'document.querySelector(".words-panel").innerText.includes("暂时无法连接学习服务")',
+        'lost deferral response retains retry action',
+      );
+      await firstTab.evaluate('document.querySelector("button[aria-label=稍后再学]").click()');
+      await until(
+        firstTab,
+        'document.querySelector(".words-panel").innerText.includes("没有再次推迟")',
+        'a changed schedule is explained after refresh',
+      );
+      assert.deepEqual(await firstTab.evaluate('window.deferralRequests'), [
+        { expectedNextReviewAt: '2026-01-01T00:00:00.000Z' },
+        { expectedNextReviewAt: '2026-01-01T00:00:00.000Z' },
+      ]);
+
       await firstTab.evaluate(`(() => {
         [...document.querySelectorAll('[data-quick-review] button')].find((button) => button.textContent.includes('选择其他词表'))?.click();
       })()`);
