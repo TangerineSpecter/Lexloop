@@ -1,0 +1,9 @@
+CREATE TABLE "StudyPlanCompletionRepair" (
+ "id" TEXT NOT NULL PRIMARY KEY,
+ "planId" TEXT NOT NULL UNIQUE,
+ "evidenceDigest" VARCHAR(64) NOT NULL,
+ "before" JSONB NOT NULL,
+ "after" JSONB NOT NULL,
+ "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT "StudyPlanCompletionRepair_planId_fkey" FOREIGN KEY ("planId") REFERENCES "StudyPlan"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);

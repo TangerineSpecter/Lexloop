@@ -526,6 +526,7 @@ model UserWordProgress {
 }
 
 model StudyPlan {
+  completionRepair StudyPlanCompletionRepair?
   id                    String                    @id @default(cuid())
   userId                String
   mode                  StudyPlanMode             @default(GROUP)
@@ -555,6 +556,16 @@ model StudyPlan {
   @@index([userId, purpose, status, createdAt])
   @@index([userId, purpose, progressiveVersion, progressiveStage, status])
   @@index([userId, status, completedAt, id])
+}
+
+model StudyPlanCompletionRepair {
+  id String @id @default(cuid())
+  planId String @unique
+  evidenceDigest String @db.VarChar(64)
+  before Json
+  after Json
+  createdAt DateTime @default(now())
+  plan StudyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 }
 
 model ProgressivePracticeProgress {
