@@ -136,6 +136,9 @@ test(
           `({ path: location.pathname, text: document.body.innerText.slice(-900),
             hasFixtureSession: Boolean(localStorage.getItem('lexloop.session')),
             fixtureUser: JSON.parse(localStorage.getItem('lexloop.session') ?? 'null')?.user?.id ?? null,
+            publicBankRequests: window.studyBankListRequests?.map((path) => new URL(path, location.href).search) ?? null,
+            publicBankTargetInput: document.querySelector('[aria-labelledby="study-content-bank-title"] input[type="search"]')?.value ?? null,
+            publicBankFilterDisabled: document.querySelector('[aria-labelledby="study-content-bank-title"] form button[type="submit"]')?.disabled ?? null,
             speechMock: typeof window.studySpeech,
             planReads: window.studyPlansReadCount ?? null })`,
         ).catch(() => null);
@@ -899,7 +902,10 @@ test(
         JSON.stringify(desktopLayout),
       );
       const apiCallsBeforeSpeech = await evaluate('window.apiFetchLog.length');
-      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
+      await until('document.querySelector(".reading-tools button[aria-label=\\"朗读全文\\"]")');
+      await evaluate(
+        'document.querySelector(".reading-tools button[aria-label=\\"朗读全文\\"]").click()',
+      );
       await until('window.studySpeech.spoken.length === 1');
       assert.equal(
         await evaluate('window.studySpeech.spoken.length'),
@@ -2945,7 +2951,9 @@ test(
       await until(
         'document.querySelector("[aria-labelledby=study-content-bank-title] form input[type=search]")?.value === ""',
       );
-      await pressKey('Enter', 'Enter', 13, '\r');
+      await evaluate(
+        'document.querySelector("[aria-labelledby=study-content-bank-title] form button[type=submit]").click()',
+      );
       await until(
         'window.studyBankListRequests.length === 6 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 2',
       );

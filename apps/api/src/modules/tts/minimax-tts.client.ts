@@ -11,6 +11,12 @@ export type MiniMaxTtsSettings = {
   pitch: number;
 };
 
+export type MiniMaxTtsDispatchLease = {
+  leaseExpiresAt: Date;
+  safetyMarginMs: number;
+  onDispatch?: () => void;
+};
+
 export class MiniMaxTtsError extends Error {
   constructor(
     readonly code: string,
@@ -26,41 +32,72 @@ const BASE_URLS: Record<TtsRegion, string> = {
   GLOBAL: 'https://api.minimax.io/v1/t2a_v2',
 };
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 45_000;
+export const MINIMAX_TTS_REQUEST_TIMEOUT_MS = 45_000;
 
 @Injectable()
 export class MiniMaxTtsClient {
-  async synthesize(text: string, settings: MiniMaxTtsSettings): Promise<Buffer> {
+  async synthesize(
+    text: string,
+    settings: MiniMaxTtsSettings,
+    dispatchLease?: MiniMaxTtsDispatchLease,
+  ): Promise<Buffer> {
+    const body = JSON.stringify({
+      model: settings.model,
+      text,
+      stream: false,
+      voice_setting: {
+        voice_id: settings.voiceId,
+        speed: settings.speed,
+        vol: settings.volume,
+        pitch: settings.pitch,
+      },
+      audio_setting: {
+        sample_rate: 32_000,
+        bitrate: 128_000,
+        format: 'mp3',
+        channel: 1,
+      },
+      language_boost: 'auto',
+      output_format: 'hex',
+    });
+    let timeoutMs = MINIMAX_TTS_REQUEST_TIMEOUT_MS;
+    if (dispatchLease) {
+      const leaseExpiresAtMs = dispatchLease.leaseExpiresAt.getTime();
+      if (
+        !Number.isFinite(leaseExpiresAtMs) ||
+        !Number.isFinite(dispatchLease.safetyMarginMs) ||
+        dispatchLease.safetyMarginMs < 0
+      ) {
+        throw new MiniMaxTtsError(
+          'TTS_LEASE_EXPIRED',
+          '语音生成租约剩余时间不足，本次没有发起模型请求；请重新点击播放。',
+        );
+      }
+      const remainingMs = leaseExpiresAtMs - Date.now() - dispatchLease.safetyMarginMs;
+      timeoutMs = Math.min(MINIMAX_TTS_REQUEST_TIMEOUT_MS, Math.floor(remainingMs));
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        throw new MiniMaxTtsError(
+          'TTS_LEASE_EXPIRED',
+          '语音生成租约剩余时间不足，本次没有发起模型请求；请重新点击播放。',
+        );
+      }
+    }
+
+    const request = {
+      method: 'POST',
+      redirect: 'error' as const,
+      headers: {
+        Authorization: `Bearer ${settings.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    };
+    dispatchLease?.onDispatch?.();
+
     let response: Response;
     try {
-      response = await fetch(BASE_URLS[settings.region], {
-        method: 'POST',
-        redirect: 'error',
-        headers: {
-          Authorization: `Bearer ${settings.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: settings.model,
-          text,
-          stream: false,
-          voice_setting: {
-            voice_id: settings.voiceId,
-            speed: settings.speed,
-            vol: settings.volume,
-            pitch: settings.pitch,
-          },
-          audio_setting: {
-            sample_rate: 32_000,
-            bitrate: 128_000,
-            format: 'mp3',
-            channel: 1,
-          },
-          language_boost: 'auto',
-          output_format: 'hex',
-        }),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+      response = await fetch(BASE_URLS[settings.region], request);
     } catch (error) {
       if (
         error instanceof Error &&

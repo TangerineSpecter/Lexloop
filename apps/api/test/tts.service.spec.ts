@@ -64,11 +64,13 @@ function harness(
     aiCallAudit: {
       create: vi.fn().mockResolvedValue({ id: 'audit-1' }),
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(tx)),
   };
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
+    aiCallAudit: { updateMany: prisma.aiCallAudit.updateMany },
     ttsAudioCache: {
       aggregate: prisma.ttsAudioCache.aggregate,
       findMany: prisma.ttsAudioCache.findMany,
@@ -82,6 +84,10 @@ function harness(
         return { count: 1 };
       }),
     },
+    ttsDailyUsage: {
+      updateMany: prisma.ttsDailyUsage.updateMany,
+      deleteMany: prisma.ttsDailyUsage.deleteMany,
+    },
   };
   const store = {
     exists: vi.fn().mockResolvedValue(false),
@@ -92,7 +98,14 @@ function harness(
     removeOldCandidate: vi.fn().mockResolvedValue(undefined),
     closeSweepDirectory: vi.fn().mockResolvedValue(undefined),
   };
-  const client = { synthesize: vi.fn().mockResolvedValue(Buffer.alloc(128, 0x42)) };
+  const client = {
+    synthesize: vi.fn(
+      async (_text: string, _settings: unknown, dispatchLease?: { onDispatch?: () => void }) => {
+        dispatchLease?.onDispatch?.();
+        return Buffer.alloc(128, 0x42);
+      },
+    ),
+  };
   const settings = {
     publicConfig: vi.fn().mockResolvedValue({ ...provider, hasApiKey: true }),
     providerConfig: vi.fn().mockResolvedValue({ ...provider, enabled: options.enabled ?? true }),

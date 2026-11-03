@@ -12,7 +12,10 @@ const settings = {
   pitch: 0,
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('MiniMaxTtsClient', () => {
   it('sends the documented T2A v2 payload and decodes hex audio', async () => {
@@ -71,6 +74,55 @@ describe('MiniMaxTtsClient', () => {
     await new MiniMaxTtsClient().synthesize('Hello.', { ...settings, region: TtsRegion.GLOBAL });
 
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.minimax.io/v1/t2a_v2');
+  });
+
+  it('caps the request timeout to the lease remaining after its safety margin', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(100_000);
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async () => {
+      calls.push('fetch');
+      return new Response(
+        JSON.stringify({
+          base_resp: { status_code: 0 },
+          data: { audio: Buffer.alloc(64, 0x35).toString('hex') },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onDispatch = vi.fn(() => calls.push('dispatch'));
+
+    await new MiniMaxTtsClient().synthesize('Hello.', settings, {
+      leaseExpiresAt: new Date(120_000),
+      safetyMarginMs: 15_000,
+      onDispatch,
+    });
+
+    expect(timeout).toHaveBeenCalledWith(5_000);
+    expect(onDispatch).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['dispatch', 'fetch']);
+  });
+
+  it('does not dispatch when the lease expires before the safety margin', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(100_000);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const onDispatch = vi.fn();
+
+    await expect(
+      new MiniMaxTtsClient().synthesize('Hello.', settings, {
+        leaseExpiresAt: new Date(114_999),
+        safetyMarginMs: 15_000,
+        onDispatch,
+      }),
+    ).rejects.toMatchObject({
+      code: 'TTS_LEASE_EXPIRED',
+      publicReason: expect.stringContaining('本次没有发起模型请求'),
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onDispatch).not.toHaveBeenCalled();
   });
 
   it('maps provider failures without returning its raw body or credentials', async () => {

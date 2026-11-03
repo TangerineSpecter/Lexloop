@@ -305,7 +305,12 @@ test(
             modelConfigSaves: [],
             ttsConfigRequests: [],
             ttsTestRequests: [],
+            ttsTestSignals: [],
+            holdTtsTest: false,
+            pendingTtsTests: [],
+            resolveTtsTest() { this.pendingTtsTests.shift()?.(Response.json({ success: true, mimeType: 'audio/mpeg', audioBase64: 'AQIDBA==' })); },
             failTtsConfigReadOnce: false,
+            audioAudit: { constructed: [], plays: [], pauses: [] },
             ttsConfig: {
               enabled: false,
               region: 'CHINA',
@@ -407,6 +412,11 @@ test(
             resolveStatistics() { this.pendingStatistics.shift()?.(Response.json(this.statisticsResponse)); },
             resolveLearningWords(status = 200) { this.pendingLearningWords.shift()?.(Response.json(status === 200 ? this.learningWordsResponse : { message: 'learning words unavailable' }, { status })); },
             resolveMasteredWords(status = 200) { this.pendingMasteredWords.shift()?.(Response.json(status === 200 ? this.masteredWordsResponse : { message: 'mastered words unavailable' }, { status })); },
+          };
+          window.Audio = class {
+            constructor(src) { this.src = src; this.onended = null; this.onerror = null; window.reportFixture.audioAudit.constructed.push(src); }
+            play() { window.reportFixture.audioAudit.plays.push(this.src); return Promise.resolve(); }
+            pause() { window.reportFixture.audioAudit.pauses.push(this.src); }
           };
           window.reportTimeline = [];
           window.reportNavigationClick = null;
@@ -539,6 +549,10 @@ test(
                 body: options.body ?? null,
                 authorization: new Headers(options.headers).get('Authorization'),
               });
+              window.reportFixture.ttsTestSignals.push(options.signal ?? null);
+              if (window.reportFixture.holdTtsTest) {
+                return new Promise(resolve => window.reportFixture.pendingTtsTests.push(resolve));
+              }
               return Response.json({ success: true, mimeType: 'audio/mpeg', audioBase64: 'AQIDBA==' });
             }
             if (path === '/api/v1/admin/ai-models' && options.method !== 'POST') return Response.json([
@@ -1146,10 +1160,52 @@ test(
       await until(
         'document.querySelector("#tts-settings-title").closest("section").querySelector("[role=status]")?.textContent.includes("连接与短样音生成成功")',
       );
+      assert.deepEqual(
+        await evaluate(`({
+          constructed: window.reportFixture.audioAudit.constructed.length,
+          plays: window.reportFixture.audioAudit.plays.length,
+          pauses: window.reportFixture.audioAudit.pauses.length,
+        })`),
+        { constructed: 1, plays: 1, pauses: 0 },
+        'the explicit connection test should create and play its audio only once',
+      );
       await evaluate(
         '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("AI 模型管理")).click()',
       );
       await until('document.querySelector(".model-test-button")');
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("语音合成")).click()',
+      );
+      await until(
+        'window.reportFixture.ttsConfigRequests.filter(request => request.method === "GET").length === 3 && !document.querySelector("section[aria-labelledby=tts-settings-title] button").disabled',
+      );
+      await evaluate('window.reportFixture.holdTtsTest = true');
+      await evaluate(
+        '[...document.querySelectorAll("section[aria-labelledby=tts-settings-title] button")].find(button => button.textContent.includes("测试连接")).click()',
+      );
+      await until(
+        'window.reportFixture.ttsTestRequests.length === 2 && window.reportFixture.pendingTtsTests.length === 1',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("AI 模型管理")).click()',
+      );
+      await until('document.querySelector(".model-test-button")');
+      assert.equal(
+        await evaluate('window.reportFixture.ttsTestSignals[1]?.aborted'),
+        true,
+        'leaving TTS settings aborts its in-flight browser request',
+      );
+      await evaluate('window.reportFixture.resolveTtsTest()');
+      await evaluate('new Promise(resolve => setTimeout(resolve, 100))');
+      assert.deepEqual(
+        await evaluate(`({
+          constructed: window.reportFixture.audioAudit.constructed.length,
+          plays: window.reportFixture.audioAudit.plays.length,
+          pauses: window.reportFixture.audioAudit.pauses.length,
+        })`),
+        { constructed: 1, plays: 1, pauses: 1 },
+        'a delayed response after unmount must not create or play audio, and the current test audio must stop',
+      );
       await evaluate(
         '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("远端备份")).click()',
       );

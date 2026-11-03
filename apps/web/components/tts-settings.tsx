@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, LoaderCircle, Volume2 } from 'lucide-react';
-import { request, type Session, userFacingError } from '../lib/api';
+import {
+  claimEnglishAudioPlayback,
+  releaseEnglishAudioPlayback,
+} from '../lib/english-audio-playback';
+import { readSession, request, type Session, userFacingError } from '../lib/api';
 import styles from './tts-settings.module.css';
 
 type Region = 'CHINA' | 'GLOBAL';
@@ -43,16 +47,43 @@ export function TtsSettings({ session }: { session: Session }) {
   const [revision, setRevision] = useState(0);
   const testAudioRef = useRef<HTMLAudioElement | null>(null);
   const testAudioUrlRef = useRef<string | null>(null);
+  const testPlaybackOwnerRef = useRef(Symbol('tts-settings-test-audio'));
+  const testPlaybackIdRef = useRef(0);
+  const testRequestIdRef = useRef(0);
+  const testRequestInFlightRef = useRef(false);
+  const testAbortRef = useRef<AbortController | null>(null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  function stopTestAudio() {
+    testPlaybackIdRef.current += 1;
+    testAudioRef.current?.pause();
+    testAudioRef.current = null;
+    if (testAudioUrlRef.current) URL.revokeObjectURL(testAudioUrlRef.current);
+    testAudioUrlRef.current = null;
+    releaseEnglishAudioPlayback(testPlaybackOwnerRef.current);
+  }
+
+  function invalidateConnectionTest() {
+    testRequestIdRef.current += 1;
+    testRequestInFlightRef.current = false;
+    testAbortRef.current?.abort();
+    testAbortRef.current = null;
+    stopTestAudio();
+  }
 
   useEffect(
     () => () => {
-      testAudioRef.current?.pause();
-      testAudioRef.current = null;
-      if (testAudioUrlRef.current) URL.revokeObjectURL(testAudioUrlRef.current);
-      testAudioUrlRef.current = null;
+      invalidateConnectionTest();
     },
     [],
   );
+
+  useEffect(() => {
+    invalidateConnectionTest();
+    setTesting(false);
+    return () => invalidateConnectionTest();
+  }, [session.accessToken, session.user.id]);
 
   useEffect(() => {
     let active = true;
@@ -117,44 +148,91 @@ export function TtsSettings({ session }: { session: Session }) {
   }
 
   async function testConnection() {
-    if (testing || saving || loading || !configLoaded || !config.hasApiKey || !config.region)
+    if (
+      testRequestInFlightRef.current ||
+      testing ||
+      saving ||
+      loading ||
+      !configLoaded ||
+      !config.hasApiKey ||
+      !config.region
+    )
       return;
+    testRequestInFlightRef.current = true;
+    const requestId = ++testRequestIdRef.current;
+    const requestSession = session;
+    const controller = new AbortController();
+    testAbortRef.current = controller;
+    const isCurrentRequest = () => {
+      if (
+        testRequestIdRef.current !== requestId ||
+        sessionRef.current.accessToken !== requestSession.accessToken ||
+        sessionRef.current.user.id !== requestSession.user.id
+      )
+        return false;
+      try {
+        const stored = readSession();
+        return (
+          stored?.accessToken === requestSession.accessToken &&
+          stored.user.id === requestSession.user.id
+        );
+      } catch {
+        return false;
+      }
+    };
     setTesting(true);
     setError('');
     setNotice('');
     try {
       const result = await request<{ success: boolean; mimeType: string; audioBase64: string }>(
         '/admin/tts-config/test',
-        { method: 'POST' },
+        { method: 'POST', signal: controller.signal },
         session.accessToken,
       );
+      if (!isCurrentRequest()) return;
       const bytes = Uint8Array.from(atob(result.audioBase64), (char) => char.charCodeAt(0));
-      testAudioRef.current?.pause();
-      if (testAudioUrlRef.current) URL.revokeObjectURL(testAudioUrlRef.current);
+      stopTestAudio();
       const url = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
       testAudioUrlRef.current = url;
       const audio = new Audio(url);
       testAudioRef.current = audio;
+      const playbackId = ++testPlaybackIdRef.current;
+      const owner = testPlaybackOwnerRef.current;
+      claimEnglishAudioPlayback(owner, () => {
+        if (testPlaybackIdRef.current === playbackId) stopTestAudio();
+      });
       const releaseAudio = () => {
+        if (testPlaybackIdRef.current !== playbackId) return;
         if (testAudioUrlRef.current === url) {
           URL.revokeObjectURL(url);
           testAudioUrlRef.current = null;
         }
         if (testAudioRef.current === audio) testAudioRef.current = null;
+        releaseEnglishAudioPlayback(owner);
       };
       audio.onended = releaseAudio;
       audio.onerror = releaseAudio;
       try {
         await audio.play();
+        if (!isCurrentRequest() || testPlaybackIdRef.current !== playbackId) {
+          if (testPlaybackIdRef.current === playbackId) stopTestAudio();
+          return;
+        }
         setNotice('连接与短样音生成成功，正在播放测试音频。');
       } catch {
         releaseAudio();
-        setNotice('连接与短样音生成成功；浏览器未能自动播放，请检查浏览器播放权限。');
+        if (isCurrentRequest()) {
+          setNotice('连接与短样音生成成功；浏览器未能自动播放，请检查浏览器播放权限。');
+        }
       }
     } catch (reason) {
-      setError(userFacingError(reason, '连接测试失败'));
+      if (isCurrentRequest()) setError(userFacingError(reason, '连接测试失败'));
     } finally {
-      setTesting(false);
+      if (testRequestIdRef.current === requestId) {
+        testRequestInFlightRef.current = false;
+        testAbortRef.current = null;
+        setTesting(false);
+      }
     }
   }
 

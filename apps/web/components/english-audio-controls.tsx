@@ -3,23 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import { findLocalEnglishVoice } from '../lib/english-audio';
+import {
+  claimEnglishAudioPlayback,
+  ownsEnglishAudioPlayback,
+  releaseEnglishAudioPlayback,
+} from '../lib/english-audio-playback';
 import { readSession, request, requestBlob } from '../lib/api';
 import styles from './english-audio-controls.module.css';
-
-let activePlayback: { owner: symbol; stop: () => void } | null = null;
-
-function activatePlayback(owner: symbol, stop: () => void) {
-  if (activePlayback && activePlayback.owner !== owner) activePlayback.stop();
-  activePlayback = { owner, stop };
-}
-
-function releasePlayback(owner: symbol) {
-  if (activePlayback?.owner === owner) activePlayback = null;
-}
-
-function ownsPlayback(owner: symbol) {
-  return activePlayback?.owner === owner;
-}
 
 export function createEnglishUtterance(text: string, rate = 1) {
   if (
@@ -44,12 +34,12 @@ export function speakEnglish(text: string, rate = 1) {
   const owner = Symbol('direct-english-speech');
   const stop = () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    releasePlayback(owner);
+    releaseEnglishAudioPlayback(owner);
   };
-  activatePlayback(owner, stop);
+  claimEnglishAudioPlayback(owner, stop);
   window.speechSynthesis.cancel();
-  utterance.onend = () => releasePlayback(owner);
-  utterance.onerror = () => releasePlayback(owner);
+  utterance.onend = () => releaseEnglishAudioPlayback(owner);
+  utterance.onerror = () => releaseEnglishAudioPlayback(owner);
   window.speechSynthesis.speak(utterance);
   return 'played' as const;
 }
@@ -69,7 +59,6 @@ export function EnglishAudioControls({
   buttonLabel?: string;
   autoPlayRequest?: number;
 }) {
-  const [supported, setSupported] = useState<boolean | null>(null);
   const [playingRate, setPlayingRate] = useState<number | null>(null);
   const [englishVoiceUnavailable, setEnglishVoiceUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -91,9 +80,6 @@ export function EnglishAudioControls({
   useEffect(() => {
     interactionId.current += 1;
     setBusy(false);
-    setSupported(
-      'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function',
-    );
     setPlayingRate(null);
     setEnglishVoiceUnavailable(false);
     setConfirmation(null);
@@ -114,12 +100,12 @@ export function EnglishAudioControls({
       interactionId.current += 1;
       playbackId.current += 1;
       synthesis?.removeEventListener?.('voiceschanged', handleVoicesChanged);
-      if (ownsPlayback(playbackOwner.current)) synthesis?.cancel();
+      if (ownsEnglishAudioPlayback(playbackOwner.current)) synthesis?.cancel();
       audioRef.current?.pause();
       audioRef.current = null;
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
-      releasePlayback(playbackOwner.current);
+      releaseEnglishAudioPlayback(playbackOwner.current);
     };
   }, [text]);
 
@@ -142,7 +128,7 @@ export function EnglishAudioControls({
     if (
       !currentUserMatches(userId) ||
       interactionId.current !== interaction ||
-      !ownsPlayback(playbackOwner.current)
+      !ownsEnglishAudioPlayback(playbackOwner.current)
     )
       return;
     const url = URL.createObjectURL(blob);
@@ -155,7 +141,7 @@ export function EnglishAudioControls({
     audio.onended = () => {
       if (playbackId.current === playback) {
         setPlayingRate(null);
-        releasePlayback(playbackOwner.current);
+        releaseEnglishAudioPlayback(playbackOwner.current);
       }
       if (audioRef.current === audio) audioRef.current = null;
       if (objectUrlRef.current === url) {
@@ -167,7 +153,7 @@ export function EnglishAudioControls({
       if (playbackId.current === playback) {
         setPlayingRate(null);
         setMessage('音频已取得，但浏览器无法播放；可以改用浏览器本地朗读。');
-        releasePlayback(playbackOwner.current);
+        releaseEnglishAudioPlayback(playbackOwner.current);
       }
       if (objectUrlRef.current === url) {
         URL.revokeObjectURL(url);
@@ -183,47 +169,41 @@ export function EnglishAudioControls({
         objectUrlRef.current = null;
       }
       if (audioRef.current === audio) audioRef.current = null;
-      if (playbackId.current === playback) releasePlayback(playbackOwner.current);
+      if (playbackId.current === playback) releaseEnglishAudioPlayback(playbackOwner.current);
       throw new Error('音频已取得，但浏览器无法播放；可以改用浏览器本地朗读。');
     }
     if (
       currentUserMatches(userId) &&
       playbackId.current === playback &&
-      ownsPlayback(playbackOwner.current)
+      ownsEnglishAudioPlayback(playbackOwner.current)
     ) {
       setPlayingRate(rate);
     }
   }
 
   function playLocal(rate: number, cancelCurrent = true) {
-    activatePlayback(playbackOwner.current, stop);
-    if (!supported) {
-      setMessage('当前浏览器不支持本地语音朗读。');
-      releasePlayback(playbackOwner.current);
-      return;
-    }
-
     const utterance = createEnglishUtterance(text, rate);
     if (utterance === 'unsupported') {
       setMessage('当前浏览器不支持本地语音朗读。');
-      releasePlayback(playbackOwner.current);
+      releaseEnglishAudioPlayback(playbackOwner.current);
       return;
     }
     if (utterance === 'no-voice') {
       playbackId.current += 1;
       setPlayingRate(null);
       setEnglishVoiceUnavailable(true);
-      releasePlayback(playbackOwner.current);
+      releaseEnglishAudioPlayback(playbackOwner.current);
       return;
     }
 
+    claimEnglishAudioPlayback(playbackOwner.current, stop);
     setEnglishVoiceUnavailable(false);
     setMessage('');
     const currentPlaybackId = ++playbackId.current;
     const finishPlayback = () => {
       if (playbackId.current === currentPlaybackId) {
         setPlayingRate(null);
-        releasePlayback(playbackOwner.current);
+        releaseEnglishAudioPlayback(playbackOwner.current);
       }
     };
     utterance.onend = finishPlayback;
@@ -238,7 +218,7 @@ export function EnglishAudioControls({
     if (busy) return;
     stop();
     const interaction = ++interactionId.current;
-    activatePlayback(playbackOwner.current, stop);
+    claimEnglishAudioPlayback(playbackOwner.current, stop);
     const requestedText = text;
     setConfirmation(null);
     setMessage('');
@@ -265,7 +245,7 @@ export function EnglishAudioControls({
       if (
         !currentUserMatches(session.user.id) ||
         interactionId.current !== interaction ||
-        !ownsPlayback(playbackOwner.current)
+        !ownsEnglishAudioPlayback(playbackOwner.current)
       )
         return;
       if (lookup.state === 'disabled') {
@@ -320,7 +300,7 @@ export function EnglishAudioControls({
       if (
         !currentUserMatches(session.user.id) ||
         interactionId.current !== pending.interactionId ||
-        !ownsPlayback(playbackOwner.current)
+        !ownsEnglishAudioPlayback(playbackOwner.current)
       )
         return;
       await playRemote(
@@ -351,7 +331,7 @@ export function EnglishAudioControls({
   function stop() {
     interactionId.current += 1;
     playbackId.current += 1;
-    if (ownsPlayback(playbackOwner.current) && 'speechSynthesis' in window) {
+    if (ownsEnglishAudioPlayback(playbackOwner.current) && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     audioRef.current?.pause();
@@ -361,7 +341,7 @@ export function EnglishAudioControls({
     setPlayingRate(null);
     setBusy(false);
     setConfirmation(null);
-    releasePlayback(playbackOwner.current);
+    releaseEnglishAudioPlayback(playbackOwner.current);
   }
 
   return (

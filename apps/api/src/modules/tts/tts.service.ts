@@ -14,7 +14,11 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemLogService } from '../admin/system-log.service';
-import { MiniMaxTtsClient, MiniMaxTtsError } from './minimax-tts.client';
+import {
+  MiniMaxTtsClient,
+  MiniMaxTtsError,
+  MINIMAX_TTS_REQUEST_TIMEOUT_MS,
+} from './minimax-tts.client';
 import { TtsAudioStore } from './tts-audio-store';
 import { TtsConfigService } from './tts-config.service';
 
@@ -23,7 +27,8 @@ const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 const MAX_CACHE_BYTES_PER_USER = 256 * 1024 * 1024;
 const CACHE_RETENTION_MS = 90 * 24 * 60 * 60 * 1_000;
 const CACHE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
-const CLAIM_LEASE_MS = 60_000;
+const CLAIM_LEASE_SAFETY_MARGIN_MS = 15_000;
+const CLAIM_LEASE_MS = MINIMAX_TTS_REQUEST_TIMEOUT_MS + CLAIM_LEASE_SAFETY_MARGIN_MS;
 const CLAIM_WAIT_MS = 47_000;
 const CLAIM_POLL_MS = 250;
 const FAILURE_COOLDOWN_MS = 15_000;
@@ -32,6 +37,7 @@ const TEST_SENTENCE = 'Hello. This is a short speech test.';
 
 type CacheLookup =
   { state: 'disabled' | 'miss' | 'missing' } | { state: 'hit'; audioId: string; mimeType: string };
+type DailyUsageReservation = { userId: string; dateKey: string; characterCount: number };
 
 @Injectable()
 export class TtsService implements OnModuleInit, OnModuleDestroy {
@@ -138,19 +144,48 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       return { audioId: readyAfterClaim.id, cache: 'reused' as const };
     }
 
+    let auditId: string;
     try {
-      await this.reserveDailyUsage(userId, text, provider.maxGenerationsPerUserPerDay);
+      auditId = await this.startAudit(userId, provider.model, 'tts.synthesis');
     } catch (error) {
       await this.releaseClaim(cacheKey, ownerToken);
       throw error;
     }
-    return this.synthesizeAndStore(userId, text, provider, cacheKey, ownerToken, 'tts.synthesis');
+    let usageReservation: DailyUsageReservation;
+    try {
+      usageReservation = await this.reserveDailyUsage(
+        userId,
+        text,
+        provider.maxGenerationsPerUserPerDay,
+      );
+    } catch (error) {
+      await this.releaseClaim(cacheKey, ownerToken);
+      const safe = safeFailure(error);
+      await this.finishAudit(auditId, 'FAILED', 0, safe.code).catch(() => undefined);
+      throw error;
+    }
+    return this.synthesizeAndStore(
+      userId,
+      text,
+      provider,
+      cacheKey,
+      ownerToken,
+      'tts.synthesis',
+      usageReservation,
+      auditId,
+    );
   }
 
   async testConnection(userId: string) {
     const provider = await this.settings.providerConfig();
-    await this.reserveDailyUsage(userId, TEST_SENTENCE, provider.maxGenerationsPerUserPerDay);
     const auditId = await this.startAudit(userId, provider.model, 'tts.connection_test');
+    try {
+      await this.reserveDailyUsage(userId, TEST_SENTENCE, provider.maxGenerationsPerUserPerDay);
+    } catch (error) {
+      const safe = safeFailure(error);
+      await this.finishAudit(auditId, 'FAILED', 0, safe.code).catch(() => undefined);
+      throw error;
+    }
     const startedAt = Date.now();
     try {
       const audio = await this.client.synthesize(TEST_SENTENCE, provider);
@@ -171,19 +206,27 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     cacheKey: string,
     ownerToken: string,
     purpose: string,
+    usageReservation: DailyUsageReservation,
+    auditId: string,
   ) {
-    let auditId: string;
-    try {
-      auditId = await this.startAudit(userId, provider.model, purpose);
-    } catch (error) {
-      await this.releaseClaim(cacheKey, ownerToken);
-      throw error;
-    }
     const startedAt = Date.now();
     let objectName: string | null = null;
     const evictedObjectNames: string[] = [];
+    let providerRequestStarted = false;
     try {
-      const audio = await this.client.synthesize(text, provider);
+      const leaseExpiresAt = await this.renewClaimBeforeProviderCall(cacheKey, ownerToken);
+      if (!leaseExpiresAt) {
+        throw new ServiceUnavailableException(
+          '语音生成租约已失效，本次没有新增模型请求；请重新点击播放',
+        );
+      }
+      const audio = await this.client.synthesize(text, provider, {
+        leaseExpiresAt,
+        safetyMarginMs: CLAIM_LEASE_SAFETY_MARGIN_MS,
+        onDispatch: () => {
+          providerRequestStarted = true;
+        },
+      });
       if (audio.byteLength <= 0 || audio.byteLength > MAX_AUDIO_BYTES) {
         throw new MiniMaxTtsError('TTS_AUDIO_SIZE', '生成的语音超出缓存大小限制。');
       }
@@ -194,7 +237,7 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
           where: { cacheKey, ownerToken, leaseExpiresAt: { gt: new Date() } },
         });
         if (!currentClaim) return null;
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`lexloop-tts-cache:${userId}`}))`;
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`lexloop-tts-cache:${userId}`}))`;
         let totalBytes =
           (
             await tx.ttsAudioCache.aggregate({
@@ -267,6 +310,9 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       return { audioId: saved.id, cache: 'generated' as const };
     } catch (error) {
       if (objectName) await this.store.remove(objectName).catch(() => undefined);
+      if (!providerRequestStarted) {
+        await this.releaseDailyUsage(usageReservation, auditId).catch(() => undefined);
+      }
       const safe = safeFailure(error);
       await this.failClaim(cacheKey, ownerToken, safe.code);
       await this.finishAudit(auditId, 'FAILED', Date.now() - startedAt, safe.code);
@@ -397,6 +443,16 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.ttsAudioGenerationClaim.deleteMany({ where: { cacheKey, ownerToken } });
   }
 
+  private async renewClaimBeforeProviderCall(cacheKey: string, ownerToken: string) {
+    const now = new Date();
+    const leaseExpiresAt = new Date(now.getTime() + CLAIM_LEASE_MS);
+    const renewed = await this.prisma.ttsAudioGenerationClaim.updateMany({
+      where: { cacheKey, ownerToken, leaseExpiresAt: { gt: now } },
+      data: { leaseExpiresAt },
+    });
+    return renewed.count === 1 ? leaseExpiresAt : null;
+  }
+
   private async failClaim(cacheKey: string, ownerToken: string, code: string) {
     await this.prisma.ttsAudioGenerationClaim.updateMany({
       where: { cacheKey, ownerToken },
@@ -441,6 +497,45 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
+    return { userId, dateKey, characterCount: Array.from(text).length };
+  }
+
+  private async releaseDailyUsage(reservation: DailyUsageReservation, auditId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const refundReceipt = await tx.aiCallAudit.updateMany({
+        where: { id: auditId, status: 'PENDING' },
+        data: {
+          status: 'FAILED',
+          errorCode: 'TTS_REQUEST_NOT_DISPATCHED',
+          latencyMs: 0,
+          completedAt: new Date(),
+        },
+      });
+      if (refundReceipt.count !== 1) return;
+
+      const released = await tx.ttsDailyUsage.updateMany({
+        where: {
+          userId: reservation.userId,
+          dateKey: reservation.dateKey,
+          generationCount: { gt: 0 },
+          characterCount: { gte: reservation.characterCount },
+        },
+        data: {
+          generationCount: { decrement: 1 },
+          characterCount: { decrement: reservation.characterCount },
+          updatedAt: new Date(),
+        },
+      });
+      if (released.count !== 1) throw new Error('TTS daily usage reservation is missing');
+      await tx.ttsDailyUsage.deleteMany({
+        where: {
+          userId: reservation.userId,
+          dateKey: reservation.dateKey,
+          generationCount: 0,
+          characterCount: 0,
+        },
+      });
+    });
   }
 
   private async startAudit(userId: string, model: string, purpose: string) {
