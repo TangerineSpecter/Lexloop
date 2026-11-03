@@ -2065,6 +2065,17 @@ test(
         await evaluate('document.querySelector(".public-question-feedback") !== null'),
         true,
       );
+      const saveAppearance = await evaluate(`(() => {
+        const button = document.querySelector('.public-question-feedback-save');
+        const style = getComputedStyle(button);
+        return { text: button.textContent, background: style.backgroundColor, color: style.color };
+      })()`);
+      console.log('Feedback submit DOM:', saveAppearance);
+      assert.equal(
+        saveAppearance.background,
+        'rgb(49, 94, 182)',
+        'submit label must have a visible blue background',
+      );
       await evaluate(
         '[...document.querySelectorAll(".public-question-feedback button")].find((button) => button.textContent.includes("有问题")).click()',
       );
@@ -2445,9 +2456,9 @@ test(
       );
       assert.ok(
         await evaluate(
-          '[...document.querySelectorAll(".settlement-schedule-list time")].every((node) => node.textContent.includes("(") && node.textContent.includes(")"))',
+          '[...document.querySelectorAll(".settlement-schedule-list time")].every((node) => node.textContent === new Date(node.dateTime).toLocaleString("zh-CN", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))',
         ),
-        'The displayed date must include its time zone.',
+        'Display local review time without the IANA suffix, preserving the saved instant.',
       );
       assert.match(
         await evaluate('document.querySelector(".settlement-heading").innerText'),

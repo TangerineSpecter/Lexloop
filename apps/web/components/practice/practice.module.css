@@ -24,7 +24,9 @@
   margin-bottom: 24px;
 }
 .embedded .shell {
+  box-sizing: border-box;
   width: 100%;
+  max-width: 1220px;
   padding: 26px 24px 48px;
 }
 .shell {

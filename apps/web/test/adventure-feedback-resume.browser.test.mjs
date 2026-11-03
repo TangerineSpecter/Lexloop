@@ -145,6 +145,10 @@ test(
             const path = String(input);
             const method = options.method ?? 'GET';
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: 'learner-a' });
+            if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
+            if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({});
+            if (path.includes('/api/v1/vocabulary/notebook')) return Response.json({ items: [], total: 0, page: 1 });
+            if (path.includes('/api/v1/study/plans')) return Response.json([]);
             if (path.includes('/api/v1/adventure/profile')) return Response.json(profile);
             if (path.includes('/api/v1/adventure/dungeons')) return Response.json({ book: { id: 'book-a', title: '测试词书' }, floors: [floor] });
             if (path.includes('/api/v1/adventure/runs/active')) {
@@ -209,6 +213,21 @@ test(
         );
       };
       await assertRecovered();
+      assert.equal(await evaluate('!!document.querySelector(".study-sidebar")'), true);
+      await evaluate('window.navigationMarker = "same-document"');
+      await evaluate(
+        'document.querySelector(\'.sidebar-nav a[href="/dashboard/notebook"]\').click()',
+      );
+      await until('location.pathname === "/dashboard/notebook"');
+      await evaluate('history.back()');
+      await assertRecovered();
+      await evaluate('history.forward()');
+      await until('location.pathname === "/dashboard/notebook"');
+      await evaluate(
+        `document.querySelector('.study-sidebar a[href="/dashboard/adventure"]').click()`,
+      );
+      await assertRecovered();
+      assert.equal(await evaluate('window.navigationMarker'), 'same-document');
       await send('Emulation.setDeviceMetricsOverride', {
         width: 390,
         height: 844,

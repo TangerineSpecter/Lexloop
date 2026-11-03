@@ -86,9 +86,9 @@ const samples = {
       sentences: [
         {
           english:
-            'Mara took her lamp to the repair shop on Monday, but the worker could not test it because the electricity was off.',
-          chinese: '周一，玛拉把灯带到维修店，但因为停电，店员无法测试它。',
-          simplified: '周一，玛拉把灯带到维修店，但因为停电，店员无法测试它。',
+            'Mara asked the worker to repair her lamp on Monday, but he could not test it because the electricity was off.',
+          chinese: '周一，玛拉请店员修理她的灯，但因为停电，他无法测试它。',
+          simplified: '周一，玛拉请店员 repair 她的灯，但因为停电，他无法测试它。',
           grammar: 'because 引导原因从句，说明无法测试的原因。',
         },
         {
@@ -256,6 +256,9 @@ describe('progressive practice contracts', () => {
       contract,
     );
     expect(prompt).toContain('渐进练习');
+    expect(prompt).not.toContain('五种题型轮换使用');
+    expect(prompt).toContain('题型以 targetQuestionTypes 为准');
+    expect(prompt).toContain('禁止复述、翻译、改写或仿写任何真实试卷');
     expect(prompt).toContain('恰好 3 个英文句子');
     expect(prompt).toContain('不代表 CEFR 认证');
 

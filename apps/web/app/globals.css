@@ -768,7 +768,7 @@
 
 .public-question-feedback-save {
   justify-self: start;
-  background: var(--navy);
+  background: var(--teal);
   color: #fffefa;
 }
 
@@ -11123,8 +11123,14 @@ button {
 }
 .assessment-page h1 {
   max-width: 760px;
-  font-size: clamp(25px, 4vw, 38px);
-  line-height: 1.3;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  font-size: clamp(22px, 2vw, 28px);
+  line-height: 1.5;
 }
 .assessment-options {
   display: grid;
@@ -19767,4 +19773,9 @@ button.dashboard-return-button {
     justify-content: flex-end;
     margin-left: 0;
   }
+}
+
+.embedded-adventure {
+  min-width: 0;
+  width: 100%;
 }

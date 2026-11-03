@@ -85,6 +85,7 @@ export function DashboardPageLoading({
   onBack,
 }: {
   page:
+    | 'adventure'
     | 'travel'
     | 'mistakes'
     | 'history'

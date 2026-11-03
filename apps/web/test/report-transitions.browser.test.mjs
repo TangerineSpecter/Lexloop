@@ -1560,6 +1560,9 @@ test(
         deviceScaleFactor: 1,
         mobile: true,
       });
+      await until(
+        `[...document.querySelector('#automatic-study-plan-settings-title').closest('section').querySelectorAll('button')].some(button => button.textContent.includes('保存设置'))`,
+      );
       const automaticPlanMobile = await evaluate(`(() => {
         const section = document.querySelector('#automatic-study-plan-settings-title').closest('section');
         const input = document.querySelector('#automatic-study-plan-time').getBoundingClientRect();
@@ -3058,6 +3061,46 @@ test(
           true,
           'dashboard shell should remain mounted while the right pane changes',
         );
+        if (/micro-stories|tab=reading|tab=grammar|practice/.test(expectedPath)) {
+          for (const width of [1920, 2560, 390]) {
+            await send('Emulation.setDeviceMetricsOverride', {
+              width,
+              height: 1080,
+              deviceScaleFactor: 1,
+              mobile: width === 390,
+            });
+            await delay(80);
+            const geometry = await evaluate(`(() => {
+              const heading = [...document.querySelectorAll('h1, h2')].find(node => node.textContent.trim() === ${JSON.stringify(expectedHeading)});
+              const content = heading.closest('[class*="_shell"]');
+              const rect = content.getBoundingClientRect();
+              const parent = content.parentElement.getBoundingClientRect();
+              return { width: rect.width, centerOffset: Math.abs((rect.left + rect.right) - (parent.left + parent.right)), overflow: document.documentElement.scrollWidth > innerWidth };
+            })()`);
+            assert.ok(geometry.width <= 1220, JSON.stringify({ expectedPath, width, geometry }));
+            assert.ok(
+              geometry.centerOffset <= 2,
+              JSON.stringify({ expectedPath, width, geometry }),
+            );
+            assert.equal(
+              geometry.overflow,
+              false,
+              JSON.stringify({ expectedPath, width, geometry }),
+            );
+            await capture(
+              `layout-${expectedPath
+                .split('/')
+                .pop()
+                .replace(/[^a-z]/g, '-')}-${width}.png`,
+            );
+          }
+          await send('Emulation.setDeviceMetricsOverride', {
+            width: state.viewport,
+            height: 900,
+            deviceScaleFactor: 1,
+            mobile: state.viewport <= 680,
+          });
+        }
         return state;
       };
 

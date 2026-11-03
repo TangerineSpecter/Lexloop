@@ -776,7 +776,7 @@ test(
       await until('window.focusFixture.recoveries === 1');
       assert.equal(await evaluate('window.focusFixture.run.status'), 'COMPLETED');
       assert.equal(await evaluate('window.focusFixture.actions.length'), 8);
-      await clickSelector('button');
+      await clickSelector('main[class*=resultPage] button');
       await until('document.body?.innerText?.includes("第 1 层远征准备")');
       assert.equal(
         await evaluate('localStorage.getItem("lexloop.adventureRun.learner-focus")'),

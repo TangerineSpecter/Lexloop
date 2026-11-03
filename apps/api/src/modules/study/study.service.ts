@@ -2406,6 +2406,7 @@ ${
     ? `
 渐进练习阶段（内部练习路径 v${progressiveContract.version}，不代表 CEFR 认证、词汇熟练度或学习者水平）：
 - 当前阶段：${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].label}（${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].focus}）。
+- 材料、题干和选项必须原创。禁止复述、翻译、改写或仿写任何真实试卷、真题原文、版权阅读篇章或听力原文。
 - 每个输入分组只有一个目标词。题目类型必须与输入 targetQuestionTypes 完全一致。
 - 阶段材料规则：${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].promptRules}
 - 正确答案必须唯一、由材料支持；解析指出实际线索。不得通过歧义或错误选项制造难度。
@@ -2420,7 +2421,7 @@ ${
 1. 每组 2–4 个自然、连贯且难度适中的英文句子，全文尽量不超过 90 个英文单词；独立单词材料尽量不超过 55 个英文单词。
 2. 每组每个目标单词必须至少自然出现一次，并准确填写 wordOccurrences；不要为了次数生硬重复。
 3. 每个英文句子必须有逐句 chinese、simplified 和 grammar。simplified 中目标单词保持英文原样，其余译成自然中文；grammar 用中文简要说明句子主干或目标词作用。
-4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；${exam ? '题型以 targetQuestionTypes 为准。' : '五种题型轮换使用。'}所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
+4. 每个目标单词恰好生成一道题，bookWordId 必须来自输入；${exam || progressiveContract || purpose === StudyPlanPurpose.PROGRESSIVE ? '题型以 targetQuestionTypes 为准。' : '五种题型轮换使用。'}所有题干 prompt 必须是自然英文、包含明确提问，且目标词要出现在题干或对应英文阅读材料中。
 5. WORD_MNEMONIC 是多选题：英文题干和 4 个英文候选项，围绕可靠的词根、词缀、派生词或形音义联想；correctAnswers 可多项，但每个正确选项只能列一次。解析用中文逐项说明关系，不得编造词源。
 6. MEANING_RECOGNITION 是单选题：英文语境题干中必须自然出现目标词；4 个 options 必须是相近、同粒度的中文释义，正确项只对应当前语境，其他项是该词其他义项或合理近义干扰项。
 7. WORD_MATCHING 的 prompt 是英文指令，pairs 必须恰有 4 组。left 是包含同一目标词的不同英文短语；right 是中文功能/语义描述，说明使用场景、用途或语义维度；tip 是中文补充说明，仅说明 right 强调的维度，绝不出现 left（即使改变大小写、空格或全角形式）、目标短语关键词或能直接推出答案的词。四组必须唯一配对，options 为空。

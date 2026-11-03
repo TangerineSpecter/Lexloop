@@ -215,8 +215,8 @@ test(
         viewport: innerWidth,
         ring: getComputedStyle(document.querySelector('[data-dashboard-bootstrap-loading] .learning-loading-mark')).animationName
       }))()`);
-      assert.equal(adventureBootstrap.context, 'adventure');
-      assert.equal(adventureBootstrap.label, '正在翻开冒险手账…');
+      assert.equal(adventureBootstrap.context, 'dashboard');
+      assert.equal(adventureBootstrap.label, '正在展开你的词环…');
       assert.ok(adventureBootstrap.width <= adventureBootstrap.viewport);
       assert.equal(adventureBootstrap.ring, 'dashboard-load-turn');
       await send('Emulation.setEmulatedMedia', {

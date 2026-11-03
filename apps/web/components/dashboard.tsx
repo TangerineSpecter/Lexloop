@@ -345,7 +345,12 @@ type DashboardPage =
   | 'history'
   | 'statistics'
   | 'settings';
-type DashboardRoutePage = DashboardPage | 'notebook' | 'micro-stories' | 'practice';
+const AdventurePage = dynamic(
+  () => import('./adventure/adventure-page').then((module) => module.AdventurePage),
+  { loading: () => <DashboardPageLoading page="adventure" title="地下词环" /> },
+);
+
+type DashboardRoutePage = DashboardPage | 'notebook' | 'micro-stories' | 'practice' | 'adventure';
 const dashboardPages = new Set<DashboardPage>([
   'study',
   'travel',
@@ -359,6 +364,7 @@ const dashboardPages = new Set<DashboardPage>([
 ]);
 const dashboardRoutePages = new Set<DashboardRoutePage>([
   ...dashboardPages,
+  'adventure',
   'notebook',
   'micro-stories',
   'practice',
@@ -371,6 +377,7 @@ function dashboardPageFromLocation(
   userId: string,
 ): DashboardRoutePage {
   const normalizedPath = pathname.replace(/\/$/, '') || '/';
+  if (normalizedPath === '/dashboard/adventure') return 'adventure';
   if (normalizedPath === '/dashboard/notebook') return 'notebook';
   if (normalizedPath === '/dashboard/micro-stories') return 'micro-stories';
   if (normalizedPath === '/dashboard/practice') return 'practice';
@@ -1223,7 +1230,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <PlaneTakeoff size={16} />
               <span>场景口语</span>
             </button>
-            <a className="nav-item" href="/dashboard/adventure">
+            <a
+              className={`nav-item ${page === 'adventure' ? 'active' : ''}`}
+              href="/dashboard/adventure"
+              onClick={(event) => navigateDashboardLink(event, 'adventure', '/dashboard/adventure')}
+            >
               <Swords size={16} />
               <span>地下词环</span>
             </a>
@@ -1661,6 +1672,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               }}
             />
           </DashboardChunkErrorBoundary>
+        ) : page === 'adventure' ? (
+          <div className="embedded-adventure">
+            <AdventurePage
+              key={session.user.id}
+              session={session}
+              onBack={() => setPage('study')}
+            />
+          </div>
         ) : page === 'notebook' ? (
           <NotebookPage
             key={session.user.id}
@@ -5512,7 +5531,7 @@ function GroupSettlement({
                             day: 'numeric',
                             hour: '2-digit',
                             minute: '2-digit',
-                          })} (${scheduleClock.timeZone})`
+                          })}`
                         : `${new Date(word.nextReviewAt!).toISOString().slice(0, 16).replace('T', ' ')} UTC`}
                     </time>
                     <small className="settlement-schedule-state">
