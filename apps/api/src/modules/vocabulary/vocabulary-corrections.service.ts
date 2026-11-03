@@ -1,3 +1,4 @@
+import { EXISTING_POS_BATCH, EXISTING_POS_CORRECTIONS } from './existing-pos-corrections';
 import { SUPPLEMENT_MEANINGS, SUPPLEMENT_MEANING_BATCH } from './supplement-meanings';
 import { createHash } from 'node:crypto';
 import { Prisma, PrismaClient, VocabularyWord } from '@prisma/client';
@@ -35,6 +36,7 @@ const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b
 type Correction = {
   word: string;
   meaning?: string;
+  expectedMeaning?: string;
   ukPhonetic?: string;
   usPhonetic?: string;
   sourceKeys?: readonly string[];
@@ -50,9 +52,15 @@ export const SUPPLEMENT_CORRECTION_BATCH: CorrectionBatch = {
   sourceKey,
   corrections: SUPPLEMENT_MEANINGS,
 };
+export const EXISTING_POS_CORRECTION_BATCH: CorrectionBatch = {
+  batchId: EXISTING_POS_BATCH,
+  sourceKey,
+  corrections: EXISTING_POS_CORRECTIONS,
+};
 export function correctionBatch(id?: string): CorrectionBatch {
   if (!id || id === DEFAULT_CORRECTION_BATCH.batchId) return DEFAULT_CORRECTION_BATCH;
   if (id === SUPPLEMENT_CORRECTION_BATCH.batchId) return SUPPLEMENT_CORRECTION_BATCH;
+  if (id === EXISTING_POS_BATCH) return EXISTING_POS_CORRECTION_BATCH;
   throw new Error('Unknown vocabulary correction batch');
 }
 
@@ -133,8 +141,16 @@ export class VocabularyCorrectionsService {
       if (word.createdAt.getTime() !== word.updatedAt.getTime())
         return { ...base, reason: 'edited-word' };
       const changes: Action['changes'] = {};
-      for (const field of fields)
-        if (field in correction && word[field] === null) changes[field] = correction[field];
+      if (correction.expectedMeaning !== undefined) {
+        // Exact source replacement is opt-in per entry. Never broaden null-only batches.
+        if (word.meaning !== correction.expectedMeaning)
+          return { ...base, reason: 'original-meaning-mismatch' };
+        if (correction.meaning !== undefined && correction.meaning !== word.meaning)
+          changes.meaning = correction.meaning;
+      } else {
+        for (const field of fields)
+          if (field in correction && word[field] === null) changes[field] = correction[field];
+      }
       return {
         ...base,
         reason: Object.keys(changes).length ? 'ready' : 'no-empty-fields',

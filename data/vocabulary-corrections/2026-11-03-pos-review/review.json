@@ -1,0 +1,660 @@
+{
+  "baseline": "v1.27.158",
+  "scope": "focused review of selected senses, not full dictionary certification",
+  "counts": {
+    "focusedWords": 10,
+    "newlyTriagedPreviouslyUnreviewed": 8,
+    "previouslyReviewedRevisited": 2,
+    "confirmedCorrections": 2,
+    "remainingWithoutFocusedSemanticReview": 72
+  },
+  "license": "Wiktionary-derived review notes: CC BY-SA 4.0, Wiktionary contributors; linked commercial dictionaries used for factual verification only, no definitions or examples reproduced. Existing project source rights unchanged.",
+  "rows": [
+    {
+      "word": "beautiful",
+      "classification": "confirmed-pos-error",
+      "note": "形容词义中混有“出色地/迷人地”；去掉两个副词形式，保留已有三个形容词译项。只确认该词性修正，不认证所有译项。",
+      "references": [
+        "https://www.merriam-webster.com/dictionary/beautiful",
+        "https://www.merriam-webster.com/dictionary/beautifully"
+      ],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": null,
+      "variants": [
+        {
+          "sha256": "18015ef952a21e87fc490c83625e58b362fef01d5e401b82328ba342fe908234",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 195
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级上册.xlsx",
+              "row": 616
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 75
+            },
+            {
+              "sourceKey": "小学/人教版/三年级下.xlsx",
+              "row": 72
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 634
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1246
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1748
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/SAT巴朗.xlsx",
+              "row": 493
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2952
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "deliver",
+      "classification": "confirmed-pos-error",
+      "note": "“投球”在 American Heritage 的及物动词条下；仅将这行 n. 改为 vt.，其余义项不动。",
+      "references": ["https://www.ahdictionary.com/word/search.html?q=deliver"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": null,
+      "variants": [
+        {
+          "sha256": "5301567ee79b090f9a8b5cc2d30ce9331d71304779d33cb94424a9bdb76ec659",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2104
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 216
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 588
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 242
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 1231
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1776
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 1499
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 1229
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 1229
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 788
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 972
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day5.xlsx",
+              "row": 189
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 605
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2118
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2384
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 92
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 316
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语4 - 必修.xlsx",
+              "row": 60
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 229
+            }
+          ]
+        },
+        {
+          "sha256": "7efe4779676b05a02fba9bdca64fc306ee394e6820518952803744d78199005a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 1499
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 1229
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 1229
+            }
+          ]
+        },
+        {
+          "sha256": "8900a9ea4ad70e4da75bd8232161d1bd6a5a2cf7fc6bc5ba6cd631a60fbca973",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 373
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "recover",
+      "classification": "supported-specialized-sense",
+      "note": "名词含军事持枪姿势义，不能仅因常用作动词删除；中文“还原至预备姿势”的精确对应仍待核，保留。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/r/re/recover.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=recover&action=history",
+      "variants": [
+        {
+          "sha256": "ba64de9f87e04fd790a710ae717747e23171e13390ded28aae4a6345d436c989",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第三册（新版）.xlsx",
+              "row": 679
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2122
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 329
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 1539
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC高级.xlsx",
+              "row": 1990
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词.xlsx",
+              "row": 141
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 273
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 308
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 735
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1049
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 5
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 878
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 878
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1522
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 516
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2378
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 127
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 769
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第二册.xlsx",
+              "row": 152
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语1 - 必修.xlsx",
+              "row": 46
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 226
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 334
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修9.xlsx",
+              "row": 264
+            }
+          ]
+        },
+        {
+          "sha256": "403b69949fb241d4fe28b6145c255b3a1a9526b0dcd922f4ea543ba8db4620c0",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 5
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 878
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 878
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "shaver",
+      "classification": "supported-selected-senses",
+      "note": "词条明确列剃须者、理发师及剃须器；原“理发师”不是确定错误，未改。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/s/sh/shaver.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=shaver&action=history",
+      "variants": [
+        {
+          "sha256": "f64e66109552c3aa0591b41dca5b9d51fb3a3c2a41c2027d474fdcc85afd9430",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 690
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语11 - 选修.xlsx",
+              "row": 289
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "pregnancy",
+      "classification": "partially-supported",
+      "note": "怀孕名词义可靠；原“丰富/多产/意义深长”尚未逐义核实，不能认证或删除。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/p/pr/pregnancy.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=pregnancy&action=history",
+      "variants": [
+        {
+          "sha256": "a117efa4e56b48ebb3d322c09b23704f30e8bf8950284cd2d2bd075d42dab969",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2067
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 1299
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 1299
+            }
+          ]
+        },
+        {
+          "sha256": "b389925fe304b1495a1c041f2f23e69a8f44895422733295f295e7d133b9cd68",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 1299
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 1299
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "nickname",
+      "classification": "partially-supported",
+      "note": "绰号名词与取绰号动词得到支持；“叫错名字”未充分核实，保留待审。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/n/ni/nickname.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=nickname&action=history",
+      "variants": [
+        {
+          "sha256": "48a54a8257773332f70375e1ad434643a6eb1ee64192d5046bff732a9ddfef5e",
+          "sourceRows": [
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程3（第三版）.xlsx",
+              "row": 523
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 2114
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 4490
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语11 - 选修.xlsx",
+              "row": 295
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修4.xlsx",
+              "row": 170
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "observe",
+      "classification": "supported-selected-senses",
+      "note": "庆祝节日与观察、遵守是不同合法动词义，不能将“庆祝”当作冲突删除；未认证全部中英文变体。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/o/ob/observe.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=observe&action=history",
+      "variants": [
+        {
+          "sha256": "bfda7c80a411834d1e7cae8eaec812e5a2b026bf3df93df0d686bce2d61d550b",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 650
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 149
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 969
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 222
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 170
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 57
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 1689
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 2805
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 2806
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 902
+            },
+            {
+              "sourceKey": "考试/考研/2022考研核心1374词.xlsx",
+              "row": 41
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 533
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day3.xlsx",
+              "row": 148
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 2635
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 136
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1416
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第二册.xlsx",
+              "row": 137
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语4 - 必修.xlsx",
+              "row": 29
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 186
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修2.xlsx",
+              "row": 118
+            }
+          ]
+        },
+        {
+          "sha256": "a0a4dcd1cbd651b6b1ef02292eb86689d3b8d8a7762a121bb93d9074c5be8093",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 1689
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 2805
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 2806
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "silent",
+      "classification": "partially-supported",
+      "note": "沉默形容词义可用；原无声电影名词和无记载译法仍需精确核查，未改。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/s/si/silent.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=silent&action=history",
+      "variants": [
+        {
+          "sha256": "7468e4df16bcea5e93df6761b38eee21fd97369ee67da8ea02b15eed2e4408bb",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语九年级全册.xlsx",
+              "row": 131
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级上册.xlsx",
+              "row": 18
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语九年级下册.xlsx",
+              "row": 179
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 399
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3586
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2439
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "breathing",
+      "classification": "unresolved-extra-senses",
+      "note": "呼吸名词与动词分词可用；“瞬间/微风/逼真”的对应未充分核实，未改。",
+      "references": ["https://kaikki.org/dictionary/English/meaning/b/br/breathing.html"],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=breathing&action=history",
+      "variants": [
+        {
+          "sha256": "22459f9c556f197b4fcd2e0dcb0bc965e7613b1900ac483673a26f08e6a03a1c",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3796
+            }
+          ]
+        },
+        {
+          "sha256": "8e224e141763a1a4c53e8ef6f5e90df38e0aebf61f2ad90e5791561519484dae",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3796
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "bite",
+      "classification": "context-and-case-review",
+      "note": "普通咬的名词/动词与大写 BITE 缩略词应区分；本轮不修改缩略词或统一大小写规则，精确专业释义留待核查。",
+      "references": [
+        "https://kaikki.org/dictionary/English/meaning/b/bi/bite.html",
+        "https://en.wiktionary.org/wiki/BITE"
+      ],
+      "reviewedAt": "2026-11-03",
+      "upstreamHistory": "https://en.wiktionary.org/w/index.php?title=bite&action=history",
+      "variants": [
+        {
+          "sha256": "f076ffa0c7fe7bc3a62383f56c8458da7be173670105844cb9f9fdc45b68a736",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级上册.xlsx",
+              "row": 201
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 815
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 208
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1717
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 619
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 1076
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day6.xlsx",
+              "row": 90
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 1639
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2269
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第三册.xlsx",
+              "row": 163
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语2 - 必修.xlsx",
+              "row": 244
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第二册.xlsx",
+              "row": 26
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 108
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修9.xlsx",
+              "row": 48
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
