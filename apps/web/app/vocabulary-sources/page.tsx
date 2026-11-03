@@ -195,6 +195,46 @@ export default function VocabularySourcesPage() {
         </a>
         。已有安装仍需管理员单独预览受控批次，不自动覆盖用户编辑。
       </p>
+      <h2>用法限定：俚语、复数与搭配</h2>
+      <p>
+        以下四条中文提示根据 Wiktionary contributors 的具体义项及语法标签译写，按 CC BY-SA 4.0
+        分享，保留原义。核对日期：2026-11-03；未复制例句或音标。
+      </p>
+      <ul>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=beard&amp;oldid=94547571">beard</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=beard&amp;action=history">
+            贡献历史
+          </a>
+          ：用法：“充当掩护、充当男随员”指俚语中的名义伴侣角色，用来掩饰他人的性取向。
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=arm&amp;oldid=94546579">arm</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=arm&amp;action=history">贡献历史</a>
+          ：用法：武器义常用复数 arms。
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=jaw&amp;oldid=95368802">jaw</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=jaw&amp;action=history">贡献历史</a>
+          ：用法：比喻入口的义项常用复数 jaws。
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=scream_for&amp;oldid=83077914">
+            scream
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=scream_for&amp;action=history">
+            贡献历史
+          </a>
+          ：搭配：scream for ... 强烈要求……。
+        </li>
+      </ul>
+      <p>
+        <a href="https://github.com/TangerineSpecter/Lexloop/tree/master/data/vocabulary-corrections/2026-11-03-usage-notes">
+          查看四词来源与尚未确认的用法范围
+        </a>
+        。提示只覆盖选定用法，不代表原词条全部义项已经核实。已有安装不会自动替换，需管理员单独预览受控批次。
+      </p>
     </main>
   );
 }

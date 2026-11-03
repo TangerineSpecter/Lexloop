@@ -1,3 +1,4 @@
+import { DAILY_USAGE_NOTES } from '../src/modules/vocabulary/daily-usage-notes';
 import { DAILY_CONTEXT_ADDITIONS } from '../src/modules/vocabulary/daily-context';
 import { DAILY_ENRICHMENTS } from '../src/modules/vocabulary/daily-enrichment';
 import { USAGE_CLARITY_CORRECTIONS } from '../src/modules/vocabulary/usage-clarity-corrections';
@@ -11,6 +12,7 @@ import {
 import {
   DAILY_ENRICHMENT_CORRECTION_BATCH,
   DAILY_CONTEXT_CORRECTION_BATCH,
+  DAILY_USAGE_NOTES_CORRECTION_BATCH,
   VocabularyCorrectionsService,
   EXISTING_POS_CORRECTION_BATCH,
   SUPPLEMENT_CORRECTION_BATCH,
@@ -20,6 +22,11 @@ import {
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 
 describe.each([
+  {
+    name: 'daily-usage-notes',
+    entries: DAILY_USAGE_NOTES,
+    batch: DAILY_USAGE_NOTES_CORRECTION_BATCH,
+  },
   {
     name: 'daily-context',
     entries: DAILY_CONTEXT_ADDITIONS,
@@ -82,6 +89,7 @@ describe.each([
               USAGE_CLARITY_CORRECTION_BATCH,
               DAILY_ENRICHMENT_CORRECTION_BATCH,
               DAILY_CONTEXT_CORRECTION_BATCH,
+              DAILY_USAGE_NOTES_CORRECTION_BATCH,
             ].filter((other) => other.batchId !== batch.batchId),
           ]) {
             const other = new VocabularyCorrectionsService(db, otherBatch);
