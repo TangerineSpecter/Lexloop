@@ -52,7 +52,7 @@ export class ReadingTranslationDto {
 }
 
 /** OpenAI-compatible fields are forwarded, with a JSON-mode instruction for compatible gateways. */
-class ChatCompletionDto implements ChatCompletionRequest {
+export class ChatCompletionDto implements ChatCompletionRequest {
   @IsOptional() @IsString() model?: string;
   @IsArray() @ArrayMinSize(1) messages!: Array<Record<string, unknown>>;
   @IsOptional() @IsBoolean() stream?: boolean;
@@ -71,6 +71,7 @@ class ChatCompletionDto implements ChatCompletionRequest {
   @IsOptional() prompt_cache_key?: unknown;
   @IsOptional() verbosity?: unknown;
   @IsOptional() web_search_options?: unknown;
+  // Provider-aware validation runs before fetch; custom providers keep their existing limits.
   @IsOptional() max_tokens?: unknown;
   @IsOptional() max_completion_tokens?: unknown;
   @IsOptional() stream_options?: unknown;

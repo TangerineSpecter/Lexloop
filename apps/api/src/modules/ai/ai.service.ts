@@ -108,14 +108,15 @@ export class AiService implements AiProvider {
     const model =
       configured?.model || this.config.get<string>('AI_MODEL') || DEEPSEEK_DEFAULT_MODEL;
 
+    const body = JSON.stringify(
+      withProviderRequest(withJsonObjectUserInstruction({ ...request, model }), configured),
+    );
     let response: Response;
     try {
       response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          withProviderRequest(withJsonObjectUserInstruction({ ...request, model }), configured),
-        ),
+        body,
       });
     } catch {
       throw new BadGatewayException('AI Provider 无法连接，请检查 AI_BASE_URL 或稍后重试');
@@ -134,6 +135,12 @@ export class AiService implements AiProvider {
     if (!configured) {
       throw new ServiceUnavailableException('请先在阅读材料模型设置中选择可用的大模型');
     }
+    const body = JSON.stringify(
+      withProviderRequest(
+        withJsonObjectUserInstruction({ ...request, model: configured.model }),
+        configured,
+      ),
+    );
     let response: Response;
     try {
       response = await fetch(`${configured.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -142,12 +149,7 @@ export class AiService implements AiProvider {
           Authorization: `Bearer ${configured.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(
-          withProviderRequest(
-            withJsonObjectUserInstruction({ ...request, model: configured.model }),
-            configured,
-          ),
-        ),
+        body,
         signal,
       });
     } catch (error) {

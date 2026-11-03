@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { withProviderTemperature, type ProviderTemperatureConfig } from './model-temperature';
 
 /** Only the explicit MiniMax provider gets protocol changes; custom endpoints retain their contract. */
@@ -8,6 +8,15 @@ export function withProviderRequest<T extends Record<string, unknown>>(
 ): Record<string, unknown> {
   const prepared = withProviderTemperature(request, config);
   if (config?.provider !== 'MINIMAX') return prepared;
+  for (const key of ['max_tokens', 'max_completion_tokens'] as const) {
+    const value = prepared[key];
+    if (
+      value !== undefined &&
+      (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 32768)
+    ) {
+      throw new BadRequestException(`MiniMax ${key} 必须是 1 到 32768 之间的有限正整数。`);
+    }
+  }
   const { temperature, top_p, response_format, max_tokens, ...rest } = prepared;
   return {
     ...rest,
@@ -15,7 +24,7 @@ export function withProviderRequest<T extends Record<string, unknown>>(
     reasoning_effort: 'low',
     // MiniMax counts reasoning in the output budget. Reserve room without unbounded generation.
     max_completion_tokens:
-      rest.max_completion_tokens ?? Math.min(32768, Math.max(16384, Number(max_tokens) || 0)),
+      rest.max_completion_tokens ?? Math.max(16384, (max_tokens as number | undefined) ?? 0),
   };
 }
 
