@@ -1,0 +1,310 @@
+{
+  "scope": "Follow-up queue for POS/verb/action/remaining batches; not an exhaustive project error list. Initial joint/palm context gaps and sexuality missing content remain in original records. No auto-apply.",
+  "count": 38,
+  "rows": [
+    {
+      "word": "pregnancy",
+      "classification": "partially-supported",
+      "reviewFile": "../2026-11-03-pos-review/review.json",
+      "finding": "怀孕名词义可靠；原“丰富/多产/意义深长”尚未逐义核实，不能认证或删除。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "nickname",
+      "classification": "partially-supported",
+      "reviewFile": "../2026-11-03-pos-review/review.json",
+      "finding": "绰号名词与取绰号动词得到支持；“叫错名字”未充分核实，保留待审。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "silent",
+      "classification": "partially-supported",
+      "reviewFile": "../2026-11-03-pos-review/review.json",
+      "finding": "沉默形容词义可用；原无声电影名词和无记载译法仍需精确核查，未改。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "breathing",
+      "classification": "unresolved-extra-senses",
+      "reviewFile": "../2026-11-03-pos-review/review.json",
+      "finding": "呼吸名词与动词分词可用；“瞬间/微风/逼真”的对应未充分核实，未改。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "bite",
+      "classification": "context-and-case-review",
+      "reviewFile": "../2026-11-03-pos-review/review.json",
+      "finding": "普通咬的名词/动词与大写 BITE 缩略词应区分；本轮不修改缩略词或统一大小写规则，精确专业释义留待核查。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "bone",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-verb-review/review.json",
+      "finding": "骨及剔骨、苦学义有依据；施骨肥于及专心致志的范围未充分核实，不覆盖。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "foot",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-verb-review/review.json",
+      "finding": "步行、跳舞和及物支付、换底有依据；当前vi总计与词典及物合计标注有差异，需更多来源，不贸然移动。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "beard",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-verb-review/review.json",
+      "finding": "胡须及公然反对义有依据；抓胡须、不及物掩护和男随员未在本次来源充分核实，保留待审。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "tear",
+      "classification": "representation-gap",
+      "reviewFile": "../2026-11-03-verb-review/review.json",
+      "finding": "眼泪与撕裂为不同读音及屈折的同形词；原义项本身可成立，但扁平字段不能表达一义一音。本轮不覆盖音标或拆词，避免改学习身份。",
+      "limitations": "See original review; no additional certification in this queue.",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "climb",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "名词攀登及动词攀爬、上升有依据；攀爬可及物或不及物。",
+      "limitations": "该词也可描述向下攀爬；原释义未列此用法不构成现有上升义错误。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "drag",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "拖拉及缓慢费力行进、名词拖累有对应义。",
+      "limitations": "vt行末的缓慢而吃力地行进可能未表达使动，需结合原词典或更多双语语境确认；不因中文简略即删义。其他英文变体只盘点未逐义审查。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "bend",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "弯腰、俯身、低头符合身体弯曲的选定义项。",
+      "limitations": "当前优先匹配的短释义省略转弯/屈服等合法义项和词性；不替换成另一词书长释义。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "twist",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "捻拧、扭伤、编织及弯曲有依据。",
+      "limitations": "使苦恼的中文范围宽于本次查到的心理扭曲义；不能单凭一个词典缺同译项判错，留待补充来源。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "sleep",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "名词睡眠和不及物睡觉准确对应常用义。",
+      "limitations": "住宿语境另有及物容纳睡眠义；缺此义不应将原值标错误或强制补齐。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "wake",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "尾迹、守丧名词与叫醒/激发及物、醒来不及物均有依据。",
+      "limitations": "vi行的唤醒未标被动/自发义，容易混淆使动与醒来；保留待核。不同屈折形式不可凭单一形式批量改写。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "breathe",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "呼吸、轻拂以及及物表达/流露有依据，需与名词breath区分。",
+      "limitations": "使喘息需区分使休息恢复呼吸与使气喘；vi低语的标注仍需补证，未判定为确定错误。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "breath",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "呼吸、气息、一次呼吸、微风及迹象有依据。",
+      "limitations": "瞬间与无声音/气音的专业范围本次未充分核实，保留待核；不与breathe合并。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "squeeze",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "挤压、紧握、拥挤和勒索有依据，名词中间人所得利润也有依据。",
+      "limitations": "佣金的现代一般交易范围是否过宽尚待核实；不判成完全无此义，不导入未核验新译文。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "scream",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-action-review/review.json",
+      "finding": "尖叫、名词极其好笑的人或事以及显著惊人效果的不及物延伸义均有来源。",
+      "limitations": "令人触目惊心有相关义但中文强度可能偏重；大嚷要求的配价需语境核实，暂不修改。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "single",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "单一、单身、单打及棒球不及物用法有依据；选出通常与out搭配。",
+      "limitations": "本轮未取得单程票义的直接证据，不能因此删除；Cambridge词条返回403。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "throat",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "喉部、嗓音、狭窄通道及喉音发声的及物用法有依据。",
+      "limitations": "开沟于尚未取得直接证据，保留待核。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "jaw",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "颌、狭窄通道相关义、唠叨名词及训斥动词有依据。",
+      "limitations": "狭窄入口与通道两侧/间隙的译义范围仍需语境核对。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "limb",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "肢的身体部位义成立。",
+      "limitations": "单字释义未标词性且省略树枝等义；不等于现义错误。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "arm",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "手臂、衣袖、组织分部以及武装和备战动词有依据。",
+      "limitations": "武器通常涉及arms；名词装备的范围仍待逐义核对，不认证整行。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "elbow",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "肘部、管道弯头、用肘推挤有依据。",
+      "limitations": "扶手尚未取得直接证据，不以词典未列为错误结论。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "homosexual",
+      "classification": "usage-context-gap",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "同性恋相关形容词及指人的名词义有依据；词典同时标注现代用语限制。",
+      "limitations": "名词常被视为冒犯，形容词有时如此；不能把译义存在当作适合所有日常场景，也不判定所有使用均为辱称。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "condom",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "避孕套的名词义有依据。",
+      "limitations": "现有阴茎套译项未覆盖内部使用的类型；只做词义核查，不作医学指导。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "abortion",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "妊娠终止以及事物发展失败的名词义有依据。",
+      "limitations": "流产的胎儿这一独立译项未由本轮来源直接确认；保留待核，不作医学指导。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "delivery",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "传送义成立。",
+      "limitations": "短释义未覆盖分娩、表达方式等日常场景；遗漏不等于现义错误。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "mature",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "成熟、成年、到期及充分考虑的形容词义，成熟和到期动词义有依据。",
+      "limitations": "及物慎重作出的范围尚需直接配价证据；不据形容词义替动词背书。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "graveyard",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "墓地名词义成立。",
+      "limitations": "未收录废弃物聚集地等比喻义，不据此判错。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "observation",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "观察义成立。",
+      "limitations": "未标词性且未覆盖言论、记录等名词义。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "noisy",
+      "classification": "formatting-only",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "喧闹、嘈杂的形容词义有依据；原释义adj.后多出一个句点。",
+      "limitations": "确认的是格式瑕疵，不是词义错误；先记录，不为此单独发布或写回数据库。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "quietly",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "安静地有直接依据；秘密地可与quiet的隐秘用法对应。",
+      "limitations": "平稳地尚缺本轮直接例证，保留待核。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "soft",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "柔软、温和等形容词义，柔软物/部分名词及副词用法有依据。",
+      "limitations": "名词柔性的抽象范围尚待直接核对；笨的属能力或头脑语境，不泛化物理软。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "rough",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "粗糙、粗略等形容词、副词、粗糙地面或未加工物名词及粗加工动词均有依据。",
+      "limitations": "vi举止粗野及名词艰苦尚缺直接证据；不要混同play rough中的副词和动词。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "improve",
+      "classification": "partially-unresolved",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "改善、提高价值的及物用法和变好的不及物用法成立。",
+      "limitations": "vi增加范围过宽，不能推出任意数量增加；是否需改写须再核对原义及配价。",
+      "action": "retain-current-value; investigate before proposing changes"
+    },
+    {
+      "word": "improvement",
+      "classification": "incomplete-not-incorrect",
+      "reviewFile": "../2026-11-03-remaining-review/review.json",
+      "finding": "改善的名词义成立。",
+      "limitations": "短释义未标词性或体现改善结果，不等于现义错误。",
+      "action": "retain-current-value; investigate before proposing changes"
+    }
+  ]
+}

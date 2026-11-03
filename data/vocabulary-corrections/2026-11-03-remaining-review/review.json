@@ -1,0 +1,2766 @@
+{
+  "baseline": "v1.27.160",
+  "reviewer": "assistant-source-review; not expert certification",
+  "scope": "Focused review of first non-placeholder variant per word; other variants inventoried, not certified. Zero remaining means first-pass coverage only, not resolved meanings or semantic correctness.",
+  "counts": {
+    "focusedWords": 43,
+    "newlyTriagedPreviouslyUnreviewed": 43,
+    "remainingWithoutFocusedSemanticReview": 0,
+    "confirmedSemanticCorrections": 0,
+    "confirmedFormattingIssues": 1,
+    "runtimeChanges": 0,
+    "productionWrites": 0,
+    "classifications": {
+      "partially-unresolved": 11,
+      "supported-selected-senses": 24,
+      "incomplete-not-incorrect": 6,
+      "usage-context-gap": 1,
+      "formatting-only": 1
+    }
+  },
+  "license": "Commercial references used only to verify linguistic facts; no upstream definitions, examples or phonetics imported. Existing source rights unchanged.",
+  "rows": [
+    {
+      "word": "single",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "4ba9f21f95f81f18d6ce1d3376f1bba42ccd163a04fa645c7576e988c13bfa53",
+      "finding": "单一、单身、单打及棒球不及物用法有依据；选出通常与out搭配。",
+      "limitations": "本轮未取得单程票义的直接证据，不能因此删除；Cambridge词条返回403。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/single",
+          "locator": "adjective; noun; transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "4ba9f21f95f81f18d6ce1d3376f1bba42ccd163a04fa645c7576e988c13bfa53",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级上册.xlsx",
+              "row": 292
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语九年级上册.xlsx",
+              "row": 147
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第二册（新版）.xlsx",
+              "row": 29
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1269
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 175
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 654
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 3016
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1401
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修4.xlsx",
+              "row": 80
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "forehead",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "d56b394e0e9bdbcff50c45bd71db34988ea48f5ed4a9db5993b42de2c56a6d71",
+      "finding": "额、前额的身体部位名词义有依据。",
+      "limitations": "未审查其他变体或全部扩展义。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/forehead",
+          "locator": "noun 1"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "d56b394e0e9bdbcff50c45bd71db34988ea48f5ed4a9db5993b42de2c56a6d71",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1849
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 827
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第四册.xlsx",
+              "row": 234
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语8 - 选修.xlsx",
+              "row": 231
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第四册.xlsx",
+              "row": 90
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修4.xlsx",
+              "row": 111
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "throat",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "e35d4e89ec387682f311fe7a34c3be5f5eec86bf50ee4022381538a7dda9ab57",
+      "finding": "喉部、嗓音、狭窄通道及喉音发声的及物用法有依据。",
+      "limitations": "开沟于尚未取得直接证据，保留待核。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/throat",
+          "locator": "noun; transitive verb 1-2"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "e35d4e89ec387682f311fe7a34c3be5f5eec86bf50ee4022381538a7dda9ab57",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 11
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1127
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 1273
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 3384
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2107
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 388
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2207
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第二册.xlsx",
+              "row": 357
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语5 - 必修.xlsx",
+              "row": 347
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 133
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修2.xlsx",
+              "row": 24
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "jaw",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "a15be305119e8888e9943559318a227d488b18866e1397794bf1e50f10333f0c",
+      "finding": "颌、狭窄通道相关义、唠叨名词及训斥动词有依据。",
+      "limitations": "狭窄入口与通道两侧/间隙的译义范围仍需语境核对。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/jaw",
+          "locator": "noun; transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a15be305119e8888e9943559318a227d488b18866e1397794bf1e50f10333f0c",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3333
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 2010
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 2010
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1076
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2952
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1699
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第四册.xlsx",
+              "row": 232
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 150
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 176
+            }
+          ]
+        },
+        {
+          "sha256": "e4ba5421f8d64ada1a419c883357512ea25f1445352c25a2050e3b77962de85c",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3333
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 2010
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 2010
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "limb",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "d0895048d4ab722a8480885cfbd94b381af048869190a0b2580bea2ae033d07b",
+      "finding": "肢的身体部位义成立。",
+      "limitations": "单字释义未标词性且省略树枝等义；不等于现义错误。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/limb",
+          "locator": "noun: limb 1"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "d0895048d4ab722a8480885cfbd94b381af048869190a0b2580bea2ae033d07b",
+          "sourceRows": [
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程1（第三版）.xlsx",
+              "row": 441
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词.xlsx",
+              "row": 922
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 1599
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 1204
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2535
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 763
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 112
+            }
+          ]
+        },
+        {
+          "sha256": "d5fc5e41b57c97d37b52504a367aa5ef0505f832080cb6a13b8ae98663f02871",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3033
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 3057
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 3058
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 3957
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 220
+            }
+          ]
+        },
+        {
+          "sha256": "d3e2b24ca04b626c498415ec81a29c136f7300de3ce28ff5e95fbe9bb436c91b",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3033
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 3057
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 3058
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 3957
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "shoulder",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "9fe15562c69f8bde131a296419c9695184589c2968cf1cb03bf608983d792216",
+      "finding": "肩部名词、肩负责任及用肩推挤的动词用法成立。",
+      "limitations": "承担责任为比喻用法，不能据此任意省略宾语。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/shoulder",
+          "locator": "noun; transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "9fe15562c69f8bde131a296419c9695184589c2968cf1cb03bf608983d792216",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语九年级全册.xlsx",
+              "row": 506
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级上册.xlsx",
+              "row": 290
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 144
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第二册（新版）.xlsx",
+              "row": 715
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1575
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1185
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 3063
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 376
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1149
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 226
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "arm",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "d34e2fa34191c6a7d3f8ff872583d50670e1cb6080a76fd901cdef40ade9fc76",
+      "finding": "手臂、衣袖、组织分部以及武装和备战动词有依据。",
+      "limitations": "武器通常涉及arms；名词装备的范围仍待逐义核对，不认证整行。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/arm",
+          "locator": "noun 1; verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "d34e2fa34191c6a7d3f8ff872583d50670e1cb6080a76fd901cdef40ade9fc76",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级上册.xlsx",
+              "row": 133
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 399
+            },
+            {
+              "sourceKey": "小学/人教版/三年级上.xlsx",
+              "row": 27
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第二册（新版）.xlsx",
+              "row": 435
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2470
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 491
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3025
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/SAT巴朗.xlsx",
+              "row": 2641
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 133
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day1.xlsx",
+              "row": 133
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 378
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 587
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "elbow",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "819ea097206aba50aac598ffa5f0605c5c9466b2578fb7b6225f0d480f716374",
+      "finding": "肘部、管道弯头、用肘推挤有依据。",
+      "limitations": "扶手尚未取得直接证据，不以词典未列为错误结论。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/elbow",
+          "locator": "noun; transitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "819ea097206aba50aac598ffa5f0605c5c9466b2578fb7b6225f0d480f716374",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语九年级全册.xlsx",
+              "row": 460
+            },
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程1（第三版）.xlsx",
+              "row": 790
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2919
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 674
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 674
+            }
+          ]
+        },
+        {
+          "sha256": "a433fa5a77157d7c87b209a7a17cdba26aeebfb9f1715ff1fc0bb925dc46b690",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 1260
+            }
+          ]
+        },
+        {
+          "sha256": "5f96c63a0e72dd4454406ff7367c13c6f7352d28be96404fb45dbd30e65c7832",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 674
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 674
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "fingertip",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "693d9d624db212a3b3bd98bb38dfdc3aefcea8914b9f4d6c6bdbabc63b1e3d9e",
+      "finding": "指尖与保护指端的指套名词义都有依据。",
+      "limitations": "指套不是误把tip解释为套；使用频率与日常优先级未量化。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/fingertip",
+          "locator": "noun 1-2"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "693d9d624db212a3b3bd98bb38dfdc3aefcea8914b9f4d6c6bdbabc63b1e3d9e",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 264
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 1222
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第一册.xlsx",
+              "row": 89
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "knee",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "2c53ee6be2c348047a77293bbb4f6bfbd4f5648fc35fa5eb44267d742f2bd0d8",
+      "finding": "膝部名词与用膝碰击的及物用法成立。",
+      "limitations": "此结论不认证其他变体。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/knee",
+          "locator": "noun; transitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "2c53ee6be2c348047a77293bbb4f6bfbd4f5648fc35fa5eb44267d742f2bd0d8",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 39
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 392
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语九年级上册.xlsx",
+              "row": 241
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1627
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1305
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2079
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 874
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "girlfriend",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "bba9c043af62ca495eac1f28b0ca6bf5f3379f2e6a8d8f64b1a29f490f38c0b4",
+      "finding": "女性朋友和恋爱伴侣两类用法均有依据。",
+      "limitations": "具体关系依语境判断，不应全部解释为恋爱关系。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/girlfriend",
+          "locator": "noun 1-2"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "bba9c043af62ca495eac1f28b0ca6bf5f3379f2e6a8d8f64b1a29f490f38c0b4",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级上册.xlsx",
+              "row": 229
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "homosexual",
+      "classification": "usage-context-gap",
+      "reviewedVariantSha256": "f82e9fa7a0a8398d42bb6e30654d136616511174b16cae11ab50a5d08cd3d2cb",
+      "finding": "同性恋相关形容词及指人的名词义有依据；词典同时标注现代用语限制。",
+      "limitations": "名词常被视为冒犯，形容词有时如此；不能把译义存在当作适合所有日常场景，也不判定所有使用均为辱称。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/homosexual",
+          "locator": "adjective and noun usage labels"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "f82e9fa7a0a8398d42bb6e30654d136616511174b16cae11ab50a5d08cd3d2cb",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 4958
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语6 - 选修.xlsx",
+              "row": 234
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "condom",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "fa35e3fa08fbbfbfb33f9de4ea7891e969fbff5f7a7b8d0b15ec0e5afc8911d6",
+      "finding": "避孕套的名词义有依据。",
+      "limitations": "现有阴茎套译项未覆盖内部使用的类型；只做词义核查，不作医学指导。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/condom",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "fa35e3fa08fbbfbfb33f9de4ea7891e969fbff5f7a7b8d0b15ec0e5afc8911d6",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 4158
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语6 - 选修.xlsx",
+              "row": 233
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "abortion",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "d7382691c1c53c046ef54bdb880df80d5604130c6884ab862bff29f6570ef7f5",
+      "finding": "妊娠终止以及事物发展失败的名词义有依据。",
+      "limitations": "流产的胎儿这一独立译项未由本轮来源直接确认；保留待核，不作医学指导。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/abortion",
+          "locator": "noun 1 and 3"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "d7382691c1c53c046ef54bdb880df80d5604130c6884ab862bff29f6570ef7f5",
+          "sourceRows": [
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程3（第三版）.xlsx",
+              "row": 34
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 2655
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2800
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语6 - 选修.xlsx",
+              "row": 238
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "delivery",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "b381a4aa83ba9aef31bd4eed7bb67f567ed8824bc6bd77908f6df0d4ac676cca",
+      "finding": "传送义成立。",
+      "limitations": "短释义未覆盖分娩、表达方式等日常场景；遗漏不等于现义错误。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/delivery",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "b381a4aa83ba9aef31bd4eed7bb67f567ed8824bc6bd77908f6df0d4ac676cca",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 353
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 1135
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 80
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 875
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 906
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3027
+            },
+            {
+              "sourceKey": "考试/考研/2022考研核心1374词.xlsx",
+              "row": 487
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 1414
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day8.xlsx",
+              "row": 31
+            }
+          ]
+        },
+        {
+          "sha256": "2dca5aed6fd47be288d93df4d7eb63a7d3400c667c90e8ce05379e45b51dfe18",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 2302
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 2303
+            }
+          ]
+        },
+        {
+          "sha256": "7c8ddcceb047829363286580ef7ac7a716932e03bb21622ed40d2dda0961af2b",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 2302
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 2303
+            }
+          ]
+        },
+        {
+          "sha256": "5840d95b304f3061a1aa55973dac3ec5fd19b2f0a4655b3c1f1bb543c83bd8cf",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 606
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "youth",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "b018975bf37018509451b7c40b39dc0c417ff1fd18b9f050be1503bf2f2e0c47",
+      "finding": "年轻时期、青年群体或个体、青春特征均有依据。",
+      "limitations": "不同义项的可数性与集合用法需要教学语境。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/youth",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "b018975bf37018509451b7c40b39dc0c417ff1fd18b9f050be1503bf2f2e0c47",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 710
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1337
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 1778
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 467
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1316
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 110
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day1.xlsx",
+              "row": 110
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 895
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2453
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 100
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语1 - 必修.xlsx",
+              "row": 277
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修4.xlsx",
+              "row": 115
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "adult",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "a510582caad86a92b3b2d8e43d5d7ffb2504421aaa870456b1c1cc18dcd5bad7",
+      "finding": "成年人的名词义和成熟、成年的形容词义有依据。",
+      "limitations": "未覆盖全部扩展义，不能据此判全词完整。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/adult",
+          "locator": "noun; adjective"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a510582caad86a92b3b2d8e43d5d7ffb2504421aaa870456b1c1cc18dcd5bad7",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 358
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 137
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1649
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1228
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 3280
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 269
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 112
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语4 - 必修.xlsx",
+              "row": 224
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第二册.xlsx",
+              "row": 139
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修2.xlsx",
+              "row": 57
+            }
+          ]
+        },
+        {
+          "sha256": "5558934a5a01277d7a6fcec647d0e88a75223498cbdad9b6885c70c2139bd233",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 323
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "mature",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "25fa0b580735f25420bd965c2c040cc3748859946762798f1bb85c56c05d820d",
+      "finding": "成熟、成年、到期及充分考虑的形容词义，成熟和到期动词义有依据。",
+      "limitations": "及物慎重作出的范围尚需直接配价证据；不据形容词义替动词背书。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/mature",
+          "locator": "adjective; transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "25fa0b580735f25420bd965c2c040cc3748859946762798f1bb85c56c05d820d",
+          "sourceRows": [
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程1（第三版）.xlsx",
+              "row": 702
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1517
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 1805
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC高级.xlsx",
+              "row": 564
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词.xlsx",
+              "row": 181
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 1038
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 59
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 518
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 1586
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 3375
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 3376
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/GMAT单词.xlsx",
+              "row": 1625
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2791
+            },
+            {
+              "sourceKey": "考试/考研/2022考研核心1374词.xlsx",
+              "row": 363
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 1850
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 4383
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1984
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 608
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第二册.xlsx",
+              "row": 133
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 346
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第二册.xlsx",
+              "row": 15
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 48
+            }
+          ]
+        },
+        {
+          "sha256": "2919a7a940548c0f0a55113052542b2e7bfa7be89304afde0102828817cb400a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 1586
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 3375
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 3376
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "funeral",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "0a1f69abf5494bbea9b3792957b23652425891be5a3c3070d25b42c889dc00ee",
+      "finding": "葬礼名词、丧葬形容词和问题或后果的比喻名词义有依据。",
+      "limitations": "麻烦事依特定语境使用，不能泛化为所有问题。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/funeral",
+          "locator": "adjective; noun, including sense 5"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "0a1f69abf5494bbea9b3792957b23652425891be5a3c3070d25b42c889dc00ee",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级上册.xlsx",
+              "row": 218
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第三册（新版）.xlsx",
+              "row": 189
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 821
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1140
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3308
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1313
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语11 - 选修.xlsx",
+              "row": 111
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修4.xlsx",
+              "row": 158
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "cemetery",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "10d73a71a1bf28636bb9bae078aa66d6ac9b19bdec0737d40034fdc9be340d2b",
+      "finding": "墓地、公墓的名词义成立。",
+      "limitations": "不保证不同地区墓地制度的全部对应关系。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/cemetery",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "10d73a71a1bf28636bb9bae078aa66d6ac9b19bdec0737d40034fdc9be340d2b",
+          "sourceRows": [
+            {
+              "sourceKey": "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程4（第三版）.xlsx",
+              "row": 871
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 2164
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2981
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第二册.xlsx",
+              "row": 249
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修3.xlsx",
+              "row": 81
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修10.xlsx",
+              "row": 149
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "graveyard",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "44522148748c633f1bc700c15ebd6b85d93f7301dbd8a223e099a3e9321aa8fd",
+      "finding": "墓地名词义成立。",
+      "limitations": "未收录废弃物聚集地等比喻义，不据此判错。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/graveyard",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "44522148748c633f1bc700c15ebd6b85d93f7301dbd8a223e099a3e9321aa8fd",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 1258
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "observation",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "f262badacb76ab43faaefdb3e467895abd4c7cabb39b8d14f3482890333dbfc5",
+      "finding": "观察义成立。",
+      "limitations": "未标词性且未覆盖言论、记录等名词义。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/observation",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "f262badacb76ab43faaefdb3e467895abd4c7cabb39b8d14f3482890333dbfc5",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 402
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 931
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 945
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3487
+            },
+            {
+              "sourceKey": "考试/考研/2022考研核心1374词.xlsx",
+              "row": 792
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 1014
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day6.xlsx",
+              "row": 24
+            }
+          ]
+        },
+        {
+          "sha256": "e8c320867a091cfdf271df12fe9b72cb349dcbf6ce37bee45ac603affb664e38",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 1007
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 1007
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 2636
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语4 - 必修.xlsx",
+              "row": 30
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修8.xlsx",
+              "row": 441
+            }
+          ]
+        },
+        {
+          "sha256": "c239a7c033c68e6d2d9b4a201bb0a3d0eee0467a02f3c06c246385427ab3cbb9",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 1007
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 1007
+            }
+          ]
+        },
+        {
+          "sha256": "72a3e531274c80329c476f61014193a80773c1f6a99e7f455844d5fcf4c6c2b8",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 319
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "noisy",
+      "classification": "formatting-only",
+      "reviewedVariantSha256": "a8e5034eecb3b085b8209c56430a9ac821d40b30b815c1561ca4de870dbe3dd5",
+      "finding": "喧闹、嘈杂的形容词义有依据；原释义adj.后多出一个句点。",
+      "limitations": "确认的是格式瑕疵，不是词义错误；先记录，不为此单独发布或写回数据库。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/noisy",
+          "locator": "adjective"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a8e5034eecb3b085b8209c56430a9ac821d40b30b815c1561ca4de870dbe3dd5",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 165
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 415
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 171
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2121
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 722
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1757
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语7 - 选修.xlsx",
+              "row": 14
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "quiet",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "420514b4c2afaf89bcb9c4e8733b72cd2f03555f5c7837f65a36c8d2d897c496",
+      "finding": "安静、平静的名词和形容词义，及物使平静及不及物平静下来有依据。",
+      "limitations": "各中文近义词的适用范围依语境，不声称一一无条件等价。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/quiet",
+          "locator": "noun; adjective; verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "420514b4c2afaf89bcb9c4e8733b72cd2f03555f5c7837f65a36c8d2d897c496",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 154
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级上册.xlsx",
+              "row": 224
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 202
+            },
+            {
+              "sourceKey": "小学/人教版/四年级上.xlsx",
+              "row": 33
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 790
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1745
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2582
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1853
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "quietly",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "a2f17be77276f2bf8ee91ae6411752838bcb4a136d5e24f8a2b7040d0c41932c",
+      "finding": "安静地有直接依据；秘密地可与quiet的隐秘用法对应。",
+      "limitations": "平稳地尚缺本轮直接例证，保留待核。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/quietly",
+          "locator": "adverb; quiet adjective discreet/secret sense"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a2f17be77276f2bf8ee91ae6411752838bcb4a136d5e24f8a2b7040d0c41932c",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级上册.xlsx",
+              "row": 102
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级上册.xlsx",
+              "row": 162
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "silence",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "221f2e5649fa860cfee2808291bf3b10012450bd940b401f631f45d67e7f846f",
+      "finding": "沉默、无声、不谈的名词义及使安静、压制的动词义成立；名词可作感叹使用。",
+      "limitations": "int行不应仅因主词性为名词而删除；消除噪音的技术范围未全面核验。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/silence",
+          "locator": "noun (interjectional use); verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "221f2e5649fa860cfee2808291bf3b10012450bd940b401f631f45d67e7f846f",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 251
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级下册.xlsx",
+              "row": 240
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语九年级上册.xlsx",
+              "row": 216
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 782
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3725
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2382
+            }
+          ]
+        },
+        {
+          "sha256": "068e00b170c910bbe02e3c87096ff7f48f5aec4270343d95a9a80220f867a02f",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 1131
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "cool",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "01f410f955a7e4887451bb229797cc677fea1323692e4c4ca1b8dce75569814f",
+      "finding": "凉爽、冷静、出色的形容词义，冷却动词及名词、冷静副词用法有依据。",
+      "limitations": "副词少见不等于错误，具体搭配需单独教学。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/cool",
+          "locator": "adjective; noun; verb; adverb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "01f410f955a7e4887451bb229797cc677fea1323692e4c4ca1b8dce75569814f",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级上册.xlsx",
+              "row": 420
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级上册.xlsx",
+              "row": 278
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级下册.xlsx",
+              "row": 128
+            },
+            {
+              "sourceKey": "小学/人教版/四年级下.xlsx",
+              "row": 34
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1298
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3770
+            },
+            {
+              "sourceKey": "考试/考研/2022考研核心1374词.xlsx",
+              "row": 1231
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1607
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "warm",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "60401845bb6f4f9c59c221b43c792eb32c770035e82bf63cfe2a58162b99e085",
+      "finding": "温暖、热情及使温暖的动词义成立；AHD另列非正式加热名词和产生好感的不及物用法。",
+      "limitations": "同情须结合对人或事物产生好感的语境，不能无条件代替sympathize。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/warm",
+          "locator": "adjective; verb"
+        },
+        {
+          "url": "https://www.ahdictionary.com/word/search.html?q=warm",
+          "locator": "noun; intransitive verb 3"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "60401845bb6f4f9c59c221b43c792eb32c770035e82bf63cfe2a58162b99e085",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 292
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级上册.xlsx",
+              "row": 276
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级上册.xlsx",
+              "row": 91
+            },
+            {
+              "sourceKey": "小学/人教版/四年级下.xlsx",
+              "row": 35
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 396
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2279
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1369
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 831
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "soft",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "7e677b6e2b5c8c5106ad950b115c8eab0a089527f33f1b33a8f6c0fd61a6f334",
+      "finding": "柔软、温和等形容词义，柔软物/部分名词及副词用法有依据。",
+      "limitations": "名词柔性的抽象范围尚待直接核对；笨的属能力或头脑语境，不泛化物理软。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/soft",
+          "locator": "adjective; noun; adverb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "7e677b6e2b5c8c5106ad950b115c8eab0a089527f33f1b33a8f6c0fd61a6f334",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 504
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级下册.xlsx",
+              "row": 68
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级下册.xlsx",
+              "row": 3
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 742
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1631
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 465
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 707
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 308
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2784
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 12
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修3.xlsx",
+              "row": 159
+            }
+          ]
+        },
+        {
+          "sha256": "e07d976d8cf4347a418317c88fbd0429127df3e9c83292f5355cd35ec5a1b761",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 308
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "hard",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "dce4c0ffaa4a6cd935832ada8b1e09e080dd89081eb0bd819165f14f9bd42322",
+      "finding": "硬、困难、严厉等形容词与努力、接近等副词用法有依据；儿童条目也列勤勉形容词义。",
+      "limitations": "努力的形容词不能按常见副词印象删除；接近地限于距离或时间等语境。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/hard",
+          "locator": "adjective; adverb; Kids adjective 7"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "dce4c0ffaa4a6cd935832ada8b1e09e080dd89081eb0bd819165f14f9bd42322",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 302
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级上册.xlsx",
+              "row": 620
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 305
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 740
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 973
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 1451
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 32
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3306
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 403
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 678
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "rough",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "905e5e7c623a5717461db0e437055c55abaa19bc224e28c4b5fe846554f0d98e",
+      "finding": "粗糙、粗略等形容词、副词、粗糙地面或未加工物名词及粗加工动词均有依据。",
+      "limitations": "vi举止粗野及名词艰苦尚缺直接证据；不要混同play rough中的副词和动词。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/rough",
+          "locator": "adjective; adverb; noun; transitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "905e5e7c623a5717461db0e437055c55abaa19bc224e28c4b5fe846554f0d98e",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 83
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级下册.xlsx",
+              "row": 100
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第三册（新版）.xlsx",
+              "row": 584
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1182
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 44
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 2163
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 3216
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 198
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3426
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 1408
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 1058
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1739
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 475
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第三册.xlsx",
+              "row": 260
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语5 - 必修.xlsx",
+              "row": 96
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第三册.xlsx",
+              "row": 159
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修7.xlsx",
+              "row": 235
+            }
+          ]
+        },
+        {
+          "sha256": "af4667bfa3b16112e1ca1188f13d9a7029673d02b81db51bc2f94a853e1af39e",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 198
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "beauty",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "186de36562af889e180af52b7a80aba79e518196125832d1757fd0580a8b9efe",
+      "finding": "美、美人和出色事物的名词义成立。",
+      "limitations": "不能将人物用法泛化为所有情境的称呼建议。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/beauty",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "186de36562af889e180af52b7a80aba79e518196125832d1757fd0580a8b9efe",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 424
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语七年级上册.xlsx",
+              "row": 154
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1491
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 432
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1277
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2356
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第二册.xlsx",
+              "row": 138
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语3 - 必修.xlsx",
+              "row": 3
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 376
+            }
+          ]
+        },
+        {
+          "sha256": "7dd305caf5ba5fde87a8dd4774ea0bae785fa2b491a243baab6d3744f59461a2",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 694
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "attractive",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "0c155f43c2ce22777337e01860c854583d007cb40bbc86c9f7aacf0ec09bf28f",
+      "finding": "吸引人、有魅力的形容词义成立。",
+      "limitations": "吸引力不限于外貌。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/attractive",
+          "locator": "adjective"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "0c155f43c2ce22777337e01860c854583d007cb40bbc86c9f7aacf0ec09bf28f",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2063
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词.xlsx",
+              "row": 518
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 1067
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 270
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3519
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 969
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 969
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2503
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/考博单词.xlsx",
+              "row": 243
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 1193
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day7.xlsx",
+              "row": 2
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 3189
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 457
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语2 - 必修.xlsx",
+              "row": 302
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修1.xlsx",
+              "row": 114
+            }
+          ]
+        },
+        {
+          "sha256": "eb4c166fe418d464615ef640e771e4a8e2be25e6b091c264b3bc303625eaac57",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3519
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 969
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 969
+            }
+          ]
+        },
+        {
+          "sha256": "9f6e32d65e9321c234417b2ab8f5340e2b97132b0d44197cf7721353c3e16fab",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 1014
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "haircut",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "fceea0e49ffa0b5541065f1604d3271fe487025069df6cc2d051f0a8b30a0b8e",
+      "finding": "理发过程与发型两类名词义成立。",
+      "limitations": "金融等专业义未覆盖，不判现义错误。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/haircut",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "fceea0e49ffa0b5541065f1604d3271fe487025069df6cc2d051f0a8b30a0b8e",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 623
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3048
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1040
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 160
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语7 - 选修.xlsx",
+              "row": 107
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 62
+            }
+          ]
+        },
+        {
+          "sha256": "397f88cc4e92c1832da00f9298c46641d3791f2b448bdfd9970b9ed54758b00d",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3048
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "barber",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "456bd24a651fa7564824cc52640807c654dd6af5e67909216eb1d919e8e7279f",
+      "finding": "理发师名词、给人理发的及物用法和当理发师的不及物用法成立。",
+      "limitations": "其他大小写同形专名变体未获本轮认证。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/barber",
+          "locator": "noun; transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "456bd24a651fa7564824cc52640807c654dd6af5e67909216eb1d919e8e7279f",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 735
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2512
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3434
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3994
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 3599
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1461
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语3 - 必修.xlsx",
+              "row": 223
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第一册.xlsx",
+              "row": 34
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修5.xlsx",
+              "row": 53
+            }
+          ]
+        },
+        {
+          "sha256": "028ef0eef370bf43676d44ff03a771ba41304d2ff74ec8a487fc815f51b748e3",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3434
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "hairdresser",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "040c62a32414d891514d6f20511f99c3103920830c0e17a2596a000f31641620",
+      "finding": "美发师的职业名词义成立。",
+      "limitations": "具体职业范围可依地区和语境变化。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/hairdresser",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "040c62a32414d891514d6f20511f99c3103920830c0e17a2596a000f31641620",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 82
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "shave",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "b73da00f05baa945581ba5207e1ea0269f565a63994ca305f9bfac4d78937212",
+      "finding": "剃、削、掠过的动词及剃刮行为和工具的名词义有依据；儿童条目列侥幸逃过义。",
+      "limitations": "侥幸逃过常见于close shave，不能推导任意裸词搭配；不能误删工具名词。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/shave",
+          "locator": "verb; noun; Kids noun 1-3"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "b73da00f05baa945581ba5207e1ea0269f565a63994ca305f9bfac4d78937212",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 283
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2177
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 411
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 251
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2505
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 231
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 231
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/GMAT单词.xlsx",
+              "row": 835
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1211
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1658
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第三册.xlsx",
+              "row": 116
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语8 - 选修.xlsx",
+              "row": 59
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 256
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语选择性必修第一册.xlsx",
+              "row": 35
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 560
+            }
+          ]
+        },
+        {
+          "sha256": "98ae09b32b5df77c5a066186190bb5450568f85d8b41fb1009413667a4f514b3",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 231
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 231
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "razor",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "dde01fe21d8905a0f0be18d400bfbafcd1b9b77c6a5a43470ebcfe812c870f6b",
+      "finding": "剃刀名词成立；AHD明确列及物剃刮用法。",
+      "limitations": "不能因MW仅列名词便删除vt行。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/razor",
+          "locator": "noun"
+        },
+        {
+          "url": "https://www.ahdictionary.com/word/search.html?q=razor",
+          "locator": "transitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "dde01fe21d8905a0f0be18d400bfbafcd1b9b77c6a5a43470ebcfe812c870f6b",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 2428
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1238
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语11 - 选修.xlsx",
+              "row": 288
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 558
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "improve",
+      "classification": "partially-unresolved",
+      "reviewedVariantSha256": "c58420576e1387a63b9c2af4e1b2980383c40699fc65efc06208d0aa107f581e",
+      "finding": "改善、提高价值的及物用法和变好的不及物用法成立。",
+      "limitations": "vi增加范围过宽，不能推出任意数量增加；是否需改写须再核对原义及配价。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/improve",
+          "locator": "transitive and intransitive verb"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "c58420576e1387a63b9c2af4e1b2980383c40699fc65efc06208d0aa107f581e",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级上册.xlsx",
+              "row": 275
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级上册.xlsx",
+              "row": 35
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语八年级上册.xlsx",
+              "row": 183
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2902
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 1769
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 1950
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 34
+            },
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版.xlsx",
+              "row": 3393
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 1859
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 1859
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3553
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 2345
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 1299
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1758
+            },
+            {
+              "sourceKey": "考试/高考/高考历年真题核心高频688.xlsx",
+              "row": 14
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 53
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 82
+            }
+          ]
+        },
+        {
+          "sha256": "e84d2fa13978e24c7f04f3868b3a5986a872f6bac37b66e41870804378585733",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/TOEFL词汇乱序版_plus.xlsx",
+              "row": 3393
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 1859
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 1859
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "improvement",
+      "classification": "incomplete-not-incorrect",
+      "reviewedVariantSha256": "e0951339ae5ac26110ed07bc9dc2789ee77085b2375c58c96ed1ac2be782a31c",
+      "finding": "改善的名词义成立。",
+      "limitations": "短释义未标词性或体现改善结果，不等于现义错误。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/improvement",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "e0951339ae5ac26110ed07bc9dc2789ee77085b2375c58c96ed1ac2be782a31c",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 865
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 585
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 152
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 323
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 1547
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1687
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 4175
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 1615
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day9.xlsx",
+              "row": 33
+            }
+          ]
+        },
+        {
+          "sha256": "93b04216d69b0af0e2963f7d55267067c91dfbada1b3bafd901e0e4bfbb96d59",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 339
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 339
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 2346
+            }
+          ]
+        },
+        {
+          "sha256": "3e8a77aee50e1e48519732f7944bc48b906efe3d27fad3feb0fd72b2263ac1fc",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 339
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 339
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "recovery",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "bd30b45ae610afcabdceceb6eb1c507eee222c2080327dea565cdd1ae7d5ddfd",
+      "finding": "恢复、痊愈和重获的名词义有依据。",
+      "limitations": "重获与恢复健康的具体宾语和场景不同。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/recovery",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "bd30b45ae610afcabdceceb6eb1c507eee222c2080327dea565cdd1ae7d5ddfd",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语九年级下册.xlsx",
+              "row": 187
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第三册（新版）.xlsx",
+              "row": 406
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC中级.xlsx",
+              "row": 1368
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 1065
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词.xlsx",
+              "row": 746
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+              "row": 480
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/六级考纲词汇.xlsx",
+              "row": 200
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 2027
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 424
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 3409
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 947
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day5.xlsx",
+              "row": 163
+            },
+            {
+              "sourceKey": "考试/考研/2023马天艺考研英语单词之间.xlsx",
+              "row": 517
+            }
+          ]
+        },
+        {
+          "sha256": "e0534b8a4e46a0cb5601d4da01910450a4ef2ffd6eacdc29c7312dcf7cfe0930",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词.xlsx",
+              "row": 140
+            }
+          ]
+        },
+        {
+          "sha256": "c71ce8fbee39a91a99878d2ef0526e21cb81a4749f1c2dc4b565596caa51a786",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 739
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "weak",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "638bb3f85150260226dacac095e22a7b33b71e6bee4fb76e6fcef070e9a51ced",
+      "finding": "虚弱、不牢固等形容词义有依据；AHD的市场语境支持经济疲软义。",
+      "limitations": "经济标签只应约束对应译项，不能把全词限定为金融术语。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/weak",
+          "locator": "adjective"
+        },
+        {
+          "url": "https://www.ahdictionary.com/word/search.html?q=weak",
+          "locator": "adjective 4c"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "638bb3f85150260226dacac095e22a7b33b71e6bee4fb76e6fcef070e9a51ced",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 267
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级下册.xlsx",
+              "row": 116
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语七年级上册.xlsx",
+              "row": 121
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第二册（新版）.xlsx",
+              "row": 110
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1004
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 636
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2187
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "weakness",
+      "classification": "supported-selected-senses",
+      "reviewedVariantSha256": "a07da054aa212d30a696ac1cb0e6e3b664e073e239069ce28a848fea8e312856",
+      "finding": "软弱状态、弱点及偏好嗜好名词义有依据。",
+      "limitations": "嗜好依偏爱或难以抗拒的语境，不代表所有兴趣。",
+      "decision": "retain-current-value",
+      "references": [
+        {
+          "url": "https://www.merriam-webster.com/dictionary/weakness",
+          "locator": "noun"
+        }
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a07da054aa212d30a696ac1cb0e6e3b664e073e239069ce28a848fea8e312856",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 620
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 303
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1544
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 2970
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 2971
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1772
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 42
+            },
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day1.xlsx",
+              "row": 42
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 3154
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语3 - 必修.xlsx",
+              "row": 127
+            }
+          ]
+        },
+        {
+          "sha256": "9ea49d3365101a86da7230560e8f3fab7a995fa21b7908ee216210be30742575",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 2970
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 2971
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
