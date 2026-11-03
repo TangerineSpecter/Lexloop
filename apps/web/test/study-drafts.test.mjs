@@ -6,6 +6,7 @@ import {
   readStudyDraftSnapshot,
   saveStudyDraft,
   studyDraftAnswerCount,
+  studyDraftIdentity,
 } from '../lib/study-drafts.ts';
 
 function createStorage() {
@@ -185,4 +186,34 @@ test('counts saved answers only for the same questions', () => {
     studyDraftAnswerCount('user', 'plan', 0, [{ ...questions[0], prompt: 'changed' }], storage),
     0,
   );
+});
+
+test('unusable server question metadata never deletes or overwrites an existing draft', () => {
+  for (const broken of [
+    undefined,
+    null,
+    [],
+    [{ ...questions[0], options: undefined }],
+    [{ ...questions[0], options: null }],
+    [{ ...questions[0], options: [] }],
+    [{ ...questions[1], pairs: [] }],
+    [{ ...questions[1], pairs: [null] }],
+  ]) {
+    const storage = createStorage();
+    const snapshot = saveStudyDraft('user', 'plan', 0, questions, answers, storage);
+    const before = [...storage.values.entries()];
+    assert.equal(studyDraftIdentity('user', 'plan', 0, broken), null);
+    assert.equal(studyDraftAnswerCount('user', 'plan', 0, broken, storage), 0);
+    assert.deepEqual([...storage.values.entries()], before);
+    assert.equal(saveStudyDraft('user', 'plan', 0, broken, {}, storage), null);
+    assert.equal(
+      clearStudyDraftIfMatches('user', 'plan', 0, broken, answers, snapshot, storage),
+      false,
+    );
+    assert.deepEqual([...storage.values.entries()], before);
+    assert.equal(
+      readStudyDraftSnapshot('user', 'plan', 0, questions, storage).snapshotId,
+      snapshot,
+    );
+  }
 });

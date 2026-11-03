@@ -3223,6 +3223,9 @@ test(
         localStorage.removeItem('lexloop.test.empty-study-plans');
         localStorage.setItem('lexloop.session', JSON.stringify({accessToken: 'fixture', user: {id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER'}}));
         const old = {...window.studyPlanResponse, id: 'invalid-progressive', purpose: 'progressive', progressiveStage: 'foundation', progressiveVersion: 1, status: 'ACTIVE', answerKeyRecoveryAvailable: true};
+        window.protectedDraftKey = 'lexloop.study.draft.study-user.invalid-progressive.0';
+        window.protectedDraftValue = JSON.stringify({version: 1, userId: 'study-user', planId: old.id, groupIndex: 0, questionSignature: 'saved-valid-question', snapshotId: 'saved-before-invalid', answers: {'word-1': {selected: ['明亮的'], confirmed: true}}});
+        localStorage.setItem(window.protectedDraftKey, window.protectedDraftValue);
         old.content.groups.forEach(group => group.questions.forEach(question => {delete question.options;}));
         old.words.forEach(word => {if (word.question) delete word.question.options;});
         const replacement = {...old, id: 'replacement-progressive', status: 'GENERATING', answerKeyRecoveryAvailable: false, replacedPlanId: old.id, content: null, generationStartedAt: null, generationPhase: null};
@@ -3252,6 +3255,13 @@ test(
       await until(
         '[...document.querySelectorAll("button")].some(button => button.textContent.includes("继续学习"))',
       );
+      assert.equal(
+        await evaluate(
+          'localStorage.getItem(window.protectedDraftKey) === window.protectedDraftValue',
+        ),
+        true,
+        'invalid ACTIVE plan count must not delete the draft',
+      );
       await evaluate(
         '[...document.querySelectorAll("button")].find(button => button.textContent.includes("继续学习")).click()',
       );
@@ -3261,6 +3271,14 @@ test(
         '[...document.querySelectorAll("[aria-label=异常练习恢复] button")].find(button => button.textContent.includes("创建替代练习")).click()',
       );
       await until('document.querySelector(".plan-preview-layer") && window.recoveryWrites === 1');
+      assert.equal(
+        await evaluate(
+          'localStorage.getItem(window.protectedDraftKey) === window.protectedDraftValue',
+        ),
+        true,
+        'sequence draft count and recovery preserve existing local selections',
+      );
+
       assert.equal(await evaluate('window.recoveryGenerations'), 0);
       assert.match(
         await evaluate('document.querySelector(".plan-preview").textContent'),

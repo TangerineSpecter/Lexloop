@@ -114,10 +114,11 @@ async function fixture(t, { staleState = false, autoUpdate } = {}) {
     const fs = require('node:fs');
     const args = process.argv.slice(2);
     fs.appendFileSync(${JSON.stringify(join(root, 'docker.log'))}, JSON.stringify({args, version: process.env.APP_VERSION}) + '\\n');
-    if (args.includes('psql')) process.stdout.write(fs.existsSync(${JSON.stringify(join(root, 'supplement-exists'))}) ? 't' : 'f');
+    if (args.includes('psql')) process.stdout.write(fs.existsSync(args.at(-1).includes('INVALIDATED') ? ${JSON.stringify(join(root, 'invalidated-exists'))} : ${JSON.stringify(join(root, 'supplement-exists'))}) ? 't' : 'f');
     else if (args[0] === 'exec') process.stdout.write('database-backup');
     if (args.includes('up') && args.includes('web') && process.env.APP_VERSION === '1.0.3' && fs.existsSync(${JSON.stringify(join(root, 'fail-switch'))})) {
       if (fs.existsSync(${JSON.stringify(join(root, 'enable-on-switch'))})) fs.writeFileSync(${JSON.stringify(join(root, 'supplement-exists'))}, 'yes');
+      if (fs.existsSync(${JSON.stringify(join(root, 'invalidate-on-switch'))})) fs.writeFileSync(${JSON.stringify(join(root, 'invalidated-exists'))}, 'yes');
       process.exitCode = 1;
     }
   `,
@@ -322,6 +323,18 @@ test('a due opted-in automatic update shares checks and uses the validated insta
 
   assert.equal(status.job.trigger, 'automatic');
   assert.equal(status.currentSha, f.targetSha);
+  const commands = f.commands();
+  const migrated = commands.findIndex(
+    (command) => command.args.includes('run') && command.args.includes('migrate'),
+  );
+  const started = commands.findIndex(
+    (command) => command.args.includes('up') && command.args.includes('web'),
+  );
+  assert.ok(
+    migrated >= 0 && started > migrated,
+    'migration must finish before new API starts, regardless of recovery flag',
+  );
+
   assert.equal(settings.body.enabled, true);
   assert.equal(settings.body.lastCheckResult, 'update_available');
   assert.equal(settings.body.lastUpdateResult, 'succeeded');
@@ -508,6 +521,18 @@ test('successful updates persist identity and refresh updater in an independent 
     return body.job?.stage === 'SUCCEEDED' && body;
   }, 'successful update');
   assert.equal(status.currentSha, f.targetSha);
+  const commands = f.commands();
+  const migrated = commands.findIndex(
+    (command) => command.args.includes('run') && command.args.includes('migrate'),
+  );
+  const started = commands.findIndex(
+    (command) => command.args.includes('up') && command.args.includes('web'),
+  );
+  assert.ok(
+    migrated >= 0 && started > migrated,
+    'migration must finish before new API starts, regardless of recovery flag',
+  );
+
   assert.match(readFileSync(f.productionEnv, 'utf8'), /APP_VERSION=1\.0\.3/);
   const helper = await until(
     () => f.commands().find((command) => command.args[0] === 'run'),
@@ -532,9 +557,33 @@ test('failed cutover refuses incompatible rollback before starting old writers',
     'failed rollback',
   );
   const commands = f.commands();
-  const checks = commands.filter((command) => command.args.includes('psql'));
+  const checks = commands.filter(
+    (command) => command.args.includes('psql') && !command.args.at(-1).includes('INVALIDATED'),
+  );
   assert.equal(checks.length, 2, 'both install and rollback recheck database compatibility');
   assert.equal(commands.filter((command) => command.args.includes('stop')).length, 2);
+  assert.equal(
+    commands.filter((command) => command.version === '1.0.0' && command.args.includes('up')).length,
+    0,
+  );
+});
+
+test('failed cutover never restarts a pre-recovery API after INVALIDATED data appears', async (t) => {
+  const f = await fixture(t);
+  writeFileSync(join(f.root, 'fail-switch'), 'fail');
+  writeFileSync(join(f.root, 'invalidate-on-switch'), 'fixture');
+  assert.equal((await f.apply()).status, 202);
+  await until(
+    async () => (await f.call('GET', '/status')).body.job?.stage === 'FAILED',
+    'blocked invalidated rollback',
+  );
+  const commands = f.commands();
+  assert.equal(
+    commands.filter(
+      (command) => command.args.includes('psql') && command.args.at(-1).includes('INVALIDATED'),
+    ).length,
+    2,
+  );
   assert.equal(
     commands.filter((command) => command.version === '1.0.0' && command.args.includes('up')).length,
     0,

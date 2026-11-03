@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import {
+  assertProgressiveCompatibility,
+  INVALIDATED_PLAN_EXISTS_SQL,
+} from './progressive-compatibility.mjs';
 
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -609,7 +613,7 @@ async function fenceSupplementVersion(version, releasePath, env) {
   // Stop writers before the compatibility read; an enabled API must not create
   // its first supplement between the check and starting an older image.
   await runAsync('docker', [...composeArgs(releasePath), 'stop', 'api', 'worker'], { env });
-  assertSupplementCompatibility(version, () =>
+  const readExists = (sql) =>
     run('docker', [
       'exec',
       'lexloop-postgres',
@@ -622,9 +626,10 @@ async function fenceSupplementVersion(version, releasePath, env) {
       '-v',
       'ON_ERROR_STOP=1',
       '-c',
-      SUPPLEMENT_EXISTS_SQL,
-    ]),
-  );
+      sql,
+    ]);
+  assertSupplementCompatibility(version, () => readExists(SUPPLEMENT_EXISTS_SQL));
+  assertProgressiveCompatibility(version, () => readExists(INVALIDATED_PLAN_EXISTS_SQL));
 }
 
 async function runUpdate(job, target) {

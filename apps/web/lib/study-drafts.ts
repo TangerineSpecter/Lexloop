@@ -28,6 +28,28 @@ function draftKey(userId: string, planId: string, groupIndex: number) {
 }
 
 function questionSignature(questions: StudyDraftQuestion[]) {
+  // A broken server question is not evidence that a local draft is stale.
+  if (
+    !Array.isArray(questions) ||
+    !questions.length ||
+    questions.some(
+      (question) =>
+        !question ||
+        typeof question.bookWordId !== 'string' ||
+        typeof question.type !== 'string' ||
+        typeof question.prompt !== 'string' ||
+        !Array.isArray(question.options) ||
+        question.options.some((option) => typeof option !== 'string') ||
+        (question.type !== 'WORD_MATCHING' && question.options.length === 0) ||
+        (question.type === 'WORD_MATCHING' &&
+          (!Array.isArray(question.pairs) ||
+            question.pairs.length === 0 ||
+            question.pairs.some(
+              (pair) => !pair || typeof pair.left !== 'string' || typeof pair.right !== 'string',
+            ))),
+    )
+  )
+    return null;
   const canonical = JSON.stringify(
     [...questions]
       .sort((left, right) =>
@@ -135,7 +157,8 @@ export function studyDraftIdentity(
   groupIndex: number,
   questions: StudyDraftQuestion[],
 ) {
-  return JSON.stringify([userId, planId, groupIndex, questionSignature(questions)]);
+  const signature = questionSignature(questions);
+  return signature === null ? null : JSON.stringify([userId, planId, groupIndex, signature]);
 }
 
 export function readStudyDraftSnapshot(
@@ -146,7 +169,8 @@ export function readStudyDraftSnapshot(
   storage: DraftStorage | undefined = browserStorage(),
 ): StudyDraftSnapshot {
   const empty = { answers: {}, snapshotId: null };
-  if (!storage) return empty;
+  const signature = questionSignature(questions);
+  if (!storage || signature === null) return empty;
   const key = draftKey(userId, planId, groupIndex);
   try {
     const value = JSON.parse(storage.getItem(key) ?? 'null');
@@ -156,7 +180,7 @@ export function readStudyDraftSnapshot(
       value.userId !== userId ||
       value.planId !== planId ||
       value.groupIndex !== groupIndex ||
-      value.questionSignature !== questionSignature(questions) ||
+      value.questionSignature !== signature ||
       typeof value.snapshotId !== 'string' ||
       !value.snapshotId.length
     ) {
@@ -194,7 +218,8 @@ export function saveStudyDraft(
   answers: StudyDraftAnswers,
   storage: DraftStorage | undefined = browserStorage(),
 ) {
-  if (!storage) return null;
+  const signature = questionSignature(questions);
+  if (!storage || signature === null) return null;
   const validAnswers = normalizeAnswers(questions, answers);
   const key = draftKey(userId, planId, groupIndex);
   if (!Object.keys(validAnswers).length) {
@@ -211,7 +236,7 @@ export function saveStudyDraft(
         userId,
         planId,
         groupIndex,
-        questionSignature: questionSignature(questions),
+        questionSignature: signature,
         snapshotId,
         answers: validAnswers,
       }),

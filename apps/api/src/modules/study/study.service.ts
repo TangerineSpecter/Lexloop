@@ -2080,9 +2080,14 @@ export class StudyService {
           await tx.$queryRaw(
             Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL`,
           );
-          const locked = await tx.$queryRaw<Array<{ status: string }>>(
-            Prisma.sql`SELECT "status" FROM "StudyPlan" WHERE "id" = ${planId} AND "userId" = ${userId} FOR UPDATE`,
-          );
+        }
+        // Serialize all groups of this plan before claiming items. Otherwise
+        // concurrent final groups can each see the other's uncommitted items
+        // as unfinished and leave a fully answered plan ACTIVE.
+        const locked = await tx.$queryRaw<Array<{ status: string }>>(
+          Prisma.sql`SELECT "status" FROM "StudyPlan" WHERE "id" = ${planId} AND "userId" = ${userId} FOR UPDATE`,
+        );
+        if (supportsProgressiveRecovery(items[0].plan)) {
           if (locked[0]?.status !== StudyPlanStatus.ACTIVE)
             throw new StudyGroupCompletionAlreadyClaimed();
           const fresh = await tx.studyPlanItem.findMany({

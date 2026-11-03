@@ -2536,7 +2536,8 @@ function goalVisitStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
 }
 
 function resumeDraftCount(userId: string, plan: LearningPlan) {
-  if (plan.status !== 'ACTIVE' || !plan.content?.groups?.length) return 0;
+  if (plan.status !== 'ACTIVE' || plan.answerKeyRecoveryAvailable || !plan.content?.groups?.length)
+    return 0;
   const pending = plan.words.find((word) => !word.completed);
   const groupIndex = pending?.groupIndex ?? plan.content.groups[0]?.index;
   const group = plan.content.groups.find((item) => item.index === groupIndex);

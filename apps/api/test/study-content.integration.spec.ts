@@ -450,8 +450,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
                       if (method === '$queryRaw')
                         return async (...args: any[]) => {
                           const rows = await methodValue.apply(transactionTarget, args);
-                          progressRowLocked = true;
-                          if (transactionIndex === 1) firstProgressLock();
+                          if (args[0]?.strings?.join('').includes('UserWordProgress')) {
+                            progressRowLocked = true;
+                            if (transactionIndex === 1) firstProgressLock();
+                          }
                           return rows;
                         };
                       return typeof methodValue === 'function'
@@ -843,25 +845,37 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           [correctAnswers[0]],
         );
         await claimIsHeld;
-        const independentSubmissions = Promise.all([
-          serviceWithMistakes.completeGroup(users[0].id, crossGroupPlan.id, 1, [correctAnswers[1]]),
-          serviceWithMistakes.completeGroup(users[1].id, otherUserPlan.id, 0, correctAnswers),
-        ]);
+        let samePlanFinished = false;
+        const samePlanSubmission = serviceWithMistakes
+          .completeGroup(users[0].id, crossGroupPlan.id, 1, [correctAnswers[1]])
+          .then((result) => {
+            samePlanFinished = true;
+            return result;
+          });
+        const otherUserSubmission = serviceWithMistakes.completeGroup(
+          users[1].id,
+          otherUserPlan.id,
+          0,
+          correctAnswers,
+        );
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const progressedBeforeRelease = await Promise.race([
-          independentSubmissions.then(() => true),
+          otherUserSubmission.then(() => true),
           new Promise<boolean>((resolve) => {
-            timeout = setTimeout(() => resolve(false), 5_000);
+            timeout = setTimeout(() => resolve(false), 2_000);
           }),
         ]);
         if (timeout) clearTimeout(timeout);
+        const samePlanBlocked = !samePlanFinished;
         releaseClaim();
-        const [, independentResults] = await Promise.all([
+        const [, ...independentResults] = await Promise.all([
           heldGroupSubmission,
-          independentSubmissions,
+          samePlanSubmission,
+          otherUserSubmission,
         ]);
         expect(progressedBeforeRelease).toBe(true);
-        expect(independentResults[0]).toMatchObject({ status: 'ACTIVE', completed: 1 });
+        expect(samePlanBlocked).toBe(true);
+        expect(independentResults[0]).toMatchObject({ status: 'COMPLETED', completed: 2 });
         expect(independentResults[1].status).toBe('COMPLETED');
         expect(
           independentResults[1].words.find((word) => word.id === bookWords[0].id)?.activeWeaknesses,
