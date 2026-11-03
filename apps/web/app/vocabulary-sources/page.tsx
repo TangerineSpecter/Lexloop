@@ -142,6 +142,59 @@ export default function VocabularySourcesPage() {
         </a>
         。许可仅覆盖新增内容。新导入只匹配已审核来源和原值；已有安装需管理员单独预览受控补义，用户编辑不会自动替换。
       </p>
+      <h2>日常用法：搭配与延伸义</h2>
+      <p>
+        以下新增内容根据 Wiktionary contributors 的义项与用法译写，按 CC BY-SA 4.0
+        分享，原有释义完整保留。核对日期：2026-11-03；未新增音标或复制例句。
+      </p>
+      <ul>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=climb&amp;oldid=94550222">climb</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=climb&amp;action=history">
+            贡献历史
+          </a>
+          ：用法：climb 可指借助手脚向上或向下移动，并非总是上升。
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=limb&amp;oldid=93964417">limb</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=limb&amp;action=history">贡献历史</a>
+          ：n. 树枝
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=graveyard&amp;oldid=94591757">
+            graveyard
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=graveyard&amp;action=history">
+            贡献历史
+          </a>
+          ：n. 〈比喻〉废弃物集中存放处
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=bone_up&amp;oldid=94548390">
+            bone（bone up）
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=bone_up&amp;action=history">
+            贡献历史
+          </a>
+          ：搭配：bone up on ...〈俚〉复习、钻研……。
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=foot&amp;oldid=95411640">foot</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=foot&amp;action=history">贡献历史</a>
+          ：搭配：foot up to ... 合计达……。
+        </li>
+      </ul>
+      <p>
+        foot 的不及物搭配另经{' '}
+        <a href="https://www.merriam-webster.com/dictionary/foot%20up">Merriam-Webster</a>{' '}
+        核对，仅验证语法事实，未导入其释义或例句。
+        <a href="https://github.com/TangerineSpecter/Lexloop/tree/master/data/vocabulary-corrections/2026-11-03-context">
+          查看逐词来源、原义和待核项
+        </a>
+        。已有安装仍需管理员单独预览受控批次，不自动覆盖用户编辑。
+      </p>
     </main>
   );
 }

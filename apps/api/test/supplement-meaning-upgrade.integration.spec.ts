@@ -1,3 +1,4 @@
+import { DAILY_CONTEXT_ADDITIONS } from '../src/modules/vocabulary/daily-context';
 import { DAILY_ENRICHMENTS } from '../src/modules/vocabulary/daily-enrichment';
 import { USAGE_CLARITY_CORRECTIONS } from '../src/modules/vocabulary/usage-clarity-corrections';
 import { VERB_SENSE_CORRECTIONS } from '../src/modules/vocabulary/verb-sense-corrections';
@@ -47,6 +48,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           ...VERB_SENSE_CORRECTIONS,
           ...USAGE_CLARITY_CORRECTIONS,
           ...DAILY_ENRICHMENTS,
+          ...DAILY_CONTEXT_ADDITIONS,
         ])
           expect(words.find((word) => word.normalized === entry.word)?.meaning).toBe(entry.meaning);
         const daily = await db.vocabularyBook.findUniqueOrThrow({

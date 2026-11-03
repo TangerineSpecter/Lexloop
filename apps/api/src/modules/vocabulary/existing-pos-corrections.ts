@@ -1,3 +1,4 @@
+import { DAILY_CONTEXT_ADDITIONS } from './daily-context';
 import { DAILY_ENRICHMENTS } from './daily-enrichment';
 import { USAGE_CLARITY_CORRECTIONS } from './usage-clarity-corrections';
 import { VERB_SENSE_CORRECTIONS } from './verb-sense-corrections';
@@ -57,6 +58,7 @@ export function reviewedExistingMeaning(word: string, sourceKey: string, meaning
     ...VERB_SENSE_CORRECTIONS,
     ...USAGE_CLARITY_CORRECTIONS,
     ...DAILY_ENRICHMENTS,
+    ...DAILY_CONTEXT_ADDITIONS,
   ].find(
     (entry) =>
       entry.word === word &&
