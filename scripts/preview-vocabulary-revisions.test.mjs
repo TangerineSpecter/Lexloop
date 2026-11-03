@@ -222,3 +222,28 @@ test('fails closed for missing required columns and oversized candidate files', 
   await symlink(join(baselineRoot, '通用/base.xlsx'), join(candidateRoot, 'linked.xlsx'));
   assert.throws(() => createVocabularyRevisionPreview({ baselineRoot, candidateRoot }), /符号链接/);
 });
+
+test('reports unchanged missing fields per source book without claiming enrichment or accuracy', async (t) => {
+  const { baselineRoot, candidateRoot } = await makeRoots(t);
+  const rows = [
+    ['missing', '无', '', 'n. 无\nadj. 暂无释义'],
+    ['usable', '/test/', 'test', 'n. 测试'],
+    ['usable', '/test/', '无', 'n. 测试'],
+    ['context', '', 'test', 'n. 无\nadj. 可用的'],
+  ];
+  await writeBook(baselineRoot, '通用/quality.xlsx', rows);
+  await writeBook(candidateRoot, '通用/quality.xlsx', rows);
+  const before = await snapshot(candidateRoot);
+  const report = createVocabularyRevisionPreview({ baselineRoot, candidateRoot });
+  assert.equal(report.summary.wordsChanged, 0);
+  assert.deepEqual(report.completeness.totals.candidate, {
+    wordRows: 4,
+    missingMeaningRows: 1,
+    missingUkPhoneticRows: 2,
+    missingUsPhoneticRows: 2,
+  });
+  assert.deepEqual(report.completeness.byBook[0].baseline, report.completeness.totals.candidate);
+  assert.equal(report.candidateSource.authorization, 'unverified');
+  assert.equal(report.applyAvailable, false);
+  assert.deepEqual(await snapshot(candidateRoot), before);
+});

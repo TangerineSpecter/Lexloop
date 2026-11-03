@@ -299,6 +299,33 @@ function conflictRows(rows) {
   };
 }
 
+function completeness(book) {
+  const counts = {
+    wordRows: 0,
+    missingMeaningRows: 0,
+    missingUkPhoneticRows: 0,
+    missingUsPhoneticRows: 0,
+  };
+  for (const rows of book?.groups.values() ?? []) {
+    for (const { fields } of rows) {
+      counts.wordRows += 1;
+      const usableMeaning = String(fields.meaning ?? '')
+        .split(/\r?\n/)
+        .some((line) => {
+          const text = line
+            .trim()
+            .replace(/^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)\.\s*/i, '')
+            .trim();
+          return text !== '' && text !== '无' && text !== '暂无释义';
+        });
+      if (!usableMeaning) counts.missingMeaningRows += 1;
+      if (fieldStatus(fields.ukPhonetic) !== 'present') counts.missingUkPhoneticRows += 1;
+      if (fieldStatus(fields.usPhonetic) !== 'present') counts.missingUsPhoneticRows += 1;
+    }
+  }
+  return counts;
+}
+
 function compareBook(bookPath, baselineFile, candidateFile, state, rootTotals) {
   const baseline = baselineFile ? readBook(baselineFile, rootTotals.baselineExpandedBytes) : null;
   const candidate = candidateFile
@@ -384,6 +411,7 @@ function compareBook(bookPath, baselineFile, candidateFile, state, rootTotals) {
   return {
     baselineRows: baseline?.dataRowCount ?? 0,
     candidateRows: candidate?.dataRowCount ?? 0,
+    completeness: { baseline: completeness(baseline), candidate: completeness(candidate) },
   };
 }
 
@@ -409,10 +437,12 @@ export function createVocabularyRevisionPreview({
     candidateRows: 0,
   };
 
+  const completenessByBook = [];
   for (const path of paths) {
     const before = baselineByPath.get(path);
     const next = candidateByPath.get(path);
     const rowCounts = compareBook(path, before, next, state, rootTotals);
+    completenessByBook.push({ bookPath: path, ...rowCounts.completeness });
     if (!before)
       state.add('booksAdded', { bookPath: path, candidateRows: rowCounts.candidateRows });
     if (!next) state.add('booksMissing', { bookPath: path, baselineRows: rowCounts.baselineRows });
@@ -445,6 +475,20 @@ export function createVocabularyRevisionPreview({
     summary: { ...state.counts, unchangedWords: state.unchangedWords },
     details: state.details,
     omittedDetails: truncated,
+    completeness: {
+      basis:
+        'source rows with nonblank words, including duplicates; not live database or semantic accuracy',
+      byBook: completenessByBook,
+      totals: Object.fromEntries(
+        ['baseline', 'candidate'].map((side) => [
+          side,
+          completenessByBook.reduce((total, book) => {
+            for (const [key, value] of Object.entries(book[side])) total[key] += value;
+            return total;
+          }, completeness(null)),
+        ]),
+      ),
+    },
     applyAvailable: false,
   };
   if (Buffer.byteLength(JSON.stringify(report)) > PREVIEW_LIMITS.maxOutputBytes) {

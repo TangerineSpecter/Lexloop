@@ -2751,7 +2751,7 @@ export function validateGeneratedContent(
         stage === ProgressivePracticeStage.CONTEXT
       ) {
         const bounds = stage === ProgressivePracticeStage.FOUNDATION ? [5, 12] : [10, 18];
-        const targetSentenceInRange = targetSentenceWordCounts.some(
+        const targetSentenceInRange = targetSentenceWordCounts.every(
           (count) => count >= bounds[0] && count <= bounds[1],
         );
         if (group.sentences.length !== 2 || !targetSentenceWordCounts.length) {

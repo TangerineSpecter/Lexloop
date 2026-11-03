@@ -208,6 +208,21 @@ describe('progressive practice contracts', () => {
     ).toThrow('渐进练习第 1 组 目标句长度不符合阶段要求');
   });
 
+  it.each([
+    [
+      'FOUNDATION',
+      'foundation',
+      'It is available to every visiting family after the receptionist finishes checking all of the reservations today.',
+    ],
+    ['CONTEXT', 'context', 'We repair it.'],
+  ] as const)('rejects an invalid additional target sentence in %s', (stage, sample, sentence) => {
+    const group = structuredClone(samples[sample].group);
+    group.sentences[1].english = sentence;
+    expect(() =>
+      validateGeneratedContent({ groups: [group] }, expected(stage, samples[sample].word)),
+    ).toThrow('目标句长度不符合阶段要求');
+  });
+
   it('separates progressive stages and versions while preserving the legacy normal signature', () => {
     const word = samples.foundation.word;
     const normalSignature = contentSignature(StudyPlanMode.INDIVIDUAL, [word]);

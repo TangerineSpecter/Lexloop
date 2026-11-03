@@ -42,8 +42,19 @@ export function presentLexicalWord(
   return {
     word: word.text,
     ...lexicalFields(contextMeaning ?? word.meaning),
-    ukPhonetic: word.ukPhonetic?.trim() || null,
-    usPhonetic: word.usPhonetic?.trim() || null,
+    ukPhonetic: normalizePhonetic(word.ukPhonetic),
+    usPhonetic: normalizePhonetic(word.usPhonetic),
     cefrLevel: word.cefrLevel ?? null,
   };
+}
+
+/** Normalize display delimiters only; this does not verify or invent an IPA transcription. */
+export function normalizePhonetic(raw: string | null | undefined): string | null {
+  const value = raw?.trim() ?? '';
+  if (!value || value === '无') return null;
+  // Leave unpaired delimiters, nested notation and explanatory text for source review.
+  const paired = value.match(/^(?:\[([^\[\]\/]+)\]|\/([^\[\]\/]+)\/)$/u);
+  const inner = paired?.[1] ?? paired?.[2];
+  if (inner && !/[\u3400-\u9fff:：()（）]/u.test(inner)) return inner.trim();
+  return value;
 }

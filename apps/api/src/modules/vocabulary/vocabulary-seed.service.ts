@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { resolve, relative, sep } from 'node:path';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizePhonetic } from './lexical';
 
 type ImportedWord = {
   normalized: string;
@@ -156,8 +157,8 @@ export class VocabularySeedService implements OnApplicationBootstrap {
         {
           normalized,
           text,
-          ukPhonetic: this.value(row['英音']),
-          usPhonetic: this.value(row['美音']),
+          ukPhonetic: normalizePhonetic(this.value(row['英音'])),
+          usPhonetic: normalizePhonetic(this.value(row['美音'])),
           meaning: this.value(row['释义']),
         },
       ];

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { lexicalFields, parseMeaningLines } from '../src/modules/vocabulary/lexical';
+import {
+  lexicalFields,
+  parseMeaningLines,
+  presentLexicalWord,
+  normalizePhonetic,
+} from '../src/modules/vocabulary/lexical';
 
 describe('lexical meaning lines', () => {
   it('keeps one part of speech per line and does not fold later parts into the first gloss', () => {
@@ -30,3 +35,26 @@ describe('lexical meaning lines', () => {
     expect(lexicalFields('无').meanings).toEqual([]);
   });
 });
+
+describe('phonetic presentation', () => {
+  it('normalizes paired notation without fabricating missing pronunciation', () => {
+    expect(
+      presentLexicalWord({
+        text: 'chair',
+        meaning: '椅子',
+        ukPhonetic: ' [tʃeə] ',
+        usPhonetic: '/tʃer/',
+      }),
+    ).toMatchObject({ ukPhonetic: 'tʃeə', usPhonetic: 'tʃer' });
+    expect(
+      presentLexicalWord({ text: 'chair', meaning: null, ukPhonetic: '无', usPhonetic: '' }),
+    ).toMatchObject({ ukPhonetic: null, usPhonetic: null });
+  });
+});
+
+it.each(['[tʃeə', 'tʃeə]', '[读音待确认]', '/tʃeə/ UK', '[tʃeə (UK)]'])(
+  'preserves ambiguous source notation %s',
+  (value) => {
+    expect(normalizePhonetic(value)).toBe(value);
+  },
+);

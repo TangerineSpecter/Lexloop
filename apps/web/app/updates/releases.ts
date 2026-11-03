@@ -7,6 +7,22 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.150',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '收紧渐进练习目标句校验',
+        entry: '学习进度 → 渐进练习',
+        usage: '短句辨义与语境辨析中的每个目标句都需符合阶段长度，旧公共材料也会在复用前重新检查。',
+      },
+      {
+        title: '统一已有音标的展示格式',
+        entry: '单词卡与词书导入',
+        usage: '统一处理已有音标外围成对符号，缺失音标保持空缺，不用猜测内容代替。',
+      },
+    ],
+  },
+  {
     version: '1.27.149',
     date: '2026-11-03',
     items: [
