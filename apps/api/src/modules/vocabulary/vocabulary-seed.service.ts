@@ -5,6 +5,12 @@ import { resolve, relative, sep } from 'node:path';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizePhonetic } from './lexical';
+import { importVersionedVocabularyBook } from './versioned-vocabulary-import';
+import {
+  DAILY_SOURCE_KEY,
+  DAILY_BOUNDARY_REVISION,
+  repairDailyBoundaries,
+} from './daily-vocabulary-boundaries';
 
 type ImportedWord = {
   normalized: string;
@@ -13,9 +19,10 @@ type ImportedWord = {
   usPhonetic: string | null;
   meaning: string | null;
 };
-type ImportedBook = {
+export type ImportedBook = {
   sourceKey: string;
   sourcePath: string;
+  sourceRevision?: string;
   category: VocabularyCategory;
   title: string;
   publisher: string | null;
@@ -66,15 +73,17 @@ export class VocabularySeedService implements OnApplicationBootstrap {
   }
 
   private async importVocabulary(root: string) {
-    const books = this.findFiles(root)
+    const parsedBooks = this.findFiles(root)
       .map((file) => this.readBook(root, file))
       .filter((book): book is ImportedBook => book !== null);
-    if (!books.length) return;
-    const words = new Map<string, ImportedWord>();
-    for (const book of books)
+    const books = parsedBooks.filter((book) => !book.sourceRevision);
+    const versionedBooks = parsedBooks.filter((book) => !!book.sourceRevision);
+    if (!parsedBooks.length) return;
+    const sourceWords = new Map<string, ImportedWord>();
+    for (const book of parsedBooks)
       for (const word of book.words) {
-        const existing = words.get(word.normalized);
-        words.set(
+        const existing = sourceWords.get(word.normalized);
+        sourceWords.set(
           word.normalized,
           existing
             ? {
@@ -86,6 +95,12 @@ export class VocabularySeedService implements OnApplicationBootstrap {
             : word,
         );
       }
+    // Preserve cross-book field merging, but do not create versioned-only words outside
+    // their transaction. Existing words continue to use skipDuplicates (no overwrite).
+    const unversionedKeys = new Set(
+      books.flatMap((book) => book.words.map((word) => word.normalized)),
+    );
+    const words = new Map([...sourceWords].filter(([key]) => unversionedKeys.has(key)));
     await this.inChunks([...words.values()], 1000, async (chunk) =>
       this.prisma.vocabularyWord.createMany({ data: chunk, skipDuplicates: true }),
     );
@@ -103,6 +118,7 @@ export class VocabularySeedService implements OnApplicationBootstrap {
         create: {
           sourceKey: book.sourceKey,
           sourcePath: book.sourcePath,
+          ...(book.sourceRevision ? { sourceRevision: book.sourceRevision } : {}),
           category: book.category,
           title: book.title,
           publisher: book.publisher,
@@ -128,7 +144,17 @@ export class VocabularySeedService implements OnApplicationBootstrap {
           this.prisma.vocabularyBookWord.createMany({ data: chunk, skipDuplicates: true }),
       );
     }
-    this.logger.log(`词表初始化完成：${books.length} 本词书，${words.size} 个唯一词条。`);
+    for (const book of versionedBooks) {
+      const result = await importVersionedVocabularyBook(this.prisma, {
+        ...book,
+        words: book.words.map((word) => sourceWords.get(word.normalized)!),
+      });
+      if (result === 'preserved')
+        this.logger.warn(
+          `词书 ${book.sourceKey} 的源修订不匹配，保留既有关联与学习进度；需要另行审阅迁移。`,
+        );
+    }
+    this.logger.log(`词表初始化完成：${parsedBooks.length} 本词书已检查。`);
   }
 
   private findFiles(directory: string): string[] {
@@ -146,7 +172,16 @@ export class VocabularySeedService implements OnApplicationBootstrap {
     if (!category) return null;
     const workbook = XLSX.readFile(file, { raw: false });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    let rows = sourceRows;
+    if (sourcePath === DAILY_SOURCE_KEY) {
+      try {
+        rows = repairDailyBoundaries(sourceRows);
+      } catch {
+        this.logger.warn('日常词书边界修订与源文件不匹配，跳过该书并保留既有数据。');
+        return null;
+      }
+    }
     const seen = new Set<string>();
     const words = rows.flatMap((row) => {
       const text = String(row['单词'] ?? '').trim();
@@ -168,6 +203,7 @@ export class VocabularySeedService implements OnApplicationBootstrap {
     return {
       sourceKey: sourcePath,
       sourcePath,
+      ...(sourcePath === DAILY_SOURCE_KEY ? { sourceRevision: DAILY_BOUNDARY_REVISION } : {}),
       category,
       title: stem.replace(/(.*?年级)(上|下)$/, '$1（$2）'),
       publisher: curriculumCategories.has(category) ? (parts[1] ?? null) : null,

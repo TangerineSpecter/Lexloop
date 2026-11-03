@@ -405,6 +405,7 @@ model VocabularyBook {
   category    VocabularyCategory
   title       String
   sourcePath  String
+  sourceRevision String?
   kind        VocabularyBookKind @default(SYSTEM)
   ownerId     String?
   publisher   String?

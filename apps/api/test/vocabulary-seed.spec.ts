@@ -93,7 +93,7 @@ it('reads the corrected daily source first sheet without importing its attributi
   };
   const root = join(process.cwd(), 'assets/vocabulary');
   const book = service.readBook(root, join(root, '通用/日常生活单词.xlsx'));
-  expect(book.words).toHaveLength(1177);
+  expect(book.words).toHaveLength(1189);
   expect(book.words.find((word) => word.text === 'moped')).toMatchObject({
     meaning: 'n. 摩托自行车',
     ukPhonetic: 'ˈməʊ.pɛd',
@@ -105,4 +105,28 @@ it('reads the corrected daily source first sheet without importing its attributi
     usPhonetic: null,
   });
   expect(book.words.some((word) => word.text === 'word')).toBe(false);
+});
+
+it('skips a drifted daily boundary source without rewriting it or stopping other books', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lexloop-daily-drift-'));
+  const { mkdir, copyFile } = await import('node:fs/promises');
+  try {
+    await mkdir(join(root, '通用'));
+    const target = join(root, '通用/日常生活单词.xlsx');
+    await copyFile(join(process.cwd(), 'assets/vocabulary/通用/日常生活单词.xlsx'), target);
+    const workbook = XLSX.readFile(target);
+    workbook.Sheets[workbook.SheetNames[0]].D7 = { t: 's', v: '新增的已有释义' };
+    XLSX.writeFile(workbook, target);
+    const bytes = await readFile(target);
+    const service = new VocabularySeedService({} as never) as unknown as {
+      readBook: (root: string, file: string) => unknown;
+    };
+    expect(service.readBook(root, target)).toBeNull();
+    expect(await readFile(target)).toEqual(bytes);
+    const other = join(root, '通用/另一本.xlsx');
+    await copyFile(target, other);
+    expect(service.readBook(root, other)).not.toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

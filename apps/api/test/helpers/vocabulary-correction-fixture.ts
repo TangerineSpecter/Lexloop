@@ -4,6 +4,8 @@ import { readFile, mkdtemp, mkdir, copyFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect } from 'vitest';
+import * as XLSX from 'xlsx';
+import { normalizePhonetic } from '../../src/modules/vocabulary/lexical';
 import { VocabularySeedService } from '../../src/modules/vocabulary/vocabulary-seed.service';
 import { VOCABULARY_CORRECTIONS } from '../../src/modules/vocabulary/vocabulary-corrections.batch';
 
@@ -87,7 +89,37 @@ export async function withVocabularyCorrectionFixture(
     const importer = new VocabularySeedService(db as never) as unknown as {
       importVocabulary: (root: string) => Promise<void>;
     };
-    await importer.importVocabulary(root);
+    // Reproduce the legacy importer without running today's boundary repair.
+    const legacyWorkbook = XLSX.readFile(target);
+    const legacyRows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      legacyWorkbook.Sheets[legacyWorkbook.SheetNames[0]],
+      { defval: '' },
+    );
+    const legacyBook = await db.vocabularyBook.create({
+      data: {
+        sourceKey: '通用/日常生活单词.xlsx',
+        sourcePath: '通用/日常生活单词.xlsx',
+        category: 'GENERAL',
+        title: '日常生活单词',
+      },
+    });
+    await db.vocabularyWord.createMany({
+      data: legacyRows.map((r) => ({
+        text: r['单词'],
+        normalized: r['单词'].trim().toLowerCase().replace(/\s+/g, ' '),
+        meaning: r['释义'] === '无' ? null : r['释义'],
+        ukPhonetic: normalizePhonetic(r['英音']),
+        usPhonetic: normalizePhonetic(r['美音']),
+      })),
+    });
+    const legacyWords = await db.vocabularyWord.findMany();
+    await db.vocabularyBookWord.createMany({
+      data: legacyRows.map((r, i) => ({
+        bookId: legacyBook.id,
+        wordId: legacyWords.find((w) => w.text === r['单词'])!.id,
+        position: i + 1,
+      })),
+    });
     const old = await db.vocabularyWord.findMany({
       where: { normalized: { in: VOCABULARY_CORRECTIONS.map((c) => c.word) } },
     });
