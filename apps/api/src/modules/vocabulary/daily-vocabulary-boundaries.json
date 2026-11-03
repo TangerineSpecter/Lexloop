@@ -1,9 +1,14 @@
 {
-  "revision": "daily-boundaries-2026-11-03-v1",
+  "revision": "daily-boundaries-2026-11-03-v2",
   "sourceKey": "通用/日常生活单词.xlsx",
   "sourceCommit": "33a40ee378594f3cad2d42516358eb6db201d61d",
   "review": "assistant boundary review; no definitions or pronunciations added",
   "repairs": [
+    {
+      "row": 5,
+      "original": "surname nickname",
+      "entries": ["surname", "nickname"]
+    },
     {
       "row": 7,
       "original": "born birth age sex",
@@ -13,6 +18,11 @@
       "row": 8,
       "original": "male female gender",
       "entries": ["male", "female", "gender"]
+    },
+    {
+      "row": 9,
+      "original": "single divorced",
+      "entries": ["single", "divorced"]
     },
     {
       "row": 12,
@@ -25,9 +35,179 @@
       "entries": ["lung", "liver", "appendix"]
     },
     {
+      "row": 23,
+      "original": "cheek forehead",
+      "entries": ["cheek", "forehead"]
+    },
+    {
       "row": 24,
       "original": "eyelid eyebrow lip tongue",
       "entries": ["eyelid", "eyebrow", "lip", "tongue"]
+    },
+    {
+      "row": 26,
+      "original": "throat beard bone",
+      "entries": ["throat", "beard", "bone"]
+    },
+    {
+      "row": 27,
+      "original": "jaw limb joint",
+      "entries": ["jaw", "limb", "joint"]
+    },
+    {
+      "row": 29,
+      "original": "shoulder arm elbow",
+      "entries": ["shoulder", "arm", "elbow"]
+    },
+    {
+      "row": 31,
+      "original": "palm fingertip",
+      "entries": ["palm", "fingertip"]
+    },
+    {
+      "row": 34,
+      "original": "knee foot toe",
+      "entries": ["knee", "foot", "toe"]
+    },
+    {
+      "row": 40,
+      "original": "girlfriend boyfriend sexuality",
+      "entries": ["girlfriend", "boyfriend", "sexuality"]
+    },
+    {
+      "row": 41,
+      "original": "heterosexual homosexual",
+      "entries": ["heterosexual", "homosexual"]
+    },
+    {
+      "row": 46,
+      "original": "pregnancy contraceptive condom abortion",
+      "entries": ["pregnancy", "contraceptive", "condom", "abortion"]
+    },
+    {
+      "row": 48,
+      "original": "deliver delivery",
+      "entries": ["deliver", "delivery"]
+    },
+    {
+      "row": 50,
+      "original": "youth adult mature",
+      "entries": ["youth", "adult", "mature"]
+    },
+    {
+      "row": 57,
+      "original": "funeral cemetery graveyard",
+      "entries": ["funeral", "cemetery", "graveyard"]
+    },
+    {
+      "row": 64,
+      "original": "observe observation",
+      "entries": ["observe", "observation"]
+    },
+    {
+      "row": 68,
+      "original": "noisy quiet",
+      "entries": ["noisy", "quiet"]
+    },
+    {
+      "row": 69,
+      "original": "quietly silent silence",
+      "entries": ["quietly", "silent", "silence"]
+    },
+    {
+      "row": 73,
+      "original": "cold cool warm",
+      "entries": ["cold", "cool", "warm"]
+    },
+    {
+      "row": 74,
+      "original": "soft hard rough",
+      "entries": ["soft", "hard", "rough"]
+    },
+    {
+      "row": 85,
+      "original": "take bring carry",
+      "entries": ["take", "bring", "carry"]
+    },
+    {
+      "row": 89,
+      "original": "climb pull drag",
+      "entries": ["climb", "pull", "drag"]
+    },
+    {
+      "row": 98,
+      "original": "bend spin twist",
+      "entries": ["bend", "spin", "twist"]
+    },
+    {
+      "row": 104,
+      "original": "sleep asleep",
+      "entries": ["sleep", "asleep"]
+    },
+    {
+      "row": 106,
+      "original": "wake awake",
+      "entries": ["wake", "awake"]
+    },
+    {
+      "row": 108,
+      "original": "breathe breath breathing",
+      "entries": ["breathe", "breath", "breathing"]
+    },
+    {
+      "row": 109,
+      "original": "hit kick knock",
+      "entries": ["hit", "kick", "knock"]
+    },
+    {
+      "row": 112,
+      "original": "bite squeeze tear",
+      "entries": ["bite", "squeeze", "tear"]
+    },
+    {
+      "row": 116,
+      "original": "shout scream",
+      "entries": ["shout", "scream"]
+    },
+    {
+      "row": 117,
+      "original": "yell whistle",
+      "entries": ["yell", "whistle"]
+    },
+    {
+      "row": 125,
+      "original": "beauty beautiful attractive",
+      "entries": ["beauty", "beautiful", "attractive"]
+    },
+    {
+      "row": 142,
+      "original": "haircut hairdo",
+      "entries": ["haircut", "hairdo"]
+    },
+    {
+      "row": 143,
+      "original": "barber hairdresser",
+      "entries": ["barber", "hairdresser"]
+    },
+    {
+      "row": 144,
+      "original": "shave shaver razor",
+      "entries": ["shave", "shaver", "razor"]
+    },
+    {
+      "row": 151,
+      "original": "improve improvement",
+      "entries": ["improve", "improvement"]
+    },
+    {
+      "row": 152,
+      "original": "recover recovery",
+      "entries": ["recover", "recovery"]
+    },
+    {
+      "row": 154,
+      "original": "weak weakness",
+      "entries": ["weak", "weakness"]
     }
   ],
   "sourceWordSequenceSha256": "51410e23cfb6e863ce0afb1a046005236e6bface8ddf78b3ba5526433ab61552"

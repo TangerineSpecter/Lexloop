@@ -1,6 +1,8 @@
 import { readFile, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as XLSX from 'xlsx';
+import { importVersionedVocabularyBook } from '../src/modules/vocabulary/versioned-vocabulary-import';
+import { normalizePhonetic } from '../src/modules/vocabulary/lexical';
 import { describe, expect, it } from 'vitest';
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 import {
@@ -12,6 +14,66 @@ import {
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'versioned daily vocabulary boundary imports',
   () => {
+    it('preserves the actual v1 position map and progress when v2 is installed, and v1 leaves a new v2 book intact', async () => {
+      await withVocabularyCorrectionFixture(async ({ db, root, target, importer }) => {
+        await db.vocabularyBookWord.deleteMany();
+        await db.vocabularyBook.deleteMany();
+        await db.vocabularyWord.deleteMany();
+        await copyFile(join(process.cwd(), 'assets/vocabulary/通用/日常生活单词.xlsx'), target);
+        const source = XLSX.readFile(target);
+        const rows = XLSX.utils.sheet_to_json<Record<string, string>>(
+          source.Sheets[source.SheetNames[0]],
+        );
+        const originalRepairRows = new Set([7, 8, 12, 18, 24]);
+        const missingToNull = (value: string) => (value === '无' ? null : value);
+        const words = rows.flatMap((row, index) => {
+          const repair = originalRepairRows.has(index + 2)
+            ? DAILY_BOUNDARY_REPAIRS.find((entry) => entry.row === index + 2)
+            : undefined;
+          return (repair?.entries ?? [row['单词']]).map((text) => ({
+            text,
+            normalized: text.toLowerCase().replace(/\s+/g, ' '),
+            meaning: missingToNull(row['释义']),
+            ukPhonetic: normalizePhonetic(missingToNull(row['英音'])),
+            usPhonetic: normalizePhonetic(missingToNull(row['美音'])),
+          }));
+        });
+        expect(words).toHaveLength(1189);
+        const prior = {
+          sourceKey: DAILY_SOURCE_KEY,
+          sourcePath: DAILY_SOURCE_KEY,
+          sourceRevision: 'daily-boundaries-2026-11-03-v1',
+          title: '日常生活单词',
+          category: 'GENERAL' as const,
+          publisher: null,
+          grade: null,
+          words,
+        };
+        await importVersionedVocabularyBook(db, prior);
+        const association = await db.vocabularyBookWord.findFirstOrThrow({
+          where: { word: { normalized: 'surname nickname' } },
+        });
+        await db.$executeRaw`INSERT INTO "UserWordProgress" ("id","userId","bookWordId","state","familiarity","nextReviewAt") VALUES ('v1-progress','test-owner',${association.id},'LEARNING',7,'2026-12-01')`;
+        const snapshot = async () => ({
+          books: await db.vocabularyBook.findMany({ orderBy: { id: 'asc' } }),
+          words: await db.vocabularyWord.findMany({ orderBy: { id: 'asc' } }),
+          associations: await db.vocabularyBookWord.findMany({ orderBy: { position: 'asc' } }),
+          progress: await db.$queryRaw`SELECT to_jsonb(p) FROM "UserWordProgress" p ORDER BY id`,
+        });
+        const before = await snapshot();
+        await Promise.all([importer.importVocabulary(root), importer.importVocabulary(root)]);
+        expect(await snapshot()).toEqual(before);
+        await db.$executeRaw`DELETE FROM "UserWordProgress"`;
+        await db.vocabularyBookWord.deleteMany();
+        await db.vocabularyBook.deleteMany();
+        await db.vocabularyWord.deleteMany();
+        await importer.importVocabulary(root);
+        const current = await snapshot();
+        expect(current.associations).toHaveLength(1245);
+        expect(await importVersionedVocabularyBook(db, prior)).toBe('preserved');
+        expect(await snapshot()).toEqual(current);
+      });
+    }, 30000);
     it('migrates the old schema but preserves legacy and personal books, associations and learning progress', async () => {
       await withVocabularyCorrectionFixture(async ({ db, importer, root }) => {
         // Exercise the actual additive migration with already imported legacy data.
@@ -90,10 +152,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ).toBe(expected);
         expect(
           await db.vocabularyBookWord.count({ where: { book: { sourceKey: DAILY_SOURCE_KEY } } }),
-        ).toBe(1189);
+        ).toBe(1245);
       });
     }, 30000);
-    it('creates 1189 stable associations for a new book, preserves phrases and repeats concurrent imports without duplicates', async () => {
+    it('creates 1245 stable associations for a new book, preserves phrases and repeats concurrent imports without duplicates', async () => {
       await withVocabularyCorrectionFixture(async ({ db, root, target, importer }) => {
         await db.vocabularyBookWord.deleteMany();
         await db.vocabularyBook.deleteMany();
@@ -110,9 +172,9 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           orderBy: { position: 'asc' },
           include: { word: true },
         });
-        expect(associations).toHaveLength(1189);
+        expect(associations).toHaveLength(1245);
         expect(associations.map((a) => a.position)).toEqual(
-          Array.from({ length: 1189 }, (_, i) => i + 1),
+          Array.from({ length: 1245 }, (_, i) => i + 1),
         );
         for (const r of DAILY_BOUNDARY_REPAIRS) {
           expect(associations.some((a) => a.word.text === r.original)).toBe(false);

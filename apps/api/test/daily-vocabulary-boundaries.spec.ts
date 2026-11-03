@@ -14,13 +14,13 @@ function sourceRows() {
     defval: '',
   });
 }
-it('repairs only five explicitly reviewed lists, preserves real phrases and adds no meaning or IPA', () => {
+it('repairs only 41 explicitly reviewed lists, preserves real phrases and adds no meaning or IPA', () => {
   const rows = sourceRows();
   const before = structuredClone(rows);
   const result = repairDailyBoundaries(rows);
   expect(rows).toEqual(before);
-  expect(result).toHaveLength(1189);
-  expect(new Set(result.map((r) => r['单词'])).size).toBe(1189);
+  expect(result).toHaveLength(1245);
+  expect(new Set(result.map((r) => r['单词'])).size).toBe(1245);
   for (const phrase of ['human body', 'skin cell', 'letter call sign', 'brain console'])
     expect(result.find((r) => r['单词'] === phrase)).toEqual(
       rows.find((r) => r['单词'] === phrase),
@@ -35,7 +35,7 @@ it('repairs only five explicitly reviewed lists, preserves real phrases and adds
         释义: '无',
       });
   }
-  expect(DAILY_BOUNDARY_REPAIRS.reduce((n, r) => n + r.entries.length, 0)).toBe(17);
+  expect(DAILY_BOUNDARY_REPAIRS.reduce((n, r) => n + r.entries.length, 0)).toBe(109);
 });
 it('rejects shifted rows and newly supplied fields rather than discarding content or guessing a split', () => {
   for (const field of ['单词', '释义', '英音', '美音']) {
@@ -44,7 +44,7 @@ it('rejects shifted rows and newly supplied fields rather than discarding conten
     expect(() => repairDailyBoundaries(rows)).toThrow('source changed');
   }
   const unrelated = sourceRows();
-  unrelated[100]['单词'] = 'a changed word outside the five rows';
+  unrelated[100]['单词'] = 'a changed word outside the reviewed rows';
   expect(() => repairDailyBoundaries(unrelated)).toThrow('source changed');
   const rows = sourceRows();
   rows.splice(0, 0, rows[0]);
