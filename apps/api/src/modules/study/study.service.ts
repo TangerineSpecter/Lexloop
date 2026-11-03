@@ -414,7 +414,7 @@ export class StudyService {
   }
 
   async getProgressivePath(userId: string) {
-    const [progress, currentPlan] = await Promise.all([
+    const [progress, currentPlan, latestCompleted] = await Promise.all([
       this.prisma.progressivePracticeProgress.findUnique({
         where: {
           userId_trackVersion: {
@@ -436,6 +436,32 @@ export class StudyService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: studyPlanInclude(userId),
       }),
+      this.prisma.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          progressiveVersion: PROGRESSIVE_PRACTICE_VERSION,
+          status: StudyPlanStatus.COMPLETED,
+          completedAt: { not: null },
+          items: { some: { completedAt: { not: null } } },
+        },
+        orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          progressiveStage: true,
+          completedAt: true,
+          items: {
+            select: {
+              attempts: {
+                where: { userId },
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                take: 1,
+                select: { isCorrect: true },
+              },
+            },
+          },
+        },
+      }),
     ]);
     return {
       trackVersion: PROGRESSIVE_PRACTICE_VERSION,
@@ -443,6 +469,16 @@ export class StudyService {
         progress?.highestUnlockedStage ?? ProgressivePracticeStage.FOUNDATION
       ).toLowerCase(),
       currentPlan: currentPlan ? this.serializePlanRecord(currentPlan) : null,
+      latestResult: latestCompleted?.progressiveStage
+        ? {
+            planId: latestCompleted.id,
+            stage: latestCompleted.progressiveStage.toLowerCase(),
+            total: latestCompleted.items.length,
+            answered: latestCompleted.items.filter((item) => item.attempts.length > 0).length,
+            correct: latestCompleted.items.filter((item) => item.attempts[0]?.isCorrect).length,
+            completedAt: latestCompleted.completedAt,
+          }
+        : null,
     };
   }
 

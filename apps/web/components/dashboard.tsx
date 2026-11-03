@@ -1546,6 +1546,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onChooseBook={() => setBookPickerOpen(true)}
                 onCreatePlan={handleCreatedPlan}
                 existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
+                progressivePlans={visiblePlans.filter((plan) => plan.purpose === 'progressive')}
                 onOpenExistingPlan={openPlanPreview}
                 onOpenReadingSettings={() => setReadingSettingsOpen(true)}
                 planListReady={visiblePlansStatus === 'ready'}
@@ -3473,6 +3474,7 @@ function WordsPanel({
   onChooseBook,
   onCreatePlan,
   existingPlan,
+  progressivePlans,
   onOpenExistingPlan,
   onOpenReadingSettings,
   planListReady,
@@ -3486,6 +3488,7 @@ function WordsPanel({
   onChooseBook: () => void;
   onCreatePlan: (plan: LearningPlan) => void;
   existingPlan: LearningPlan | null;
+  progressivePlans: LearningPlan[];
   onOpenExistingPlan: (plan: LearningPlan) => void;
   onOpenReadingSettings: () => void;
   planListReady: boolean;
@@ -3967,6 +3970,7 @@ function WordsPanel({
         bookReady={bookWordsReady}
         planListReady={planListReady}
         existingPlan={existingPlan}
+        knownPlans={progressivePlans}
         refreshKey={progressRevision}
         onCreatePlan={onCreatePlan}
         onOpenExistingPlan={onOpenExistingPlan}

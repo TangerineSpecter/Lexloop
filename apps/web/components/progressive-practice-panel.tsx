@@ -21,11 +21,18 @@ type ProgressivePath = {
   trackVersion: number;
   highestUnlockedStage: ProgressivePracticeStage;
   currentPlan: LearningPlan | null;
+  latestResult?: {
+    planId: string;
+    stage: ProgressivePracticeStage;
+    total: number;
+    answered: number;
+    correct: number;
+  } | null;
 };
 
 type LoadState =
   | { ownerId: string; status: 'loading'; path: null }
-  | { ownerId: string; status: 'ready'; path: ProgressivePath }
+  | { ownerId: string; status: 'ready'; path: ProgressivePath; knownAtRead: LearningPlan[] }
   | { ownerId: string; status: 'failed'; path: null; message: string };
 
 function isStage(value: unknown): value is ProgressivePracticeStage {
@@ -49,6 +56,23 @@ function parsePath(value: unknown): ProgressivePath {
   ) {
     throw new Error('渐进练习进度暂时无法读取。');
   }
+  if (candidate.latestResult != null) {
+    const result = candidate.latestResult as ProgressivePath['latestResult'];
+    if (
+      !result ||
+      !isStage(result.stage) ||
+      !Number.isInteger(result.total) ||
+      !Number.isInteger(result.answered) ||
+      !Number.isInteger(result.correct) ||
+      result.total <= 0 ||
+      result.answered < 0 ||
+      result.correct < 0 ||
+      result.correct > result.answered ||
+      result.answered > result.total
+    ) {
+      throw new Error('渐进练习结果暂时无法读取。');
+    }
+  }
   return candidate as ProgressivePath;
 }
 
@@ -57,6 +81,7 @@ export function ProgressivePracticePanel({
   bookReady,
   planListReady,
   existingPlan,
+  knownPlans,
   refreshKey,
   onCreatePlan,
   onOpenExistingPlan,
@@ -65,11 +90,14 @@ export function ProgressivePracticePanel({
   bookReady: boolean;
   planListReady: boolean;
   existingPlan: LearningPlan | null;
+  knownPlans: LearningPlan[];
   refreshKey: number;
   onCreatePlan: (plan: LearningPlan) => void;
   onOpenExistingPlan: (plan: LearningPlan) => void;
 }) {
   const requestSequence = useRef(0);
+  const knownPlansRef = useRef(knownPlans);
+  knownPlansRef.current = knownPlans;
   const creatingRef = useRef(false);
   const [loadState, setLoadState] = useState<LoadState>({
     ownerId: session.user.id,
@@ -93,7 +121,7 @@ export function ProgressivePracticePanel({
       if (requestSequence.current !== requestId) return;
       const path = parsePath(result);
       setSelectedStage(path.highestUnlockedStage);
-      setLoadState({ ownerId, status: 'ready', path });
+      setLoadState({ ownerId, status: 'ready', path, knownAtRead: knownPlansRef.current });
     } catch (error) {
       if (requestSequence.current !== requestId) return;
       setLoadState({
@@ -114,7 +142,7 @@ export function ProgressivePracticePanel({
 
   const startSelectedStage = async () => {
     if (creatingRef.current || visibleState.status !== 'ready') return;
-    if (existingPlan) {
+    if (isBlocked) {
       setActionError('请先完成当前学习计划，再开始渐进练习。');
       return;
     }
@@ -134,6 +162,12 @@ export function ProgressivePracticePanel({
         session.accessToken,
       );
       if (session.user.id !== ownerId || requestSequence.current !== requestId) return;
+      setLoadState({
+        ownerId,
+        status: 'ready',
+        path: { ...visibleState.path, currentPlan: plan },
+        knownAtRead: knownPlansRef.current,
+      });
       onCreatePlan(plan);
     } catch (error) {
       if (session.user.id !== ownerId || requestSequence.current !== requestId) return;
@@ -146,8 +180,27 @@ export function ProgressivePracticePanel({
 
   const path = visibleState.status === 'ready' ? visibleState.path : null;
   const highestUnlocked = path?.highestUnlockedStage ?? 'foundation';
-  const currentPlan = path?.currentPlan ?? null;
-  const isBlocked = Boolean(existingPlan);
+  // A fresh path takes precedence over the older dashboard list, including
+  // work completed in another tab. Only subsequent local records override it.
+  const liveUpdates =
+    visibleState.status === 'ready'
+      ? knownPlans.filter((plan) => !visibleState.knownAtRead.includes(plan))
+      : [];
+  const livePlan =
+    liveUpdates.find((plan) => plan.id === path?.currentPlan?.id) ??
+    liveUpdates.find(
+      (plan) =>
+        plan.progressiveVersion === path?.trackVersion &&
+        plan.status !== 'COMPLETED' &&
+        plan.completed < plan.wordCount,
+    );
+  const currentPlan = livePlan
+    ? livePlan.status === 'COMPLETED'
+      ? null
+      : livePlan
+    : (path?.currentPlan ?? null);
+  const latestResult = path?.latestResult;
+  const isBlocked = Boolean(existingPlan?.purpose === 'progressive' ? currentPlan : existingPlan);
   return (
     <section className={styles.panel} aria-labelledby="progressive-practice-title">
       <header className={styles.header}>
@@ -213,6 +266,34 @@ export function ProgressivePracticePanel({
         </div>
       )}
 
+      {path && latestResult && (
+        <div className={styles.result} role="status">
+          <strong>
+            最近完成 · {STAGES.find((stage) => stage.id === latestResult.stage)?.title}
+          </strong>
+          <p>
+            已记录 {latestResult.answered} / {latestResult.total} 题，答对 {latestResult.correct}{' '}
+            题， 答错 {latestResult.answered - latestResult.correct} 题。
+          </p>
+          <p>
+            解锁表示完成练习，不表示已掌握。
+            {latestResult.answered < latestResult.total ? '部分题目缺少作答记录，不计入对错。' : ''}
+          </p>
+          {!currentPlan && latestResult.answered > latestResult.correct && (
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => {
+                setSelectedStage(latestResult.stage);
+                setActionError('');
+              }}
+            >
+              选择这个阶段再练
+            </button>
+          )}
+        </div>
+      )}
+
       {path && !currentPlan && (
         <>
           <div className={styles.stages} role="group" aria-label="选择已解锁的练习阶段">
@@ -243,7 +324,7 @@ export function ProgressivePracticePanel({
                   </span>
                   <span>{stage.focus}</span>
                   {!unlocked && <small>完成上一阶段后解锁</small>}
-                  {unlocked && stage.id === highestUnlocked && <small>当前已解锁</small>}
+                  {unlocked && <small>{selected ? '已选择' : '已解锁'}</small>}
                 </button>
               );
             })}
@@ -251,7 +332,8 @@ export function ProgressivePracticePanel({
           <div className={styles.actions}>
             <p>
               每次从当前到期复习词和新词中选取，最多 5
-              词。已有计划时需先完成，不会因选阶段改动词条排期。
+              词。重选阶段不会提前复习未到期词，也不保证重练同一批词。
+              公共词书优先复用匹配阶段与词义的题库材料，没有合适材料时才生成；个人词书单独生成。
             </p>
             <button
               type="button"

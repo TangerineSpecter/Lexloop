@@ -178,9 +178,16 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             expect(after.correctAttempts).toBe(learnerIndex === 0 ? stageIndex + 1 : 0);
             expect(after.nextReviewAt!.getTime()).toBeGreaterThan(Date.now());
             expect(await prisma.userMasteredWord.count({ where: { userId } })).toBe(0);
-            expect((await service.getProgressivePath(userId)).highestUnlockedStage).toBe(
-              stageIndex === 0 ? 'context' : 'transfer',
-            );
+            expect(await service.getProgressivePath(userId)).toMatchObject({
+              highestUnlockedStage: stageIndex === 0 ? 'context' : 'transfer',
+              latestResult: {
+                planId: plan.id,
+                stage,
+                total: 1,
+                answered: 1,
+                correct: learnerIndex === 0 ? 1 : 0,
+              },
+            });
           }
           expect(new Set(linkedCaches).size).toBe(1);
         }
@@ -222,6 +229,25 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
         expect(await prisma.userWordProgress.findUnique({ where })).toEqual(before);
         expect(await prisma.studyPlan.count({ where: { userId } })).toBe(3);
+        // Missing historical evidence must not be counted as an incorrect answer.
+        const latest = await service.getProgressivePath(userId);
+        const latestItems = await prisma.studyPlanItem.findMany({
+          where: { planId: latest.latestResult!.planId },
+          select: { id: true },
+        });
+        await prisma.wordReviewAttempt.deleteMany({
+          where: { userId, planItemId: { in: latestItems.map((item) => item.id) } },
+        });
+        expect((await service.getProgressivePath(userId)).latestResult).toMatchObject({
+          total: 1,
+          answered: 0,
+          correct: 0,
+        });
+        expect((await service.getProgressivePath(users[1])).latestResult).toMatchObject({
+          stage: 'foundation',
+          answered: 1,
+          correct: 1,
+        });
       } finally {
         await prisma.studyPlan.deleteMany({ where: { userId: { in: users } } });
         await prisma.studyContentCache.deleteMany({ where: { id: { in: caches } } });

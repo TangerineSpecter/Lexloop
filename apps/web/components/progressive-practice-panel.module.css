@@ -197,6 +197,26 @@
   font-size: 13px;
 }
 
+.result {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: 9px;
+  background: #fff4b9;
+}
+
+.result strong {
+  font-size: 14px;
+}
+.result p {
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.result button {
+  margin-top: 6px;
+}
+
 .error {
   display: flex;
   align-items: center;
