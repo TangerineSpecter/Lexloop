@@ -328,10 +328,11 @@ test(
             const requestUrl = new URL(path, location.origin);
             if (requestUrl.pathname.endsWith('/api/v1/study/progressive-path') && method === 'GET') {
               window.progressivePathRequests.push(session?.user.id);
-              return Response.json({ trackVersion: 1, highestUnlockedStage: 'foundation', currentPlan: null });
+              return Response.json(window.progressivePathFixture ?? { trackVersion: 1, highestUnlockedStage: 'foundation', currentPlan: null });
             }
             if (requestUrl.pathname.endsWith('/api/v1/study/progressive-path/plans') && method === 'POST') {
               window.progressivePlanCreateBodies.push(JSON.parse(options.body));
+              if (window.progressiveCreateFixture) return Response.json(window.progressiveCreateFixture);
               return Response.json({ message: 'Fixture stopped before progressive-plan creation' }, { status: 409 });
             }
             if (
@@ -363,6 +364,10 @@ test(
             const generation = path.match(new RegExp('/api/v1/study/plans/([^/]+)/generate$'));
             if (generation && method === 'POST') {
               const id = generation[1];
+              if (id === 'progressive-created') return Response.json({ ...window.progressiveCreateFixture,
+                status: window.progressiveGenerationStatus ?? 'FAILED',
+                blocksNewPlanCreation: window.progressiveGenerationStatus === 'ACTIVE',
+                generationError: window.progressiveGenerationStatus === 'ACTIVE' ? null : 'fixture failure' });
               const recoveryPlan = Object.values(window.recoveryDetails).flat().find((item) => item.id === id);
               if (recoveryPlan) {
                 window.recoveryGenerationRequests.push(id);
@@ -504,6 +509,158 @@ test(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      // Re-enter the panel with a completed result: unlocks must not hide errors
+      // or imply mastery, and selecting the previous stage must not create a plan.
+      await evaluate(`window.progressivePathFixture = { trackVersion: 1, highestUnlockedStage: 'transfer', currentPlan: null,
+        latestResult: { planId: 'completed-context', stage: 'context', total: 2, answered: 2, correct: 0 } }`);
+      const reopenWords = async () => {
+        await evaluate(
+          '[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent.includes("当前学习序列")).click()',
+        );
+        await until('!document.querySelector("#progressive-practice-title")');
+        await evaluate(
+          '[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent.includes("单词列表")).click()',
+        );
+        await until(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=result]")',
+        );
+      };
+      await reopenWords();
+      assert.match(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title]").innerText',
+        ),
+        /答错 2 题/,
+      );
+      assert.match(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title]").innerText',
+        ),
+        /不表示已掌握/,
+      );
+      await evaluate(
+        '[...document.querySelectorAll("section[aria-labelledby=progressive-practice-title] button")].find(button => button.textContent.includes("选择这个阶段再练")).click()',
+      );
+      assert.match(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] [aria-pressed=true]").innerText',
+        ),
+        /语境辨析/,
+      );
+      assert.equal(await evaluate('window.progressivePlanCreateBodies.length'), 1);
+      for (const width of [390, 1920, 2560]) {
+        await send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 1000,
+          deviceScaleFactor: 1,
+          mobile: width === 390,
+        });
+        await until('innerWidth === ' + width);
+        await delay(350);
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title]").scrollIntoView({ block: "center", behavior: "instant" })',
+        );
+        const bounds =
+          await evaluate(`(() => { const panel = document.querySelector('section[aria-labelledby=progressive-practice-title]');
+          return { width: innerWidth, page: document.documentElement.scrollWidth,
+            overflow: [...panel.querySelectorAll('button, [class*=result]')].some(node => { const r = node.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth; }) }; })()`);
+        assert.equal(bounds.overflow, false, JSON.stringify(bounds));
+        assert.ok(bounds.page <= width, JSON.stringify(bounds));
+        await captureScreenshot('progressive-result-' + width + '.png');
+      }
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      // The path snapshot stays empty while creation/generation updates arrive.
+      // Closing the preview must still expose the newly failed plan for retry.
+      await evaluate(`window.progressiveCreateFixture = { id: 'progressive-created', mode: 'individual', purpose: 'progressive',
+        progressiveStage: 'context', progressiveVersion: 1, status: 'GENERATING', wordCount: 1, groupCount: 1,
+        completed: 0, words: [], content: null, createdAt: new Date().toISOString() }`);
+      await evaluate(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] button[class*=primaryButton]").click()',
+      );
+      await until(
+        'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("重新生成学习计划")',
+      );
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("生成失败")',
+      );
+      assert.match(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan] button").textContent',
+        ),
+        /打开并重试/,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] button[class*=primaryButton]") === null',
+        ),
+        true,
+      );
+      await evaluate(
+        'window.progressivePathFixture.currentPlan = { ...window.progressiveCreateFixture, status: "ACTIVE" }',
+      );
+      await reopenWords();
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("待继续")',
+      );
+      await evaluate(
+        'window.progressivePathFixture.currentPlan = { ...window.progressiveCreateFixture, status: "FAILED" }',
+      );
+      await reopenWords();
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("生成失败")',
+      );
+      await evaluate(
+        'window.progressiveGenerationStatus = "ACTIVE"; document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan] button").click()',
+      );
+      await until(
+        'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("重新生成学习计划")',
+      );
+      await evaluate('document.querySelector(".plan-preview .start-challenge").click()');
+      await until(
+        'document.querySelector(".plan-preview .start-challenge")?.textContent.includes("开始渐进练习")',
+      );
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("待继续")',
+      );
+      // A fresh path response wins over the dashboard's stale tab-local list.
+      await evaluate(
+        'window.progressivePathFixture.currentPlan = { ...window.progressiveCreateFixture, status: "FAILED" }',
+      );
+      await reopenWords();
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("生成失败")',
+      );
+      await evaluate(
+        'window.progressivePathFixture.currentPlan = { ...window.progressiveCreateFixture, status: "ACTIVE" }',
+      );
+      await reopenWords();
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]")?.textContent.includes("待继续")',
+      );
+      await evaluate('window.progressivePathFixture.currentPlan = null');
+      await reopenWords();
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=currentPlan]") === null',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] button[class*=primaryButton]").disabled',
+        ),
+        false,
+      );
+      // Restore the original scenario fixtures before the unrelated recovery tests.
+      await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
+      await until('document.querySelector("#progressive-practice-title")');
       await clickHistory();
       await until(
         'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] [role=alert]")',
