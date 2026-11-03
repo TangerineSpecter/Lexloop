@@ -47,8 +47,8 @@ class CreatePlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100) newWordCount?: number;
   @IsOptional() @IsInt() @Min(0) @Max(40) reviewWordCount?: number;
   @IsOptional() @IsIn(['group', 'individual', 'exam']) mode?: 'group' | 'individual' | 'exam';
-  @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent', 'due']) selection?:
-    'book' | 'mistakes' | 'random' | 'frequent' | 'due';
+  @IsOptional() @IsIn(['book', 'mistakes', 'random', 'frequent', 'due', 'supplement']) selection?:
+    'book' | 'mistakes' | 'random' | 'frequent' | 'due' | 'supplement';
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(40)

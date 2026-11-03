@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { auditDailyBoundaries } from './audit-daily-vocabulary-boundaries.mjs';
 const require = createRequire(import.meta.url);
 const XLSX = require('../apps/api/node_modules/xlsx');
 const boundaries = require('../apps/api/src/modules/vocabulary/daily-vocabulary-boundaries.json');
@@ -17,6 +18,7 @@ const missing = rows.flatMap((r, i) =>
   !String(r.释义).trim() || r.释义 === '无' ? [{ row: i + 2, word: r.单词 }] : [],
 );
 const single = missing.filter((r) => /^[a-z]+(?:[-'][a-z]+)*$/i.test(r.word));
+const classifications = auditDailyBoundaries().counts.classifications;
 console.log(
   JSON.stringify(
     {
@@ -28,8 +30,9 @@ console.log(
       needsWordBoundaryReview: missing.length - single.length,
       worksheetMergeCount: (book.Sheets[book.SheetNames[0]]['!merges'] ?? []).length,
       confirmedListRows: boundaries.repairs.length,
-      remainingUnclassifiedMultiTokenRows:
-        missing.length - single.length - boundaries.repairs.length,
+      remainingUnclassifiedMultiTokenRows: classifications.unreviewed ?? 0,
+      reviewedPhraseRows: classifications.phrase ?? 0,
+      reviewedAmbiguousRows: classifications.ambiguous ?? 0,
       freshImportRowsAfterBoundaryRepair:
         rows.length + boundaries.repairs.reduce((n, r) => n + r.entries.length - 1, 0),
       boundaryRepairPreview: boundaries.repairs,

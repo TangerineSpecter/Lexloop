@@ -42,7 +42,7 @@ export class WeeklyService {
       }),
       this.prisma.confusionAttempt.count({ where: { userId, createdAt: { gte: start } } }),
       this.prisma.weaknessSignal.findMany({
-        where: { userId, status: 'ACTIVE' },
+        where: { userId, status: 'ACTIVE', bookWord: { book: { isSupplement: false } } },
         orderBy: { wrongCount: 'desc' },
         take: 30,
         select: { bookWord: { select: { word: { select: { normalized: true } } } } },

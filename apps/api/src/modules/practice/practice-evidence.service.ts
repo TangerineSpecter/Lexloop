@@ -1,3 +1,4 @@
+import { canonicalSupplementWord } from '../vocabulary/supplement-eligibility';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { MistakesService } from '../mistakes/mistakes.service';
@@ -26,6 +27,7 @@ export class PracticeEvidenceService {
         id: { in: orderedEvidence.map((item) => item.bookWordId) },
         book: {
           isActive: true,
+          isSupplement: false,
           OR: [{ ownerId: userId }, { kind: 'SYSTEM', userBooks: { some: { userId } } }],
         },
       },
@@ -33,7 +35,14 @@ export class PracticeEvidenceService {
     });
     const eligibleWordIds = new Set(eligibleWords.map((word) => word.id));
     const progressCreatedAt = new Date();
-    const eligibleEvidence = orderedEvidence.filter((item) => eligibleWordIds.has(item.bookWordId));
+    const eligibleEvidence = await Promise.all(
+      orderedEvidence
+        .filter((item) => eligibleWordIds.has(item.bookWordId))
+        .map(async (item) => ({
+          ...item,
+          bookWordId: await canonicalSupplementWord(tx, userId, item.bookWordId),
+        })),
+    );
     await tx.userWordProgress.createMany({
       data: eligibleEvidence.map((item) => ({
         userId,
@@ -48,8 +57,7 @@ export class PracticeEvidenceService {
       userId,
       eligibleEvidence.map((item) => item.bookWordId),
     );
-    for (const item of orderedEvidence) {
-      if (!eligibleWordIds.has(item.bookWordId)) continue;
+    for (const item of eligibleEvidence) {
       const now = new Date();
       const progress = await tx.userWordProgress.findUniqueOrThrow({
         where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },

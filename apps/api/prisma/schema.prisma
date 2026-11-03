@@ -411,6 +411,7 @@ model VocabularyBook {
   publisher   String?
   grade       String?
   isActive    Boolean            @default(true)
+  isSupplement Boolean           @default(false)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   bookWords   VocabularyBookWord[]
@@ -489,6 +490,7 @@ model UserVocabularyBook {
   userId        String
   bookId        String
   isDefault     Boolean         @default(false)
+  isPaused      Boolean         @default(false)
   startedAt     DateTime        @default(now())
   lastStudiedAt DateTime        @default(now())
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -97,6 +97,7 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
+      DAILY_SUPPLEMENT_READY: ${DAILY_SUPPLEMENT_READY:-false}
       PORT: 52101
       WEB_ORIGIN: ${WEB_ORIGIN}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}

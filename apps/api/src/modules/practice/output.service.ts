@@ -1,3 +1,5 @@
+import { lockSupplementAccount } from '../vocabulary/supplement-eligibility';
+import { unclaimedBySupplement } from '../vocabulary/supplement-eligibility';
 import {
   BadRequestException,
   ConflictException,
@@ -84,75 +86,76 @@ export class OutputService {
       where: { userId_challengeDate: { userId, challengeDate: date } },
     });
     if (!challenge) {
-      const allowedBook = {
-        isActive: true,
-        OR: [{ ownerId: userId }, { kind: 'SYSTEM' as const, userBooks: { some: { userId } } }],
-      };
-      const include = { bookWord: { include: { word: true } } };
-      const [weak, recent, fallback] = await Promise.all([
-        this.prisma.weaknessSignal.findMany({
-          where: { userId, status: 'ACTIVE', bookWord: { book: allowedBook } },
-          orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
-          take: 40,
-          include,
-        }),
-        this.prisma.userWordProgress.findMany({
-          where: {
-            userId,
-            state: { in: ['LEARNING', 'REVIEWING'] },
-            bookWord: { book: allowedBook },
-          },
-          orderBy: { lastReviewedAt: 'desc' },
-          take: 60,
-          include,
-        }),
-        this.prisma.vocabularyBookWord.findMany({
-          where: { book: { ...allowedBook, userBooks: { some: { userId, isDefault: true } } } },
-          orderBy: { position: 'asc' },
-          take: 30,
-          include: { word: true },
-        }),
-      ]);
-      const candidates = [
-        ...weak.map((row) => row.bookWord),
-        ...recent.map((row) => row.bookWord),
-        ...fallback,
-      ];
-      const targets: OutputTarget[] = [];
-      const seen = new Set<string>();
-      for (const item of candidates) {
-        const word = normalizeOutputTarget(item.word.text);
-        const normalized = word?.toLowerCase();
-        if (!word || !normalized || seen.has(normalized)) continue;
-        targets.push({
-          bookWordId: item.id,
-          word,
-          meaning: item.contextMeaning ?? item.word.meaning ?? '',
-        });
-        seen.add(normalized);
-        if (targets.length === 3) break;
-      }
-      if (!targets.length) return null;
-      const prompt = `${TOPICS[Math.floor(date.getTime() / 86_400_000) % TOPICS.length]}使用全部目标词或短语，保留给定拼写；建议 20–80 个英文词，也可以自由选择合适话题。`;
       challenge = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw(
-          Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`output-daily:${userId}:${date.toISOString()}`}))`,
-        );
+        await lockSupplementAccount(tx, userId);
         const existing = await tx.outputChallenge.findUnique({
           where: { userId_challengeDate: { userId, challengeDate: date } },
         });
-        return (
-          existing ??
-          tx.outputChallenge.create({
-            data: {
+        if (existing) return existing;
+        const allowedBook = {
+          isActive: true,
+          isSupplement: false,
+          OR: [{ ownerId: userId }, { kind: 'SYSTEM' as const, userBooks: { some: { userId } } }],
+        };
+        const include = { bookWord: { include: { word: true } } };
+        const [weak, recent, fallback] = await Promise.all([
+          tx.weaknessSignal.findMany({
+            where: { userId, status: 'ACTIVE', bookWord: { book: allowedBook } },
+            orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
+            take: 40,
+            include,
+          }),
+          tx.userWordProgress.findMany({
+            where: {
               userId,
-              challengeDate: date,
-              prompt,
-              targets: targets as unknown as Prisma.InputJsonValue,
+              state: { in: ['LEARNING', 'REVIEWING'] },
+              bookWord: { book: allowedBook },
             },
-          })
-        );
+            orderBy: { lastReviewedAt: 'desc' },
+            take: 60,
+            include,
+          }),
+          tx.vocabularyBookWord.findMany({
+            where: {
+              book: { ...allowedBook, userBooks: { some: { userId, isDefault: true } } },
+              word: unclaimedBySupplement(userId),
+            },
+            orderBy: { position: 'asc' },
+            take: 30,
+            include: { word: true },
+          }),
+        ]);
+        const candidates = [
+          ...weak.map((row) => row.bookWord),
+          ...recent.map((row) => row.bookWord),
+          ...fallback,
+        ];
+        const targets: OutputTarget[] = [];
+        const seen = new Set<string>();
+        for (const item of candidates) {
+          const word = normalizeOutputTarget(item.word.text);
+          const normalized = word?.toLowerCase();
+          if (!word || !normalized || seen.has(normalized)) continue;
+          targets.push({
+            bookWordId: item.id,
+            word,
+            meaning: item.contextMeaning ?? item.word.meaning ?? '',
+          });
+          seen.add(normalized);
+          if (targets.length === 3) break;
+        }
+        if (!targets.length) return null;
+        const prompt = `${TOPICS[Math.floor(date.getTime() / 86_400_000) % TOPICS.length]}使用全部目标词或短语，保留给定拼写；建议 20–80 个英文词，也可以自由选择合适话题。`;
+        return tx.outputChallenge.create({
+          data: {
+            userId,
+            challengeDate: date,
+            prompt,
+            targets: targets as unknown as Prisma.InputJsonValue,
+          },
+        });
       });
+      if (!challenge) return null;
     }
     await this.prisma.outputSubmission.updateMany({
       where: {
@@ -435,6 +438,7 @@ export class OutputService {
       throw new BadRequestException('模型批改结果格式无效，请重试');
     }
     await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, row.challenge.userId);
       await tx.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`practice-evidence:${row.challenge.userId}`}))`,
       );

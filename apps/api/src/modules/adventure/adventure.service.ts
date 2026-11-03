@@ -1,4 +1,8 @@
 import {
+  canonicalSupplementWord,
+  lockSupplementAccount,
+} from '../vocabulary/supplement-eligibility';
+import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
@@ -346,6 +350,7 @@ export class AdventureService {
     if (cost > run.resource) throw new BadRequestException('职业资源不足');
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
       await tx.$queryRaw(
         Prisma.sql`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${`adventure-run:${runId}`}))`,
       );
@@ -823,7 +828,7 @@ export class AdventureService {
 
   private defaultBook(userId: string) {
     return this.prisma.userVocabularyBook.findFirst({
-      where: { userId, isDefault: true },
+      where: { userId, isDefault: true, book: { isSupplement: false } },
       include: {
         book: { include: { bookWords: { orderBy: { position: 'asc' }, include: { word: true } } } },
       },
@@ -1018,23 +1023,25 @@ export class AdventureService {
     const target = await tx.floorLearningTarget.findUniqueOrThrow({
       where: { id: challenge.targetId },
     });
+    const bookWordId = await canonicalSupplementWord(tx, userId, target.bookWordId);
     await tx.userWordProgress.createMany({
-      data: [{ userId, bookWordId: target.bookWordId }],
+      data: [{ userId, bookWordId }],
       skipDuplicates: true,
     });
-    await lockUserWordProgress(tx, userId, [target.bookWordId]);
+    await lockUserWordProgress(tx, userId, [bookWordId]);
     const progress = await tx.userWordProgress.findUniqueOrThrow({
-      where: { userId_bookWordId: { userId, bookWordId: target.bookWordId } },
+      where: { userId_bookWordId: { userId, bookWordId: bookWordId } },
     });
     const correct = score >= 70;
-    await tx.userWordProgress.update({
-      where: { id: progress.id },
-      data: reviewSchedule(progress, correct),
-    });
+    if (progress.state !== 'MASTERED')
+      await tx.userWordProgress.update({
+        where: { id: progress.id },
+        data: reviewSchedule(progress, correct),
+      });
     await tx.wordReviewAttempt.create({
       data: {
         userId,
-        bookWordId: target.bookWordId,
+        bookWordId: bookWordId,
         adventureActionId: actionId,
         isCorrect: correct,
         questionType: `ADVENTURE_${challenge.type}`,
@@ -1044,7 +1051,7 @@ export class AdventureService {
     });
     await this.mistakes.recordAttempt(tx, {
       userId,
-      bookWordId: target.bookWordId,
+      bookWordId: bookWordId,
       questionType: `ADVENTURE_${challenge.type}`,
       isCorrect: correct,
     });

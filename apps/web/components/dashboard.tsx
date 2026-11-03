@@ -3,6 +3,7 @@ import { CollectWordForm } from './learning-lab/collect-word-form';
 import { SystemLogsPanel } from './system-logs-panel';
 import { SystemUpdatePanel } from './system-update-panel';
 import { ProgressivePracticePanel } from './progressive-practice-panel';
+import { DailySupplementPanel } from './daily-supplement-panel';
 import {
   DashboardBootstrapLoading,
   DashboardLoadingCard,
@@ -287,6 +288,7 @@ const INDIVIDUAL_SOURCES: Array<{ id: IndividualWordSource; label: string; hint:
   },
 ];
 export type LearningPlan = {
+  supplementary?: boolean;
   id: string;
   mode: StudyMode;
   purpose?: 'normal' | 'weakness' | 'progressive';
@@ -323,7 +325,10 @@ const progressiveStageLabels = {
   context: '语境辨析',
   transfer: '跨句推断',
 } as const;
-function planTrainingLabel(plan: Pick<LearningPlan, 'purpose' | 'progressiveStage'>) {
+function planTrainingLabel(
+  plan: Pick<LearningPlan, 'purpose' | 'progressiveStage' | 'supplementary'>,
+) {
+  if (plan.supplementary) return '日常生活 · 补充词书';
   if (plan.purpose === 'progressive') {
     return `渐进练习${plan.progressiveStage ? ` · ${progressiveStageLabels[plan.progressiveStage]}` : ''}`;
   }
@@ -3975,6 +3980,12 @@ function WordsPanel({
         onCreatePlan={onCreatePlan}
         onOpenExistingPlan={onOpenExistingPlan}
       />
+      <DailySupplementPanel
+        session={session}
+        existingPlan={existingPlan}
+        refreshKey={progressRevision}
+        onCreatePlan={onCreatePlan}
+      />
       {dueClearNotice && (
         <p className="due-clear-note" role="status">
           <span>今天已经到点的词都处理完了。</span>
@@ -5911,7 +5922,7 @@ function GeneratedStudyPage({
           <span>
             {activePlan.purpose === 'weakness'
               ? '薄弱词专项'
-              : activePlan.purpose === 'progressive'
+              : activePlan.purpose === 'progressive' || activePlan.supplementary
                 ? planTrainingLabel(activePlan)
                 : `${modeLabel[activePlan.mode]} · 正常模式`}
           </span>

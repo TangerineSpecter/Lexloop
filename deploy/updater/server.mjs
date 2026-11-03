@@ -16,6 +16,10 @@ import {
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import {
+  assertSupplementCompatibility,
+  SUPPLEMENT_EXISTS_SQL,
+} from './supplement-compatibility.mjs';
 import { RemoteBackups } from './backup.mjs';
 import { evaluateUpdate, parseStableVersion, selectLatestRelease } from './core.mjs';
 import { classifyRepositoryFetchError, retryRepositoryFetch } from './check-retry.mjs';
@@ -601,6 +605,28 @@ async function scheduleUpdaterRefresh(releasePath, env) {
   await runAsync('docker', args, { env });
 }
 
+async function fenceSupplementVersion(version, releasePath, env) {
+  // Stop writers before the compatibility read; an enabled API must not create
+  // its first supplement between the check and starting an older image.
+  await runAsync('docker', [...composeArgs(releasePath), 'stop', 'api', 'worker'], { env });
+  assertSupplementCompatibility(version, () =>
+    run('docker', [
+      'exec',
+      'lexloop-postgres',
+      'psql',
+      '-U',
+      process.env.POSTGRES_USER ?? 'lexloop',
+      '-d',
+      process.env.POSTGRES_DB ?? 'lexloop',
+      '-At',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      SUPPLEMENT_EXISTS_SQL,
+    ]),
+  );
+}
+
 async function runUpdate(job, target) {
   const previous = { ...state.deployment };
   const imageTag = `${target.version}-${target.sha.slice(0, 12)}`;
@@ -653,6 +679,8 @@ async function runUpdate(job, target) {
     updateStage(job, 'BACKING_UP', '正在创建更新前数据库备份…');
     createBackup(job);
 
+    switched = true; // Stopping writers also requires recovery if migration fails.
+    await fenceSupplementVersion(target.version, releasePath, env);
     updateStage(job, 'MIGRATING', '正在执行数据库迁移…');
     await runAsync('docker', [...composeArgs(releasePath), 'run', '--rm', 'migrate'], { env });
 
@@ -708,6 +736,7 @@ async function runUpdate(job, target) {
     appendLog(job, `更新失败：${message}`);
     if (switched && previous?.releasePath && previous?.imageTag) {
       try {
+        await fenceSupplementVersion(previous.version, releasePath, env);
         appendLog(job, '正在恢复上一版应用镜像…');
         await runAsync(
           'docker',

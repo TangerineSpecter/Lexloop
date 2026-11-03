@@ -1,3 +1,4 @@
+import { lockSupplementAccount } from '../vocabulary/supplement-eligibility';
 import {
   BadRequestException,
   ConflictException,
@@ -19,13 +20,17 @@ export class ConfusionService {
   async list(userId: string): Promise<ContrastGroup[]> {
     const [weak, recent, previous] = await Promise.all([
       this.prisma.weaknessSignal.findMany({
-        where: { userId, status: 'ACTIVE' },
+        where: { userId, status: 'ACTIVE', bookWord: { book: { isSupplement: false } } },
         orderBy: { wrongCount: 'desc' },
         take: 60,
         select: { bookWord: { select: { word: { select: { text: true } } } } },
       }),
       this.prisma.userWordProgress.findMany({
-        where: { userId, state: { in: ['LEARNING', 'REVIEWING'] } },
+        where: {
+          userId,
+          state: { in: ['LEARNING', 'REVIEWING'] },
+          bookWord: { book: { isSupplement: false } },
+        },
         orderBy: { lastReviewedAt: 'desc' },
         take: 80,
         select: { bookWord: { select: { word: { select: { text: true } } } } },
@@ -97,6 +102,7 @@ export class ConfusionService {
       };
     });
     const result = await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
       await tx.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`practice-evidence:${userId}`}))`,
       );
@@ -141,6 +147,7 @@ export class ConfusionService {
           bookWord: {
             book: {
               isActive: true,
+              isSupplement: false,
               OR: [{ ownerId: userId }, { kind: 'SYSTEM', userBooks: { some: { userId } } }],
             },
             word: { normalized: { in: group.words.map((word) => word.word) } },

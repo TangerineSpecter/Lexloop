@@ -559,7 +559,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
                 updateMany: tx.userWordProgress.updateMany.bind(tx.userWordProgress),
                 deleteMany: tx.userWordProgress.deleteMany.bind(tx.userWordProgress),
               };
-              return callback({ userMasteredWord: tx.userMasteredWord, userWordProgress } as never);
+              return callback({
+                $queryRaw: tx.$queryRaw.bind(tx),
+                userMasteredWord: tx.userMasteredWord,
+                userWordProgress,
+              } as never);
             }),
         };
 

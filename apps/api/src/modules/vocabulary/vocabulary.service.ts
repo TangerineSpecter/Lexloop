@@ -1,3 +1,4 @@
+import { canonicalSupplementWord, lockSupplementAccount } from './supplement-eligibility';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
@@ -13,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { buildDuePreview } from './due-preview';
 import { presentLexicalWord } from './lexical';
 import { countDistinctUsableWeakWords } from './weak-focus-count';
+import { unclaimedBySupplement } from './supplement-eligibility';
 
 const categoryLabels: Record<VocabularyCategory, string> = {
   PRIMARY: '小学',
@@ -240,6 +242,7 @@ export class VocabularyService {
       this.prisma.vocabularyBook.findMany({
         where: {
           isActive: true,
+          isSupplement: false,
           kind: VocabularyBookKind.SYSTEM,
           ownerId: null,
           ...availableToUser,
@@ -254,6 +257,7 @@ export class VocabularyService {
         by: ['category'],
         where: {
           isActive: true,
+          isSupplement: false,
           kind: VocabularyBookKind.SYSTEM,
           ownerId: null,
           ...availableToUser,
@@ -314,7 +318,7 @@ export class VocabularyService {
 
   async listLearningBooks(userId: string) {
     const books = await this.prisma.userVocabularyBook.findMany({
-      where: { userId },
+      where: { userId, book: { isSupplement: false } },
       orderBy: [{ isDefault: 'desc' }, { lastStudiedAt: 'desc' }],
       include: { book: { include: { _count: { select: { bookWords: true } } } } },
     });
@@ -1071,6 +1075,7 @@ export class VocabularyService {
 
   async removeMasteredWord(userId: string, wordId: string) {
     await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
       await tx.userMasteredWord.deleteMany({ where: { userId, wordId } });
       const pendingPlanProgress = await tx.userWordProgress.findMany({
         where: {
@@ -1135,13 +1140,13 @@ export class VocabularyService {
           userId,
           state: WordProgressState.REVIEWING,
           nextReviewAt: { lte: now },
-          bookWord: { word: { masteredBy: { none: { userId } } } },
+          bookWord: { book: { isSupplement: false }, word: { masteredBy: { none: { userId } } } },
         },
         orderBy: [{ nextReviewAt: 'asc' }, { lastReviewedAt: 'asc' }],
         include: { bookWord: { include: { word: true } } },
       }),
       this.prisma.userVocabularyBook.findFirst({
-        where: { userId, isDefault: true },
+        where: { userId, isDefault: true, book: { isSupplement: false } },
         select: { bookId: true },
       }),
       this.prisma.userWordProgress.findMany({
@@ -1149,7 +1154,7 @@ export class VocabularyService {
           userId,
           state: WordProgressState.REVIEWING,
           nextReviewAt: { not: null },
-          bookWord: { word: { masteredBy: { none: { userId } } } },
+          bookWord: { book: { isSupplement: false }, word: { masteredBy: { none: { userId } } } },
         },
         select: { nextReviewAt: true },
       }),
@@ -1157,7 +1162,7 @@ export class VocabularyService {
         where: {
           userId,
           status: WeaknessStatus.ACTIVE,
-          bookWord: { word: { masteredBy: { none: { userId } } } },
+          bookWord: { book: { isSupplement: false }, word: { masteredBy: { none: { userId } } } },
         },
         select: {
           bookWordId: true,
@@ -1170,7 +1175,7 @@ export class VocabularyService {
           where: {
             bookId: defaultBook.bookId,
             progress: { none: { userId } },
-            word: { masteredBy: { none: { userId } } },
+            word: { masteredBy: { none: { userId } }, ...unclaimedBySupplement(userId) },
           },
           orderBy: { position: 'asc' },
           take: newWordCount,
@@ -1211,33 +1216,36 @@ export class VocabularyService {
   }
 
   async addToReview(userId: string, bookWordId: string) {
-    const bookWord = await this.prisma.vocabularyBookWord.findFirst({
-      where: { id: bookWordId, book: { userBooks: { some: { userId } } } },
-    });
-    if (!bookWord) throw new NotFoundException('单词不存在');
-    await this.prisma.userWordProgress.upsert({
-      where: { userId_bookWordId: { userId, bookWordId } },
-      create: {
-        userId,
-        bookWordId,
-        state: WordProgressState.REVIEWING,
-        firstLearnedAt: new Date(),
-        nextReviewAt: new Date(),
-      },
-      update: { state: WordProgressState.REVIEWING, nextReviewAt: new Date() },
+    await this.findUserBookWord(userId, bookWordId);
+    await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
+      bookWordId = await canonicalSupplementWord(tx, userId, bookWordId);
+      await tx.userWordProgress.upsert({
+        where: { userId_bookWordId: { userId, bookWordId } },
+        create: {
+          userId,
+          bookWordId,
+          state: WordProgressState.REVIEWING,
+          firstLearnedAt: new Date(),
+          nextReviewAt: new Date(),
+        },
+        update: { state: WordProgressState.REVIEWING, nextReviewAt: new Date() },
+      });
     });
     return { success: true };
   }
 
   async markMastered(userId: string, bookWordId: string) {
     const bookWord = await this.findUserBookWord(userId, bookWordId);
-    await this.prisma.$transaction([
-      this.prisma.userMasteredWord.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
+      bookWordId = await canonicalSupplementWord(tx, userId, bookWordId);
+      await tx.userMasteredWord.upsert({
         where: { userId_wordId: { userId, wordId: bookWord.wordId } },
         create: { userId, wordId: bookWord.wordId },
         update: {},
-      }),
-      this.prisma.userWordProgress.upsert({
+      });
+      await tx.userWordProgress.upsert({
         where: { userId_bookWordId: { userId, bookWordId } },
         create: {
           userId,
@@ -1246,17 +1254,21 @@ export class VocabularyService {
           firstLearnedAt: new Date(),
         },
         update: { state: WordProgressState.MASTERED, nextReviewAt: null },
-      }),
-    ]);
+      });
+    });
     return { success: true };
   }
 
   async deferNewWord(userId: string, bookWordId: string) {
     await this.findUserBookWord(userId, bookWordId);
-    await this.prisma.userWordProgress.upsert({
-      where: { userId_bookWordId: { userId, bookWordId } },
-      create: { userId, bookWordId, state: WordProgressState.NEW },
-      update: { state: WordProgressState.NEW, nextReviewAt: null },
+    await this.prisma.$transaction(async (tx) => {
+      await lockSupplementAccount(tx, userId);
+      bookWordId = await canonicalSupplementWord(tx, userId, bookWordId);
+      await tx.userWordProgress.upsert({
+        where: { userId_bookWordId: { userId, bookWordId } },
+        create: { userId, bookWordId, state: WordProgressState.NEW },
+        update: { state: WordProgressState.NEW, nextReviewAt: null },
+      });
     });
     return { success: true };
   }
@@ -1308,6 +1320,7 @@ export class VocabularyService {
       where: {
         id: bookId,
         isActive: true,
+        isSupplement: false,
         OR: [{ kind: VocabularyBookKind.SYSTEM }, { ownerId: userId }],
       },
     });

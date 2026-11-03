@@ -290,6 +290,12 @@ test(
           window.generationStatusPolls = {};
           window.generationAborted = false;
           window.studyPlanCreateBodies = [];
+          window.supplementWrites = [];
+          window.supplementFixture = { deploymentReady: true, enabled: false, enrolled: false, total: 3, rows: [
+            { word: 'surname', meaning: '姓氏', state: 'available' },
+            { word: 'nickname', meaning: '昵称', state: 'learned_elsewhere' },
+            { word: 'elbow', meaning: null, state: 'missing' },
+          ] };
           window.progressivePathRequests = [];
           window.progressivePlanCreateBodies = [];
           window.generationResolvers = {};
@@ -308,6 +314,14 @@ test(
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: session?.user.id ?? null });
             if (path.endsWith('/api/v1/auth/refresh')) return Response.json({ message: 'No fixture session' }, { status: 401 });
             if (path.endsWith('/api/v1/auth/login') && method === 'POST') return Response.json(secondSession);
+            if (path.endsWith('/api/v1/vocabulary/daily-supplement')) {
+              if (method === 'PATCH') {
+                const body = JSON.parse(options.body); window.supplementWrites.push(body);
+                window.supplementFixture = { ...window.supplementFixture, enrolled: true, enabled: body.enabled,
+                  rows: window.supplementFixture.rows.map(row => window.supplementWrites.length === 1 && row.word === 'elbow' ? { ...row, meaning: '肘', state: 'needs_sync' } : row.state === 'needs_sync' ? { ...row, state: 'available' } : row) };
+              }
+              return Response.json(window.supplementFixture);
+            }
             if (path.includes('/api/v1/vocabulary/default')) {
               return Response.json(
                 session?.user.id === 'study-user'
@@ -430,6 +444,72 @@ test(
       await until(
         'document.querySelector("#progressive-practice-title") && document.querySelector("section[aria-labelledby=progressive-practice-title] button[aria-pressed]")',
       );
+      await until(
+        'document.querySelector("#daily-supplement-title") && document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("尚未启用")',
+      );
+      assert.deepEqual(await evaluate('window.supplementWrites'), []);
+      await evaluate(
+        'document.querySelector("section[aria-labelledby=daily-supplement-title] button").click()',
+      );
+      await until(
+        'document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("已启用")',
+      );
+      assert.deepEqual(await evaluate('window.supplementWrites'), [{ enabled: true }]);
+      await until(
+        'Array.from(document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")).some(button => button.textContent.includes("同步新增"))',
+      );
+      await evaluate(
+        'Array.from(document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")).find(button => button.textContent.includes("同步新增")).click()',
+      );
+      await until(
+        'window.supplementWrites.length === 2 && !document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("可同步后新学")',
+      );
+
+      for (const width of [390, 1920, 2560]) {
+        await send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 1000,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=daily-supplement-title] details").open = true; document.querySelector("#daily-supplement-title").scrollIntoView()',
+        );
+        const bounds =
+          await evaluate(`(() => { const p = document.querySelector('section[aria-labelledby=daily-supplement-title]'); const r = p.getBoundingClientRect();
+          return { left: r.left, right: r.right, viewport: innerWidth, page: document.documentElement.scrollWidth, count: p.querySelectorAll('li').length }; })()`);
+        assert.ok(
+          bounds.left >= 0 && bounds.right <= width && bounds.page <= width,
+          JSON.stringify(bounds),
+        );
+        assert.equal(bounds.count, 3);
+        await evaluate('new Promise(resolve => setTimeout(resolve, 350))');
+        await captureScreenshot('daily-supplement-' + width + '.png');
+      }
+      await evaluate(
+        'document.querySelector("section[aria-labelledby=daily-supplement-title] button").click()',
+      );
+      await until(
+        'document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("已暂停")',
+      );
+      assert.deepEqual(await evaluate('window.supplementWrites'), [
+        { enabled: true },
+        { enabled: true },
+        { enabled: false },
+      ]);
+      assert.equal(
+        await evaluate(
+          'document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1].disabled',
+        ),
+        true,
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate('window.scrollTo(0, 0)');
       const progressiveDesktop = await evaluate(`(() => {
         const panel = document.querySelector('section[aria-labelledby="progressive-practice-title"]');
         const rect = panel.getBoundingClientRect();

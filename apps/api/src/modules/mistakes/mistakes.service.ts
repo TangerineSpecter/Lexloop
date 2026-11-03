@@ -455,7 +455,12 @@ export class MistakesService {
         throw new BadRequestException('请先完成当前渐进练习，再创建薄弱词专项。');
       }
       const signals = await tx.weaknessSignal.findMany({
-        where: { userId, status: WeaknessStatus.ACTIVE, bookWordId: { in: bookWordIds } },
+        where: {
+          userId,
+          status: WeaknessStatus.ACTIVE,
+          bookWordId: { in: bookWordIds },
+          bookWord: { book: { isSupplement: false } },
+        },
         orderBy: [{ consecutiveCorrect: 'asc' }, { wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
       });
       const selected = bookWordIds

@@ -114,8 +114,12 @@ async function fixture(t, { staleState = false, autoUpdate } = {}) {
     const fs = require('node:fs');
     const args = process.argv.slice(2);
     fs.appendFileSync(${JSON.stringify(join(root, 'docker.log'))}, JSON.stringify({args, version: process.env.APP_VERSION}) + '\\n');
-    if (args[0] === 'exec') process.stdout.write('database-backup');
-    if (args.includes('up') && args.includes('web') && process.env.APP_VERSION === '1.0.3' && fs.existsSync(${JSON.stringify(join(root, 'fail-switch'))})) process.exitCode = 1;
+    if (args.includes('psql')) process.stdout.write(fs.existsSync(${JSON.stringify(join(root, 'supplement-exists'))}) ? 't' : 'f');
+    else if (args[0] === 'exec') process.stdout.write('database-backup');
+    if (args.includes('up') && args.includes('web') && process.env.APP_VERSION === '1.0.3' && fs.existsSync(${JSON.stringify(join(root, 'fail-switch'))})) {
+      if (fs.existsSync(${JSON.stringify(join(root, 'enable-on-switch'))})) fs.writeFileSync(${JSON.stringify(join(root, 'supplement-exists'))}, 'yes');
+      process.exitCode = 1;
+    }
   `,
   );
   executable(
@@ -513,4 +517,26 @@ test('successful updates persist identity and refresh updater in an independent 
   assert.ok(helper.args.includes('--entrypoint'));
   assert.ok(helper.args.includes('--no-build'));
   assert.ok(helper.args.includes(`lexloop-updater:1.0.3-${f.targetSha.slice(0, 12)}`));
+});
+
+test('failed cutover refuses incompatible rollback before starting old writers', async (t) => {
+  const f = await fixture(t);
+  writeFileSync(join(f.root, 'fail-switch'), 'fail');
+  writeFileSync(
+    join(f.root, 'enable-on-switch'),
+    'simulate first supplemental enrollment after initial check',
+  );
+  assert.equal((await f.apply()).status, 202);
+  await until(
+    async () => (await f.call('GET', '/status')).body.job?.stage === 'FAILED',
+    'failed rollback',
+  );
+  const commands = f.commands();
+  const checks = commands.filter((command) => command.args.includes('psql'));
+  assert.equal(checks.length, 2, 'both install and rollback recheck database compatibility');
+  assert.equal(commands.filter((command) => command.args.includes('stop')).length, 2);
+  assert.equal(
+    commands.filter((command) => command.version === '1.0.0' && command.args.includes('up')).length,
+    0,
+  );
 });

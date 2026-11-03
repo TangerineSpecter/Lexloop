@@ -61,6 +61,7 @@ function installFixture(t, failure = '') {
     'docker',
     `
     const args = process.argv.slice(2);
+    if (args.includes('psql')) process.stdout.write('f');
     require('node:fs').appendFileSync(${JSON.stringify(join(root, 'commands'))}, JSON.stringify(args) + '\\n');
     if (args.includes('up') && ((${JSON.stringify(failure)} === 'updater' && args.includes('updater')) || (${JSON.stringify(failure)} === 'app' && args.includes('web')))) process.exitCode = 1;
   `,

@@ -231,6 +231,18 @@ install_phase='校验 Compose 并构建应用镜像'
 "${compose[@]}" build web api worker migrate
 install_phase='启动数据库并执行迁移'
 "${compose[@]}" up -d postgres redis
+# Supplemental learning requires a homogeneous API/worker cutover. Stop writers
+# before checking a downgrade, including when all subscriptions are paused.
+"${compose[@]}" stop api worker
+if [ "$(printf '%s\n' "$VERSION" '1.27.157' | sort -V | head -n 1)" != '1.27.157' ]; then
+  supplement_exists="$("${compose[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c \
+    "SELECT CASE WHEN to_regclass('public.\"VocabularyBook\"') IS NULL THEN 'f' ELSE 'check' END")"
+  if [ "$supplement_exists" = 'check' ]; then
+    supplement_exists="$("${compose[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c \
+      'SELECT EXISTS (SELECT 1 FROM "VocabularyBook" b WHERE to_jsonb(b)->>$$isSupplement$$ = $$true$$)')"
+  fi
+  [ "$supplement_exists" = 'f' ] || fail '数据库已有补充词书或兼容性未能核实，禁止启动旧版本；暂停词书不能解除限制。'
+fi
 "${compose[@]}" run --rm migrate
 
 if [ ! -f "${DEPLOY_ROOT}/data/updater/update-state.json" ]; then

@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config';
+import { requireSupplementDeployment } from '../vocabulary/daily-supplement.service';
+import { outputReservedWords } from '../vocabulary/supplement-eligibility';
 import { progressiveSentenceIssue } from './progressive-quality';
 import {
   BadGatewayException,
@@ -27,6 +30,11 @@ import { SystemLogService } from '../admin/system-log.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISTAKE_CORRECTION_STREAK, MistakesService } from '../mistakes/mistakes.service';
 import { reviewSchedule, unfamiliarityScore } from './review-scheduling';
+import { ordinaryBookSql, ordinaryNewWordSql } from '../vocabulary/supplement-eligibility';
+import {
+  requireEnabledSupplement,
+  usableSupplementMeaning,
+} from '../vocabulary/daily-supplement.service';
 import { lockUserWordProgress } from './user-word-progress-lock';
 import { publicStudyContent, publicStudyQuestion } from './study-content';
 import { studyQuestionFingerprint } from './study-content-bank';
@@ -145,7 +153,8 @@ const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
   'READING_COMPREHENSION',
 ] as const;
-export type IndividualWordSelection = 'book' | 'mistakes' | 'random' | 'frequent' | 'due';
+export type IndividualWordSelection =
+  'book' | 'mistakes' | 'random' | 'frequent' | 'due' | 'supplement';
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -292,6 +301,7 @@ const studyPlanInclude = (userId: string) =>
         bookWord: {
           include: {
             word: true,
+            book: { select: { isSupplement: true } },
             progress: { where: { userId }, select: { nextReviewAt: true, lastIntervalDays: true } },
             weaknesses: {
               where: { userId, status: WeaknessStatus.ACTIVE },
@@ -334,6 +344,7 @@ const usableMeaningLine = Prisma.sql`
 `;
 
 const usableBookWordMeaning = Prisma.sql`
+  ${ordinaryBookSql} AND
   EXISTS (
     SELECT 1
     FROM unnest(string_to_array(
@@ -381,6 +392,7 @@ export class StudyService {
     private readonly modelConfigs: AiModelConfigService,
     private readonly mistakes: MistakesService,
     @Optional() private readonly systemLogs?: SystemLogService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   private observePublicCache(code: string, reason: string) {
@@ -629,6 +641,26 @@ export class StudyService {
           select: { id: true },
         });
         if (sameDay) return sameDay.id;
+      }
+      if (selection === 'supplement') {
+        requireSupplementDeployment(this.config);
+        await requireEnabledSupplement(tx, userId);
+        const continuing = await tx.studyPlan.findFirst({
+          where: {
+            userId,
+            purpose: StudyPlanPurpose.NORMAL,
+            status: {
+              in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE, StudyPlanStatus.FAILED],
+            },
+            items: {
+              some: { completedAt: null },
+              every: { bookWord: { book: { isSupplement: true } } },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        if (continuing) return continuing.id;
       }
       const dayRange = automaticDateKey ? chinaDateRange(automaticDateKey) : null;
       const existing = await tx.studyPlan.findFirst({
@@ -2192,6 +2224,8 @@ export class StudyService {
       id: plan.id,
       mode: plan.mode.toLowerCase(),
       purpose: plan.purpose.toLowerCase(),
+      supplementary:
+        plan.items.length > 0 && plan.items.every((item) => item.bookWord.book?.isSupplement),
       progressiveStage: plan.progressiveStage?.toLowerCase() ?? null,
       progressiveVersion: plan.progressiveVersion,
       status: plan.status,
@@ -3312,6 +3346,7 @@ async function selectDailyWords(
         FROM "VocabularyBookWord" AS bw
         JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
         WHERE bw."bookId" = ${defaultBook.bookId}
+          AND ${ordinaryNewWordSql(userId)}
           AND NOT EXISTS (
             SELECT 1 FROM "UserWordProgress" AS progress
             WHERE progress."userId" = ${userId} AND progress."bookWordId" = bw."id"
@@ -3336,6 +3371,61 @@ async function selectIndividualWords(
   count: number,
   skipReviewWordIds: string[] = [],
 ): Promise<PlanWordPick> {
+  if (selection === 'supplement') {
+    const bookId = await requireEnabledSupplement(tx, userId);
+    const rows = await tx.vocabularyBookWord.findMany({
+      where: { bookId },
+      include: {
+        progress: { where: { userId } },
+        word: {
+          include: {
+            masteredBy: { where: { userId }, select: { id: true } },
+            bookWords: {
+              where: {
+                OR: [
+                  { progress: { some: { userId } } },
+                  { studyPlanItems: { some: { plan: { userId } } } },
+                ],
+              },
+              select: { id: true },
+            },
+          },
+        },
+      },
+      orderBy: { position: 'asc' },
+    });
+    const reserved = await outputReservedWords(tx, userId);
+    const eligible = rows.filter(
+      (row) => !row.word.masteredBy.length && usableSupplementMeaning(row.word.meaning),
+    );
+    const due = eligible
+      .filter(
+        (row) =>
+          row.progress[0]?.state === 'REVIEWING' &&
+          row.progress[0].nextReviewAt &&
+          row.progress[0].nextReviewAt <= new Date(),
+      )
+      .sort(
+        (a, b) =>
+          a.progress[0].nextReviewAt!.getTime() - b.progress[0].nextReviewAt!.getTime() ||
+          a.id.localeCompare(b.id),
+      )
+      .slice(0, Math.min(count, 5));
+    const fresh = eligible
+      .filter(
+        (row) =>
+          (!row.progress.length || row.progress[0].state === 'NEW') &&
+          row.word.bookWords.every((item) => item.id === row.id) &&
+          !reserved.has(row.wordId),
+      )
+      .slice(0, Math.max(0, Math.min(count, 5) - due.length));
+    if (!due.length && !fresh.length)
+      throw new BadRequestException('补充词书暂没有未学或到期词；其他词书已学词不会重复分配。');
+    return {
+      orderedIds: [...due, ...fresh].map((row) => row.id),
+      reviewIds: due.map((row) => row.id),
+    };
+  }
   if (selection === 'due') {
     const limit = Math.min(count, DUE_DRILL_WORD_LIMIT);
     const rows = await tx.$queryRaw<Array<{ bookWordId: string }>>(Prisma.sql`
@@ -3414,6 +3504,7 @@ async function selectIndividualWords(
       FROM "VocabularyBookWord" AS bw
       JOIN "VocabularyWord" AS w ON w."id" = bw."wordId"
       WHERE bw."bookId" = ${defaultBook.bookId}
+        AND ${ordinaryNewWordSql(userId)}
         AND NOT EXISTS (
           SELECT 1 FROM "UserWordProgress" AS progress
           WHERE progress."userId" = ${userId} AND progress."bookWordId" = bw."id"
@@ -3441,6 +3532,7 @@ async function selectIndividualWords(
       FROM "VocabularyBookWord" bw
       JOIN "VocabularyWord" w ON w.id = bw."wordId"
       WHERE bw."bookId" = ${defaultBook.bookId}
+        AND ${ordinaryNewWordSql(userId)}
         AND ${usableBookWordMeaning}
         AND NOT EXISTS (
           SELECT 1 FROM "UserMasteredWord" m
@@ -3458,6 +3550,7 @@ async function selectIndividualWords(
       LEFT JOIN "UserWordProgress" p
         ON p."bookWordId" = bw.id AND p."userId" = ${userId}
       WHERE bw."bookId" = ${defaultBook.bookId}
+        AND ${ordinaryNewWordSql(userId)}
         AND ${usableBookWordMeaning}
         AND NOT EXISTS (
           SELECT 1 FROM "UserMasteredWord" m
