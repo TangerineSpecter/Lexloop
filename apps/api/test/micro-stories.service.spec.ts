@@ -129,6 +129,41 @@ describe('one-minute stories', () => {
     expect(f.tx.learningEvent.create).toHaveBeenCalledTimes(1);
   });
 
+  it('continues legacy progress into the appended A1 stories and counts only completed segments', async () => {
+    const f = fixture();
+    f.progress.completedKeys = MICRO_STORIES.slice(0, 27).map(({ key }) => key);
+
+    const legacyProgress = await f.service.current('owner');
+    expect(legacyProgress).toMatchObject({
+      completed: 27,
+      total: 33,
+      lesson: { key: 'neighbor-greeting-01', series: '新邻居打招呼', part: 1, level: 'A1' },
+    });
+
+    const selected = await f.service.select(
+      'owner',
+      'post-office-directions-02',
+      'neighbor-greeting-01',
+    );
+    expect(selected).toMatchObject({
+      completed: 27,
+      total: 33,
+      lesson: { key: 'post-office-directions-02', series: '问路去邮局', part: 2, level: 'A1' },
+    });
+    expect(f.progress.completedKeys).toHaveLength(27);
+    expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
+    expect(f.tx.microError.upsert).not.toHaveBeenCalled();
+
+    await f.service.interpret('owner', 'post-office-directions-02', '邮局在银行旁边。');
+    const result = await f.service.complete('owner', 'post-office-directions-02', false);
+
+    expect(result).toEqual({ completed: 28, total: 33 });
+    expect(f.progress.completedKeys).toHaveLength(28);
+    expect((await f.service.current('owner')).lesson?.key).toBe('neighbor-greeting-01');
+    expect(f.tx.learningEvent.create).toHaveBeenCalledTimes(1);
+    expect(f.tx.microError.upsert).not.toHaveBeenCalled();
+  });
+
   it('hides reference meaning until an interpretation is saved and advances only once', async () => {
     const f = fixture();
     const before = await f.service.current('owner');
@@ -307,7 +342,7 @@ describe('one-minute stories', () => {
     expect(f.tx.learningEvent.create).not.toHaveBeenCalled();
   });
 
-  it('preserves published story order and appends both new B1 arcs after existing progress', async () => {
+  it('preserves published story order and appends reviewed A1 scenes after existing progress', async () => {
     const originalA1Keys = [
       'bus-01',
       'bus-02',
@@ -340,13 +375,21 @@ describe('one-minute stories', () => {
       'library-return-03',
     ];
     const allPreviouslyPublishedKeys = [...previouslyPublishedKeys, ...additionalB1Keys];
+    const appendedA1Keys = [
+      'neighbor-greeting-01',
+      'neighbor-greeting-02',
+      'calendar-date-01',
+      'calendar-date-02',
+      'post-office-directions-01',
+      'post-office-directions-02',
+    ];
     expect(MICRO_STORIES.slice(0, originalA1Keys.length).map((story) => story.key)).toEqual(
       originalA1Keys,
     );
     expect(
       MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).map((story) => story.key),
     ).toEqual(originalA2Keys);
-    expect(MICRO_STORIES).toHaveLength(27);
+    expect(MICRO_STORIES).toHaveLength(33);
     expect(MICRO_STORIES.slice(0, originalKeys.length).map((story) => story.key)).toEqual(
       originalKeys,
     );
@@ -362,7 +405,7 @@ describe('one-minute stories', () => {
     ).toEqual(additionalB1Keys);
     expect(
       MICRO_STORIES.slice(allPreviouslyPublishedKeys.length).map((story) => story.key),
-    ).toEqual(newB1Keys);
+    ).toEqual([...newB1Keys, ...appendedA1Keys]);
     expect(
       MICRO_STORIES.slice(originalA1Keys.length, originalKeys.length).every(
         (story) => story.level === 'A2' && story.english && story.reference && story.example,
@@ -390,9 +433,17 @@ describe('one-minute stories', () => {
       ),
     ).toBe(true);
     expect(
-      MICRO_STORIES.slice(allPreviouslyPublishedKeys.length + 3).every(
+      MICRO_STORIES.slice(
+        allPreviouslyPublishedKeys.length + 3,
+        allPreviouslyPublishedKeys.length + newB1Keys.length,
+      ).every(
         (story, index) =>
           story.level === 'B1' && story.part === index + 1 && story.series === '归还图书',
+      ),
+    ).toBe(true);
+    expect(
+      MICRO_STORIES.slice(allPreviouslyPublishedKeys.length + newB1Keys.length).every(
+        (story) => story.level === 'A1' && story.example && story.focusMeaning,
       ),
     ).toBe(true);
     expect(MICRO_STORIES.find((story) => story.key === 'deadline-01')).toMatchObject({
@@ -419,7 +470,7 @@ describe('one-minute stories', () => {
     const nextA2 = await f.service.current('owner');
     expect(nextA2).toMatchObject({
       completed: 9,
-      total: 27,
+      total: 33,
       lesson: { key: 'weekend-01', level: 'A2', interpretation: null },
     });
     expect(nextA2.lesson).not.toHaveProperty('reference');
@@ -428,7 +479,7 @@ describe('one-minute stories', () => {
     const existingB1 = await f.service.current('owner');
     expect(existingB1).toMatchObject({
       completed: 15,
-      total: 27,
+      total: 33,
       lesson: { key: 'deadline-01', level: 'B1', interpretation: null },
     });
     expect(existingB1.lesson).not.toHaveProperty('reference');
@@ -437,17 +488,23 @@ describe('one-minute stories', () => {
     const nextB1 = await f.service.current('owner');
     expect(nextB1).toMatchObject({
       completed: 18,
-      total: 27,
+      total: 33,
       lesson: { key: 'bike-repair-01', level: 'B1', interpretation: null },
     });
     expect(nextB1.lesson).not.toHaveProperty('reference');
 
-    f.progress.completedKeys = allPreviouslyPublishedKeys;
+    f.progress.completedKeys = [...allPreviouslyPublishedKeys, ...newB1Keys];
     const firstNewStory = await f.service.current('owner');
     expect(firstNewStory).toMatchObject({
-      completed: 21,
-      total: 27,
-      lesson: { key: 'grocery-01', series: '超市补货', part: 1, level: 'B1', interpretation: null },
+      completed: 27,
+      total: 33,
+      lesson: {
+        key: 'neighbor-greeting-01',
+        series: '新邻居打招呼',
+        part: 1,
+        level: 'A1',
+        interpretation: null,
+      },
     });
     expect(firstNewStory.lesson).not.toHaveProperty('reference');
   });

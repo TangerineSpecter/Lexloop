@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.140',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '新增六段 A1 日常微故事',
+        entry: '一分钟微故事 → A1 宽泛练习组',
+        usage:
+          '新增打招呼、课程日期与时间、问路三组原创短故事。原有 27 段及其进度 key 与顺序不变；分组仅作宽泛练习参考，不代表正式 CEFR 定级。',
+      },
+    ],
+  },
+  {
     version: '1.27.139',
     date: '2026-11-02',
     items: [

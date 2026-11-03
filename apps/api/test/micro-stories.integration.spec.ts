@@ -107,14 +107,17 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               (story) =>
                 !story.key.startsWith('bike-repair-') &&
                 !story.key.startsWith('grocery-') &&
-                !story.key.startsWith('library-return-'),
+                !story.key.startsWith('library-return-') &&
+                !story.key.startsWith('neighbor-greeting-') &&
+                !story.key.startsWith('calendar-date-') &&
+                !story.key.startsWith('post-office-directions-'),
             ).map((story) => story.key),
           },
         });
         const nextStory = await service.current(users[0].id);
         expect(nextStory).toMatchObject({
           completed: 18,
-          total: 27,
+          total: 33,
           lesson: { key: 'bike-repair-01', series: '单车维修', part: 1, level: 'B1' },
         });
         expect(nextStory.lesson).not.toHaveProperty('reference');
@@ -166,6 +169,25 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect((await service.current(users[0].id)).lesson?.interpretation).toBe(
           '这是本段的本机理解。',
         );
+
+        await prisma.microProgress.upsert({
+          where: { userId: users[1].id },
+          create: {
+            userId: users[1].id,
+            completedKeys: MICRO_STORIES.slice(0, 27).map(({ key }) => key),
+          },
+          update: { completedKeys: MICRO_STORIES.slice(0, 27).map(({ key }) => key) },
+        });
+        expect(await service.current(users[1].id)).toMatchObject({
+          completed: 27,
+          total: 33,
+          lesson: {
+            key: 'neighbor-greeting-01',
+            series: '新邻居打招呼',
+            part: 1,
+            level: 'A1',
+          },
+        });
       } finally {
         await prisma.user.deleteMany({ where: { id: { in: userIds } } });
         await prisma.$disconnect();

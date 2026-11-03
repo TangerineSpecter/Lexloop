@@ -1,7 +1,83 @@
 import { describe, expect, it } from 'vitest';
-import { storyByKey } from '../src/modules/micro-stories/micro-stories.catalog';
+import { MICRO_STORIES, storyByKey } from '../src/modules/micro-stories/micro-stories.catalog';
 
 describe('micro-story English learning content', () => {
+  it('appends six reviewed beginner scenes without changing the existing keys or their order', () => {
+    const originalKeys = [
+      'bus-01',
+      'bus-02',
+      'bus-03',
+      'cafe-01',
+      'cafe-02',
+      'cafe-03',
+      'meeting-01',
+      'meeting-02',
+      'meeting-03',
+      'weekend-01',
+      'weekend-02',
+      'weekend-03',
+      'home-repair-01',
+      'home-repair-02',
+      'home-repair-03',
+      'deadline-01',
+      'deadline-02',
+      'deadline-03',
+      'bike-repair-01',
+      'bike-repair-02',
+      'bike-repair-03',
+      'grocery-01',
+      'grocery-02',
+      'grocery-03',
+      'library-return-01',
+      'library-return-02',
+      'library-return-03',
+    ];
+    const appendedKeys = [
+      'neighbor-greeting-01',
+      'neighbor-greeting-02',
+      'calendar-date-01',
+      'calendar-date-02',
+      'post-office-directions-01',
+      'post-office-directions-02',
+    ];
+
+    expect(MICRO_STORIES.map(({ key }) => key)).toEqual([...originalKeys, ...appendedKeys]);
+    expect(MICRO_STORIES).toHaveLength(33);
+    expect(new Set(MICRO_STORIES.map(({ key }) => key)).size).toBe(33);
+
+    for (const [key, series] of [
+      ['neighbor-greeting-01', '新邻居打招呼'],
+      ['neighbor-greeting-02', '新邻居打招呼'],
+      ['calendar-date-01', '看日历上的课程'],
+      ['calendar-date-02', '看日历上的课程'],
+      ['post-office-directions-01', '问路去邮局'],
+      ['post-office-directions-02', '问路去邮局'],
+    ]) {
+      const story = storyByKey(key);
+      expect(story).toMatchObject({ series, level: 'A1' });
+      expect(story).not.toHaveProperty('questions');
+    }
+  });
+
+  it('keeps the beginner greeting, date/time and direction wording faithful to the reviewed draft', () => {
+    const greeting = storyByKey('neighbor-greeting-02');
+    const firstDate = storyByKey('calendar-date-01');
+    const secondDate = storyByKey('calendar-date-02');
+    const directions = storyByKey('post-office-directions-02');
+
+    expect(greeting?.english).toBe(
+      'The next morning, Ben sees Anna again. He says, “Good morning, Anna.” As he leaves, he says, “See you later.” Anna says, “See you.”',
+    );
+    expect(greeting?.focusMeaning).toBe('回头见；常用告别语，不表示已经约定稍后见面的时间。');
+    expect(firstDate?.reference).toBe('今天是 5 月 3 日。本看了看日历。他的美术课在 5 月 5 日。');
+    expect(secondDate?.english).toContain('gets up at 8:00 a.m.');
+    expect(secondDate?.english).toContain('starts at 9:00 a.m.');
+    expect(secondDate?.reference).toContain('离上课还有一小时');
+    expect(secondDate?.focusMeaning).toBe('上午 9 点开始；不说明路程或能否赶上。');
+    expect(directions?.english).toContain('finds the post office next to a bank');
+    expect(directions?.reference).toContain('找到了银行旁边的邮局');
+  });
+
   it('keeps the bike-repair misunderstanding, confirmation and resolution unambiguous', () => {
     const first = storyByKey('bike-repair-01');
     const second = storyByKey('bike-repair-02');

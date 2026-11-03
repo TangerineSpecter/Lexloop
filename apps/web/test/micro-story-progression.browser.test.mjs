@@ -141,7 +141,7 @@ test(
           };
           const extension = new URL(location.href).searchParams.has('new-stories');
           localStorage.setItem('lexloop.session', JSON.stringify({ accessToken: 'fixture', user: { id: 'b1-learner', email: 'b1@example.invalid', displayName: 'Fixture', role: 'USER' } }));
-          window.storyFixture = { requests: [], lesson: extension ? newLesson : existingLesson, completed: extension ? 21 : 15, total: 27 };
+          window.storyFixture = { requests: [], lesson: extension ? newLesson : existingLesson, completed: extension ? 21 : 15, total: 33 };
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
@@ -170,7 +170,7 @@ test(
         url: new URL('/dashboard/micro-stories', baseUrl).href,
       });
       await until('document.querySelector("#story-heading")?.textContent.includes("项目改期")');
-      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/27")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("B1 · 16/33")'), true);
       assert.equal(
         await evaluate('document.body.textContent.includes("客户把截止日期提前了一周")'),
         false,
@@ -230,7 +230,7 @@ test(
         url: new URL('/dashboard/micro-stories?new-stories=1', baseUrl).href,
       });
       await until('document.querySelector("#story-heading")?.textContent.includes("超市补货")');
-      assert.equal(await evaluate('document.body.textContent.includes("B1 · 22/27")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("B1 · 22/33")'), true);
       assert.equal(
         await evaluate(
           'document.body.textContent.includes("After checking the cupboard, Riley realizes she has run out of rice.")',

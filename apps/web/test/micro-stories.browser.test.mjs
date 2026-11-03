@@ -243,6 +243,12 @@ test(
           { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', completed: f.index >= 2 },
           { key: 'library-return-02', series: '归还图书', part: 2, level: 'B1', completed: false },
           { key: 'weekend-01', series: '周末约朋友', part: 1, level: 'A2', completed: false },
+          { key: 'neighbor-greeting-01', series: '新邻居打招呼', part: 1, level: 'A1', completed: false },
+          { key: 'neighbor-greeting-02', series: '新邻居打招呼', part: 2, level: 'A1', completed: false },
+          { key: 'calendar-date-01', series: '看日历上的课程', part: 1, level: 'A1', completed: false },
+          { key: 'calendar-date-02', series: '看日历上的课程', part: 2, level: 'A1', completed: false },
+          { key: 'post-office-directions-01', series: '问路去邮局', part: 1, level: 'A1', completed: false },
+          { key: 'post-office-directions-02', series: '问路去邮局', part: 2, level: 'A1', completed: false },
         ];
         const defaultKey = f.index >= 9 ? 'weekend-01' : f.index ? 'bus-02' : 'bus-01';
         const activeKey = f.selectedStory || defaultKey;
@@ -250,10 +256,12 @@ test(
           ? { key: 'bus-02', series: '上班路上', part: 2, level: 'A1', english: 'Tom calls his boss.', interpretation: null }
           : key === 'library-return-02'
             ? { key: 'library-return-02', series: '归还图书', part: 2, level: 'B1', english: 'Evan returns the second book he reserved.', interpretation: null }
+            : key === 'neighbor-greeting-01'
+              ? { key: 'neighbor-greeting-01', series: '新邻居打招呼', part: 1, level: 'A1', english: 'On Monday morning, Anna meets her new neighbor Ben at the door.', interpretation: null }
             : continuation;
         const currentPayload = () => ({
           completed: f.index,
-          total: f.index >= 9 ? 15 : 27,
+          total: 33,
           catalog: storyCatalog,
           lesson: activeKey === 'bus-01' && f.revealed
             ? { ...first, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', frame: 'I missed the bus.', example: 'I missed the train.', focusPhrase: 'miss the bus', focusMeaning: '没赶上公交车；不是“想念公交车”。' }
@@ -290,7 +298,7 @@ test(
         }
         if (path.includes('/api/v1/micro-stories/bus-01/complete')) {
           f.errors.push({ id: 'card1', english: first.english, interpretation: f.interpretation, reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: JSON.parse(options.body).ownSentence, dueAt: new Date().toISOString() });
-          f.index = 1; f.selectedStory = null; persistFixture(); return Response.json({ completed: 1, total: 27 });
+          f.index = 1; f.selectedStory = null; persistFixture(); return Response.json({ completed: 1, total: 33 });
         }
         if (path.includes('/api/v1/micro-stories/reviews/card1')) {
           if (f.failReview) { f.failReview = false; sessionStorage.setItem(fixtureKey + '.review-failed', '1'); return Response.json({ message: 'Fixture review failure' }, { status: 500 }); }
@@ -401,9 +409,31 @@ test(
       assert.ok(dialogBounds.left >= 0 && dialogBounds.right <= dialogBounds.viewport);
       assert.ok(dialogBounds.scrollWidth <= dialogBounds.viewport);
       await capture('micro-story-selection-390.png');
+      const requestsBeforeA1Filter = await evaluate('window.microFixture.requests.length');
+      await clickVisible('dialog button[data-level="A1"]');
+      assert.equal(await evaluate('window.microFixture.requests.length'), requestsBeforeA1Filter);
+      await clickVisible('dialog [data-story-key="neighbor-greeting-01"]');
+      await until('document.querySelector("#story-heading")?.textContent.includes("新邻居打招呼")');
+      assert.equal(await evaluate('document.body.textContent.includes("A1 · 1/33")'), true);
+      assert.equal(
+        await evaluate(
+          'document.body.textContent.includes("On Monday morning, Anna meets her new neighbor Ben at the door.")',
+        ),
+        true,
+      );
+      assert.equal(await evaluate('window.microFixture.index'), 0);
+      assert.equal(await evaluate('window.microFixture.errors.length'), 0);
+      assert.equal(
+        await evaluate(
+          'window.microFixture.requests.some(request => request.path.includes("/complete"))',
+        ),
+        false,
+      );
+      await send('Emulation.clearDeviceMetricsOverride');
+      await clickVisible('button[aria-haspopup="dialog"]');
+      await until('document.querySelector("dialog")?.open');
       await clickVisible('dialog [data-story-key="bus-01"]');
       await until('document.querySelector("#story-heading")?.textContent.includes("上班路上")');
-      await send('Emulation.clearDeviceMetricsOverride');
       const listenControlGap = await evaluate(`(() => {
         const card = document.querySelector('[aria-labelledby="story-heading"]');
         const divider = card?.querySelector(':scope > div[class*="cardHead"]');
@@ -1155,7 +1185,7 @@ test(
         url: new URL('/dashboard/micro-stories?completed-original=1&user=finished', baseUrl).href,
       });
       await until('document.body.textContent.includes("Maya wants to see a friend this weekend.")');
-      assert.equal(await evaluate('document.body.textContent.includes("10/15")'), true);
+      assert.equal(await evaluate('document.body.textContent.includes("10/33")'), true);
       assert.equal(await evaluate('document.body.textContent.includes("周末约朋友")'), true);
       assert.equal(
         await evaluate('document.body.textContent.includes("Maya 想这周末见一位朋友")'),
