@@ -227,9 +227,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(queue.add.mock.calls.map(([, run, options]) => options.jobId)).toEqual(
           fixtureUserIds.slice(1).map((userId) => `2026-11-02-${userId}`),
         );
-        expect(await prisma.automaticStudyPlanRun.count({ where: { dateKey: '2026-11-02' } })).toBe(
-          405,
-        );
+        expect(
+          await prisma.automaticStudyPlanRun.count({
+            where: { userId: { in: fixtureUserIds }, dateKey: '2026-11-02' },
+          }),
+        ).toBe(405);
 
         await service.process(fixtureUserIds[404], '2026-11-02', NOW);
         expect(
