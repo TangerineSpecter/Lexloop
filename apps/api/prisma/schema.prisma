@@ -1470,3 +1470,17 @@ model AdventureDailyQuest {
   @@unique([userId, questDate, type])
   @@index([userId, questDate, claimedAt])
 }
+
+// Immutable source batch identity; no cascade so restore history survives word removal.
+model VocabularyCorrectionAudit {
+  id        String   @id @default(cuid())
+  batchId   String
+  wordId    String
+  state     String   @default("APPLIED")
+  before    Json
+  after     Json
+  createdAt DateTime @default(now())
+  restoredAt DateTime?
+
+  @@unique([batchId, wordId])
+}
