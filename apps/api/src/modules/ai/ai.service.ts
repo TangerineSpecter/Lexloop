@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
-import { withProviderTemperature } from './model-temperature';
+import { withProviderRequest, normalizeProviderResponse } from './provider-protocol';
 import { attachSystemLogDiagnostic } from '../../common/system-log-diagnostic';
 import { withJsonObjectUserInstruction } from './json-object-request';
 
@@ -114,7 +114,7 @@ export class AiService implements AiProvider {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          withProviderTemperature(withJsonObjectUserInstruction({ ...request, model }), configured),
+          withProviderRequest(withJsonObjectUserInstruction({ ...request, model }), configured),
         ),
       });
     } catch {
@@ -122,7 +122,7 @@ export class AiService implements AiProvider {
     }
 
     if (!response.ok) throw new BadGatewayException(await this.providerError(response, apiKey));
-    return response;
+    return normalizeProviderResponse(response, configured);
   }
 
   async selectedChatCompletions(
@@ -143,7 +143,7 @@ export class AiService implements AiProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(
-          withProviderTemperature(
+          withProviderRequest(
             withJsonObjectUserInstruction({ ...request, model: configured.model }),
             configured,
           ),
@@ -162,7 +162,7 @@ export class AiService implements AiProvider {
     }
     if (!response.ok)
       throw new BadGatewayException(await this.providerError(response, configured.apiKey));
-    return response;
+    return normalizeProviderResponse(response, configured);
   }
 
   async testConfiguredModel(id: string): Promise<ModelConnectionTestResult> {
@@ -177,7 +177,7 @@ export class AiService implements AiProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(
-          withProviderTemperature(
+          withProviderRequest(
             withJsonObjectUserInstruction({
               model: configured.model,
               messages: [
@@ -219,6 +219,19 @@ export class AiService implements AiProvider {
       };
     }
 
+    try {
+      response = await normalizeProviderResponse(response, configured);
+    } catch (error) {
+      return {
+        success: false,
+        endpoint: 'responded',
+        authentication: 'unknown',
+        selectedModel: 'unknown',
+        structuredGeneration: 'failed',
+        upstreamStatus: response.status,
+        reason: error instanceof BadGatewayException ? error.message : '模型响应无法解析。',
+      };
+    }
     const parsed = await readJsonResponse(response);
     if (!parsed.ok || !isChatCompletionResponse(parsed.value)) {
       return {

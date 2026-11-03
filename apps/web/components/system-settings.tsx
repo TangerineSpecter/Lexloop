@@ -1,5 +1,7 @@
 'use client';
 
+import { StyledSelect } from './styled-select';
+
 import {
   AlertTriangle,
   Bot,
@@ -26,7 +28,7 @@ import { TtsSettings } from './tts-settings';
 type AiModel = {
   id: string;
   displayName: string;
-  provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
+  provider: 'DEEPSEEK' | 'MINIMAX' | 'OPENAI_COMPATIBLE';
   model: string;
   baseUrl: string;
   temperature?: number | null;
@@ -202,13 +204,21 @@ export function SystemSettings({ session }: { session: Session }) {
                 {models.map((model) => (
                   <article key={model.id}>
                     <div className="model-provider-mark">
-                      {model.provider === 'DEEPSEEK' ? 'DS' : 'AI'}
+                      {model.provider === 'DEEPSEEK'
+                        ? 'DS'
+                        : model.provider === 'MINIMAX'
+                          ? 'MM'
+                          : 'AI'}
                     </div>
                     <div className="model-copy">
                       <strong>{model.displayName}</strong>
                       <span>
-                        {model.provider === 'DEEPSEEK' ? 'DeepSeek' : '自定义 OpenAI'} ·{' '}
-                        {model.model}
+                        {model.provider === 'DEEPSEEK'
+                          ? 'DeepSeek'
+                          : model.provider === 'MINIMAX'
+                            ? 'MiniMax'
+                            : '自定义 OpenAI'}{' '}
+                        · {model.model}
                       </span>
                       <small>{model.baseUrl}</small>
                     </div>
@@ -543,22 +553,26 @@ function AiModelDialog({
             </button>
           </Tooltip>
         </header>
-        <div className="provider-choice" role="tablist">
-          <button
-            type="button"
-            className={provider === 'DEEPSEEK' ? 'active' : ''}
-            onClick={() => setProvider('DEEPSEEK')}
-          >
-            DeepSeek
-          </button>
-          <button
-            type="button"
-            className={provider === 'OPENAI_COMPATIBLE' ? 'active' : ''}
-            onClick={() => setProvider('OPENAI_COMPATIBLE')}
-          >
-            自定义 OpenAI
-          </button>
-        </div>
+        <label>
+          模型提供方
+          <StyledSelect
+            label="模型提供方"
+            value={provider}
+            options={[
+              { value: 'DEEPSEEK', label: 'DeepSeek' },
+              { value: 'MINIMAX', label: 'MiniMax' },
+              { value: 'OPENAI_COMPATIBLE', label: '自定义 OpenAI' },
+            ]}
+            onChange={(value) => {
+              const next = value as AiModel['provider'];
+              setProvider(next);
+              setModelPickerOpen(false);
+              if (next === model?.provider) setModelName(model.model);
+              else if (next === 'MINIMAX') setModelName('MiniMax-M3.1-Flash');
+              else if (next === 'DEEPSEEK') setModelName('deepseek-v4-flash');
+            }}
+          />
+        </label>
         <label>
           模型展示名称
           <input
@@ -570,7 +584,17 @@ function AiModelDialog({
         </label>
         <label>
           模型 ID
-          {provider === 'DEEPSEEK' ? (
+          {provider === 'MINIMAX' ? (
+            <StyledSelect
+              label="MiniMax 模型"
+              value={modelName}
+              onChange={setModelName}
+              options={[
+                { value: 'MiniMax-M3.1-Flash', label: 'MiniMax-M3.1-Flash' },
+                { value: 'MiniMax-M3', label: 'MiniMax-M3' },
+              ]}
+            />
+          ) : provider === 'DEEPSEEK' ? (
             <div className="model-picker">
               <Tooltip label="选择模型版本">
                 <button
@@ -643,24 +667,27 @@ function AiModelDialog({
             autoComplete="off"
           />
         </label>
-        <label>
-          温度（可选）
-          <input
-            type="number"
-            min="0"
-            max="2"
-            step="any"
-            inputMode="decimal"
-            value={temperature}
-            onChange={(event) => setTemperature(event.target.value)}
-            aria-describedby="model-temperature-help"
-            placeholder="留空使用默认策略"
-          />
-          <small id="model-temperature-help">
-            留空时，自定义 OpenAI 不发送 temperature，由供应商使用默认值；DeepSeek
-            保持现有功能默认值。填写后会覆盖该模型各功能的温度（0–2），具体支持范围请以供应商文档为准。
-          </small>
-        </label>
+        {provider === 'MINIMAX' && <p>使用 MiniMax 中国站。当前模型不支持调整温度。</p>}
+        {provider !== 'MINIMAX' && (
+          <label>
+            温度（可选）
+            <input
+              type="number"
+              min="0"
+              max="2"
+              step="any"
+              inputMode="decimal"
+              value={temperature}
+              onChange={(event) => setTemperature(event.target.value)}
+              aria-describedby="model-temperature-help"
+              placeholder="留空使用默认策略"
+            />
+            <small id="model-temperature-help">
+              留空时，自定义 OpenAI 不发送 temperature，由供应商使用默认值；DeepSeek
+              保持现有功能默认值。填写后会覆盖该模型各功能的温度（0–2），具体支持范围请以供应商文档为准。
+            </small>
+          </label>
+        )}
         {message && (
           <p className="form-error model-message" role="alert">
             <AlertTriangle size={18} aria-hidden="true" />

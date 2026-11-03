@@ -1379,6 +1379,54 @@ test(
       });
       await clickElement('.model-edit-button');
       await until('document.querySelector(".model-dialog input[type=number]")');
+      const originalCustomBase = await evaluate(
+        `document.querySelector('.model-dialog input[placeholder="https://api.example.com/v1"]').value`,
+      );
+      await clickElement('[aria-label="模型提供方"]');
+      await evaluate(
+        `[...document.querySelectorAll('[role="option"]')].find(node => node.textContent.trim() === 'MiniMax').click()`,
+      );
+      await until(`document.querySelector('[aria-label="MiniMax 模型"]')`);
+      assert.equal(
+        await evaluate('document.querySelector(".model-dialog input[type=number]") === null'),
+        true,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".model-dialog input[type=password]").value'),
+        '',
+      );
+      assert.match(
+        await evaluate(`document.querySelector('[aria-label="MiniMax 模型"]').textContent`),
+        /MiniMax-M3.1-Flash/,
+      );
+      for (const width of [1440, 390]) {
+        await send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 900,
+          deviceScaleFactor: 1,
+          mobile: width === 390,
+        });
+        await delay(80);
+        assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+        await capture(`minimax-provider-${width}.png`);
+      }
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await clickElement('[aria-label="模型提供方"]');
+      await evaluate(
+        `[...document.querySelectorAll('[role="option"]')].find(node => node.textContent.trim() === '自定义 OpenAI').click()`,
+      );
+      await until('document.querySelector(".model-dialog input[type=number]")');
+      assert.equal(
+        await evaluate(
+          `document.querySelector('.model-dialog input[placeholder="https://api.example.com/v1"]').value`,
+        ),
+        originalCustomBase,
+      );
       const temperatureDialog = await evaluate(`(() => ({
         value: document.querySelector('.model-dialog input[type="number"]')?.value,
         hint: document.querySelector('#model-temperature-help')?.textContent.trim() ?? null,

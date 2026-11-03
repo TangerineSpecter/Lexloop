@@ -24,6 +24,7 @@ enum TtsRegion {
 }
 
 enum AiModelProvider {
+  MINIMAX
   DEEPSEEK
   OPENAI_COMPATIBLE
 }

@@ -163,7 +163,9 @@ export class AiModelConfigService {
     const baseUrl =
       input.provider === AiModelProvider.DEEPSEEK
         ? 'https://api.deepseek.com'
-        : input.baseUrl?.trim().replace(/\/+$/, '');
+        : input.provider === AiModelProvider.MINIMAX
+          ? 'https://api.minimax.cn/v1'
+          : input.baseUrl?.trim().replace(/\/+$/, '');
     if (!displayName || !model || !baseUrl)
       throw new BadRequestException('请填写展示名称、模型与 API 地址');
     if (

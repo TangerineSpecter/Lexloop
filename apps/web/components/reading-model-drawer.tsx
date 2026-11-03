@@ -40,7 +40,7 @@ function StudySettingsDrawer({
 type AvailableAiModel = {
   id: string;
   displayName: string;
-  provider: 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
+  provider: 'DEEPSEEK' | 'MINIMAX' | 'OPENAI_COMPATIBLE';
   model: string;
   isSelected: boolean;
 };
@@ -135,7 +135,7 @@ export function ReadingModelDrawer({
               <small>
                 {item.isSelected
                   ? '当前生效模型'
-                  : `${item.provider === 'DEEPSEEK' ? 'DeepSeek' : 'OpenAI 兼容'} · ${item.model}`}
+                  : `${item.provider === 'DEEPSEEK' ? 'DeepSeek' : item.provider === 'MINIMAX' ? 'MiniMax' : 'OpenAI 兼容'} · ${item.model}`}
               </small>
             </span>
             {item.isSelected && <Check size={24} />}

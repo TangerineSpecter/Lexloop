@@ -1,6 +1,6 @@
 import { DelayedError, type Job } from 'bullmq';
 import { withJsonObjectUserInstruction } from '../ai/json-object-request';
-import { withProviderTemperature } from '../ai/model-temperature';
+import { withProviderRequest, normalizeProviderResponse } from '../ai/provider-protocol';
 import type { OutputService } from './output.service';
 
 type Task = { submissionId: string; workerToken: string };
@@ -46,7 +46,7 @@ export async function gradeOutput(
         authorization: `Bearer ${claim.provider.apiKey}`,
       },
       body: JSON.stringify(
-        withProviderTemperature(
+        withProviderRequest(
           withJsonObjectUserInstruction({
             model: claim.provider.model,
             messages: claim.messages,
@@ -59,7 +59,7 @@ export async function gradeOutput(
       ),
     });
     if (!response.ok) throw new Error('模型批改暂时不可用，请检查模型配置');
-    const payload = (await response.json()) as {
+    const payload = (await (await normalizeProviderResponse(response, claim.provider)).json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const content = payload.choices?.[0]?.message?.content;
