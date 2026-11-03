@@ -1,5 +1,6 @@
 import { readFile, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import * as XLSX from 'xlsx';
 import { describe, expect, it } from 'vitest';
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 import {
@@ -63,7 +64,36 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ).toBeNull();
       });
     }, 30000);
-    it('creates 1189 stable associations for a new book, preserves phrases and resumes concurrent imports without duplicates', async () => {
+    it('preserves cross-book field merging while keeping versioned associations atomic', async () => {
+      await withVocabularyCorrectionFixture(async ({ db, root, target, importer }) => {
+        await db.vocabularyBookWord.deleteMany();
+        await db.vocabularyBook.deleteMany();
+        await db.vocabularyWord.deleteMany();
+        await copyFile(join(process.cwd(), 'assets/vocabulary/通用/日常生活单词.xlsx'), target);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet([
+            ['单词', '英音', '美音', '释义'],
+            ['spell', '无', '无', '无'],
+          ]),
+          'Sheet1',
+        );
+        XLSX.writeFile(workbook, join(root, '通用/另一本.xlsx'));
+        await importer.importVocabulary(root);
+        const source = XLSX.readFile(target);
+        const expected = XLSX.utils.sheet_to_json<Record<string, string>>(
+          source.Sheets[source.SheetNames[0]],
+        )[0]['释义'];
+        expect(
+          (await db.vocabularyWord.findUniqueOrThrow({ where: { normalized: 'spell' } })).meaning,
+        ).toBe(expected);
+        expect(
+          await db.vocabularyBookWord.count({ where: { book: { sourceKey: DAILY_SOURCE_KEY } } }),
+        ).toBe(1189);
+      });
+    }, 30000);
+    it('creates 1189 stable associations for a new book, preserves phrases and repeats concurrent imports without duplicates', async () => {
       await withVocabularyCorrectionFixture(async ({ db, root, target, importer }) => {
         await db.vocabularyBookWord.deleteMany();
         await db.vocabularyBook.deleteMany();
@@ -103,11 +133,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           }),
         ).toEqual(associations);
         expect(await readFile(target)).toEqual(bytes);
-        // Simulate a first boot interrupted after reserving the revision, before importing words.
+        // An exposed incomplete revision from an older candidate is no longer resumed.
         await db.vocabularyBookWord.deleteMany();
         await db.vocabularyWord.deleteMany();
-        await importer.importVocabulary(root);
-        expect(await db.vocabularyBookWord.count({ where: { bookId: book.id } })).toBe(1189);
+        await expect(importer.importVocabulary(root)).rejects.toThrow('association conflict');
+        expect(await db.vocabularyBookWord.count({ where: { bookId: book.id } })).toBe(0);
+        expect(await db.vocabularyWord.count()).toBe(0);
       });
     }, 30000);
   },
