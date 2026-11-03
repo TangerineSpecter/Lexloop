@@ -1,0 +1,31 @@
+{
+  "snapshot": {
+    "revision": "92411821",
+    "retrievedAt": "2026-11-03",
+    "representation": "selected fields transcribed from Wiktionary entry page; not a full raw export"
+  },
+  "license": {
+    "selected": "CC-BY-SA-4.0",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "basis": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+    "attribution": "Wiktionary contributors",
+    "changes": "Selected noun sense, Chinese translations and sound records only; no example quotations, audio or images copied."
+  },
+  "id": "backache-en",
+  "word": "backache",
+  "pos": "noun",
+  "url": "https://en.wiktionary.org/w/index.php?title=backache&oldid=92411821",
+  "entry": "https://en.wiktionary.org/wiki/backache",
+  "history": "https://en.wiktionary.org/w/index.php?title=backache&action=history",
+  "sense": {
+    "label": "pain or ache in the back",
+    "id": "English/Noun/1",
+    "chinese": ["背疼", "腰痛"]
+  },
+  "sounds": [
+    {
+      "ipa": "/ˈbækeɪk/",
+      "tags": []
+    }
+  ]
+}

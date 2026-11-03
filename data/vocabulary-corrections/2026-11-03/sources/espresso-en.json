@@ -1,0 +1,45 @@
+{
+  "snapshot": {
+    "dump": "enwiktionary-2026-10-01",
+    "extractedAt": "2026-10-30",
+    "retrievedAt": "2026-11-03",
+    "wiktextract": ["19f9a30", "6f96ddf"],
+    "representation": "selected fields transcribed from Kaikki entry page; not a full raw export"
+  },
+  "license": {
+    "selected": "CC-BY-SA-4.0",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "basis": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+    "attribution": "Wiktionary contributors; extracted by Kaikki/Wiktextract",
+    "changes": "Selected noun sense, Chinese translations and sound records only; no example quotations, audio or images copied."
+  },
+  "id": "espresso-en",
+  "word": "espresso",
+  "pos": "noun",
+  "url": "https://kaikki.org/dictionary/English/meaning/e/es/espresso.html",
+  "entry": "https://en.wiktionary.org/wiki/espresso",
+  "history": "https://en.wiktionary.org/w/index.php?title=espresso&action=history",
+  "sense": {
+    "label": "strong type of coffee",
+    "chinese": ["浓缩咖啡", "浓咖啡", "意式浓缩"],
+    "id": "en-espresso-en-noun-1CuTWYD8"
+  },
+  "sounds": [
+    {
+      "ipa": "/ɛˈspɹɛsəʊ/",
+      "tags": ["Received-Pronunciation"]
+    },
+    {
+      "ipa": "/ɪˈspɹɛsəʊ/",
+      "tags": ["Received-Pronunciation"]
+    },
+    {
+      "ipa": "/əˈspɹɛsəʊ/",
+      "tags": ["Received-Pronunciation"]
+    },
+    {
+      "ipa": "/ɛˈspɹɛsoʊ/",
+      "tags": ["General-American"]
+    }
+  ]
+}

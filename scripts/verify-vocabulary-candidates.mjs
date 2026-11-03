@@ -82,7 +82,8 @@ export function loadCandidateBatch() {
   const XLSX = require('../apps/api/node_modules/xlsx');
   const bundle = JSON.parse(readFileSync(resolve(batchRoot, 'preview.json'), 'utf8'));
   assert.equal(bundle.book.path, 'apps/api/assets/vocabulary/通用/日常生活单词.xlsx');
-  const bytes = readFileSync(resolve(root, bundle.book.path));
+  // Historical review-only preview uses its immutable pre-correction snapshot.
+  const bytes = readFileSync(resolve(batchRoot, 'source-workbook.xlsx'));
   assert.equal(hash(bytes), bundle.book.sha256, 'source workbook snapshot changed');
   const workbook = XLSX.read(bytes);
   const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });

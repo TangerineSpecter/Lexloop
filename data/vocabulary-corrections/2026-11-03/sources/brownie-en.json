@@ -1,0 +1,33 @@
+{
+  "snapshot": {
+    "dump": "enwiktionary-2026-10-01",
+    "extractedAt": "2026-10-30",
+    "retrievedAt": "2026-11-03",
+    "wiktextract": ["19f9a30", "6f96ddf"],
+    "representation": "selected fields transcribed from Kaikki entry page; not a full raw export"
+  },
+  "license": {
+    "selected": "CC-BY-SA-4.0",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "basis": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+    "attribution": "Wiktionary contributors; extracted by Kaikki/Wiktextract",
+    "changes": "Selected noun sense, Chinese translations and sound records only; no example quotations, audio or images copied."
+  },
+  "id": "brownie-en",
+  "word": "brownie",
+  "pos": "noun",
+  "url": "https://kaikki.org/dictionary/English/meaning/b/br/brownie.html",
+  "entry": "https://en.wiktionary.org/wiki/brownie",
+  "history": "https://en.wiktionary.org/w/index.php?title=brownie&action=history",
+  "sense": {
+    "label": "small rich cake",
+    "id": "en-brownie-en-noun-en:cake",
+    "chinese": ["布朗尼"]
+  },
+  "sounds": [
+    {
+      "ipa": "/ˈbɹaʊni/",
+      "tags": ["General-American", "Received-Pronunciation"]
+    }
+  ]
+}

@@ -478,7 +478,7 @@ export default function AboutPage() {
       </section>
       <footer className="about-footer">
         <span>Lexloop · 词环</span>
-        <span>Learn · Return · Remember</span>
+        <Link href="/vocabulary-sources">词条来源与许可</Link>
       </footer>
     </main>
   );

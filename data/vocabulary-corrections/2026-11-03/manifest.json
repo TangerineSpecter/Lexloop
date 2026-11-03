@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "scope": "source-workbook-only",
+  "license": "CC-BY-SA-4.0",
+  "baseline": {
+    "file": "data/vocabulary-candidates/2026-11-03/source-workbook.xlsx",
+    "sha256": "86da0383a0e8953c0cd28b2ce2b462d9b1ed5beb8428dc68fcd5b7f06417b5bb"
+  },
+  "target": "apps/api/assets/vocabulary/通用/日常生活单词.xlsx",
+  "sources": [
+    {
+      "id": "backache-en",
+      "file": "sources/backache-en.json",
+      "sha256": "316917c8c5842f89aa721968040dbd6a4baacc705cc01fbe6a0f615c50cffde6"
+    },
+    {
+      "id": "moped-en",
+      "file": "sources/moped-en.json",
+      "sha256": "27007a73a8ca35dfb93ca604435b7d712f33e27a5d5edd148a84c3e6ef8629c8"
+    },
+    {
+      "id": "crate-en",
+      "file": "sources/crate-en.json",
+      "sha256": "c338e34b8d913daff246181868b60a74d1588b09b6afcd425ba5487f4375fdac"
+    },
+    {
+      "id": "brownie-en",
+      "file": "sources/brownie-en.json",
+      "sha256": "0cd477ef1d12751f1c384650ac9aec0ccccd96330c3c7848592f5f400ef9afb3"
+    },
+    {
+      "id": "ceramics-en",
+      "file": "sources/ceramics-en.json",
+      "sha256": "b5f328801d843fc7b526ad4d7d7d866c99f47342b8e5c8ac4a17bb2da5ed7a10"
+    },
+    {
+      "id": "espresso-en",
+      "file": "sources/espresso-en.json",
+      "sha256": "fb69e90a922d1b8164ec8c3725cd98740ba75d39859af54b8136896ed691204e"
+    }
+  ],
+  "entries": [
+    {
+      "word": "backache",
+      "row": 178,
+      "sourceId": "backache-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "疼痛词组与 toothache 相邻；采用背部疼痛义，不缩窄为腰痛。",
+        "context": [
+          "band aid cast pain",
+          "painful stiff headache ache",
+          "backache",
+          "toothache",
+          "sore tender swollen inflamed dizzy"
+        ]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 背疼"
+        }
+      ]
+    },
+    {
+      "word": "moped",
+      "row": 728,
+      "sourceId": "moped-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "motorbike motorcycle 相邻，选择车辆名词；拒绝 mope 过去式的 /məʊpt/。",
+        "context": [
+          "van lori",
+          "motorbike motorcycle",
+          "moped",
+          "motorist reverse",
+          "petrol gas mechanic"
+        ]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 摩托自行车"
+        },
+        {
+          "column": "英音",
+          "from": "无",
+          "to": "/ˈməʊ.pɛd/"
+        },
+        {
+          "column": "美音",
+          "from": "无",
+          "to": "/ˈmoʊ.pɛd/"
+        }
+      ]
+    },
+    {
+      "word": "crate",
+      "row": 984,
+      "sourceId": "crate-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "cardboard case 相邻，选择容器名词；无地区 IPA 留缺。",
+        "context": ["cable cane", "cardboard case", "crate", "cycle detector", "dial digital durx"]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 板条箱"
+        }
+      ]
+    },
+    {
+      "word": "brownie",
+      "row": 1030,
+      "sourceId": "brownie-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "avocado broccoli 与 celery coconut cod 之间，选择食品；两个地区共享同一条显式标注 IPA。",
+        "context": [
+          "uproot weed",
+          "avocado broccoli",
+          "brownie",
+          "celery coconut cod",
+          "dip drumstick dumpling jelly"
+        ]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 布朗尼"
+        },
+        {
+          "column": "英音",
+          "from": "无",
+          "to": "/ˈbɹaʊni/"
+        },
+        {
+          "column": "美音",
+          "from": "无",
+          "to": "/ˈbɹaʊni/"
+        }
+      ]
+    },
+    {
+      "word": "ceramics",
+      "row": 1106,
+      "sourceId": "ceramics-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "clay porcelain potter 相邻，选择陶瓷制品集合义；音频地区不转换为 IPA 地区。",
+        "context": [
+          "symmetrical symmetry",
+          "three dimensional undulate zigzag",
+          "ceramics",
+          "clay porcelain potter",
+          "pottery bingo"
+        ]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 陶瓷"
+        }
+      ]
+    },
+    {
+      "word": "espresso",
+      "row": 1125,
+      "sourceId": "espresso-en",
+      "review": {
+        "kind": "assistant-source-review",
+        "reviewedAt": "2026-11-03",
+        "humanApproval": null,
+        "rationale": "coffee 与其他饮品相邻，选择咖啡名词；英音选来源首个 RP 变体，其他变体保存在来源中。",
+        "context": [
+          "coca cola cocktail coffee quirk",
+          "corkscrew dissolute",
+          "espresso",
+          "froth gassy gin hooch",
+          "intoxicant jigger"
+        ]
+      },
+      "changes": [
+        {
+          "column": "释义",
+          "from": "无",
+          "to": "n. 浓缩咖啡"
+        },
+        {
+          "column": "英音",
+          "from": "无",
+          "to": "/ɛˈspɹɛsəʊ/"
+        },
+        {
+          "column": "美音",
+          "from": "无",
+          "to": "/ɛˈspɹɛsoʊ/"
+        }
+      ]
+    }
+  ],
+  "held": [
+    {
+      "word": "crate",
+      "fields": ["英音", "美音"],
+      "reason": "IPA has no explicit region"
+    },
+    {
+      "word": "backache",
+      "fields": ["英音", "美音"],
+      "reason": "IPA has no explicit region; audio label is not an IPA label"
+    },
+    {
+      "word": "ceramics",
+      "fields": ["英音", "美音"],
+      "reason": "No IPA in selected source entry"
+    }
+  ]
+}

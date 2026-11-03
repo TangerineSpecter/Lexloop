@@ -18,3 +18,5 @@
 ## 离线核验
 
 运行 `node scripts/verify-vocabulary-candidates.mjs` 检查源工作簿和摘录 hash、原值、义项归属及地区标签；运行 `node --test scripts/verify-vocabulary-candidates.test.mjs` 检查覆盖已有值、虚构译义、从无地区 IPA 推断美音等行为会被拒绝。核验不访问网络、不写数据库；通过仅表示记录可追溯且未越过这些边界，不代表词典义项已获人工批准。
+
+后续补充：此预览属于历史待审快照，验证脚本改为读取本目录 `source-workbook.xlsx`（哈希与原预览记录一致）。当前源文件中的实际应用另见 `data/vocabulary-corrections/2026-11-03`，不把历史预览状态改成批准，也不把本文件中的“未应用”误解为当前源文件状态。

@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.152',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '补充日常词书的可核实内容',
+        entry: '关于词环 → 词条来源与许可',
+        usage:
+          '源词书补入 6 条释义及 6 条地区音标，保留逐词来源与许可；已有数据库词条不会自动替换。',
+      },
+    ],
+  },
+  {
     version: '1.27.151',
     date: '2026-11-03',
     items: [

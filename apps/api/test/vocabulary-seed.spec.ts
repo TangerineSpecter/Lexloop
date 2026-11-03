@@ -76,3 +76,33 @@ it('normalizes known phonetic delimiters on import without rewriting sources or 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('reads the corrected daily source first sheet without importing its attribution sheet', () => {
+  const service = new VocabularySeedService({} as never) as unknown as {
+    readBook: (
+      root: string,
+      file: string,
+    ) => {
+      words: Array<{
+        text: string;
+        meaning: string | null;
+        ukPhonetic: string | null;
+        usPhonetic: string | null;
+      }>;
+    };
+  };
+  const root = join(process.cwd(), 'assets/vocabulary');
+  const book = service.readBook(root, join(root, '通用/日常生活单词.xlsx'));
+  expect(book.words).toHaveLength(1177);
+  expect(book.words.find((word) => word.text === 'moped')).toMatchObject({
+    meaning: 'n. 摩托自行车',
+    ukPhonetic: 'ˈməʊ.pɛd',
+    usPhonetic: 'ˈmoʊ.pɛd',
+  });
+  expect(book.words.find((word) => word.text === 'crate')).toMatchObject({
+    meaning: 'n. 板条箱',
+    ukPhonetic: null,
+    usPhonetic: null,
+  });
+  expect(book.words.some((word) => word.text === 'word')).toBe(false);
+});

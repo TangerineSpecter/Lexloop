@@ -1,0 +1,37 @@
+{
+  "snapshot": {
+    "dump": "enwiktionary-2026-10-01",
+    "extractedAt": "2026-10-30",
+    "retrievedAt": "2026-11-03",
+    "wiktextract": ["19f9a30", "6f96ddf"],
+    "representation": "selected fields transcribed from Kaikki entry page; not a full raw export"
+  },
+  "license": {
+    "selected": "CC-BY-SA-4.0",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "basis": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+    "attribution": "Wiktionary contributors; extracted by Kaikki/Wiktextract",
+    "changes": "Selected noun sense, Chinese translations and sound records only; no example quotations, audio or images copied."
+  },
+  "id": "crate-en",
+  "word": "crate",
+  "pos": "noun",
+  "url": "https://kaikki.org/dictionary/English/meaning/c/cr/crate.html",
+  "entry": "https://en.wiktionary.org/wiki/crate",
+  "history": "https://en.wiktionary.org/w/index.php?title=crate&action=history",
+  "sense": {
+    "id": "en-crate-en-noun-Ad4CBhaq",
+    "label": "box or basket",
+    "chinese": ["条板箱", "板条箱"]
+  },
+  "sounds": [
+    {
+      "ipa": "/kɹeɪt/",
+      "tags": []
+    }
+  ],
+  "note": "The separate audio record has a US tag; that tag does not label this IPA record. Other noun senses and verb senses are not selected.",
+  "extractionWarnings": [
+    "Kaikki page reports skipped markup inside translations; selected Chinese translations are visible, but the full entry needs review."
+  ]
+}

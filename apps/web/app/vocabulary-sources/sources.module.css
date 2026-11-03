@@ -1,0 +1,18 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  color: #082877;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.page h1 {
+  font-size: 28px;
+}
+.page a {
+  color: #315eb6;
+  text-decoration: underline;
+}
+.page li {
+  margin: 10px 0;
+}
