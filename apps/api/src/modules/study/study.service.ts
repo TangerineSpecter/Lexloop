@@ -13,6 +13,7 @@ import {
   StudyPlanItemSource,
   StudyPlanMode,
   StudyPlanPurpose,
+  ProgressivePracticeStage,
   StudyPlanGenerationPhase,
   StudyPlanStatus,
   WeaknessStatus,
@@ -86,6 +87,42 @@ export const MAX_STUDY_QUESTION_REPAIR_ATTEMPTS = 3;
 const MAX_DISABLED_PUBLIC_CACHE_REPLACEMENT_ROUNDS = 3;
 export const STUDY_GENERATION_REQUEST_TIMEOUT_MS = 90_000;
 export const STUDY_GENERATION_TOTAL_TIMEOUT_MS = 6 * 60_000;
+export const PROGRESSIVE_PRACTICE_VERSION = 1;
+export const PROGRESSIVE_PRACTICE_WORD_LIMIT = 5;
+const PROGRESSIVE_PRACTICE_REVIEW_LIMIT = 3;
+const PROGRESSIVE_PRACTICE_NEW_LIMIT =
+  PROGRESSIVE_PRACTICE_WORD_LIMIT - PROGRESSIVE_PRACTICE_REVIEW_LIMIT;
+export const PROGRESSIVE_PRACTICE_STAGE_RULES: Record<
+  ProgressivePracticeStage,
+  {
+    label: string;
+    focus: string;
+    questionType: GeneratedQuestion['type'];
+    promptRules: string;
+  }
+> = {
+  FOUNDATION: {
+    label: '短句辨义',
+    focus: '在直白线索里识别词义',
+    questionType: 'MEANING_RECOGNITION',
+    promptRules:
+      '材料恰好 2 个简单英文句子。目标词所在句为 5–12 个英文词，使用常见周边词，直接给出词义线索；题目是 MEANING_RECOGNITION，不需要跨句推断。',
+  },
+  CONTEXT: {
+    label: '语境辨析',
+    focus: '借助搭配、人物或时间线索判断用法',
+    questionType: 'SYNONYM_REPLACEMENT',
+    promptRules:
+      '材料恰好 2 个英文句子。目标词所在句为 10–18 个英文词，加入具体人物、动作、对象、时间或搭配线索；题目是 SYNONYM_REPLACEMENT，要求找出能保留本句语义的替换表达，不要求跨段推断。',
+  },
+  TRANSFER: {
+    label: '跨句推断',
+    focus: '结合多条线索理解短文中的词义和原因',
+    questionType: 'READING_COMPREHENSION',
+    promptRules:
+      '材料恰好 3 个英文句子、合计 35–55 个英文词；短文中至少两条分布在不同句子的线索共同支持一个推断。题目是 READING_COMPREHENSION，答案必须仅依据短文。',
+  },
+};
 const SAFE_GENERATION_FAILURE =
   '学习计划生成失败；详细错误已隐藏。请稍后重试；如仍失败，请联系管理员查看错误日志。';
 const SAFE_VALIDATION_ERROR_PATTERNS = [
@@ -93,6 +130,7 @@ const SAFE_VALIDATION_ERROR_PATTERNS = [
   /^第 \d{1,3} 组 (?:内容不完整|必须为每个单词生成且只生成一道题|缺少中文逐句翻译、简化文本或语法提示)$/,
   /^单词 [\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .'’'\-]{0,79} (?:的题型不受支持，请重新生成|缺少纯英文题干或可判定答案|必须生成 (?:WORD_MNEMONIC|MEANING_RECOGNITION|WORD_MATCHING|SYNONYM_REPLACEMENT|READING_COMPREHENSION) 题型的变式题|的解析必须使用中文|的匹配题只能使用配对内容，不能包含额外选项或答案列表|的选项必须恰有 4 个|的选项语言与题型不符|的选项不能重复|的选项语言、数量或唯一性不符合题型要求|的正确答案不符合题型要求|的匹配题必须包含 4 组唯一的中文释义和提示|的每个匹配短语都必须包含目标词)$/u,
   /^阅读材料未包含单词 [\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .'’'\-]{0,79}$/u,
+  /^渐进练习第 \d{1,3} 组 (?:结构|目标句长度)不符合阶段要求$/,
 ];
 const EXAM_QUESTION_CYCLE = [
   'MEANING_RECOGNITION',
@@ -117,6 +155,26 @@ const modeMap = {
   individual: StudyPlanMode.INDIVIDUAL,
   exam: StudyPlanMode.EXAM,
 } as const;
+const progressiveStageKeyMap = {
+  foundation: ProgressivePracticeStage.FOUNDATION,
+  context: ProgressivePracticeStage.CONTEXT,
+  transfer: ProgressivePracticeStage.TRANSFER,
+} as const;
+type ProgressivePracticeStageKey = keyof typeof progressiveStageKeyMap;
+const progressiveStageOrder: ProgressivePracticeStage[] = [
+  ProgressivePracticeStage.FOUNDATION,
+  ProgressivePracticeStage.CONTEXT,
+  ProgressivePracticeStage.TRANSFER,
+];
+
+function progressiveStageRank(stage: ProgressivePracticeStage) {
+  return progressiveStageOrder.indexOf(stage);
+}
+
+function nextProgressiveStage(stage: ProgressivePracticeStage) {
+  return progressiveStageOrder[progressiveStageRank(stage) + 1] ?? null;
+}
+
 type RequestedMode = keyof typeof modeMap;
 type PlanWord = {
   id: string;
@@ -302,6 +360,8 @@ export class StudyQuestionValidationError extends Error {
     readonly code: string,
     readonly bookWordId: string,
     readonly fieldPath: string,
+    readonly scope: 'question' | 'group' = 'question',
+    readonly groupIndex?: number,
   ) {
     super(message);
     this.name = 'StudyQuestionValidationError';
@@ -350,6 +410,144 @@ export class StudyService {
       }
     }
     return 'TIMEOUT' as const;
+  }
+
+  async getProgressivePath(userId: string) {
+    const [progress, currentPlan] = await Promise.all([
+      this.prisma.progressivePracticeProgress.findUnique({
+        where: {
+          userId_trackVersion: {
+            userId,
+            trackVersion: PROGRESSIVE_PRACTICE_VERSION,
+          },
+        },
+      }),
+      this.prisma.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          progressiveVersion: PROGRESSIVE_PRACTICE_VERSION,
+          status: {
+            in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE, StudyPlanStatus.FAILED],
+          },
+          items: { some: { completedAt: null } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: studyPlanInclude(userId),
+      }),
+    ]);
+    return {
+      trackVersion: PROGRESSIVE_PRACTICE_VERSION,
+      highestUnlockedStage: (
+        progress?.highestUnlockedStage ?? ProgressivePracticeStage.FOUNDATION
+      ).toLowerCase(),
+      currentPlan: currentPlan ? this.serializePlanRecord(currentPlan) : null,
+    };
+  }
+
+  async createProgressivePlan(userId: string, requestedStageKey?: ProgressivePracticeStageKey) {
+    const planId = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL
+      `);
+      const progress = await tx.progressivePracticeProgress.upsert({
+        where: {
+          userId_trackVersion: {
+            userId,
+            trackVersion: PROGRESSIVE_PRACTICE_VERSION,
+          },
+        },
+        create: {
+          userId,
+          trackVersion: PROGRESSIVE_PRACTICE_VERSION,
+          highestUnlockedStage: ProgressivePracticeStage.FOUNDATION,
+        },
+        update: {},
+      });
+      const requestedStage = requestedStageKey
+        ? progressiveStageKeyMap[requestedStageKey]
+        : progress.highestUnlockedStage;
+      const existing = await tx.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          progressiveVersion: PROGRESSIVE_PRACTICE_VERSION,
+          status: {
+            in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE, StudyPlanStatus.FAILED],
+          },
+          items: { some: { completedAt: null } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, progressiveStage: true },
+      });
+      if (existing) {
+        if (existing.progressiveStage !== requestedStage) {
+          throw new BadRequestException(
+            '当前已有未完成的其他阶段练习；请先继续或完成它，再选择其他阶段。',
+          );
+        }
+        return existing.id;
+      }
+      if (
+        progressiveStageRank(requestedStage) > progressiveStageRank(progress.highestUnlockedStage)
+      ) {
+        throw new BadRequestException('该练习阶段尚未解锁；完成当前阶段后再继续。');
+      }
+
+      const otherActivePlan = await tx.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: { not: StudyPlanPurpose.PROGRESSIVE },
+          status: { in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE] },
+          items: { some: { completedAt: null } },
+        },
+        select: { id: true },
+      });
+      if (otherActivePlan) {
+        throw new BadRequestException('请先完成当前学习计划，再开始渐进练习。');
+      }
+
+      // Each stage uses the same due-review/new-word eligibility as a regular
+      // daily plan, capped to three due words and two new words.
+      const picked = await selectDailyWords(
+        tx,
+        userId,
+        PROGRESSIVE_PRACTICE_NEW_LIMIT,
+        PROGRESSIVE_PRACTICE_REVIEW_LIMIT,
+      );
+      if (!picked.orderedIds.length) {
+        throw new BadRequestException(
+          '当前没有带可用释义的到期复习词或新词；未创建渐进练习，复习排期未更改。',
+        );
+      }
+      const plan = await tx.studyPlan.create({
+        data: {
+          userId,
+          mode: StudyPlanMode.INDIVIDUAL,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          progressiveStage: requestedStage,
+          progressiveVersion: PROGRESSIVE_PRACTICE_VERSION,
+          status: StudyPlanStatus.GENERATING,
+        },
+      });
+      const source = new Map(
+        picked.orderedIds.map((id) => [
+          id,
+          picked.reviewIds.includes(id) ? StudyPlanItemSource.REVIEW : StudyPlanItemSource.NEW,
+        ]),
+      );
+      await tx.studyPlanItem.createMany({
+        data: picked.orderedIds.map((bookWordId, groupIndex) => ({
+          planId: plan.id,
+          bookWordId,
+          source: source.get(bookWordId)!,
+          groupIndex,
+          targetQuestionType: PROGRESSIVE_PRACTICE_STAGE_RULES[requestedStage].questionType,
+        })),
+      });
+      return plan.id;
+    });
+    return this.serializePlan(planId, userId);
   }
 
   async createPlan(
@@ -414,6 +612,20 @@ export class StudyService {
         orderBy: { createdAt: 'desc' },
       });
       if (existing?.items.length) return existing.id;
+
+      const progressivePlan = await tx.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          progressiveVersion: PROGRESSIVE_PRACTICE_VERSION,
+          status: { in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE] },
+          items: { some: { completedAt: null } },
+        },
+        select: { id: true },
+      });
+      if (progressivePlan) {
+        throw new BadRequestException('请先完成当前渐进练习，再创建其他学习计划。');
+      }
 
       const user = await tx.user.findUniqueOrThrow({
         where: { id: userId },
@@ -554,6 +766,12 @@ export class StudyService {
       publicEligible: items.every(
         (item) => item.bookWord.book.kind === 'SYSTEM' && item.bookWord.book.ownerId === null,
       ),
+      ...(plan.purpose === StudyPlanPurpose.PROGRESSIVE && plan.progressiveStage
+        ? {
+            progressiveStage: plan.progressiveStage,
+            progressiveVersion: plan.progressiveVersion ?? PROGRESSIVE_PRACTICE_VERSION,
+          }
+        : {}),
     }));
 
     let generationPhase: SystemLogDiagnosticPhase = 'internal';
@@ -676,7 +894,13 @@ export class StudyService {
     try {
       const cacheLookupSpecs = groupSpec.map((spec) => ({
         spec,
-        signature: contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
+        signature: contentSignature(
+          plan.mode,
+          spec.words,
+          plan.purpose,
+          spec.targetQuestionTypes,
+          progressiveContractForPlan(plan),
+        ),
       }));
       const signatures = [
         ...new Set(
@@ -1043,7 +1267,12 @@ export class StudyService {
         await setGenerationPhase(StudyPlanGenerationPhase.WAITING_MODEL);
         const response = await generateWithBudget({
           purpose: 'study-plan',
-          prompt: generationPrompt(plan.mode, specs, plan.purpose),
+          prompt: generationPrompt(
+            plan.mode,
+            specs,
+            plan.purpose,
+            progressiveContractForPlan(plan),
+          ),
           schema: {},
         });
         await setGenerationPhase(StudyPlanGenerationPhase.VALIDATING);
@@ -1097,6 +1326,37 @@ export class StudyService {
             generationPhase = 'content_validation';
             return repairedQuestion;
           },
+          repairGroup: async ({ error, group, words, attempt }) => {
+            generationPhase = 'provider_request';
+            const repairResponse = await generateWithBudget({
+              purpose: 'study-plan-group-repair',
+              prompt: progressiveGroupRepairPrompt({
+                error,
+                group,
+                words,
+                stage: plan.progressiveStage!,
+                version: plan.progressiveVersion ?? PROGRESSIVE_PRACTICE_VERSION,
+                attempt,
+              }),
+              schema: {},
+            });
+            await setGenerationPhase(StudyPlanGenerationPhase.VALIDATING);
+            generationPhase = 'content_parse';
+            const repairedContent = parseGeneratedContent(repairResponse);
+            if (
+              repairedContent.groups.length !== 1 ||
+              repairedContent.groups[0].index !== group.index
+            ) {
+              throw attachSystemLogDiagnostic(new Error('阶段材料修复未返回指定分组'), {
+                code: 'STUDY_PROGRESSIVE_GROUP_REPAIR_TARGET_MISMATCH',
+                phase: 'content_parse',
+                fieldPath: 'groups',
+                reason: '模型接口已响应，但未包含预期的分级材料分组；原始内容已隐藏。',
+              });
+            }
+            generationPhase = 'content_validation';
+            return repairedContent.groups[0];
+          },
         });
         repairAttempts = repaired.attempts;
         if (repaired.attempts > repairAttemptsBefore && this.systemLogs) {
@@ -1140,6 +1400,7 @@ export class StudyService {
             spec.words,
             plan.purpose,
             spec.targetQuestionTypes,
+            progressiveContractForPlan(plan),
           ),
           reused: false,
           publicEligible: spec.publicEligible,
@@ -1323,7 +1584,13 @@ export class StudyService {
           }
           if (replacementsNeeded.length) {
             const replacementSignatures = replacementsNeeded.map((spec) =>
-              contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
+              contentSignature(
+                plan.mode,
+                spec.words,
+                plan.purpose,
+                spec.targetQuestionTypes,
+                progressiveContractForPlan(plan),
+              ),
             );
             const claimsBeforeReplacement = [...heldCacheSignatures];
             const afterClaims = await acquireReplacementClaims(replacementSignatures, latest);
@@ -1354,6 +1621,7 @@ export class StudyService {
                   spec.words,
                   plan.purpose,
                   spec.targetQuestionTypes,
+                  progressiveContractForPlan(plan),
                 ),
                 reused: false,
                 publicEligible: spec.publicEligible,
@@ -1456,6 +1724,8 @@ export class StudyService {
         id: true,
         mode: true,
         purpose: true,
+        progressiveStage: true,
+        progressiveVersion: true,
         status: true,
         createdAt: true,
         generationError: true,
@@ -1472,6 +1742,8 @@ export class StudyService {
         id: plan.id,
         mode: plan.mode.toLowerCase(),
         purpose: plan.purpose.toLowerCase(),
+        progressiveStage: plan.progressiveStage?.toLowerCase() ?? null,
+        progressiveVersion: plan.progressiveVersion,
         status: plan.status,
         createdAt: plan.createdAt,
         generationError: safeStoredGenerationError(plan.generationError),
@@ -1631,7 +1903,17 @@ export class StudyService {
         groupIndex,
         plan: { userId, status: { in: [StudyPlanStatus.ACTIVE, StudyPlanStatus.COMPLETED] } },
       },
-      include: { bookWord: true, plan: { select: { autoDateKey: true } } },
+      include: {
+        bookWord: true,
+        plan: {
+          select: {
+            autoDateKey: true,
+            purpose: true,
+            progressiveStage: true,
+            progressiveVersion: true,
+          },
+        },
+      },
     });
     if (!items.length) throw new NotFoundException('学习分组不存在或计划尚未生成完毕');
     if (items.some((item) => item.completedAt)) return this.serializePlan(planId, userId);
@@ -1714,10 +1996,34 @@ export class StudyService {
         }
         const left = await tx.studyPlanItem.count({ where: { planId, completedAt: null } });
         if (!left) {
-          await tx.studyPlan.update({
-            where: { id: planId },
+          const completedPlan = await tx.studyPlan.updateMany({
+            where: { id: planId, userId, status: StudyPlanStatus.ACTIVE },
             data: { status: StudyPlanStatus.COMPLETED, completedAt },
           });
+          const planPurpose = items[0].plan.purpose;
+          const progressiveStage = items[0].plan.progressiveStage;
+          const progressiveVersion = items[0].plan.progressiveVersion;
+          const nextStage =
+            planPurpose === StudyPlanPurpose.PROGRESSIVE && progressiveStage
+              ? nextProgressiveStage(progressiveStage)
+              : null;
+          if (
+            completedPlan.count === 1 &&
+            progressiveStage &&
+            progressiveVersion === PROGRESSIVE_PRACTICE_VERSION &&
+            nextStage
+          ) {
+            // Completion advances the path once; correctness is intentionally
+            // not used as a skill score and never demotes an unlocked stage.
+            await tx.progressivePracticeProgress.updateMany({
+              where: {
+                userId,
+                trackVersion: progressiveVersion,
+                highestUnlockedStage: progressiveStage,
+              },
+              data: { highestUnlockedStage: nextStage },
+            });
+          }
         }
       });
       committed = true;
@@ -1822,11 +2128,14 @@ export class StudyService {
     }));
     const attempts = plan.items.flatMap((item) => item.attempts);
     const blocksNewPlanCreation =
-      plan.purpose === StudyPlanPurpose.NORMAL &&
-      items.length > 0 &&
-      (plan.status === StudyPlanStatus.GENERATING ||
-        (plan.status === StudyPlanStatus.ACTIVE && plan.generatedContent !== null) ||
-        (plan.status === StudyPlanStatus.FAILED && plan.createdAt >= startOfToday()));
+      (plan.purpose === StudyPlanPurpose.NORMAL &&
+        items.length > 0 &&
+        (plan.status === StudyPlanStatus.GENERATING ||
+          (plan.status === StudyPlanStatus.ACTIVE && plan.generatedContent !== null) ||
+          (plan.status === StudyPlanStatus.FAILED && plan.createdAt >= startOfToday()))) ||
+      (plan.purpose === StudyPlanPurpose.PROGRESSIVE &&
+        items.some((item) => !item.completed) &&
+        (plan.status === StudyPlanStatus.GENERATING || plan.status === StudyPlanStatus.ACTIVE));
     const typeStats = Object.values(
       attempts.reduce<Record<string, { type: string; total: number; correct: number }>>(
         (result, attempt) => {
@@ -1844,6 +2153,8 @@ export class StudyService {
       id: plan.id,
       mode: plan.mode.toLowerCase(),
       purpose: plan.purpose.toLowerCase(),
+      progressiveStage: plan.progressiveStage?.toLowerCase() ?? null,
+      progressiveVersion: plan.progressiveVersion,
       status: plan.status,
       blocksNewPlanCreation,
       generationError: safeStoredGenerationError(plan.generationError),
@@ -1985,6 +2296,7 @@ export function contentSignature(
   words: PlanWord[],
   purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
   targetQuestionTypes: Record<string, string> = {},
+  progressiveContract?: { stage: ProgressivePracticeStage; version: number },
 ) {
   const hasKnownCefrLevel = words.some((word) => Boolean(word.cefrLevel));
   const canonicalWords = [...words]
@@ -2008,6 +2320,21 @@ export function contentSignature(
   const canonicalTargetQuestionTypes = Object.fromEntries(
     Object.entries(targetQuestionTypes).sort(([left], [right]) => left.localeCompare(right)),
   );
+  if (progressiveContract) {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          version: 6,
+          mode,
+          purpose,
+          words: canonicalWords,
+          targetQuestionTypes: canonicalTargetQuestionTypes,
+          progressiveStage: progressiveContract.stage,
+          progressiveVersion: progressiveContract.version,
+        }),
+      )
+      .digest('hex');
+  }
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -2021,6 +2348,18 @@ export function contentSignature(
     .digest('hex');
 }
 
+function progressiveContractForPlan(plan: {
+  purpose: StudyPlanPurpose;
+  progressiveStage: ProgressivePracticeStage | null;
+  progressiveVersion: number | null;
+}) {
+  if (plan.purpose !== StudyPlanPurpose.PROGRESSIVE || !plan.progressiveStage) return undefined;
+  return {
+    stage: plan.progressiveStage,
+    version: plan.progressiveVersion ?? PROGRESSIVE_PRACTICE_VERSION,
+  };
+}
+
 export function examQuestionType(index: number) {
   return EXAM_QUESTION_CYCLE[index % EXAM_QUESTION_CYCLE.length];
 }
@@ -2029,16 +2368,19 @@ export function generationPrompt(
   mode: StudyPlanMode,
   groups: Array<{ index: number; words: PlanWord[]; targetQuestionTypes?: Record<string, string> }>,
   purpose: StudyPlanPurpose = StudyPlanPurpose.NORMAL,
+  progressiveContract?: { stage: ProgressivePracticeStage; version: number },
 ) {
   const exam = mode === StudyPlanMode.EXAM;
   const label =
-    purpose === StudyPlanPurpose.WEAKNESS
-      ? '薄弱词专项'
-      : exam
-        ? '应试语境'
-        : mode === StudyPlanMode.INDIVIDUAL
-          ? '独立单词'
-          : '随机分组';
+    purpose === StudyPlanPurpose.PROGRESSIVE
+      ? '渐进练习'
+      : purpose === StudyPlanPurpose.WEAKNESS
+        ? '薄弱词专项'
+        : exam
+          ? '应试语境'
+          : mode === StudyPlanMode.INDIVIDUAL
+            ? '独立单词'
+            : '随机分组';
   return `为 Lexloop 生成一份${label}学习计划。
 输入分组：${JSON.stringify(groups)}
 难度参考规则：
@@ -2056,6 +2398,17 @@ ${
 - WORD_MATCHING 考查同一目标词的固定搭配，以及不同搭配下的语义差别。
 - SYNONYM_REPLACEMENT 考查在当前应试句子里可以原样替换的近义表达。
 - READING_COMPREHENSION 只依据本组原创短文考查词义或细节。
+`
+    : ''
+}
+${
+  progressiveContract
+    ? `
+渐进练习阶段（内部练习路径 v${progressiveContract.version}，不代表 CEFR 认证、词汇熟练度或学习者水平）：
+- 当前阶段：${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].label}（${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].focus}）。
+- 每个输入分组只有一个目标词。题目类型必须与输入 targetQuestionTypes 完全一致。
+- 阶段材料规则：${PROGRESSIVE_PRACTICE_STAGE_RULES[progressiveContract.stage].promptRules}
+- 正确答案必须唯一、由材料支持；解析指出实际线索。不得通过歧义或错误选项制造难度。
 `
     : ''
 }
@@ -2177,6 +2530,7 @@ function generationFailureDiagnostic(
 }
 
 function generationValidationFieldPath(message: string) {
+  if (/渐进练习第/.test(message)) return 'groups[].sentences';
   if (/分组数量|组内容不完整/.test(message)) return 'groups';
   if (/逐句翻译|简化文本|语法提示/.test(message)) return 'groups[].sentences';
   if (/题型/.test(message)) return 'groups[].questions[].type';
@@ -2323,12 +2677,21 @@ function containsChinese(value: unknown) {
   return typeof value === 'string' && /[\u3400-\u9fff]/.test(value);
 }
 
+export function englishWordCount(value: string) {
+  return (
+    value.match(/[\p{L}\p{N}]+(?:[’'][\p{L}\p{N}]+)*(?:-[\p{L}\p{N}]+(?:[’'][\p{L}\p{N}]+)*)*/gu)
+      ?.length ?? 0
+  );
+}
+
 export function validateGeneratedContent(
   content: GeneratedContent,
   expected: Array<{
     index: number;
     words: PlanWord[];
     targetQuestionTypes?: Record<string, string>;
+    progressiveStage?: ProgressivePracticeStage;
+    progressiveVersion?: number;
   }>,
 ) {
   if (!Array.isArray(content.groups) || content.groups.length !== expected.length)
@@ -2359,6 +2722,57 @@ export function validateGeneratedContent(
       )
     ) {
       throw new Error(`第 ${expectedGroup.index + 1} 组缺少中文逐句翻译、简化文本或语法提示`);
+    }
+    if (expectedGroup.progressiveStage) {
+      const targetWord = expectedGroup.words[0];
+      const progressiveGroupError = (suffix: '结构' | '目标句长度', code: string) =>
+        new StudyQuestionValidationError(
+          `渐进练习第 ${expectedGroup.index + 1} 组 ${suffix}不符合阶段要求`,
+          code,
+          targetWord?.id ?? '',
+          'groups[].sentences',
+          'group',
+          expectedGroup.index,
+        );
+      if (expectedGroup.words.length !== 1) {
+        throw progressiveGroupError('结构', 'STUDY_PROGRESSIVE_GROUP_WORD_COUNT_INVALID');
+      }
+      if (!targetWord) throw new Error('渐进练习分组缺少目标词');
+      const stage = expectedGroup.progressiveStage;
+      const targetSentences = group.sentences.filter((sentence) =>
+        new RegExp(`\\b${escapeRegExp(targetWord.word)}\\b`, 'i').test(sentence.english),
+      );
+      const targetSentenceWordCounts = targetSentences.map((sentence) =>
+        englishWordCount(sentence.english),
+      );
+      if (
+        stage === ProgressivePracticeStage.FOUNDATION ||
+        stage === ProgressivePracticeStage.CONTEXT
+      ) {
+        const bounds = stage === ProgressivePracticeStage.FOUNDATION ? [5, 12] : [10, 18];
+        const targetSentenceInRange = targetSentenceWordCounts.some(
+          (count) => count >= bounds[0] && count <= bounds[1],
+        );
+        if (group.sentences.length !== 2 || !targetSentenceWordCounts.length) {
+          throw progressiveGroupError('结构', 'STUDY_PROGRESSIVE_GROUP_SENTENCE_COUNT_INVALID');
+        }
+        if (!targetSentenceInRange) {
+          throw progressiveGroupError(
+            '目标句长度',
+            'STUDY_PROGRESSIVE_TARGET_SENTENCE_LENGTH_INVALID',
+          );
+        }
+      } else if (
+        stage === ProgressivePracticeStage.TRANSFER &&
+        (group.sentences.length !== 3 ||
+          targetSentenceWordCounts.length === 0 ||
+          group.sentences.reduce((sum, sentence) => sum + englishWordCount(sentence.english), 0) <
+            35 ||
+          group.sentences.reduce((sum, sentence) => sum + englishWordCount(sentence.english), 0) >
+            55)
+      ) {
+        throw progressiveGroupError('结构', 'STUDY_PROGRESSIVE_TRANSFER_PASSAGE_LENGTH_INVALID');
+      }
     }
     for (const word of expectedGroup.words) {
       const question = group.questions.find((item) => item.bookWordId === word.id);
@@ -2549,9 +2963,17 @@ type RepairableQuestion = {
   attempt: number;
 };
 
+type RepairableGroup = {
+  error: StudyQuestionValidationError;
+  words: PlanWord[];
+  group: GeneratedGroup;
+  attempt: number;
+};
+
 type GeneratedContentRepairOptions = {
   onRepairAttempt: (attempt: number) => Promise<void>;
   repairQuestion: (input: RepairableQuestion) => Promise<GeneratedQuestion>;
+  repairGroup?: (input: RepairableGroup) => Promise<GeneratedGroup>;
   maxAttempts?: number;
   attemptOffset?: number;
 };
@@ -2562,6 +2984,8 @@ export async function validateAndRepairGeneratedContent(
     index: number;
     words: PlanWord[];
     targetQuestionTypes?: Record<string, string>;
+    progressiveStage?: ProgressivePracticeStage;
+    progressiveVersion?: number;
   }>,
   options: GeneratedContentRepairOptions,
 ): Promise<{ content: GeneratedContent; attempts: number }> {
@@ -2577,9 +3001,37 @@ export async function validateAndRepairGeneratedContent(
       if (!(error instanceof StudyQuestionValidationError)) throw error;
       if (attempts >= maxAttempts) throw error;
       const expectedGroup = expected.find((group) =>
-        group.words.some((word) => word.id === error.bookWordId),
+        error.scope === 'group'
+          ? group.index === error.groupIndex
+          : group.words.some((word) => word.id === error.bookWordId),
       );
       const group = content.groups.find((candidate) => candidate.index === expectedGroup?.index);
+      if (error.scope === 'group') {
+        if (!expectedGroup || !group || !options.repairGroup) throw error;
+        attempts += 1;
+        const attempt = attemptOffset + attempts;
+        await options.onRepairAttempt(attempt);
+        const repaired = await options.repairGroup({
+          error,
+          words: expectedGroup.words,
+          group,
+          attempt,
+        });
+        if (repaired.index !== expectedGroup.index) {
+          throw attachSystemLogDiagnostic(new Error('阶段材料修复返回了不匹配的分组'), {
+            code: 'STUDY_PROGRESSIVE_GROUP_REPAIR_TARGET_MISMATCH',
+            phase: 'content_parse',
+            fieldPath: 'groups',
+            reason: '模型接口已响应，但未包含预期的分级材料分组；原始内容已隐藏。',
+          });
+        }
+        const normalizedGroup = normalizeGeneratedContentFormatting({ groups: [repaired] })
+          .groups[0];
+        content.groups = content.groups.map((candidate) =>
+          candidate.index === expectedGroup.index ? normalizedGroup : candidate,
+        );
+        continue;
+      }
       const word = expectedGroup?.words.find((candidate) => candidate.id === error.bookWordId);
       const question = group?.questions.find(
         (candidate) => candidate.bookWordId === error.bookWordId,
@@ -2627,6 +3079,10 @@ function safeQuestionRepairIssue(code: string) {
     STUDY_QUESTION_MATCHING_OPTIONS_INVALID: '匹配题不可提供额外选项或答案列表',
     STUDY_QUESTION_MATCHING_PAIRS_INVALID: '匹配题必须提供四组唯一且符合语言要求的配对',
     STUDY_QUESTION_MATCHING_TARGET_MISSING: '每个匹配短语都必须包含目标词',
+    STUDY_PROGRESSIVE_GROUP_WORD_COUNT_INVALID: '每组只能包含一个目标词',
+    STUDY_PROGRESSIVE_GROUP_SENTENCE_COUNT_INVALID: '句子数量不符合阶段要求',
+    STUDY_PROGRESSIVE_TARGET_SENTENCE_LENGTH_INVALID: '目标句长度不符合阶段要求',
+    STUDY_PROGRESSIVE_TRANSFER_PASSAGE_LENGTH_INVALID: '短文长度或句数不符合阶段要求',
   };
   return issues[code] ?? '此题未通过内容校验';
 }
@@ -2656,6 +3112,28 @@ export function questionRepairPrompt(input: {
     `待修题目：${JSON.stringify(input.question)}\n` +
     `校验问题：${input.issue}\n` +
     `这是本次计划第 ${input.attempt} 次局部修复。保留 bookWordId=${input.word.id} 和原题型 ${input.question.type}，不得改变题型。题型规则：${questionRules} 题干使用自然英文，解析使用中文；题目必须符合给定释义和语境，不增加无法支持的答案。不要返回分组、句子或其他题目。`
+  );
+}
+
+export function progressiveGroupRepairPrompt(input: {
+  error: StudyQuestionValidationError;
+  group: GeneratedGroup;
+  words: PlanWord[];
+  stage: ProgressivePracticeStage;
+  version: number;
+  attempt: number;
+}) {
+  const rules = PROGRESSIVE_PRACTICE_STAGE_RULES[input.stage];
+  return (
+    `只修复一组渐进练习材料，不重新生成其他分组。请只返回 JSON 对象：{"groups":[单个分组]}。\n` +
+    `内部练习阶段：${rules.label}（${rules.focus}），路径版本 v${input.version}；这不是 CEFR 认证或学习者水平诊断。\n` +
+    `目标词条：${JSON.stringify(input.words)}\n` +
+    `指定题型：${JSON.stringify(
+      Object.fromEntries(input.words.map((word) => [word.id, rules.questionType])),
+    )}\n` +
+    `阶段要求：${rules.promptRules}\n` +
+    `待修分组：${JSON.stringify(input.group)}\n` +
+    `结构问题：${safeQuestionRepairIssue(input.error.code)}；这是第 ${input.attempt} 次有限局部修复。保留分组 index=${input.group.index}、所有目标词条 id、题型和原有释义语义，保证题目答案唯一且由材料支持。不得新增词条、改动其他分组或返回模型过程说明。`
   );
 }
 

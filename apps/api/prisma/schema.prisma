@@ -92,6 +92,13 @@ enum StudyContentFeedbackReason {
 enum StudyPlanPurpose {
   NORMAL
   WEAKNESS
+  PROGRESSIVE
+}
+
+enum ProgressivePracticeStage {
+  FOUNDATION
+  CONTEXT
+  TRANSFER
 }
 
 enum WeaknessStatus {
@@ -303,6 +310,7 @@ model User {
   wordProgresses  UserWordProgress[]
   masteredWords   UserMasteredWord[]
   studyPlans      StudyPlan[]
+  progressivePracticeProgresses ProgressivePracticeProgress[]
   weaknesses      WeaknessSignal[]
   tutorConversations TutorConversation[]
   tutorDailyUsages TutorDailyUsage[]
@@ -516,6 +524,8 @@ model StudyPlan {
   userId                String
   mode                  StudyPlanMode             @default(GROUP)
   purpose               StudyPlanPurpose          @default(NORMAL)
+  progressiveStage      ProgressivePracticeStage?
+  progressiveVersion    Int?
   status                StudyPlanStatus           @default(GENERATING)
   generatedContent      Json?
   generationError       String?
@@ -534,7 +544,21 @@ model StudyPlan {
 
   @@unique([userId, autoDateKey])
   @@index([userId, purpose, status, createdAt])
+  @@index([userId, purpose, progressiveVersion, progressiveStage, status])
   @@index([userId, status, completedAt, id])
+}
+
+model ProgressivePracticeProgress {
+  id                   String                  @id @default(cuid())
+  userId               String
+  trackVersion         Int                     @default(1)
+  highestUnlockedStage ProgressivePracticeStage @default(FOUNDATION)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackVersion])
+  @@index([userId, highestUnlockedStage])
 }
 
 model AutomaticStudyPlanRun {

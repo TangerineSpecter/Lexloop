@@ -290,6 +290,8 @@ test(
           window.generationStatusPolls = {};
           window.generationAborted = false;
           window.studyPlanCreateBodies = [];
+          window.progressivePathRequests = [];
+          window.progressivePlanCreateBodies = [];
           window.generationResolvers = {};
           window.resolveGeneration = (id, response) => {
             const resolve = window.generationResolvers[id];
@@ -324,6 +326,14 @@ test(
             if (path.endsWith('/api/v1/ai/models')) return Response.json([]);
             if (path.includes('/api/v1/ai/tutor/history')) return Response.json({ messages: [], remaining: 30, limit: 30, hasMore: false });
             const requestUrl = new URL(path, location.origin);
+            if (requestUrl.pathname.endsWith('/api/v1/study/progressive-path') && method === 'GET') {
+              window.progressivePathRequests.push(session?.user.id);
+              return Response.json({ trackVersion: 1, highestUnlockedStage: 'foundation', currentPlan: null });
+            }
+            if (requestUrl.pathname.endsWith('/api/v1/study/progressive-path/plans') && method === 'POST') {
+              window.progressivePlanCreateBodies.push(JSON.parse(options.body));
+              return Response.json({ message: 'Fixture stopped before progressive-plan creation' }, { status: 409 });
+            }
             if (
               requestUrl.pathname.endsWith('/api/v1/study/plans/recovery') &&
               method === 'GET'
@@ -412,6 +422,88 @@ test(
 
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
+      await until(
+        'document.querySelector("#progressive-practice-title") && document.querySelector("section[aria-labelledby=progressive-practice-title] button[aria-pressed]")',
+      );
+      const progressiveDesktop = await evaluate(`(() => {
+        const panel = document.querySelector('section[aria-labelledby="progressive-practice-title"]');
+        const rect = panel.getBoundingClientRect();
+        return { viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
+          left: rect.left, right: rect.right, stageCount: panel.querySelectorAll('button[aria-pressed]').length,
+          locked: panel.querySelector('button[aria-disabled="true"]')?.textContent.includes('完成上一阶段后解锁') };
+      })()`);
+      assert.equal(progressiveDesktop.viewport, 1440);
+      assert.ok(
+        progressiveDesktop.pageWidth <= 1440 &&
+          progressiveDesktop.left >= 0 &&
+          progressiveDesktop.right <= 1440,
+        JSON.stringify(progressiveDesktop),
+      );
+      assert.equal(progressiveDesktop.stageCount, 3);
+      assert.equal(progressiveDesktop.locked, true);
+      assert.match(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=disclaimer]").textContent',
+        ),
+        /不代表 CEFR 认证/,
+      );
+      assert.deepEqual(
+        await evaluate('window.progressivePlanCreateBodies'),
+        [],
+        'reading path state does not create a plan',
+      );
+      await evaluate(
+        `document.querySelector('section[aria-labelledby="progressive-practice-title"] button[aria-disabled="true"]').click()`,
+      );
+      assert.deepEqual(
+        await evaluate('window.progressivePlanCreateBodies'),
+        [],
+        'a locked stage cannot be selected',
+      );
+      await evaluate(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] button[class*=primaryButton]").click()',
+      );
+      await until('window.progressivePlanCreateBodies.length === 1');
+      assert.deepEqual(await evaluate('window.progressivePlanCreateBodies[0]'), {
+        stage: 'foundation',
+      });
+      assert.deepEqual(
+        await evaluate('window.generationAttempts'),
+        [],
+        'only the explicit create request was issued; no model request was started by the fixture',
+      );
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] [role=alert]")',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await until('innerWidth === 390');
+      const progressiveMobile = await evaluate(`(() => {
+        const panel = document.querySelector('section[aria-labelledby="progressive-practice-title"]');
+        const rect = panel.getBoundingClientRect();
+        return { viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
+          left: rect.left, right: rect.right, stageRight: Math.max(...[...panel.querySelectorAll('button[aria-pressed]')].map((node) => node.getBoundingClientRect().right)),
+          actionRight: panel.querySelector('button[class*=primaryButton]').getBoundingClientRect().right };
+      })()`);
+      assert.ok(
+        progressiveMobile.viewport === 390 &&
+          progressiveMobile.pageWidth <= 390 &&
+          progressiveMobile.left >= 0 &&
+          progressiveMobile.right <= 390 &&
+          progressiveMobile.stageRight <= 390 &&
+          progressiveMobile.actionRight <= 390,
+        JSON.stringify(progressiveMobile),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
       await clickHistory();
       await until(
         'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] [role=alert]")',

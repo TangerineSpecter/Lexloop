@@ -2,6 +2,7 @@
 import { CollectWordForm } from './learning-lab/collect-word-form';
 import { SystemLogsPanel } from './system-logs-panel';
 import { SystemUpdatePanel } from './system-update-panel';
+import { ProgressivePracticePanel } from './progressive-practice-panel';
 import {
   DashboardBootstrapLoading,
   DashboardLoadingCard,
@@ -288,7 +289,9 @@ const INDIVIDUAL_SOURCES: Array<{ id: IndividualWordSource; label: string; hint:
 export type LearningPlan = {
   id: string;
   mode: StudyMode;
-  purpose?: 'normal' | 'weakness';
+  purpose?: 'normal' | 'weakness' | 'progressive';
+  progressiveStage?: 'foundation' | 'context' | 'transfer' | null;
+  progressiveVersion?: number | null;
   wordCount: number;
   words: Word[];
   completed: number;
@@ -315,6 +318,21 @@ export type LearningPlan = {
   createdAt: string;
   completedAt?: string | null;
 };
+const progressiveStageLabels = {
+  foundation: '短句辨义',
+  context: '语境辨析',
+  transfer: '跨句推断',
+} as const;
+function planTrainingLabel(plan: Pick<LearningPlan, 'purpose' | 'progressiveStage'>) {
+  if (plan.purpose === 'progressive') {
+    return `渐进练习${plan.progressiveStage ? ` · ${progressiveStageLabels[plan.progressiveStage]}` : ''}`;
+  }
+  return plan.purpose === 'weakness' ? '薄弱词专项' : '正常模式';
+}
+function planGenerationTitle(plan: Pick<LearningPlan, 'purpose'>) {
+  if (plan.purpose === 'progressive') return '渐进练习';
+  return plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划';
+}
 type StudyPlanListStatus = 'loading' | 'ready' | 'error';
 type SettingsSection = 'account' | 'system' | 'logs' | 'about' | 'bank';
 type DashboardPage =
@@ -1521,6 +1539,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onOpenReadingSettings={() => setReadingSettingsOpen(true)}
                 planListReady={visiblePlansStatus === 'ready'}
                 onProgressChanged={() => setProgressRevision((current) => current + 1)}
+                progressRevision={progressRevision}
                 bookProgress={
                   currentBook &&
                   visibleProgressSummaryState.status === 'ready' &&
@@ -3438,6 +3457,7 @@ function WordsPanel({
   onOpenExistingPlan,
   onOpenReadingSettings,
   planListReady,
+  progressRevision,
   onProgressChanged,
   bookProgress,
 }: {
@@ -3450,6 +3470,7 @@ function WordsPanel({
   onOpenExistingPlan: (plan: LearningPlan) => void;
   onOpenReadingSettings: () => void;
   planListReady: boolean;
+  progressRevision: number;
   onProgressChanged: () => void;
   bookProgress: { mastered: number; total: number; percent: number } | null;
 }) {
@@ -3922,6 +3943,15 @@ function WordsPanel({
           </div>
         )}
       </div>
+      <ProgressivePracticePanel
+        session={session}
+        bookReady={bookWordsReady}
+        planListReady={planListReady}
+        existingPlan={existingPlan}
+        refreshKey={progressRevision}
+        onCreatePlan={onCreatePlan}
+        onOpenExistingPlan={onOpenExistingPlan}
+      />
       {dueClearNotice && (
         <p className="due-clear-note" role="status">
           <span>今天已经到点的词都处理完了。</span>
@@ -4767,14 +4797,12 @@ function PlanPreview({
           <div>
             <p>
               {needsExplicitGenerationRequest
-                ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}等待接续`
+                ? `${planGenerationTitle(plan)}等待接续`
                 : generationIsVisible
-                  ? `${plan.purpose === 'weakness' ? '薄弱词专项' : '学习计划'}生成中，先预习一下…`
+                  ? `${planGenerationTitle(plan)}生成中，先预习一下…`
                   : plan.status === 'FAILED'
-                    ? '学习计划生成失败'
-                    : plan.purpose === 'weakness'
-                      ? '薄弱词专项生成完毕'
-                      : '学习计划生成完毕'}
+                    ? `${planGenerationTitle(plan)}生成失败`
+                    : `${planGenerationTitle(plan)}生成完毕`}
             </p>
             <span>
               预习第 {index + 1} / {plan.wordCount} 个单词
@@ -4921,7 +4949,9 @@ function PlanPreview({
               ? '题目生成中，请稍候'
               : plan.purpose === 'weakness'
                 ? '开始薄弱词专项'
-                : '开始今天的挑战'}
+                : plan.purpose === 'progressive'
+                  ? '开始渐进练习'
+                  : '开始今天的挑战'}
           </button>
         )}
       </section>
@@ -4959,7 +4989,7 @@ function PlanPanel({
           <BookOpen size={23} />
           <strong>学习序列</strong>
           <span>{modeLabel[plan.mode]}</span>
-          <span>{plan.purpose === 'weakness' ? '薄弱词专项' : '正常模式'}</span>
+          <span>{planTrainingLabel(plan)}</span>
           <span>{groupProgressLabel}</span>
         </div>
         <div className="sequence-summary">
@@ -5858,7 +5888,9 @@ function GeneratedStudyPage({
           <span>
             {activePlan.purpose === 'weakness'
               ? '薄弱词专项'
-              : `${modeLabel[activePlan.mode]} · 正常模式`}
+              : activePlan.purpose === 'progressive'
+                ? planTrainingLabel(activePlan)
+                : `${modeLabel[activePlan.mode]} · 正常模式`}
           </span>
           <strong>
             第 {group.index + 1} / {activePlan.groupCount}{' '}

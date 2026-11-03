@@ -1,0 +1,264 @@
+.panel {
+  margin: 18px 0 22px;
+  padding: 18px;
+  border: 2px solid var(--border-color);
+  border-radius: 11px;
+  background: var(--soft);
+  color: var(--border-color);
+}
+
+.header,
+.heading,
+.stageTitle,
+.actions,
+.error > span {
+  display: flex;
+  align-items: center;
+}
+
+.header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  min-width: 0;
+  gap: 11px;
+}
+
+.icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  background: #eaf2ff;
+}
+
+.heading h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.heading p,
+.disclaimer,
+.stage > span:nth-child(2),
+.actions p,
+.currentPlan p {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.version {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: #fff4b9;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.disclaimer {
+  margin-top: 12px;
+}
+
+.stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.stage {
+  display: flex;
+  min-width: 0;
+  min-height: 90px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  background: #fffefa;
+  color: var(--border-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage:hover:not(.locked) {
+  box-shadow: 2px 2px 0 var(--border-color);
+  transform: translate(-1px, -1px);
+}
+
+.stage:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.error button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 2px;
+}
+
+.selected {
+  background: #eaf2ff;
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+
+.locked {
+  background: #f2f0e8;
+  color: color-mix(in srgb, var(--border-color) 72%, transparent);
+  cursor: not-allowed;
+}
+
+.stageTitle {
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.stage > span:nth-child(2) {
+  margin: 0;
+  font-size: 12px;
+}
+
+.stage small {
+  margin-top: auto;
+  padding-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.actions {
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.actions p {
+  margin: 0;
+}
+
+.primaryButton,
+.secondaryButton,
+.error button {
+  display: inline-flex;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--border-color);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: var(--gold);
+  box-shadow: 2px 2px 0 var(--border-color);
+}
+
+.secondaryButton {
+  background: #fffefa;
+}
+
+.primaryButton:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.currentPlan {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: 9px;
+  background: #eaf2ff;
+}
+
+.currentPlan strong {
+  font-size: 14px;
+}
+
+.notice {
+  margin: 12px 0 0;
+  color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  font-size: 13px;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--coral);
+}
+
+.error > span {
+  gap: 7px;
+  font-size: 13px;
+}
+
+.error button {
+  min-height: 36px;
+  background: #fffefa;
+}
+
+.errorText {
+  margin: 10px 0 0;
+  color: var(--coral);
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .panel {
+    padding: 14px;
+  }
+
+  .stages {
+    grid-template-columns: 1fr;
+  }
+
+  .stage {
+    min-height: 0;
+  }
+
+  .actions,
+  .currentPlan {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .version {
+    max-width: 118px;
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage {
+    transition: none;
+  }
+
+  .stage:hover:not(.locked) {
+    transform: none;
+  }
+}

@@ -90,6 +90,7 @@ export interface SystemAutoUpdateStatus {
 
 export type StatisticsRange = '7d' | '30d' | '365d';
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
+export type ProgressivePracticeStage = 'foundation' | 'context' | 'transfer';
 export type ProfileConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface PeriodActivityDay {

@@ -1479,6 +1479,9 @@ test(
       assert.deepEqual(await evaluate('window.reportFixture.dailySentenceSaves'), [
         { enabled: true },
       ]);
+      await until(
+        `getComputedStyle(${dailySentenceSwitch}).backgroundColor === 'rgb(216, 243, 221)'`,
+      );
       assert.equal(
         await evaluate(`getComputedStyle(${dailySentenceSwitch}).backgroundColor`),
         'rgb(216, 243, 221)',

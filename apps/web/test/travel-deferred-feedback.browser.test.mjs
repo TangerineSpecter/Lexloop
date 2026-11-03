@@ -158,6 +158,7 @@ test(
             const method = options.method ?? 'GET';
             if (path.includes('/api/v1/')) window.travelFeedbackFixture.apiRequests.push({ method, path });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: user.id });
+            if (path.endsWith('/api/v1/study/progressive-path')) return Response.json({ trackVersion: 1, highestUnlockedStage: 'foundation', currentPlan: null });
             if (path.includes('/api/v1/reports/streak')) return Response.json({ currentStreak: 0, todayActive: false });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(null);
             if (path.includes('/api/v1/vocabulary/progress-summary')) return Response.json({ totalWords: 0, masteredWords: 0, progress: 0 });

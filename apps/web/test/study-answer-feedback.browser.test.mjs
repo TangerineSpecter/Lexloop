@@ -396,6 +396,7 @@ test(
             if (path.includes('/api/v1/tts/audio/lookup')) return Response.json({ state: 'disabled' });
             if (!path.includes('/api/v1/tts/')) window.apiFetchLog.push({ path, method });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
+            if (path.endsWith('/api/v1/study/progressive-path')) return Response.json({ trackVersion: 1, highestUnlockedStage: 'foundation', currentPlan: null });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(window.defaultBook);
             if (path.endsWith('/api/v1/vocabulary/learning')) return Response.json(window.learningBooks);
             if (path.endsWith('/api/v1/vocabulary/system')) return Response.json({ categories: [], books: [] });

@@ -418,9 +418,9 @@ export class MistakesService {
     if (bookWordIds.length !== requestedBookWordIds.length)
       throw new BadRequestException('薄弱词不能重复');
     const planId = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(
-        Prisma.sql`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${`weakness-plan:${userId}`}))`,
-      );
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL
+      `);
       const existing = await tx.studyPlan.findFirst({
         where: {
           userId,
@@ -441,6 +441,18 @@ export class MistakesService {
         throw new ConflictException(
           '已有薄弱项专项包含其他选择，本次选择未应用。请先处理现有专项，再重新选择。',
         );
+      }
+      const progressivePlan = await tx.studyPlan.findFirst({
+        where: {
+          userId,
+          purpose: StudyPlanPurpose.PROGRESSIVE,
+          status: { in: [StudyPlanStatus.GENERATING, StudyPlanStatus.ACTIVE] },
+          items: { some: { completedAt: null } },
+        },
+        select: { id: true },
+      });
+      if (progressivePlan) {
+        throw new BadRequestException('请先完成当前渐进练习，再创建薄弱词专项。');
       }
       const signals = await tx.weaknessSignal.findMany({
         where: { userId, status: WeaknessStatus.ACTIVE, bookWordId: { in: bookWordIds } },

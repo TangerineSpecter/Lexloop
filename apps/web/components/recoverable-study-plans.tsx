@@ -15,7 +15,9 @@ import styles from './recoverable-study-plans.module.css';
 type RecoverableStudyPlan = {
   id: string;
   mode: 'group' | 'individual' | 'exam';
-  purpose: 'normal' | 'weakness';
+  purpose: 'normal' | 'weakness' | 'progressive';
+  progressiveStage?: 'foundation' | 'context' | 'transfer' | null;
+  progressiveVersion?: number | null;
   status: 'GENERATING' | 'ACTIVE' | 'FAILED';
   createdAt: string;
   generationError: string | null;
@@ -60,7 +62,13 @@ function parseRecoverableStudyPlanPage(value: unknown): RecoverableStudyPlanPage
     return (
       typeof plan.id === 'string' &&
       ['group', 'individual', 'exam'].includes(String(plan.mode)) &&
-      ['normal', 'weakness'].includes(String(plan.purpose)) &&
+      ['normal', 'weakness', 'progressive'].includes(String(plan.purpose)) &&
+      (plan.progressiveStage === undefined ||
+        plan.progressiveStage === null ||
+        ['foundation', 'context', 'transfer'].includes(String(plan.progressiveStage))) &&
+      (plan.progressiveVersion === undefined ||
+        plan.progressiveVersion === null ||
+        (Number.isInteger(plan.progressiveVersion) && Number(plan.progressiveVersion) > 0)) &&
       ['GENERATING', 'ACTIVE', 'FAILED'].includes(String(plan.status)) &&
       typeof plan.createdAt === 'string' &&
       (plan.generationError === null || typeof plan.generationError === 'string') &&
@@ -76,6 +84,14 @@ const modeLabel: Record<RecoverableStudyPlan['mode'], string> = {
   group: '分组学习',
   individual: '单词逐个学',
   exam: '应试语境',
+};
+const progressiveStageLabel: Record<
+  NonNullable<RecoverableStudyPlan['progressiveStage']>,
+  string
+> = {
+  foundation: '短句辨义',
+  context: '语境辨析',
+  transfer: '跨句推断',
 };
 const phaseLabel: Record<string, string> = {
   PREPARING: '正在准备学习材料',
@@ -254,7 +270,13 @@ export function RecoverableStudyPlans({
                         {statusText}
                       </strong>
                       <span>{modeLabel[plan.mode] ?? '学习计划'}</span>
-                      <span>{plan.purpose === 'weakness' ? '薄弱词专项' : '正常模式'}</span>
+                      <span>
+                        {plan.purpose === 'weakness'
+                          ? '薄弱词专项'
+                          : plan.purpose === 'progressive'
+                            ? `渐进练习${plan.progressiveStage ? ` · ${progressiveStageLabel[plan.progressiveStage]}` : ''}`
+                            : '正常模式'}
+                      </span>
                     </div>
                     <p className={styles.meta}>
                       <CalendarClock size={15} aria-hidden="true" />

@@ -56,6 +56,11 @@ class CreatePlanDto {
   @MaxLength(64, { each: true })
   skipReviewWordIds?: string[];
 }
+class CreateProgressivePlanDto {
+  @IsOptional()
+  @IsIn(['foundation', 'context', 'transfer'])
+  stage?: 'foundation' | 'context' | 'transfer';
+}
 class CompletedHistoryQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize?: number;
@@ -69,6 +74,15 @@ class RecoverablePlansQueryDto {
 @Controller('study')
 export class StudyController {
   constructor(@Inject(StudyService) private readonly study: StudyService) {}
+  @Get('progressive-path') progressivePath(@Req() request: AuthenticatedRequest) {
+    return this.study.getProgressivePath(request.user.sub);
+  }
+  @Post('progressive-path/plans') createProgressivePlan(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateProgressivePlanDto,
+  ) {
+    return this.study.createProgressivePlan(request.user.sub, dto.stage);
+  }
   @Get('plans') list(@Req() request: AuthenticatedRequest) {
     return this.study.listPlans(request.user.sub);
   }

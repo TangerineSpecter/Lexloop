@@ -861,6 +861,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
       );
       if (!classification || !quarantine)
         throw new Error('public cache migration classification SQL missing');
+      // Preserve the migration predicates but limit these two data updates to
+      // this test's random signatures. Applying the historical backfill to the
+      // entire shared test database deadlocks with other parallel cache tests.
+      const fixtureSignature = `%-${fixtureId}`;
+      const scopedClassification = `${classification}\nWHERE cache."signature" LIKE '${fixtureSignature}'`;
+      const scopedQuarantine = `${quarantine}\n  AND "signature" LIKE '${fixtureSignature}'`;
       const rollback = new Error('rollback migration fixture transaction');
       try {
         await prisma.$transaction(
@@ -975,8 +981,8 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
                 selectedAnswer: [`legacy selected ${index}`],
               })),
             });
-            await tx.$executeRawUnsafe(`${classification};`);
-            await tx.$executeRawUnsafe(`${quarantine};`);
+            await tx.$executeRawUnsafe(`${scopedClassification};`);
+            await tx.$executeRawUnsafe(`${scopedQuarantine};`);
 
             const migrated = await tx.studyContentCache.findMany({
               where: { id: { in: caches.map((cache) => cache.id) } },
