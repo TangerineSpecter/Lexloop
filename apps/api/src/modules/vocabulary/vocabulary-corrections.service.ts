@@ -1,3 +1,4 @@
+import { VERB_SENSE_BATCH, VERB_SENSE_CORRECTIONS } from './verb-sense-corrections';
 import { EXISTING_POS_BATCH, EXISTING_POS_CORRECTIONS } from './existing-pos-corrections';
 import { SUPPLEMENT_MEANINGS, SUPPLEMENT_MEANING_BATCH } from './supplement-meanings';
 import { createHash } from 'node:crypto';
@@ -57,10 +58,16 @@ export const EXISTING_POS_CORRECTION_BATCH: CorrectionBatch = {
   sourceKey,
   corrections: EXISTING_POS_CORRECTIONS,
 };
+export const VERB_SENSE_CORRECTION_BATCH: CorrectionBatch = {
+  batchId: VERB_SENSE_BATCH,
+  sourceKey,
+  corrections: VERB_SENSE_CORRECTIONS,
+};
 export function correctionBatch(id?: string): CorrectionBatch {
   if (!id || id === DEFAULT_CORRECTION_BATCH.batchId) return DEFAULT_CORRECTION_BATCH;
   if (id === SUPPLEMENT_CORRECTION_BATCH.batchId) return SUPPLEMENT_CORRECTION_BATCH;
   if (id === EXISTING_POS_BATCH) return EXISTING_POS_CORRECTION_BATCH;
+  if (id === VERB_SENSE_BATCH) return VERB_SENSE_CORRECTION_BATCH;
   throw new Error('Unknown vocabulary correction batch');
 }
 

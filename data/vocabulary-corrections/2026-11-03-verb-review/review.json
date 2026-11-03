@@ -1,0 +1,543 @@
+{
+  "baseline": "v1.27.159",
+  "scope": "focused selected-sense review, not full semantic approval",
+  "counts": {
+    "focusedWords": 9,
+    "newlyTriagedPreviouslyUnreviewed": 9,
+    "confirmedCorrections": 2,
+    "remainingWithoutFocusedSemanticReview": 63
+  },
+  "license": "References used only for factual verification. No third-party definitions/examples/phonetics copied; edits apply to existing project text, whose source rights are unchanged.",
+  "rows": [
+    {
+      "word": "kick",
+      "classification": "confirmed-pos-error",
+      "note": "反冲为不及物用法；从vt行移除重复反冲译项，保留vi反冲与名词行。“后座力”有地区词典依据，不以字形偏好改写。",
+      "references": [
+        "https://www.merriam-webster.com/dictionary/kick",
+        "https://www.ahdictionary.com/word/search.html?q=kick",
+        "https://dict.revised.moe.edu.tw/dictView.jsp?ID=81517&la=0&powerMode=0"
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "f64a6b2125087f7cb35d7ebcddec72089a777d3c28c4b53f9d4571f55017e0b7",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语九年级全册.xlsx",
+              "row": 510
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级上册.xlsx",
+              "row": 236
+            },
+            {
+              "sourceKey": "初中/沪教版/沪教版牛津英语七年级上册.xlsx",
+              "row": 88
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第二册（新版）.xlsx",
+              "row": 213
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2137
+            },
+            {
+              "sourceKey": "考试/商务英语（BEC）/BEC初级.xlsx",
+              "row": 202
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2262
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 3868
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1608
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "whistle",
+      "classification": "confirmed-pos-error",
+      "note": "当前吹口哨/鸣汽笛两个不带宾语的释义对应vi；改该行标记，不否认该词另有吹奏曲调等及物义，本轮未新增这些义项。",
+      "references": [
+        "https://www.merriam-webster.com/dictionary/whistle",
+        "https://www.collinsdictionary.com/us/dictionary/english/whistle"
+      ],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "aab23ec732e7f0102bbbb232831fc81c96d3916ea0f1ad255cea1cc3a2427193",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 2695
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版.xlsx",
+              "row": 117
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版.xlsx",
+              "row": 117
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1251
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 4258
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 1495
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 299
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语11 - 选修.xlsx",
+              "row": 205
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语8 - 选修.xlsx",
+              "row": 278
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修5.xlsx",
+              "row": 204
+            }
+          ]
+        },
+        {
+          "sha256": "7f071d8c31356815f7469c3ead18e3bbd4bec76a7689f2e13399743ab0529885",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序便携版_plus.xlsx",
+              "row": 117
+            },
+            {
+              "sourceKey": "考试/托福雅思/雅思词汇乱序版_plus.xlsx",
+              "row": 117
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "asleep",
+      "classification": "supported-selected-senses",
+      "note": "形容词睡着、麻木、死亡比喻和进入睡眠状态的副词用法有依据，保留。副词中文“熟睡地”与状态表达未全面认证。",
+      "references": ["https://www.merriam-webster.com/dictionary/asleep"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "530fbf0c573687bd7466931faf066c37e5523b10a3c63577f2717cc840e04e9d",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 236
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 308
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 797
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1040
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1746
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2538
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "cold",
+      "classification": "supported-selected-senses",
+      "note": "寒冷、感冒、冷淡、失去知觉及副词完全地均有对应义，不删除副词。",
+      "references": ["https://www.merriam-webster.com/dictionary/cold"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "7291613130e87940970d5b746b44325fcbde5b2dfb1038bec37dd7fe47808ac8",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语七年级下册.xlsx",
+              "row": 290
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级上册.xlsx",
+              "row": 279
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语九年级下册.xlsx",
+              "row": 40
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语八年级下册.xlsx",
+              "row": 98
+            },
+            {
+              "sourceKey": "小学/人教版/四年级下.xlsx",
+              "row": 33
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 102
+            },
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 496
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2214
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 1317
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 2359
+            }
+          ]
+        },
+        {
+          "sha256": "f234d4d3e2cffee875b271ec0d0daf5be60fd6085a8eb92711d2fd84ef146a6e",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 493
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "cheek",
+      "classification": "supported-selected-senses",
+      "note": "脸颊、臀部及英式无礼讲话的及物动词均获支持；不因身体主题只保留脸颊。",
+      "references": ["https://www.merriam-webster.com/dictionary/cheek"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "8c2791e379615c1bb013c4899898417b787ba6b0b7a010d439ed2740479defc6",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 3177
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2525
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2586
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 17
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第一册.xlsx",
+              "row": 243
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语4 - 必修.xlsx",
+              "row": 211
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 181
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修7.xlsx",
+              "row": 100
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "bone",
+      "classification": "partially-unresolved",
+      "note": "骨及剔骨、苦学义有依据；施骨肥于及专心致志的范围未充分核实，不覆盖。",
+      "references": ["https://www.merriam-webster.com/dictionary/bone"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "0b68cb9be77c781ff9baa50f215bc24693f02e0f60d4247b0329da736bdb3fb8",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 259
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 274
+            },
+            {
+              "sourceKey": "考试/大学英语四六级/四级考纲词汇.xlsx",
+              "row": 1091
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2897
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 3103
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第一册.xlsx",
+              "row": 344
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语3 - 必修.xlsx",
+              "row": 19
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第二册.xlsx",
+              "row": 179
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "foot",
+      "classification": "partially-unresolved",
+      "note": "步行、跳舞和及物支付、换底有依据；当前vi总计与词典及物合计标注有差异，需更多来源，不贸然移动。",
+      "references": ["https://www.merriam-webster.com/dictionary/foot"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a7abc2390a512d09043bedb522cd2100826bc7fb5c9ed586a789bb1c099e81f1",
+          "sourceRows": [
+            {
+              "sourceKey": "初中/人教版/人教版初中英语八年级下册.xlsx",
+              "row": 8
+            },
+            {
+              "sourceKey": "初中/外研版/外研版初中英语七年级下册.xlsx",
+              "row": 391
+            },
+            {
+              "sourceKey": "小学/人教版/三年级上.xlsx",
+              "row": 32
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 717
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 895
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专八词汇.xlsx",
+              "row": 1213
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 3107
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "beard",
+      "classification": "partially-unresolved",
+      "note": "胡须及公然反对义有依据；抓胡须、不及物掩护和男随员未在本次来源充分核实，保留待审。",
+      "references": ["https://www.merriam-webster.com/dictionary/beard"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "a79be8b454461e05896a2a498b1781a48d6b157ae69843cde349c7c51aa13fb8",
+          "sourceRows": [
+            {
+              "sourceKey": "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+              "row": 829
+            },
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 2022
+            },
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 2719
+            },
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 2387
+            },
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 608
+            },
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语选择性必修第三册.xlsx",
+              "row": 118
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语2 - 必修.xlsx",
+              "row": 319
+            },
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 266
+            },
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第一册.xlsx",
+              "row": 177
+            },
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 必修5.xlsx",
+              "row": 135
+            }
+          ]
+        },
+        {
+          "sha256": "1cc874a458048ad660258cedf1372abd78b35a3d42ff4f83b705159292dc5696",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+              "row": 59
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "word": "tear",
+      "classification": "representation-gap",
+      "note": "眼泪与撕裂为不同读音及屈折的同形词；原义项本身可成立，但扁平字段不能表达一义一音。本轮不覆盖音标或拆词，避免改学习身份。",
+      "references": ["https://www.merriam-webster.com/dictionary/tear"],
+      "reviewedAt": "2026-11-03",
+      "variants": [
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/专升本/专升本词汇.xlsx",
+              "row": 1362
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+              "row": 543
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/留学与职业考试/MBA单词.xlsx",
+              "row": 552
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词.xlsx",
+              "row": 277
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/考研/2023考研核心1864词/Day2.xlsx",
+              "row": 97
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/英语专业四八级/专四词汇.xlsx",
+              "row": 4414
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "考试/高考/高考3500词.xlsx",
+              "row": 32
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "高中/人教版（2019版）/人教版高中英语必修第三册.xlsx",
+              "row": 181
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "高中/人教版（旧课标）/人教版高中英语9 - 选修.xlsx",
+              "row": 148
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "高中/外研版（2019版）/外研版高中英语必修第三册.xlsx",
+              "row": 38
+            }
+          ]
+        },
+        {
+          "sha256": "4ca9fd9ae5ad569733a1f8cabdeb818098b13baf1afad01a9349e8309b5f320a",
+          "sourceRows": [
+            {
+              "sourceKey": "高中/外研版（旧课标）/外研版高中英语 选修6.xlsx",
+              "row": 299
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

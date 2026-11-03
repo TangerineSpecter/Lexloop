@@ -1,3 +1,4 @@
+import { VERB_SENSE_CORRECTIONS } from './verb-sense-corrections';
 // Exact editorial corrections; originals, source rows and factual references:
 // data/vocabulary-corrections/2026-11-03-pos-review. No upstream definitions copied.
 export const EXISTING_POS_BATCH = 'daily-existing-pos-2026-11-03-v1';
@@ -49,7 +50,7 @@ export const EXISTING_POS_CORRECTIONS = [
 ] as const;
 
 export function reviewedExistingMeaning(word: string, sourceKey: string, meaning: string | null) {
-  const correction = EXISTING_POS_CORRECTIONS.find(
+  const correction = [...EXISTING_POS_CORRECTIONS, ...VERB_SENSE_CORRECTIONS].find(
     (entry) =>
       entry.word === word &&
       entry.sourceKeys.some((key) => key === sourceKey) &&
