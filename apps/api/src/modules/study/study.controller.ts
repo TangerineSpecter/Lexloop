@@ -126,6 +126,12 @@ export class StudyController {
       dto.skipReviewWordIds,
     );
   }
+  @Post('plans/:planId/replace-invalid') replaceInvalid(
+    @Req() request: AuthenticatedRequest,
+    @Param('planId') planId: string,
+  ) {
+    return this.study.replaceInvalidProgressivePlan(request.user.sub, planId);
+  }
   @Post('plans/:planId/generate') generate(
     @Req() request: AuthenticatedRequest,
     @Param('planId') planId: string,

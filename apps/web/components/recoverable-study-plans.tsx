@@ -36,7 +36,7 @@ type RecoverableStudyPlanPage = {
 type LoadedPage = RecoverableStudyPlanPage & { ownerId: string };
 type LatestPlanState = {
   id: string;
-  status: RecoverableStudyPlan['status'] | 'COMPLETED';
+  status: RecoverableStudyPlan['status'] | 'COMPLETED' | 'INVALIDATED';
   generationError?: string | null;
   generationPhase?: string | null;
   generationStartedAt?: string | null;
@@ -134,7 +134,7 @@ export function RecoverableStudyPlans({
   const knownPlanById = new Map(knownPlans.map((plan) => [plan.id, plan]));
   const displayedPlans = page?.items.flatMap((plan) => {
     const latest = knownPlanById.get(plan.id);
-    if (latest?.status === 'COMPLETED') return [];
+    if (latest?.status === 'COMPLETED' || latest?.status === 'INVALIDATED') return [];
     if (!latest) return [plan];
     return [
       {

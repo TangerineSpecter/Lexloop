@@ -1,3 +1,4 @@
+import { hasInvalidStoredAnswerKey, progressiveRecoveryEnabled } from './answer-key-integrity';
 import { ConfigService } from '@nestjs/config';
 import { requireSupplementDeployment } from '../vocabulary/daily-supplement.service';
 import { outputReservedWords } from '../vocabulary/supplement-eligibility';
@@ -136,6 +137,19 @@ export const PROGRESSIVE_PRACTICE_STAGE_RULES: Record<
       '材料恰好 3 个不同的英文句子、合计 35–55 个英文词；每个 sentences 条目只放一句，english 不含中文；短文中至少两条分布在不同句子的线索共同支持一个推断。题目是 READING_COMPREHENSION，答案必须仅依据短文。',
   },
 };
+function supportsProgressiveRecovery(plan: {
+  purpose: StudyPlanPurpose;
+  progressiveVersion: number | null;
+  progressiveStage: ProgressivePracticeStage | null;
+}) {
+  return (
+    progressiveRecoveryEnabled() &&
+    plan.purpose === StudyPlanPurpose.PROGRESSIVE &&
+    plan.progressiveVersion === PROGRESSIVE_PRACTICE_VERSION &&
+    Boolean(plan.progressiveStage)
+  );
+}
+
 const SAFE_GENERATION_FAILURE =
   '学习计划生成失败；详细错误已隐藏。请稍后重试；如仍失败，请联系管理员查看错误日志。';
 const SAFE_VALIDATION_ERROR_PATTERNS = [
@@ -299,6 +313,7 @@ function decodeRecoverablePlanCursor(value: string, expectedUserId: string): Rec
 
 const studyPlanInclude = (userId: string) =>
   ({
+    replacesPlan: { select: { id: true } },
     items: {
       orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }],
       include: {
@@ -603,6 +618,64 @@ export class StudyService {
       return plan.id;
     });
     return this.serializePlan(planId, userId);
+  }
+
+  async replaceInvalidProgressivePlan(userId: string, planId: string) {
+    if (!progressiveRecoveryEnabled()) throw new BadRequestException('异常练习恢复尚未启用');
+    const replacementId = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL`,
+      );
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "StudyPlan" WHERE "id" = ${planId} AND "userId" = ${userId} FOR UPDATE`,
+      );
+      const plan = await tx.studyPlan.findFirst({
+        where: { id: planId, userId },
+        include: { items: { orderBy: [{ groupIndex: 'asc' }, { id: 'asc' }] } },
+      });
+      if (!plan) throw new NotFoundException('学习计划不存在');
+      if (plan.replacementPlanId) return plan.replacementPlanId;
+      if (
+        plan.status !== StudyPlanStatus.ACTIVE ||
+        plan.purpose !== StudyPlanPurpose.PROGRESSIVE ||
+        plan.progressiveVersion !== PROGRESSIVE_PRACTICE_VERSION ||
+        !plan.progressiveStage
+      ) {
+        throw new BadRequestException('只能恢复当前版本中尚未完成的渐进练习');
+      }
+      const remaining = plan.items.filter((item) => !item.completedAt);
+      if (!remaining.some((item) => hasInvalidStoredAnswerKey(item.question))) {
+        throw new BadRequestException('没有发现参考答案结构异常；语义争议请通过题目反馈说明');
+      }
+      const questionType = PROGRESSIVE_PRACTICE_STAGE_RULES[plan.progressiveStage].questionType;
+      if (remaining.some((item) => item.targetQuestionType !== questionType)) {
+        throw new BadRequestException('阶段题型记录异常，需要人工核查，未修改计划');
+      }
+      const replacement = await tx.studyPlan.create({
+        data: {
+          userId,
+          mode: plan.mode,
+          purpose: plan.purpose,
+          progressiveStage: plan.progressiveStage,
+          progressiveVersion: plan.progressiveVersion,
+          status: StudyPlanStatus.GENERATING,
+          items: {
+            create: remaining.map((item, groupIndex) => ({
+              bookWordId: item.bookWordId,
+              source: item.source,
+              targetQuestionType: item.targetQuestionType,
+              groupIndex,
+            })),
+          },
+        },
+      });
+      await tx.studyPlan.update({
+        where: { id: plan.id },
+        data: { status: StudyPlanStatus.INVALIDATED, replacementPlanId: replacement.id },
+      });
+      return replacement.id;
+    });
+    return this.serializePlan(replacementId, userId);
   }
 
   async createPlan(
@@ -1964,7 +2037,11 @@ export class StudyService {
 
   async getCompletedPlanReview(userId: string, planId: string) {
     const plan = await this.prisma.studyPlan.findFirst({
-      where: { id: planId, userId, status: StudyPlanStatus.COMPLETED },
+      where: {
+        id: planId,
+        userId,
+        status: { in: [StudyPlanStatus.COMPLETED, StudyPlanStatus.INVALIDATED] },
+      },
       include: studyPlanInclude(userId),
     });
     if (!plan) throw new NotFoundException('已完成学习记录不存在');
@@ -1977,7 +2054,7 @@ export class StudyService {
     groupIndex: number,
     answers: Array<{ bookWordId: string; selectedAnswer: string[]; responseTimeMs?: number }>,
   ) {
-    const items = await this.prisma.studyPlanItem.findMany({
+    let items = await this.prisma.studyPlanItem.findMany({
       where: {
         planId,
         groupIndex,
@@ -2008,6 +2085,26 @@ export class StudyService {
     try {
       await this.prisma.$transaction(async (tx) => {
         previousIntervals.clear();
+        if (supportsProgressiveRecovery(items[0].plan)) {
+          await tx.$queryRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0)) IS NULL`,
+          );
+          const locked = await tx.$queryRaw<Array<{ status: string }>>(
+            Prisma.sql`SELECT "status" FROM "StudyPlan" WHERE "id" = ${planId} AND "userId" = ${userId} FOR UPDATE`,
+          );
+          if (locked[0]?.status !== StudyPlanStatus.ACTIVE)
+            throw new StudyGroupCompletionAlreadyClaimed();
+          const fresh = await tx.studyPlanItem.findMany({
+            where: { planId, groupIndex },
+            select: { id: true, question: true, completedAt: true },
+          });
+          if (fresh.length !== items.length || fresh.some((item) => item.completedAt))
+            throw new StudyGroupCompletionAlreadyClaimed();
+          items = items.map((item) => ({
+            ...item,
+            question: fresh.find((value) => value.id === item.id)!.question,
+          }));
+        }
         const completedAt = new Date();
         const claimed = await tx.studyPlanItem.updateMany({
           where: {
@@ -2044,7 +2141,11 @@ export class StudyService {
         );
         for (const item of items) {
           const answer = answers.find((value) => value.bookWordId === item.bookWordId)!;
-          const graded = gradeQuestion(item.question, answer.selectedAnswer);
+          const graded = gradeQuestion(
+            item.question,
+            answer.selectedAnswer,
+            supportsProgressiveRecovery(item.plan),
+          );
           const progress = await tx.userWordProgress.findUniqueOrThrow({
             where: { userId_bookWordId: { userId, bookWordId: item.bookWordId } },
           });
@@ -2245,6 +2346,12 @@ export class StudyService {
         plan.items.length > 0 && plan.items.every((item) => item.bookWord.book?.isSupplement),
       progressiveStage: plan.progressiveStage?.toLowerCase() ?? null,
       progressiveVersion: plan.progressiveVersion,
+      replacementPlanId: plan.replacementPlanId ?? null,
+      replacedPlanId: plan.replacesPlan?.id ?? null,
+      answerKeyRecoveryAvailable:
+        supportsProgressiveRecovery(plan) &&
+        plan.status === StudyPlanStatus.ACTIVE &&
+        plan.items.some((item) => !item.completedAt && hasInvalidStoredAnswerKey(item.question)),
       status: plan.status,
       blocksNewPlanCreation,
       generationError: safeStoredGenerationError(plan.generationError),
@@ -2303,7 +2410,14 @@ function shuffle<T>(values: T[]) {
   return result;
 }
 
-export function gradeQuestion(questionValue: unknown, selectedValue: unknown): GradedAnswer {
+export function gradeQuestion(
+  questionValue: unknown,
+  selectedValue: unknown,
+  validateStoredKey = false,
+): GradedAnswer {
+  if (validateStoredKey && hasInvalidStoredAnswerKey(questionValue)) {
+    throw new BadRequestException('参考答案结构无效，本组未计分；请返回练习页创建剩余练习');
+  }
   if (!questionValue || typeof questionValue !== 'object' || Array.isArray(questionValue)) {
     throw new BadRequestException('题目数据无效，请重新生成学习计划');
   }

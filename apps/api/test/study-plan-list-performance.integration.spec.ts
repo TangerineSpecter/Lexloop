@@ -115,10 +115,12 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         expect(page.items.every((plan) => plan.words.length === 1)).toBe(true);
 
         console.log(
-          `study plan reads: list ${listQueryCount} root queries/${listDurationMs.toFixed(1)} ms; completed page ${pageQueryCount} root queries/${pageDurationMs.toFixed(1)} ms (20 plans, 1 item each)`,
+          `study plan reads: list ${listQueryCount} StudyPlan table reads/${listDurationMs.toFixed(1)} ms; completed page ${pageQueryCount} StudyPlan table reads/${pageDurationMs.toFixed(1)} ms (20 plans, 1 item each)`,
         );
-        expect(listQueryCount).toBe(1);
-        expect(pageQueryCount).toBe(1);
+        // One root read and one batched self-relation read for preserved recovery evidence.
+        // This remains constant for 20 plans, rather than one extra read per plan.
+        expect(listQueryCount).toBe(2);
+        expect(pageQueryCount).toBe(2);
       } finally {
         await prisma.studyPlan.deleteMany({ where: { userId: { in: userIds } } });
         await prisma.vocabularyBook.deleteMany({ where: { sourceKey: bookSourceKey } });

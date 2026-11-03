@@ -1,5 +1,8 @@
 'use client';
 
+import type { LearningPlan } from './dashboard';
+import { ProgressiveRecoveryPanel } from './progressive-recovery-panel';
+
 import type {
   LearningHistoryAssessmentItem,
   LearningHistoryItem,
@@ -71,7 +74,8 @@ type StudyPlanReviewWord = {
 
 type StudyPlanReview = {
   id: string;
-  status: string;
+  status: LearningPlan['status'];
+  replacedPlanId?: string | null;
   words: StudyPlanReviewWord[];
 };
 
@@ -418,6 +422,14 @@ function PlanHistoryCard({
               )}
               {reviewOpen && visibleReviewState.status === 'ready' && (
                 <div className="history-review-list">
+                  {visibleReviewState.review.replacedPlanId && (
+                    <ProgressiveRecoveryPanel
+                      key={`${session.user.id}:${visibleReviewState.review.id}`}
+                      plan={visibleReviewState.review}
+                      session={session}
+                      onReplaced={() => {}}
+                    />
+                  )}
                   {visibleReviewState.review.words.map((word) => {
                     const correctAnswers =
                       word.question.type === 'WORD_MATCHING' && word.question.pairs?.length
@@ -432,9 +444,9 @@ function PlanHistoryCard({
                           <strong>{word.word}</strong>
                           <span>
                             {word.result === true
-                              ? '答对'
+                              ? '与参考答案一致'
                               : word.result === false
-                                ? '答错'
+                                ? '与参考答案不一致'
                                 : '没有正误记录'}
                           </span>
                         </header>
@@ -457,7 +469,7 @@ function PlanHistoryCard({
                             )}
                           </div>
                           <div>
-                            <b>正确答案</b>
+                            <b>本题参考答案</b>
                             {correctAnswers.length ? (
                               <ul>
                                 {correctAnswers.map((answer, index) => (
@@ -465,10 +477,11 @@ function PlanHistoryCard({
                                 ))}
                               </ul>
                             ) : (
-                              <p>本题没有可回看的标准答案。</p>
+                              <p>本题没有可回看的参考答案。</p>
                             )}
                           </div>
                         </div>
+                        <p>结果按当时保存的参考答案判定，未证明题目没有多解或依据不足。</p>
                         {word.question.explanation && (
                           <p className="history-review-explanation">{word.question.explanation}</p>
                         )}

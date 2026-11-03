@@ -2052,11 +2052,11 @@ test(
       );
       assert.match(
         await evaluate('document.querySelector(".answer-feedback").textContent'),
-        /回答错误/,
+        /与本题参考答案不一致/,
       );
       assert.match(
         await evaluate('document.querySelector(".question-answer").textContent'),
-        /正确答案：明亮的/,
+        /本题参考答案：明亮的/,
       );
       assert.match(
         await evaluate('document.querySelector(".question-explanation").textContent'),
@@ -2390,7 +2390,7 @@ test(
       );
       assert.match(
         await evaluate('document.querySelector(".answer-feedback").textContent'),
-        /回答错误/,
+        /与本题参考答案不一致/,
       );
       assert.deepEqual(
         await evaluate('window.studyPlanWrites[1].answers[0].selectedAnswer.length'),
@@ -3217,6 +3217,88 @@ test(
         true,
       );
       assert.equal(await evaluate('document.querySelector("[role=alert]") === null'), true);
+      // Recovery from the current sequence must insert the new id and not invoke a model.
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `
+        localStorage.removeItem('lexloop.test.empty-study-plans');
+        localStorage.setItem('lexloop.session', JSON.stringify({accessToken: 'fixture', user: {id: 'study-user', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER'}}));
+        const old = {...window.studyPlanResponse, id: 'invalid-progressive', purpose: 'progressive', progressiveStage: 'foundation', progressiveVersion: 1, status: 'ACTIVE', answerKeyRecoveryAvailable: true};
+        old.content.groups.forEach(group => group.questions.forEach(question => {delete question.options;}));
+        old.words.forEach(word => {if (word.question) delete word.question.options;});
+        const replacement = {...old, id: 'replacement-progressive', status: 'GENERATING', answerKeyRecoveryAvailable: false, replacedPlanId: old.id, content: null, generationStartedAt: null, generationPhase: null};
+        window.recoveryWrites = 0; window.recoveryGenerations = 0; window.recoveryPlans = [old];
+        const prior = window.fetch;
+        window.fetch = async (url, options = {}) => {
+          const path = String(url); const method = options.method ?? 'GET';
+          if (path.endsWith('/study/plans') && method === 'GET') return Response.json(window.recoveryPlans);
+          if (path.endsWith('/study/plans/invalid-progressive/replace-invalid')) {
+            window.recoveryWrites++;
+            window.recoveryPlans = [replacement, {...old, status: 'INVALIDATED', replacementPlanId: replacement.id, answerKeyRecoveryAvailable: false}];
+            return Response.json(replacement);
+          }
+          if (path.includes('/study/plans/replacement-progressive')) {
+            if (path.endsWith('/generate')) window.recoveryGenerations++;
+            return Response.json(replacement);
+          }
+          return prior(url, options);
+        };
+      `,
+      });
+      await send('Page.navigate', { url: baseUrl + '/dashboard' });
+      await until('document.querySelector("[role=tab]")');
+      await evaluate(
+        '[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent.includes("当前学习序列")).click()',
+      );
+      await until(
+        '[...document.querySelectorAll("button")].some(button => button.textContent.includes("继续学习"))',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find(button => button.textContent.includes("继续学习")).click()',
+      );
+      await until('document.querySelector("[aria-label=异常练习恢复]")');
+      assert.equal(await evaluate('document.querySelector(".answer-options") === null'), true);
+      await evaluate(
+        '[...document.querySelectorAll("[aria-label=异常练习恢复] button")].find(button => button.textContent.includes("创建替代练习")).click()',
+      );
+      await until('document.querySelector(".plan-preview-layer") && window.recoveryWrites === 1');
+      assert.equal(await evaluate('window.recoveryGenerations'), 0);
+      assert.match(
+        await evaluate('document.querySelector(".plan-preview").textContent'),
+        /点击后才会请求服务端/,
+      );
+      await evaluate('document.querySelector(".plan-preview header button").click()');
+      await until('document.querySelector(".plan-preview-layer") === null');
+      assert.equal(await evaluate('window.recoveryWrites'), 1);
+      assert.equal(await evaluate('window.recoveryGenerations'), 0);
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `
+        const racing = {...window.studyPlanResponse, id: 'race-progressive', purpose: 'progressive', progressiveStage: 'foundation', progressiveVersion: 1, status: 'ACTIVE', answerKeyRecoveryAvailable: false};
+        // Previous fixture mutates shared content to remove options; restore a valid answer view.
+        racing.content = {groups: [{index: 0, title: 'A bright room', wordOccurrences: {bright: 1}, sentences: [{english: 'The room is bright.', chinese: '房间很明亮。', simplified: '房间很明亮。', grammar: 'bright为形容词。'}], questions: [{bookWordId: 'word-1', type: 'MEANING_RECOGNITION', prompt: 'What does bright mean?', options: ['明亮的', '暗的']}]}]};
+        racing.words = [{id: 'word-1', word: 'bright', meaning: '明亮的', groupIndex: 0, completed: false, source: 'NEW'}]; racing.groupCount = 1; racing.wordCount = 1;
+        window.recoveryPlans = [racing];
+        const previous = window.fetch;
+        window.fetch = async (url, options = {}) => {
+          if (String(url).endsWith('/study/plans/race-progressive/groups/0/complete')) return Response.json({...racing, status: 'INVALIDATED', replacementPlanId: 'replacement-progressive'});
+          return previous(url, options);
+        };
+      `,
+      });
+      await send('Page.navigate', { url: baseUrl + '/dashboard' });
+      await openCurrentPlan();
+      await evaluate('document.querySelector(".answer-options button").click()');
+      await until('document.querySelector(".answer-options button.selected")');
+      const preservedDraft = await evaluate(
+        'localStorage.getItem("lexloop.study.draft.study-user.race-progressive.0")',
+      );
+      assert.ok(preservedDraft);
+      await evaluate('[...document.querySelectorAll(".exercises .check-matches")].at(-1).click()');
+      await until('document.querySelector("[aria-label=异常练习恢复]")');
+      assert.equal(
+        await evaluate('localStorage.getItem("lexloop.study.draft.study-user.race-progressive.0")'),
+        preservedDraft,
+      );
+      assert.equal(await evaluate('document.querySelector(".answer-feedback") === null'), true);
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(
         `keyboard learning journey and public bank feedback/admin: 1440px/768px/390px, stale success/error and unmount guards`,

@@ -1,4 +1,6 @@
 'use client';
+
+import { ProgressiveRecoveryPanel } from './progressive-recovery-panel';
 import { CollectWordForm } from './learning-lab/collect-word-form';
 import { SystemLogsPanel } from './system-logs-panel';
 import { SystemUpdatePanel } from './system-update-panel';
@@ -315,7 +317,10 @@ export type LearningPlan = {
     durationSeconds: number;
     typeStats: Array<{ type: string; total: number; correct: number }>;
   };
-  status: 'GENERATING' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
+  status: 'GENERATING' | 'ACTIVE' | 'COMPLETED' | 'FAILED' | 'INVALIDATED';
+  answerKeyRecoveryAvailable?: boolean;
+  replacementPlanId?: string | null;
+  replacedPlanId?: string | null;
   blocksNewPlanCreation?: boolean;
   createdAt: string;
   completedAt?: string | null;
@@ -1436,6 +1441,31 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   }
                 : undefined
             }
+            onPlanReplaced={(replacement) => {
+              if (currentUserIdRef.current !== session.user.id) return;
+              setPlans((current) =>
+                currentUserIdRef.current !== session.user.id
+                  ? current
+                  : [
+                      replacement,
+                      ...current
+                        .filter((item) => item.id !== replacement.id)
+                        .map((item) =>
+                          item.id === replacement.replacedPlanId
+                            ? {
+                                ...item,
+                                status: 'INVALIDATED' as const,
+                                answerKeyRecoveryAvailable: false,
+                                replacementPlanId: replacement.id,
+                                blocksNewPlanCreation: false,
+                              }
+                            : item,
+                        ),
+                    ],
+              );
+              setLessonPlanId(null);
+              openPlanPreview(replacement, false);
+            }}
             onPlanUpdated={(updated) =>
               currentUserIdRef.current === session.user.id &&
               setPlans((current) => {
@@ -5659,6 +5689,7 @@ function GeneratedStudyPage({
   onOpenMistakes,
   onOpenTutorSettings,
   onPlanUpdated,
+  onPlanReplaced,
 }: {
   plan: LearningPlan | null;
   session: Session;
@@ -5666,6 +5697,7 @@ function GeneratedStudyPage({
   onOpenMistakes?: () => void;
   onOpenTutorSettings?: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
+  onPlanReplaced: (plan: LearningPlan) => void;
 }) {
   const [draftState, setDraftState] = useState<{
     scopeKey: string | null;
@@ -5692,7 +5724,10 @@ function GeneratedStudyPage({
   const words =
     activePlan && group ? activePlan.words.filter((word) => word.groupIndex === group.index) : [];
   const draftScopeKey =
-    activePlan && group
+    activePlan &&
+    group &&
+    !activePlan.answerKeyRecoveryAvailable &&
+    activePlan.status !== 'INVALIDATED'
       ? studyDraftIdentity(session.user.id, activePlan.id, group.index, group.questions)
       : null;
   useEffect(() => {
@@ -5728,6 +5763,20 @@ function GeneratedStudyPage({
       return Boolean(answer?.confirmed);
     });
   const hasDraftAnswers = Object.keys(answers).length > 0;
+
+  if (activePlan?.answerKeyRecoveryAvailable || activePlan?.status === 'INVALIDATED') {
+    return (
+      <>
+        <ProgressiveRecoveryPanel
+          key={`${session.user.id}:${activePlan.id}`}
+          plan={activePlan}
+          session={session}
+          onReplaced={onPlanReplaced}
+        />
+        <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
+      </>
+    );
+  }
 
   if (!plan?.content?.groups?.length || !activePlan || !group) {
     return (
@@ -5781,6 +5830,12 @@ function GeneratedStudyPage({
         },
         session.accessToken,
       );
+      if (updated.status === 'INVALIDATED') {
+        setSubmittedPlan(updated);
+        onPlanUpdated(updated);
+        setFeedbackGroupIndex(null);
+        return;
+      }
       clearStudyDraftIfMatches(
         session.user.id,
         activePlan.id,
@@ -5916,6 +5971,14 @@ function GeneratedStudyPage({
   };
   return (
     <section className="lesson-page">
+      {activePlan.replacedPlanId && (
+        <ProgressiveRecoveryPanel
+          key={`${session.user.id}:${activePlan.id}`}
+          plan={activePlan}
+          session={session}
+          onReplaced={onPlanUpdated}
+        />
+      )}
       <header className="lesson-page-head">
         <DashboardBackButton onClick={onBack}>返回学习序列</DashboardBackButton>
         <div>
@@ -6423,9 +6486,7 @@ function GeneratedQuestionCard({
   };
   const explanation = /[\u3400-\u9fff]/.test(question.explanation)
     ? question.explanation
-    : question.type === 'WORD_MATCHING' && question.pairs?.length
-      ? `正确配对为：${question.pairs.map((pair) => `${pair.left} 对应 ${pair.right}`).join('；')}。`
-      : `正确答案为：${question.correctAnswers?.join('、') ?? '交卷后揭晓'}。请结合文章语境和单词释义理解本题。`;
+    : '本题未保存可用解析；不能仅凭答案键确认短文依据。';
   const saveFeedback = async () => {
     if (!feedbackRating || !onSaveFeedback || feedbackBusy) return;
     setFeedbackBusy(true);
@@ -6541,20 +6602,24 @@ function GeneratedQuestionCard({
       {answer?.confirmed && revealed && (
         <>
           <strong className={correct ? 'answer-feedback success' : 'answer-feedback'}>
-            {correct ? '回答正确！' : '回答错误，正确答案已标出。'}
+            {correct ? '与本题参考答案一致。' : '与本题参考答案不一致。'}
           </strong>
           <p className="question-answer">
-            正确答案：
+            本题参考答案：
             {question.type === 'WORD_MATCHING' && question.pairs?.length
               ? question.pairs.map((pair) => `${pair.right} → ${pair.left}`).join('；')
               : question.correctAnswers.join('、')}
           </p>
           <p className="question-explanation">{explanation}</p>
+          <p className="question-answer">
+            以上按保存的参考答案判定，不代表语义已经独立核验；若发现多解或短文依据不足，请结合原文核对。
+          </p>
           <WordMeaningCard word={word} />
           {word.savedContext && <SavedReviewContext context={word.savedContext} />}
           {publicBankMaterial && onSaveFeedback && (
             <fieldset className="public-question-feedback">
               <legend>这道题对你来说怎么样？</legend>
+              <p>内容反馈不会自动改判或调整复习时间。</p>
               <div className="public-question-feedback-options">
                 <button
                   type="button"
