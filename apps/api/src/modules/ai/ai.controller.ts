@@ -22,6 +22,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Readable } from 'node:stream';
+import { forwardChatStream } from './chat-stream';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AiService, ChatCompletionRequest, OpenAiChatCompletionRequest } from './ai.service';
 import { AiModelConfigService } from '../admin/ai-model-config.service';
@@ -258,7 +259,7 @@ export class AiController {
     if (dto.stream) {
       const body = response.body;
       if (!body) return reply.send();
-      return reply.send(Readable.fromWeb(body as any));
+      return reply.send(Readable.from(forwardChatStream(body)));
     }
     return reply.send(await response.json());
   }

@@ -117,3 +117,33 @@ describe('authenticated MiniMax completion HTTP budget boundary', () => {
     },
   );
 });
+
+describe('public MiniMax SSE responses', () => {
+  it.each([false, true])('reports completion accurately (normal=%s)', async (normal) => {
+    const chunks = [
+      'data: {"choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n',
+      ...(normal
+        ? ['data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n']
+        : []),
+    ];
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              const chunk = chunks.shift();
+              if (chunk) controller.enqueue(new TextEncoder().encode(chunk));
+              else controller.close();
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+    );
+    const result = await post({ stream: true });
+    expect(result.statusCode).toBe(201);
+    expect(result.headers['content-type']).toContain('text/event-stream');
+    expect(result.body.includes('STREAM_INCOMPLETE')).toBe(!normal);
+    expect(result.body.includes('[DONE]')).toBe(normal);
+    expect(result.body).not.toContain('test-only-key');
+  });
+});

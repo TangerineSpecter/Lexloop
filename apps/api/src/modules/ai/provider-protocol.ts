@@ -68,22 +68,37 @@ export async function normalizeProviderResponse(
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     let buffer = '';
+    const choicesFinished = new Map<number, boolean>();
+    let receivedDone = false;
+    const complete = () => choicesFinished.size > 0 && [...choicesFinished.values()].every(Boolean);
+    const incomplete = () => new BadGatewayException('MiniMax 流式响应未完整结束，请重试。');
     const emit = (frame: string, controller: TransformStreamDefaultController<Uint8Array>) => {
       for (const line of frame.split(/\r?\n/)) {
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
         if (!data) continue;
-        if (data === '[DONE]') controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        else {
+        if (receivedDone) throw incomplete();
+        if (data === '[DONE]') {
+          if (!complete()) throw incomplete();
+          receivedDone = true;
+        } else {
           let payload: unknown;
           try {
             payload = JSON.parse(data);
           } catch {
             throw new BadGatewayException('MiniMax 流式响应格式无效。');
           }
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(sanitizeMiniMax(payload))}\n\n`),
-          );
+          const sanitized = sanitizeMiniMax(payload) as {
+            choices?: Array<{ index?: number; finish_reason?: string | null }>;
+          };
+          for (const [position, choice] of (sanitized.choices ?? []).entries()) {
+            const index = choice.index ?? position;
+            if (choicesFinished.get(index)) throw incomplete();
+            const reason = choice.finish_reason;
+            if (reason != null && reason !== 'stop' && reason !== 'tool_calls') throw incomplete();
+            choicesFinished.set(index, reason === 'stop' || reason === 'tool_calls');
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(sanitized)}\n\n`));
         }
       }
     };
@@ -99,7 +114,9 @@ export async function normalizeProviderResponse(
         },
         flush(controller) {
           buffer += decoder.decode();
-          if (buffer.trim()) emit(buffer, controller);
+          // An unterminated SSE frame or missing finish_reason is an interrupted response.
+          if (buffer.trim() || !complete()) throw incomplete();
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         },
       }),
     );

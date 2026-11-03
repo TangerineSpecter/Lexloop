@@ -114,7 +114,7 @@ describe('MiniMax native provider (offline)', () => {
 
   it('handles split SSE frames while never forwarding reasoning', async () => {
     const source =
-      'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\r\n\r\ndata: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n';
+      'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\r\n\r\ndata: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\ndata: [DONE]\n\n';
     const bytes = new TextEncoder().encode(source);
     const stream = new ReadableStream({
       start(controller) {
