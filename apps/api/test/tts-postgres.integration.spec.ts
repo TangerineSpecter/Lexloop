@@ -26,6 +26,71 @@ function deferred<T = void>() {
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'MiniMax TTS leases and private audio cache on isolated PostgreSQL',
   () => {
+    it('awaits the durable barrier in the real client and refuses an expired reservation before fetch', async () => {
+      const fixture = await createFixture(true);
+      const user = await fixture.makeUser();
+      const service = fixture.makeServiceWithClient(new MiniMaxTtsClient());
+      fixture.trackClaim(await fixture.claimKey(service, user.id, TEST_TEXT));
+      const fetchMock = vi.fn(async () => {
+        expect(
+          await fixture.admin.ttsQuotaReservation.findFirst({ where: { userId: user.id } }),
+        ).toMatchObject({ state: 'DISPATCHING' });
+        return Response.json({
+          base_resp: { status_code: 0 },
+          data: { audio: BASE_AUDIO.toString('hex') },
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        await expect(service.generate(user.id, TEST_TEXT, true)).resolves.toMatchObject({
+          cache: 'generated',
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const secondUser = await fixture.makeUser();
+        const secondService = fixture.makeServiceWithClient(new MiniMaxTtsClient());
+        fixture.trackClaim(await fixture.claimKey(secondService, secondUser.id, TEST_TEXT));
+        const internal = secondService as unknown as {
+          renewClaimBeforeProviderCall: (...args: string[]) => Promise<Date | null>;
+        };
+        const renew = internal.renewClaimBeforeProviderCall.bind(secondService);
+        vi.spyOn(internal, 'renewClaimBeforeProviderCall').mockImplementation(async (...args) => {
+          await fixture.admin.ttsQuotaReservation.updateMany({
+            where: { userId: secondUser.id },
+            data: { expiresAt: new Date(0) },
+          });
+          await secondService.recoverQuota();
+          return renew(...args);
+        });
+        await expect(secondService.generate(secondUser.id, TEST_TEXT, true)).rejects.toThrow();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(
+          await fixture.admin.ttsQuotaReservation.findFirst({ where: { userId: secondUser.id } }),
+        ).toMatchObject({ state: 'REFUNDED' });
+        expect(
+          await fixture.admin.ttsDailyUsage.findFirst({ where: { userId: secondUser.id } }),
+        ).toMatchObject({ generationCount: 0 });
+        fixture.setRecoveryEnabled(false);
+        await fixture.admin.ttsDailyUsage.updateMany({
+          where: { userId: { in: [user.id, secondUser.id] } },
+          data: { updatedAt: new Date(0) },
+        });
+        await expect(
+          (
+            service as unknown as { pruneExpiredCacheBatch: () => Promise<void> }
+          ).pruneExpiredCacheBatch(),
+        ).resolves.toBeUndefined();
+        expect(
+          await fixture.admin.ttsDailyUsage.count({
+            where: { userId: { in: [user.id, secondUser.id] } },
+          }),
+        ).toBe(2);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        await fixture.cleanup();
+      }
+    }, 20_000);
+
     it('single-flights same-account requests across service instances and atomically stores one audio object', async () => {
       const fixture = await createFixture();
       const providerEntered = deferred();
@@ -344,7 +409,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             select: { status: true, errorCode: true },
           });
           console.log('pre-dispatch settlement evidence', { outstanding, auditState });
-          expect(outstanding).toEqual([]);
+          expect(outstanding).toEqual([{ generationCount: 0, characterCount: 0 }]);
           expect(refund).toHaveBeenCalledTimes(persistent ? 3 : 2);
           expect(
             await fixture.admin.aiCallAudit.findFirst({ where: { userId: user.id } }),
@@ -456,7 +521,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
               },
             },
           }),
-        ).toBeNull();
+        ).toMatchObject({ generationCount: 0, characterCount: 0 });
       } finally {
         await fixture.cleanup();
       }
@@ -506,9 +571,13 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           );
           const [reservation, auditId] = refund.mock.calls[0];
           if (committed) {
-            expect(await fixture.admin.ttsDailyUsage.count({ where: { userId: user.id } })).toBe(0);
+            expect(
+              await fixture.admin.ttsDailyUsage.findFirst({ where: { userId: user.id } }),
+            ).toMatchObject({ generationCount: 0, characterCount: 0 });
             await original(reservation, auditId);
-            expect(await fixture.admin.ttsDailyUsage.count({ where: { userId: user.id } })).toBe(0);
+            expect(
+              await fixture.admin.ttsDailyUsage.findFirst({ where: { userId: user.id } }),
+            ).toMatchObject({ generationCount: 0, characterCount: 0 });
             return;
           }
           await fixture.admin.aiCallAudit.update({
@@ -639,7 +708,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   },
 );
 
-async function createFixture() {
+async function createFixture(recovery = false) {
   const databaseUrl = process.env.LAB_TEST_DATABASE_URL!;
   const admin = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const serviceClients = [
@@ -651,6 +720,7 @@ async function createFixture() {
     get: (key: string) => {
       if (key === 'AI_CONFIG_ENCRYPTION_KEY') return TEST_ENCRYPTION_KEY;
       if (key === 'LEXLOOP_TTS_AUDIO_DIR') return audioDirectory;
+      if (key === 'ENABLE_TTS_QUOTA_RECOVERY') return recovery ? 'true' : 'false';
       if (key === 'APP_TIMEZONE') return 'Asia/Shanghai';
       return undefined;
     },
@@ -679,9 +749,9 @@ async function createFixture() {
         async (
           text: string,
           providerSettings: unknown,
-          dispatchLease?: { onDispatch?: () => void },
+          dispatchLease?: { onDispatch?: () => void | Promise<void> },
         ) => {
-          dispatchLease?.onDispatch?.();
+          await dispatchLease?.onDispatch?.();
           return synthesize(text, providerSettings);
         },
       ),
@@ -706,6 +776,9 @@ async function createFixture() {
   return {
     admin,
     logs,
+    setRecoveryEnabled: (enabled: boolean) => {
+      recovery = enabled;
+    },
     audioDirectory,
     makeService,
     makeServiceWithClient,
@@ -743,6 +816,8 @@ async function createFixture() {
         });
       }
       await admin.ttsProviderConfig.deleteMany({ where: { id: 'global' } });
+      if (users.length)
+        await admin.ttsQuotaReservation.deleteMany({ where: { userId: { in: users } } });
       if (users.length) await admin.user.deleteMany({ where: { id: { in: users } } });
       for (const store of stores) await store.closeSweepDirectory().catch(() => undefined);
       await Promise.all([...serviceClients, admin].map((client) => client.$disconnect()));

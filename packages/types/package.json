@@ -1,6 +1,6 @@
 {
   "name": "@lexloop/types",
-  "version": "1.27.168",
+  "version": "1.27.169",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",

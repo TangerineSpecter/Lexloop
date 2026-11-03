@@ -14,7 +14,7 @@ export type MiniMaxTtsSettings = {
 export type MiniMaxTtsDispatchLease = {
   leaseExpiresAt: Date;
   safetyMarginMs: number;
-  onDispatch?: () => void;
+  onDispatch?: () => void | Promise<void>;
 };
 
 export class MiniMaxTtsError extends Error {
@@ -83,6 +83,18 @@ export class MiniMaxTtsClient {
       }
     }
 
+    await dispatchLease?.onDispatch?.();
+    // The durable barrier can await a database round-trip; recheck the lease.
+    if (dispatchLease) {
+      timeoutMs = Math.min(
+        timeoutMs,
+        Math.floor(
+          dispatchLease.leaseExpiresAt.getTime() - Date.now() - dispatchLease.safetyMarginMs,
+        ),
+      );
+      if (timeoutMs <= 0)
+        throw new MiniMaxTtsError('TTS_LEASE_EXPIRED', '发送前租约已过期，本次没有发起模型请求。');
+    }
     const request = {
       method: 'POST',
       redirect: 'error' as const,
@@ -93,7 +105,6 @@ export class MiniMaxTtsClient {
       body,
       signal: AbortSignal.timeout(timeoutMs),
     };
-    dispatchLease?.onDispatch?.();
 
     let response: Response;
     try {

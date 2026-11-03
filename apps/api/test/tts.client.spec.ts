@@ -18,6 +18,41 @@ afterEach(() => {
 });
 
 describe('MiniMaxTtsClient', () => {
+  it('waits for dispatch persistence and never fetches on rejection or an expired lease after the wait', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    let unblock!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const lease = {
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      safetyMarginMs: 1,
+      onDispatch: async () => {
+        await hold;
+        throw new Error('barrier unconfirmed');
+      },
+    };
+    const pending = new MiniMaxTtsClient().synthesize('hello', settings, lease);
+    const rejected = expect(pending).rejects.toThrow('barrier unconfirmed');
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+    unblock();
+    await rejected;
+    expect(fetchMock).not.toHaveBeenCalled();
+    const expiring = {
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      safetyMarginMs: 1,
+      onDispatch: async () => {
+        expiring.leaseExpiresAt = new Date(0);
+      },
+    };
+    await expect(
+      new MiniMaxTtsClient().synthesize('hello', settings, expiring),
+    ).rejects.toMatchObject({ code: 'TTS_LEASE_EXPIRED' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('sends the documented T2A v2 payload and decodes hex audio', async () => {
     const audioHex = Buffer.alloc(128, 0x35).toString('hex');
     const fetchMock = vi.fn().mockResolvedValue(
@@ -91,7 +126,9 @@ describe('MiniMaxTtsClient', () => {
       );
     });
     vi.stubGlobal('fetch', fetchMock);
-    const onDispatch = vi.fn(() => calls.push('dispatch'));
+    const onDispatch = vi.fn(() => {
+      calls.push('dispatch');
+    });
 
     await new MiniMaxTtsClient().synthesize('Hello.', settings, {
       leaseExpiresAt: new Date(120_000),

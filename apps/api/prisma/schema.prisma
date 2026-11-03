@@ -342,6 +342,7 @@ model User {
   studyContentQuestionFeedback StudyContentQuestionFeedback[]
   ttsAudioCache TtsAudioCache[]
   ttsDailyUsage TtsDailyUsage[]
+  ttsQuotaReservations TtsQuotaReservation[]
 }
 
 model MicroProgress {
@@ -765,7 +766,31 @@ model TtsAudioGenerationClaim {
   @@index([retryAfter])
 }
 
+enum TtsQuotaState {
+  RESERVED
+  DISPATCHING
+  REFUNDED
+}
+
+model TtsQuotaReservation {
+  auditId        String        @id
+  userId         String
+  dateKey        String        @db.VarChar(10)
+  characterCount Int
+  state          TtsQuotaState @default(RESERVED)
+  lastRecoveryError String? @db.VarChar(80)
+  usage TtsDailyUsage @relation(fields: [userId, dateKey], references: [userId, dateKey], onDelete: NoAction)
+  expiresAt      DateTime
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audit          AiCallAudit   @relation(fields: [auditId], references: [id], onDelete: Restrict)
+
+  @@index([state, expiresAt])
+}
+
 model TtsDailyUsage {
+  reservations TtsQuotaReservation[]
   userId          String
   dateKey         String   @db.VarChar(10)
   generationCount Int      @default(0)
@@ -922,6 +947,7 @@ model KnowledgeChunk {
 }
 
 model AiCallAudit {
+  ttsQuotaReservation TtsQuotaReservation?
   id            String       @id @default(cuid())
   purpose       String
   provider      String?

@@ -21,6 +21,7 @@ import {
 } from './minimax-tts.client';
 import { TtsAudioStore } from './tts-audio-store';
 import { TtsConfigService } from './tts-config.service';
+import { TtsQuotaLedger, type TtsReservation } from './tts-quota-ledger';
 
 const MAX_TEXT_CODEPOINTS = 2_000;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
@@ -37,10 +38,12 @@ const TEST_SENTENCE = 'Hello. This is a short speech test.';
 
 type CacheLookup =
   { state: 'disabled' | 'miss' | 'missing' } | { state: 'hit'; audioId: string; mimeType: string };
-type DailyUsageReservation = { userId: string; dateKey: string; characterCount: number };
+type DailyUsageReservation = TtsReservation;
 
 @Injectable()
 export class TtsService implements OnModuleInit, OnModuleDestroy {
+  private quotaTimer: NodeJS.Timeout | null = null;
+  private quotaRecoveryRunning = false;
   private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -52,7 +55,38 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     private readonly logs: SystemLogService,
   ) {}
 
+  private quotaRecoveryEnabled() {
+    return this.config.get<string>('ENABLE_TTS_QUOTA_RECOVERY') === 'true';
+  }
+
+  async recoverQuota() {
+    if (!this.quotaRecoveryEnabled() || this.quotaRecoveryRunning) return;
+    this.quotaRecoveryRunning = true;
+    try {
+      const result = await new TtsQuotaLedger(this.prisma).recover();
+      if (result.failed || result.uncertain)
+        this.recordFailure('tts.quota_recovery', '/internal/tts/quota-recovery', {
+          code: 'TTS_QUOTA_REVIEW_REQUIRED',
+          reason: `本地额度核查：${result.failed} 条恢复失败，${result.uncertain} 条已越过发送屏障且结果不确定；未自动返还后者。`,
+        });
+    } catch {
+      this.recordFailure('tts.quota_recovery', '/internal/tts/quota-recovery', {
+        code: 'TTS_QUOTA_RECOVERY_UNAVAILABLE',
+        reason: '本地语音额度恢复暂不可用，持久记录保留待核。',
+      });
+    } finally {
+      this.quotaRecoveryRunning = false;
+    }
+  }
+
   onModuleInit() {
+    if (this.quotaRecoveryEnabled()) {
+      this.quotaTimer = setInterval(() => {
+        void this.recoverQuota();
+      }, 60_000);
+      this.quotaTimer.unref();
+      void this.recoverQuota();
+    }
     this.cleanupTimer = setInterval(() => {
       void this.pruneExpiredCacheBatch().catch(() => undefined);
     }, CACHE_CLEANUP_INTERVAL_MS);
@@ -61,6 +95,7 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    if (this.quotaTimer) clearInterval(this.quotaTimer);
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
     await this.store.closeSweepDirectory().catch(() => undefined);
   }
@@ -145,24 +180,43 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     }
 
     let auditId: string;
-    try {
-      auditId = await this.startAudit(userId, provider.model, 'tts.synthesis');
-    } catch (error) {
-      await this.releaseClaim(cacheKey, ownerToken);
-      throw error;
-    }
     let usageReservation: DailyUsageReservation;
-    try {
-      usageReservation = await this.reserveDailyUsage(
-        userId,
-        text,
-        provider.maxGenerationsPerUserPerDay,
-      );
-    } catch (error) {
-      await this.releaseClaim(cacheKey, ownerToken);
-      const safe = safeFailure(error);
-      await this.finishAudit(auditId, 'FAILED', 0, safe.code).catch(() => undefined);
-      throw error;
+    if (this.quotaRecoveryEnabled()) {
+      try {
+        const reserved = await new TtsQuotaLedger(this.prisma).reserve(
+          userId,
+          text,
+          provider.maxGenerationsPerUserPerDay,
+          provider.model,
+          this.config.get<string>('APP_TIMEZONE') ?? 'Asia/Shanghai',
+        );
+        auditId = reserved.auditId;
+        usageReservation = reserved.reservation;
+      } catch (error) {
+        // Commit acknowledgement may be lost. Do not fabricate a terminal audit;
+        // the atomic ledger, if committed, will recover without a provider call.
+        await this.releaseClaim(cacheKey, ownerToken).catch(() => undefined);
+        throw error;
+      }
+    } else {
+      try {
+        auditId = await this.startAudit(userId, provider.model, 'tts.synthesis');
+      } catch (error) {
+        await this.releaseClaim(cacheKey, ownerToken);
+        throw error;
+      }
+      try {
+        usageReservation = await this.reserveDailyUsage(
+          userId,
+          text,
+          provider.maxGenerationsPerUserPerDay,
+        );
+      } catch (error) {
+        await this.releaseClaim(cacheKey, ownerToken);
+        const safe = safeFailure(error);
+        await this.finishAudit(auditId, 'FAILED', 0, safe.code).catch(() => undefined);
+        throw error;
+      }
     }
     return this.synthesizeAndStore(
       userId,
@@ -223,7 +277,9 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       const audio = await this.client.synthesize(text, provider, {
         leaseExpiresAt,
         safetyMarginMs: CLAIM_LEASE_SAFETY_MARGIN_MS,
-        onDispatch: () => {
+        onDispatch: async () => {
+          if (usageReservation.ledger)
+            await new TtsQuotaLedger(this.prisma).beforeDispatch(auditId);
           providerRequestStarted = true;
         },
       });
@@ -415,7 +471,10 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       if (deleted.count === 1) await this.store.remove(row.objectName).catch(() => undefined);
     }
     const staleUsageBefore = new Date(Date.now() - CACHE_RETENTION_MS);
-    await this.prisma.ttsDailyUsage.deleteMany({ where: { updatedAt: { lt: staleUsageBefore } } });
+    // Turning recovery off must not turn off retention of existing receipts.
+    await this.prisma.ttsDailyUsage.deleteMany({
+      where: { updatedAt: { lt: staleUsageBefore }, reservations: { none: {} } },
+    });
     await this.prisma.ttsAudioGenerationClaim.deleteMany({
       where: {
         ownerToken: null,
@@ -529,6 +588,7 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     // Retry only the idempotent local transaction, never the provider request.
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        if (reservation.ledger) return await new TtsQuotaLedger(this.prisma).refund(auditId);
         await this.releaseDailyUsage(reservation, auditId);
         return true;
       } catch {
@@ -580,14 +640,8 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (released.count !== 1) throw new Error('TTS daily usage reservation is missing');
-      await tx.ttsDailyUsage.deleteMany({
-        where: {
-          userId: reservation.userId,
-          dateKey: reservation.dateKey,
-          generationCount: 0,
-          characterCount: 0,
-        },
-      });
+      // Keep zero rows so a durable receipt for this date remains referentially
+      // intact, including when recovery has subsequently been disabled.
     });
   }
 
