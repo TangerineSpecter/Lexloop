@@ -1,3 +1,4 @@
+import { reviewedSupplementMeaning } from '../src/modules/vocabulary/supplement-meanings';
 import { readFile, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as XLSX from 'xlsx';
@@ -180,7 +181,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           expect(associations.some((a) => a.word.text === r.original)).toBe(false);
           for (const word of r.entries)
             expect(associations.find((a) => a.word.text === word)?.word).toMatchObject({
-              meaning: null,
+              meaning: reviewedSupplementMeaning(word),
               ukPhonetic: null,
               usPhonetic: null,
             });

@@ -11,6 +11,12 @@ const require = createRequire(import.meta.url);
 const XLSX = require('../apps/api/node_modules/xlsx');
 const root = fileURLToPath(new URL('../apps/api/assets/vocabulary/', import.meta.url));
 const audit = auditDailyBoundaries();
+const qualityRoot = new URL(
+  '../data/vocabulary-corrections/2026-11-03-supplement/',
+  import.meta.url,
+);
+const reviewedOverlay = JSON.parse(readFileSync(new URL('manifest.json', qualityRoot), 'utf8'));
+const quality = JSON.parse(readFileSync(new URL('quality-review.json', qualityRoot), 'utf8'));
 const candidates = new Map(
   audit.rows
     .filter((row) => row.classification === 'word-list')
@@ -53,6 +59,9 @@ for (const path of files) {
 const rows = [...candidates.values()].map(({ meanings, ...candidate }) => ({
   ...candidate,
   distinctMeaningStrings: meanings.size,
+  qualityClassification:
+    quality.rows.find((row) => row.word === candidate.word)?.classification ??
+    'unreviewed-existing',
 }));
 console.log(
   JSON.stringify(
@@ -65,6 +74,13 @@ console.log(
         matched: rows.filter((row) => row.matches.length).length,
         withNonPlaceholderMeaning: rows.filter((row) => row.distinctMeaningStrings > 0).length,
         differingMeaningStrings: rows.filter((row) => row.distinctMeaningStrings > 1).length,
+      },
+      reviewedImportOverlay: {
+        batchId: reviewedOverlay.batchId,
+        selectedSenses: reviewedOverlay.entries.length,
+        words: reviewedOverlay.entries.map((entry) => entry.word),
+        license: reviewedOverlay.license,
+        note: 'These are seven separately reviewed import values, not changes to the source XLSX or confirmation that existing meanings are correct. Existing database updates require explicit preview/apply.',
       },
       semanticReviewApproved: 0,
       licenseReviewApproved: 0,

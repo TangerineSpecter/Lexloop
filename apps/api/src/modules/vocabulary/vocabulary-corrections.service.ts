@@ -1,3 +1,4 @@
+import { SUPPLEMENT_MEANINGS, SUPPLEMENT_MEANING_BATCH } from './supplement-meanings';
 import { createHash } from 'node:crypto';
 import { Prisma, PrismaClient, VocabularyWord } from '@prisma/client';
 import {
@@ -31,17 +32,46 @@ type Action = {
 };
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+type Correction = {
+  word: string;
+  meaning?: string;
+  ukPhonetic?: string;
+  usPhonetic?: string;
+  sourceKeys?: readonly string[];
+};
+export type CorrectionBatch = {
+  batchId: string;
+  sourceKey: string;
+  corrections: readonly Correction[];
+};
+export const DEFAULT_CORRECTION_BATCH: CorrectionBatch = { batchId, sourceKey, corrections };
+export const SUPPLEMENT_CORRECTION_BATCH: CorrectionBatch = {
+  batchId: SUPPLEMENT_MEANING_BATCH,
+  sourceKey,
+  corrections: SUPPLEMENT_MEANINGS,
+};
+export function correctionBatch(id?: string): CorrectionBatch {
+  if (!id || id === DEFAULT_CORRECTION_BATCH.batchId) return DEFAULT_CORRECTION_BATCH;
+  if (id === SUPPLEMENT_CORRECTION_BATCH.batchId) return SUPPLEMENT_CORRECTION_BATCH;
+  throw new Error('Unknown vocabulary correction batch');
+}
+
 /** Operator-only, bounded source correction. Never runs during application bootstrap. */
 export class VocabularyCorrectionsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly batch: CorrectionBatch = DEFAULT_CORRECTION_BATCH,
+  ) {}
 
   private async plan(tx: Prisma.TransactionClient, mode: 'apply' | 'restore') {
+    const { batchId, sourceKey, corrections } = this.batch;
+    const sourceKeys = [...new Set(corrections.flatMap((c) => c.sourceKeys ?? [sourceKey]))];
     const words = await tx.vocabularyWord.findMany({
       where: { normalized: { in: corrections.map((c) => c.word) } },
       include: {
         bookWords: {
-          where: { book: { sourceKey, kind: 'SYSTEM', ownerId: null } },
-          select: { id: true },
+          where: { book: { sourceKey: { in: sourceKeys }, kind: 'SYSTEM', ownerId: null } },
+          select: { id: true, book: { select: { sourceKey: true } } },
         },
       },
     });
@@ -90,7 +120,13 @@ export class VocabularyCorrectionsService {
           reason: audit.state === 'RESTORED' ? 'restored-do-not-reapply' : 'already-applied',
           auditId: audit.id,
         };
-      if (word.text !== correction.word || word.itemType !== 'WORD' || !word.bookWords.length)
+      if (
+        word.text !== correction.word ||
+        word.itemType !== 'WORD' ||
+        !word.bookWords.some((link) =>
+          (correction.sourceKeys ?? [sourceKey]).includes(link.book.sourceKey),
+        )
+      )
         return { ...base, reason: 'source-mismatch' };
       // No historical edit ledger exists. Any timestamp difference is conservatively protected,
       // including intentional clearing. Non-null placeholders are never treated as writable.
@@ -98,8 +134,7 @@ export class VocabularyCorrectionsService {
         return { ...base, reason: 'edited-word' };
       const changes: Action['changes'] = {};
       for (const field of fields)
-        if (field in correction && word[field] === null)
-          changes[field] = correction[field as keyof typeof correction];
+        if (field in correction && word[field] === null) changes[field] = correction[field];
       return {
         ...base,
         reason: Object.keys(changes).length ? 'ready' : 'no-empty-fields',
@@ -124,6 +159,7 @@ export class VocabularyCorrectionsService {
       batchId,
       sourceKey,
       mode,
+      sourceKeys,
       token,
       actions,
       wordsToChange: actions.filter((a) => a.reason === 'ready').length,
@@ -138,6 +174,7 @@ export class VocabularyCorrectionsService {
   }
 
   async execute(mode: 'apply' | 'restore', token: string) {
+    const { batchId, corrections } = this.batch;
     if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid preview token');
     return this.prisma.$transaction(
       async (tx) => {

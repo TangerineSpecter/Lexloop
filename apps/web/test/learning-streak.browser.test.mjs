@@ -1694,6 +1694,9 @@ test(
       await pressKey('Enter', 'Enter', 13);
       await until('window.defaultBookFixture.book?.id === "search-target"');
       await until('document.querySelector(".book-choice button.current")');
+      // The picker marks its card current before awaiting the catalog refresh.
+      // Wait for onActivated to update the dashboard before testing its removed-opener focus fallback.
+      await until('document.querySelector(".book-selection-prompt") === null');
       assert.equal(
         await evaluate('window.bookPickerRequests.length'),
         requestsBeforeActivation + 1,

@@ -1,3 +1,4 @@
+import { reviewedSupplementMeaning } from './supplement-meanings';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { VocabularyCategory } from '@prisma/client';
 import { existsSync, readdirSync } from 'node:fs';
@@ -194,7 +195,9 @@ export class VocabularySeedService implements OnApplicationBootstrap {
           text,
           ukPhonetic: normalizePhonetic(this.value(row['英音'])),
           usPhonetic: normalizePhonetic(this.value(row['美音'])),
-          meaning: this.value(row['释义']),
+          meaning:
+            this.value(row['释义']) ??
+            (sourcePath === DAILY_SOURCE_KEY ? reviewedSupplementMeaning(normalized) : null),
         },
       ];
     });

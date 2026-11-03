@@ -1,0 +1,110 @@
+{
+  "batchId": "daily-supplement-meanings-2026-11-03-v1",
+  "license": "CC-BY-SA-4.0",
+  "scope": "new-import-null-meaning-and-explicit-guarded-database-backfill",
+  "review": {
+    "kind": "assistant-source-review",
+    "humanApproval": null,
+    "reviewedAt": "2026-11-03"
+  },
+  "entries": [
+    {
+      "word": "surname",
+      "meaning": "n. 姓氏",
+      "sourceKeys": [
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/考研/2022考研核心1374词.xlsx",
+        "考试/英语专业四八级/专四词汇.xlsx",
+        "通用/日常生活单词.xlsx"
+      ],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "名词日常义项；不把其他义项合并为已验证完整释义。"
+    },
+    {
+      "word": "toe",
+      "meaning": "n. 脚趾",
+      "sourceKeys": [
+        "大学/新视野大学英语读写教程（第三版）/新视野大学英语读写教程2（第三版）.xlsx",
+        "考试/专升本/专升本词汇.xlsx",
+        "考试/大学英语四六级/六级考纲词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/英语专业四八级/专四词汇.xlsx",
+        "通用/日常生活单词.xlsx"
+      ],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "名词日常义项；不把其他义项合并为已验证完整释义。"
+    },
+    {
+      "word": "divorced",
+      "meaning": "adj. 离了婚的",
+      "sourceKeys": ["通用/日常生活单词.xlsx"],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "选择形容词义项并明确词性；不将同词名词或过去分词义混入该释义。"
+    },
+    {
+      "word": "boyfriend",
+      "meaning": "n. 男朋友",
+      "sourceKeys": ["通用/日常生活单词.xlsx"],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "名词日常义项；不把其他义项合并为已验证完整释义。"
+    },
+    {
+      "word": "heterosexual",
+      "meaning": "adj. 异性恋的",
+      "sourceKeys": ["通用/日常生活单词.xlsx"],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "选择形容词义项并明确词性；不将同词名词或过去分词义混入该释义。"
+    },
+    {
+      "word": "contraceptive",
+      "meaning": "n. 避孕药；避孕用具",
+      "sourceKeys": ["考试/英语专业四八级/专八词汇.xlsx", "通用/日常生活单词.xlsx"],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "名词日常义项；不把其他义项合并为已验证完整释义。"
+    },
+    {
+      "word": "hairdo",
+      "meaning": "n. 发型",
+      "sourceKeys": ["考试/英语专业四八级/专八词汇.xlsx", "通用/日常生活单词.xlsx"],
+      "before": "No non-placeholder meaning for the exact word in the 113 baseline source workbooks. Database values must be inspected separately.",
+      "rationale": "名词日常义项；不把其他义项合并为已验证完整释义。"
+    }
+  ],
+  "sources": [
+    {
+      "word": "surname",
+      "file": "sources/surname-en.json",
+      "sha256": "bc5167d09995952912aa63b6a673c8b4d6773cb9d607c3ab8b6f1e39d27e6231"
+    },
+    {
+      "word": "toe",
+      "file": "sources/toe-en.json",
+      "sha256": "3f6bc332ea6cab0e149a0a8a3095fb0bd00b94426cebb0f4f66e84ff34e378dc"
+    },
+    {
+      "word": "divorced",
+      "file": "sources/divorced-en.json",
+      "sha256": "ebaeb1f5e39d75187e4acb8175aac13dcbc857fe03c41377bea6f4d05dc42dc7"
+    },
+    {
+      "word": "boyfriend",
+      "file": "sources/boyfriend-en.json",
+      "sha256": "aad709357d502bbf17163571f0955a32b489dd863d958f61afb7b656fcbb1f00"
+    },
+    {
+      "word": "heterosexual",
+      "file": "sources/heterosexual-en.json",
+      "sha256": "9b9ee24341017dfa82a087d6d00ba94d7fae50155b80567e804e635ef864e009"
+    },
+    {
+      "word": "contraceptive",
+      "file": "sources/contraceptive-en.json",
+      "sha256": "27928833e3881c5b029a042ae2261c5a80468d4e202d521e55dfa9f92e3a1ae2"
+    },
+    {
+      "word": "hairdo",
+      "file": "sources/hairdo-en.json",
+      "sha256": "423dda6d156705598f1cc27885a9e93f08d3c1ee15a2cea2a0e1f51c7e2fddb6"
+    }
+  ]
+}

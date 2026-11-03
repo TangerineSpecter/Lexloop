@@ -1,0 +1,25 @@
+{
+  "word": "heterosexual",
+  "pos": "adj",
+  "sense": {
+    "label": "sexually attracted to members of the opposite sex",
+    "chinese": ["異性戀的 /异性恋的"]
+  },
+  "url": "https://kaikki.org/dictionary/English/meaning/h/he/heterosexual.html",
+  "entry": "https://en.wiktionary.org/wiki/heterosexual",
+  "history": "https://en.wiktionary.org/w/index.php?title=heterosexual&action=history",
+  "snapshot": {
+    "dump": "enwiktionary-2026-10-01",
+    "extractedAt": "2026-10-30",
+    "retrievedAt": "2026-11-03",
+    "wiktextract": ["19f9a30", "6f96ddf"],
+    "representation": "selected fields manually transcribed from source page; hash identifies this excerpt, not the full export"
+  },
+  "license": {
+    "selected": "CC-BY-SA-4.0",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "basis": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+    "attribution": "Wiktionary contributors; extracted by Kaikki/Wiktextract",
+    "changes": "Selected one everyday sense and part of speech; selected simplified Chinese; no examples, audio, images or phonetics copied."
+  }
+}
