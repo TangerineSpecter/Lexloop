@@ -261,6 +261,19 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         const replay = await service.createProgressivePlan(owner.id, 'foundation');
         expect(replay).toMatchObject({ purpose: 'progressive', progressiveStage: 'foundation' });
+        // An omitted stage means continue, even when the learner deliberately
+        // revisits a lower stage than the highest one unlocked.
+        const resumedReplay = await fastify.inject({
+          method: 'POST',
+          url: `${route}/plans`,
+          headers: { authorization: `Bearer ${ownerToken}` },
+          payload: {},
+        });
+        expect(resumedReplay.statusCode).toBe(201);
+        expect(resumedReplay.json().id).toBe(replay.id);
+        await expect(service.createProgressivePlan(owner.id, 'context')).rejects.toThrow(
+          '当前已有未完成的其他阶段练习',
+        );
         const replayActive = await service.generatePlan(owner.id, replay.id);
         const replayWord = replayActive.words[0];
         await service.completeGroup(owner.id, replay.id, replayWord.groupIndex, [

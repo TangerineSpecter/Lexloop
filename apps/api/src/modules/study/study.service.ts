@@ -482,7 +482,9 @@ export class StudyService {
         select: { id: true, progressiveStage: true },
       });
       if (existing) {
-        if (existing.progressiveStage !== requestedStage) {
+        // With no explicit stage, resume the active plan rather than treating
+        // the highest unlocked stage as a request to switch away from it.
+        if (requestedStageKey && existing.progressiveStage !== requestedStage) {
           throw new BadRequestException(
             '当前已有未完成的其他阶段练习；请先继续或完成它，再选择其他阶段。',
           );
