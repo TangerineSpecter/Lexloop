@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const XLSX = require('../apps/api/node_modules/xlsx');
+const boundaries = require('../apps/api/src/modules/vocabulary/daily-vocabulary-boundaries.json');
 const path = fileURLToPath(
   new URL('../apps/api/assets/vocabulary/通用/日常生活单词.xlsx', import.meta.url),
 );
@@ -25,6 +26,15 @@ console.log(
       missingMeanings: missing.length,
       singleTokenCandidates: single.length,
       needsWordBoundaryReview: missing.length - single.length,
+      worksheetMergeCount: (book.Sheets[book.SheetNames[0]]['!merges'] ?? []).length,
+      confirmedListRows: boundaries.repairs.length,
+      remainingUnclassifiedMultiTokenRows:
+        missing.length - single.length - boundaries.repairs.length,
+      freshImportRowsAfterBoundaryRepair:
+        rows.length + boundaries.repairs.reduce((n, r) => n + r.entries.length - 1, 0),
+      boundaryRepairPreview: boundaries.repairs,
+      boundaryNote:
+        'Whitespace alone is not proof of a malformed entry. Only explicit reviewed rows are expanded on fresh imports; existing books are preserved.',
       candidates: single,
       applied: 0,
     },

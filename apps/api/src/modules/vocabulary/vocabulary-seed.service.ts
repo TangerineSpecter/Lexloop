@@ -5,6 +5,11 @@ import { resolve, relative, sep } from 'node:path';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizePhonetic } from './lexical';
+import {
+  DAILY_SOURCE_KEY,
+  DAILY_BOUNDARY_REVISION,
+  repairDailyBoundaries,
+} from './daily-vocabulary-boundaries';
 
 type ImportedWord = {
   normalized: string;
@@ -16,6 +21,7 @@ type ImportedWord = {
 type ImportedBook = {
   sourceKey: string;
   sourcePath: string;
+  sourceRevision?: string;
   category: VocabularyCategory;
   title: string;
   publisher: string | null;
@@ -66,9 +72,45 @@ export class VocabularySeedService implements OnApplicationBootstrap {
   }
 
   private async importVocabulary(root: string) {
-    const books = this.findFiles(root)
+    const parsedBooks = this.findFiles(root)
       .map((file) => this.readBook(root, file))
       .filter((book): book is ImportedBook => book !== null);
+    const books: ImportedBook[] = [];
+    for (const book of parsedBooks) {
+      if (book.sourceRevision) {
+        // Reserve only a NEW book. A concurrent initializer may have created a legacy book;
+        // re-read after skipDuplicates instead of upserting its revision or associations.
+        await this.prisma.vocabularyBook.createMany({
+          data: [
+            {
+              sourceKey: book.sourceKey,
+              sourcePath: book.sourcePath,
+              sourceRevision: book.sourceRevision,
+              category: book.category,
+              title: book.title,
+              publisher: book.publisher,
+              grade: book.grade,
+            },
+          ],
+          skipDuplicates: true,
+        });
+        const stored = await this.prisma.vocabularyBook.findUnique({
+          where: { sourceKey: book.sourceKey },
+          select: { sourceRevision: true, kind: true, ownerId: true },
+        });
+        if (
+          stored?.sourceRevision !== book.sourceRevision ||
+          stored.kind !== 'SYSTEM' ||
+          stored.ownerId !== null
+        ) {
+          this.logger.warn(
+            `词书 ${book.sourceKey} 的源修订不匹配，保留既有关联与学习进度；需要另行审阅迁移。`,
+          );
+          continue;
+        }
+      }
+      books.push(book);
+    }
     if (!books.length) return;
     const words = new Map<string, ImportedWord>();
     for (const book of books)
@@ -103,6 +145,7 @@ export class VocabularySeedService implements OnApplicationBootstrap {
         create: {
           sourceKey: book.sourceKey,
           sourcePath: book.sourcePath,
+          ...(book.sourceRevision ? { sourceRevision: book.sourceRevision } : {}),
           category: book.category,
           title: book.title,
           publisher: book.publisher,
@@ -146,7 +189,16 @@ export class VocabularySeedService implements OnApplicationBootstrap {
     if (!category) return null;
     const workbook = XLSX.readFile(file, { raw: false });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    let rows = sourceRows;
+    if (sourcePath === DAILY_SOURCE_KEY) {
+      try {
+        rows = repairDailyBoundaries(sourceRows);
+      } catch {
+        this.logger.warn('日常词书边界修订与源文件不匹配，跳过该书并保留既有数据。');
+        return null;
+      }
+    }
     const seen = new Set<string>();
     const words = rows.flatMap((row) => {
       const text = String(row['单词'] ?? '').trim();
@@ -168,6 +220,7 @@ export class VocabularySeedService implements OnApplicationBootstrap {
     return {
       sourceKey: sourcePath,
       sourcePath,
+      ...(sourcePath === DAILY_SOURCE_KEY ? { sourceRevision: DAILY_BOUNDARY_REVISION } : {}),
       category,
       title: stem.replace(/(.*?年级)(上|下)$/, '$1（$2）'),
       publisher: curriculumCategories.has(category) ? (parts[1] ?? null) : null,
