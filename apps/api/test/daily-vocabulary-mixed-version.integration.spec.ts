@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 import { VocabularySeedService } from '../src/modules/vocabulary/vocabulary-seed.service';
 import { LegacyVocabularySeedService } from './fixtures/legacy-vocabulary-seed.service';
+import { DAILY_BOUNDARY_REVISION as V1_REVISION } from './fixtures/v1-daily-vocabulary-boundaries';
 import { ReservedVocabularySeedService } from './fixtures/reserved-vocabulary-seed.service';
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 import {
@@ -124,7 +125,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('mixed-version daily imports
           expect(
             (await db.vocabularyBook.findUniqueOrThrow({ where: { sourceKey: DAILY_SOURCE_KEY } }))
               .sourceRevision,
-          ).toBe(DAILY_BOUNDARY_REVISION);
+          ).toBe(V1_REVISION);
           console.log(
             `Pre-fix reproduction (${stage}): new revision + ${rows.length} wrong associations, importer reported success.`,
           );
@@ -268,7 +269,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('mixed-version daily imports
       expect(await db.vocabularyBookWord.count()).toBe(0);
       expect(await db.vocabularyWord.count()).toBe(0);
       await current.importVocabulary(root);
-      expect(await mappings(db)).toHaveLength(1189);
+      expect(await mappings(db)).toHaveLength(1245);
     });
   }, 30000);
 });

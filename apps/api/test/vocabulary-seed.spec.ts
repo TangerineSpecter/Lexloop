@@ -93,7 +93,7 @@ it('reads the corrected daily source first sheet without importing its attributi
   };
   const root = join(process.cwd(), 'assets/vocabulary');
   const book = service.readBook(root, join(root, '通用/日常生活单词.xlsx'));
-  expect(book.words).toHaveLength(1189);
+  expect(book.words).toHaveLength(1245);
   expect(book.words.find((word) => word.text === 'moped')).toMatchObject({
     meaning: 'n. 摩托自行车',
     ukPhonetic: 'ˈməʊ.pɛd',

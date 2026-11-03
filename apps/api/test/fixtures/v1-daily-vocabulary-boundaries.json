@@ -1,0 +1,34 @@
+{
+  "revision": "daily-boundaries-2026-11-03-v1",
+  "sourceKey": "通用/日常生活单词.xlsx",
+  "sourceCommit": "33a40ee378594f3cad2d42516358eb6db201d61d",
+  "review": "assistant boundary review; no definitions or pronunciations added",
+  "repairs": [
+    {
+      "row": 7,
+      "original": "born birth age sex",
+      "entries": ["born", "birth", "age", "sex"]
+    },
+    {
+      "row": 8,
+      "original": "male female gender",
+      "entries": ["male", "female", "gender"]
+    },
+    {
+      "row": 12,
+      "original": "nationality citizenship language",
+      "entries": ["nationality", "citizenship", "language"]
+    },
+    {
+      "row": 18,
+      "original": "lung liver appendix",
+      "entries": ["lung", "liver", "appendix"]
+    },
+    {
+      "row": 24,
+      "original": "eyelid eyebrow lip tongue",
+      "entries": ["eyelid", "eyebrow", "lip", "tongue"]
+    }
+  ],
+  "sourceWordSequenceSha256": "51410e23cfb6e863ce0afb1a046005236e6bface8ddf78b3ba5526433ab61552"
+}

@@ -10,7 +10,7 @@ import {
   DAILY_SOURCE_KEY,
   DAILY_BOUNDARY_REVISION,
   repairDailyBoundaries,
-} from '../../src/modules/vocabulary/daily-vocabulary-boundaries';
+} from './v1-daily-vocabulary-boundaries';
 
 type ImportedWord = {
   normalized: string;

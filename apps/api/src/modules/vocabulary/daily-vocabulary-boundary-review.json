@@ -1,0 +1,479 @@
+{
+  "sourceKey": "通用/日常生活单词.xlsx",
+  "sourceWordSequenceSha256": "51410e23cfb6e863ce0afb1a046005236e6bface8ddf78b3ba5526433ab61552",
+  "reviewer": "assistant lexical-boundary review; not a dictionary license or professional certification",
+  "scope": "Explicit rows only; all other multiword rows remain unreviewed.",
+  "reviewed": [
+    {
+      "row": 3,
+      "original": "letter call sign",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 5,
+      "original": "surname nickname",
+      "classification": "word-list",
+      "entries": ["surname", "nickname"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 6,
+      "original": "address number",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 9,
+      "original": "single divorced",
+      "classification": "word-list",
+      "entries": ["single", "divorced"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 13,
+      "original": "human body",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 15,
+      "original": "vital heart",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 17,
+      "original": "brain console",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 19,
+      "original": "skin cell",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 20,
+      "original": "muscle vein",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 21,
+      "original": "blood nerve",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 22,
+      "original": "archery tissue",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 23,
+      "original": "cheek forehead",
+      "classification": "word-list",
+      "entries": ["cheek", "forehead"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 25,
+      "original": "loose chin",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 26,
+      "original": "throat beard bone",
+      "classification": "word-list",
+      "entries": ["throat", "beard", "bone"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 27,
+      "original": "jaw limb joint",
+      "classification": "word-list",
+      "entries": ["jaw", "limb", "joint"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 28,
+      "original": "rib neck",
+      "classification": "ambiguous",
+      "reason": "rib neck 是解剖部位名称，不能排除原单元格是完整术语。",
+      "evidence": ["https://pmc.ncbi.nlm.nih.gov/articles/PMC8223838/"]
+    },
+    {
+      "row": 29,
+      "original": "shoulder arm elbow",
+      "classification": "word-list",
+      "entries": ["shoulder", "arm", "elbow"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 30,
+      "original": "thumb finger nail",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 31,
+      "original": "palm fingertip",
+      "classification": "word-list",
+      "entries": ["palm", "fingertip"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 32,
+      "original": "chest back",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 33,
+      "original": "hip waste leg",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 34,
+      "original": "knee foot toe",
+      "classification": "word-list",
+      "entries": ["knee", "foot", "toe"],
+      "reason": "不同身体部位词并列，完整词列不构成部位名称；逐词保留原拼写。"
+    },
+    {
+      "row": 36,
+      "original": "sexual pleasure",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 40,
+      "original": "girlfriend boyfriend sexuality",
+      "classification": "word-list",
+      "entries": ["girlfriend", "boyfriend", "sexuality"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 41,
+      "original": "heterosexual homosexual",
+      "classification": "word-list",
+      "entries": ["heterosexual", "homosexual"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 46,
+      "original": "pregnancy contraceptive condom abortion",
+      "classification": "word-list",
+      "entries": ["pregnancy", "contraceptive", "condom", "abortion"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 48,
+      "original": "deliver delivery",
+      "classification": "word-list",
+      "entries": ["deliver", "delivery"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 50,
+      "original": "youth adult mature",
+      "classification": "word-list",
+      "entries": ["youth", "adult", "mature"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 57,
+      "original": "funeral cemetery graveyard",
+      "classification": "word-list",
+      "entries": ["funeral", "cemetery", "graveyard"],
+      "reason": "同一主题下并列的独立词面；不是一个完整短语；不纠正拼写或推断释义。"
+    },
+    {
+      "row": 58,
+      "original": "gravestone sense",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 61,
+      "original": "short sighted",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 64,
+      "original": "observe observation",
+      "classification": "word-list",
+      "entries": ["observe", "observation"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 68,
+      "original": "noisy quiet",
+      "classification": "word-list",
+      "entries": ["noisy", "quiet"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 69,
+      "original": "quietly silent silence",
+      "classification": "word-list",
+      "entries": ["quietly", "silent", "silence"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 73,
+      "original": "cold cool warm",
+      "classification": "word-list",
+      "entries": ["cold", "cool", "warm"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 74,
+      "original": "soft hard rough",
+      "classification": "word-list",
+      "entries": ["soft", "hard", "rough"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 85,
+      "original": "take bring carry",
+      "classification": "word-list",
+      "entries": ["take", "bring", "carry"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 89,
+      "original": "climb pull drag",
+      "classification": "word-list",
+      "entries": ["climb", "pull", "drag"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 93,
+      "original": "reach catch hold",
+      "classification": "ambiguous",
+      "reason": "包含 catch hold (of) 搭配，缺少上游边界，不能确信三个词全部独立。",
+      "evidence": ["https://dictionary.cambridge.org/dictionary/english/catch"]
+    },
+    {
+      "row": 96,
+      "original": "hand right handed",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 97,
+      "original": "left handed fold",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 98,
+      "original": "bend spin twist",
+      "classification": "word-list",
+      "entries": ["bend", "spin", "twist"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 104,
+      "original": "sleep asleep",
+      "classification": "word-list",
+      "entries": ["sleep", "asleep"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 106,
+      "original": "wake awake",
+      "classification": "word-list",
+      "entries": ["wake", "awake"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 108,
+      "original": "breathe breath breathing",
+      "classification": "word-list",
+      "entries": ["breathe", "breath", "breathing"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 109,
+      "original": "hit kick knock",
+      "classification": "word-list",
+      "entries": ["hit", "kick", "knock"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 112,
+      "original": "bite squeeze tear",
+      "classification": "word-list",
+      "entries": ["bite", "squeeze", "tear"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 116,
+      "original": "shout scream",
+      "classification": "word-list",
+      "entries": ["shout", "scream"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 117,
+      "original": "yell whistle",
+      "classification": "word-list",
+      "entries": ["yell", "whistle"],
+      "reason": "并列词或词形变化，整串不是一个词条；仅拆开原有词面。"
+    },
+    {
+      "row": 125,
+      "original": "beauty beautiful attractive",
+      "classification": "word-list",
+      "entries": ["beauty", "beautiful", "attractive"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 127,
+      "original": "lovely good looking",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 130,
+      "original": "suntan air",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 132,
+      "original": "curly strait",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 134,
+      "original": "soap bar towel",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 135,
+      "original": "flannel washcloth shampoo",
+      "classification": "ambiguous",
+      "reason": "flannel washcloth 可以表示材质加物品名称，无法排除内部短语。",
+      "evidence": ["https://www.collinsdictionary.com/us/dictionary/english/flannel"]
+    },
+    {
+      "row": 137,
+      "original": "heiching dirty",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 140,
+      "original": "oral tube toothbrush",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 142,
+      "original": "haircut hairdo",
+      "classification": "word-list",
+      "entries": ["haircut", "hairdo"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 143,
+      "original": "barber hairdresser",
+      "classification": "word-list",
+      "entries": ["barber", "hairdresser"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 144,
+      "original": "shave shaver razor",
+      "classification": "word-list",
+      "entries": ["shave", "shaver", "razor"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 149,
+      "original": "wait gain",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 151,
+      "original": "improve improvement",
+      "classification": "word-list",
+      "entries": ["improve", "improvement"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 152,
+      "original": "recover recovery",
+      "classification": "word-list",
+      "entries": ["recover", "recovery"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 154,
+      "original": "weak weakness",
+      "classification": "word-list",
+      "entries": ["weak", "weakness"],
+      "reason": "词形或同类名称并列；不存在需要保留的内部多词词条。"
+    },
+    {
+      "row": 162,
+      "original": "runny fever",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 168,
+      "original": "injure badly",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 174,
+      "original": "wounded lead fracture",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 176,
+      "original": "band aid cast pain",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 182,
+      "original": "mental stress",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 184,
+      "original": "well balanced",
+      "classification": "phrase",
+      "reason": "可作为一个连贯短语或搭配使用；保留源拼写，不按空格拆分，不添加词义。"
+    },
+    {
+      "row": 186,
+      "original": "severely depressed depression",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    },
+    {
+      "row": 187,
+      "original": "medical attention medicaid",
+      "classification": "ambiguous",
+      "reason": "存在内部短语、主题不符或疑似转录错误；缺少上游原文证据，保留整行，不猜测拆分或替换。"
+    }
+  ]
+}
