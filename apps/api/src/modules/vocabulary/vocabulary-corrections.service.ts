@@ -1,3 +1,4 @@
+import { DAILY_ENRICHMENT_BATCH, DAILY_ENRICHMENTS } from './daily-enrichment';
 import { USAGE_CLARITY_BATCH, USAGE_CLARITY_CORRECTIONS } from './usage-clarity-corrections';
 import { VERB_SENSE_BATCH, VERB_SENSE_CORRECTIONS } from './verb-sense-corrections';
 import { EXISTING_POS_BATCH, EXISTING_POS_CORRECTIONS } from './existing-pos-corrections';
@@ -69,12 +70,18 @@ export const USAGE_CLARITY_CORRECTION_BATCH: CorrectionBatch = {
   sourceKey,
   corrections: USAGE_CLARITY_CORRECTIONS,
 };
+export const DAILY_ENRICHMENT_CORRECTION_BATCH: CorrectionBatch = {
+  batchId: DAILY_ENRICHMENT_BATCH,
+  sourceKey,
+  corrections: DAILY_ENRICHMENTS,
+};
 export function correctionBatch(id?: string): CorrectionBatch {
   if (!id || id === DEFAULT_CORRECTION_BATCH.batchId) return DEFAULT_CORRECTION_BATCH;
   if (id === SUPPLEMENT_CORRECTION_BATCH.batchId) return SUPPLEMENT_CORRECTION_BATCH;
   if (id === EXISTING_POS_BATCH) return EXISTING_POS_CORRECTION_BATCH;
   if (id === VERB_SENSE_BATCH) return VERB_SENSE_CORRECTION_BATCH;
   if (id === USAGE_CLARITY_BATCH) return USAGE_CLARITY_CORRECTION_BATCH;
+  if (id === DAILY_ENRICHMENT_BATCH) return DAILY_ENRICHMENT_CORRECTION_BATCH;
   throw new Error('Unknown vocabulary correction batch');
 }
 

@@ -87,6 +87,61 @@ export default function VocabularySourcesPage() {
       <p>
         新导入仅填源数据缺项。已有安装不会自动替换释义；需管理员先预览受控回填。用户改过的字段、非空释义和学习记录均保留。
       </p>
+      <h2>日常用法：五词补义</h2>
+      <p>
+        以下新增义项由词环根据 Wiktionary contributors 的英语释义译写，按 CC BY-SA 4.0
+        分享。保留已有原义，仅增加词性及语境提示；未复制例句、录音、图片或音标。核对日期：2026-11-03。
+      </p>
+      <ul>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=delivery&amp;oldid=93519327">
+            delivery
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=delivery&amp;action=history">
+            贡献历史
+          </a>
+          ：n. 分娩；（说话或演唱的）表达方式
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=observation&amp;oldid=93711194">
+            observation
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=observation&amp;action=history">
+            贡献历史
+          </a>
+          ：n. 评论；观察记录
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=sleep&amp;oldid=93751722">sleep</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=sleep&amp;action=history">
+            贡献历史
+          </a>
+          ：vt. （住宿处）可供……人住宿
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=bend&amp;oldid=93920352">bend</a> ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=bend&amp;action=history">贡献历史</a>
+          ：n. （道路等的）弯曲处
+        </li>
+        <li>
+          <a href="https://en.wiktionary.org/w/index.php?title=improvement&amp;oldid=94558893">
+            improvement
+          </a>{' '}
+          ·{' '}
+          <a href="https://en.wiktionary.org/w/index.php?title=improvement&amp;action=history">
+            贡献历史
+          </a>
+          ：n. 改进后的事物
+        </li>
+      </ul>
+      <p>
+        <a href="https://github.com/TangerineSpecter/Lexloop/tree/master/data/vocabulary-corrections/2026-11-03-enrichment">
+          查看原义、新增义项、版本与审查记录
+        </a>
+        。许可仅覆盖新增内容。新导入只匹配已审核来源和原值；已有安装需管理员单独预览受控补义，用户编辑不会自动替换。
+      </p>
     </main>
   );
 }

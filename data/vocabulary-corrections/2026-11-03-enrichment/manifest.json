@@ -1,0 +1,105 @@
+{
+  "batchId": "daily-enrichment-2026-11-03-v1",
+  "baseline": "v1.27.161",
+  "reviewedAt": "2026-11-03",
+  "reviewer": "assistant source review; not expert certification",
+  "entries": [
+    {
+      "word": "delivery",
+      "expectedMeaning": "传送",
+      "meaning": "传送\nn. 分娩；（说话或演唱的）表达方式",
+      "sourceKeys": [
+        "考试/商务英语（BEC）/BEC中级.xlsx",
+        "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级核心单词.xlsx",
+        "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级考纲词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/考研/2022考研核心1374词.xlsx",
+        "考试/考研/2023考研核心1864词.xlsx",
+        "考试/考研/2023考研核心1864词/Day8.xlsx"
+      ]
+    },
+    {
+      "word": "observation",
+      "expectedMeaning": "观察",
+      "meaning": "观察\nn. 评论；观察记录",
+      "sourceKeys": [
+        "考试/大学英语四六级/四级核心单词.xlsx",
+        "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级考纲词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/考研/2022考研核心1374词.xlsx",
+        "考试/考研/2023考研核心1864词.xlsx",
+        "考试/考研/2023考研核心1864词/Day6.xlsx"
+      ]
+    },
+    {
+      "word": "sleep",
+      "expectedMeaning": "n. 睡眠\nvi. 睡，睡觉",
+      "meaning": "n. 睡眠\nvi. 睡，睡觉\nvt. （住宿处）可供……人住宿",
+      "sourceKeys": [
+        "初中/人教版/人教版初中英语七年级下册.xlsx",
+        "初中/外研版/外研版初中英语七年级上册.xlsx",
+        "教材/新概念英语/新概念英语第一册（新版）.xlsx",
+        "考试/专升本/专升本词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/高考/高考3500词.xlsx"
+      ]
+    },
+    {
+      "word": "bend",
+      "expectedMeaning": "弯腰俯身低下头",
+      "meaning": "弯腰俯身低下头\nn. （道路等的）弯曲处",
+      "sourceKeys": [
+        "考试/专升本/专升本词汇.xlsx",
+        "考试/商务英语（BEC）/BEC初级.xlsx",
+        "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级考纲词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/留学与职业考试/全国英语等级考试PETS.xlsx",
+        "考试/英语专业四八级/专四词汇.xlsx",
+        "考试/高考/高考3500词.xlsx",
+        "高中/外研版（2019版）/外研版高中英语选择性必修第三册.xlsx"
+      ]
+    },
+    {
+      "word": "improvement",
+      "expectedMeaning": "改善",
+      "meaning": "改善\nn. 改进后的事物",
+      "sourceKeys": [
+        "考试/专升本/专升本词汇.xlsx",
+        "考试/商务英语（BEC）/BEC中级.xlsx",
+        "考试/大学英语四六级/六级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级核心单词.xlsx",
+        "考试/大学英语四六级/四级核心单词2022新版.xlsx",
+        "考试/大学英语四六级/四级考纲词汇.xlsx",
+        "考试/留学与职业考试/MBA单词.xlsx",
+        "考试/考研/2023考研核心1864词.xlsx",
+        "考试/考研/2023考研核心1864词/Day9.xlsx"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "file": "sources/delivery.json",
+      "sha256": "ef86fb688bc634138b7735d219349dd90495534c0e0048b30bc8223513ed7442"
+    },
+    {
+      "file": "sources/observation.json",
+      "sha256": "9e53bfcd3473ed1f74cb76c8e56987cffae2ebb8c4b056429c65345c24612c0d"
+    },
+    {
+      "file": "sources/sleep.json",
+      "sha256": "5e6501360ebf236a9f3146a91f7eafbe864826efd29d107b911397a5f1549d19"
+    },
+    {
+      "file": "sources/bend.json",
+      "sha256": "8cb55079c8fadb203a1ea18d69fc1d842c2bef4864f8a7efed596dafa76eff95"
+    },
+    {
+      "file": "sources/improvement.json",
+      "sha256": "d3289f33a41ba9a2ea0f86c13de48c8a911d43ef96e542c25a66fef9c7173dce"
+    }
+  ]
+}

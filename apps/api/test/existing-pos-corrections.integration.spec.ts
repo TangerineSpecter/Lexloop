@@ -1,3 +1,4 @@
+import { DAILY_ENRICHMENTS } from '../src/modules/vocabulary/daily-enrichment';
 import { USAGE_CLARITY_CORRECTIONS } from '../src/modules/vocabulary/usage-clarity-corrections';
 import { VERB_SENSE_CORRECTIONS } from '../src/modules/vocabulary/verb-sense-corrections';
 import { join } from 'node:path';
@@ -7,6 +8,7 @@ import {
   EXISTING_POS_BATCH,
 } from '../src/modules/vocabulary/existing-pos-corrections';
 import {
+  DAILY_ENRICHMENT_CORRECTION_BATCH,
   VocabularyCorrectionsService,
   EXISTING_POS_CORRECTION_BATCH,
   SUPPLEMENT_CORRECTION_BATCH,
@@ -16,6 +18,11 @@ import {
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 
 describe.each([
+  {
+    name: 'daily-enrichment',
+    entries: DAILY_ENRICHMENTS,
+    batch: DAILY_ENRICHMENT_CORRECTION_BATCH,
+  },
   { name: 'existing-pos', entries: EXISTING_POS_CORRECTIONS, batch: EXISTING_POS_CORRECTION_BATCH },
   { name: 'verb-senses', entries: VERB_SENSE_CORRECTIONS, batch: VERB_SENSE_CORRECTION_BATCH },
   {
@@ -66,6 +73,7 @@ describe.each([
               EXISTING_POS_CORRECTION_BATCH,
               VERB_SENSE_CORRECTION_BATCH,
               USAGE_CLARITY_CORRECTION_BATCH,
+              DAILY_ENRICHMENT_CORRECTION_BATCH,
             ].filter((other) => other.batchId !== batch.batchId),
           ]) {
             const other = new VocabularyCorrectionsService(db, otherBatch);
