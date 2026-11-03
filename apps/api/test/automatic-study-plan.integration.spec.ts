@@ -31,6 +31,49 @@ function prismaForSweepUser(prisma: PrismaClient, userId: string) {
   });
 }
 
+function prismaForSweepFixtures(
+  prisma: PrismaClient,
+  userIds: string[],
+  observedUserQueries: Array<{
+    where?: { id?: { gt?: string } };
+    orderBy?: unknown;
+    take?: number;
+  }> = [],
+  observedRunQueries: Array<{
+    where?: { userId?: { gt?: string } };
+    orderBy?: unknown;
+    take?: number;
+  }> = [],
+) {
+  return new Proxy(prisma, {
+    get(target, property) {
+      if (property === 'user' || property === 'automaticStudyPlanRun') {
+        const delegate = Reflect.get(target, property, target);
+        return new Proxy(delegate, {
+          get(modelDelegate, method) {
+            const operation = Reflect.get(modelDelegate, method, modelDelegate);
+            if (method === 'findMany' && typeof operation === 'function') {
+              return (args: { where?: object }) => {
+                if (property === 'user') observedUserQueries.push(args as never);
+                else observedRunQueries.push(args as never);
+                const scope =
+                  property === 'user' ? { id: { in: userIds } } : { userId: { in: userIds } };
+                return operation.call(modelDelegate, {
+                  ...args,
+                  where: { AND: [args.where ?? {}, scope] },
+                });
+              };
+            }
+            return typeof operation === 'function' ? operation.bind(modelDelegate) : operation;
+          },
+        });
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'automatic study plans in an isolated database',
   () => {
@@ -86,6 +129,125 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         await prisma.$disconnect();
       }
     }, 30_000);
+
+    it('scans more than one user page in stable order and skips an unfinished plan', async () => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+      });
+      const fixtureKey = randomUUID();
+      const fixtureUserIds = Array.from(
+        { length: 405 },
+        (_, index) => `auto-sweep-${fixtureKey}-${String(index).padStart(4, '0')}`,
+      );
+      const observedUserQueries: Array<{
+        where?: { id?: { gt?: string } };
+        orderBy?: unknown;
+        take?: number;
+      }> = [];
+      const observedRunQueries: Array<{
+        where?: { userId?: { gt?: string } };
+        orderBy?: unknown;
+        take?: number;
+      }> = [];
+      const settings = {
+        getConfig: vi.fn().mockResolvedValue({ enabled: true, scheduleTime: '06:30' }),
+      };
+      const models = { selectedProvider: vi.fn(async () => ({ apiKey: 'fixture-only' })) };
+      const study = { createPlan: vi.fn(), generatePlan: vi.fn() };
+      const service = new AutomaticStudyPlanWorkerService(
+        prismaForSweepFixtures(
+          prisma,
+          fixtureUserIds,
+          observedUserQueries,
+          observedRunQueries,
+        ) as never,
+        settings as never,
+        models as never,
+        study as never,
+      );
+      const queue = {
+        add: vi.fn(
+          async (
+            _name: string,
+            _run: { userId: string; dateKey: string },
+            _options: { jobId: string },
+          ) => undefined,
+        ),
+      };
+
+      try {
+        await prisma.user.createMany({
+          data: fixtureUserIds.map((id, index) => ({
+            id,
+            email: `auto-sweep-${fixtureKey}-${index}@example.invalid`,
+            passwordHash: 'isolated-test-fixture',
+          })),
+        });
+        await prisma.automaticStudyPlanRun.create({
+          data: { userId: fixtureUserIds[0], dateKey: '2026-11-02', status: 'GENERATED' },
+        });
+        await prisma.studyPlan.create({
+          data: {
+            userId: fixtureUserIds[404],
+            mode: StudyPlanMode.GROUP,
+            purpose: StudyPlanPurpose.NORMAL,
+            status: 'ACTIVE',
+            generatedContent: { groups: [] },
+          },
+        });
+
+        await expect(service.sweep(queue as never, NOW)).resolves.toMatchObject({
+          queued: 404,
+          dateKey: '2026-11-02',
+          disabled: false,
+        });
+
+        expect(observedUserQueries.map(({ take }) => take)).toEqual([200, 200, 200]);
+        expect(observedUserQueries.map(({ orderBy }) => orderBy)).toEqual(
+          Array.from({ length: 3 }, () => ({ id: 'asc' })),
+        );
+        expect(observedUserQueries.map(({ where }) => where?.id?.gt)).toEqual([
+          undefined,
+          fixtureUserIds[200],
+          fixtureUserIds[400],
+        ]);
+        expect(observedRunQueries.map(({ take }) => take)).toEqual([200, 200, 200]);
+        expect(observedRunQueries.map(({ orderBy }) => orderBy)).toEqual(
+          Array.from({ length: 3 }, () => ({ userId: 'asc' })),
+        );
+        expect(observedRunQueries.map(({ where }) => where?.userId?.gt)).toEqual([
+          undefined,
+          fixtureUserIds[200],
+          fixtureUserIds[400],
+        ]);
+
+        const queuedUserIds = queue.add.mock.calls.map(([, run]) => run.userId);
+        expect(queuedUserIds).toEqual(fixtureUserIds.slice(1));
+        expect(new Set(queuedUserIds).size).toBe(404);
+        expect(queue.add.mock.calls.map(([, run, options]) => options.jobId)).toEqual(
+          fixtureUserIds.slice(1).map((userId) => `2026-11-02-${userId}`),
+        );
+        expect(await prisma.automaticStudyPlanRun.count({ where: { dateKey: '2026-11-02' } })).toBe(
+          405,
+        );
+
+        await service.process(fixtureUserIds[404], '2026-11-02', NOW);
+        expect(
+          await prisma.automaticStudyPlanRun.findUniqueOrThrow({
+            where: {
+              userId_dateKey: { userId: fixtureUserIds[404], dateKey: '2026-11-02' },
+            },
+          }),
+        ).toMatchObject({ status: 'SKIPPED', reasonCode: 'PLAN_IN_PROGRESS' });
+        expect(models.selectedProvider).not.toHaveBeenCalled();
+        expect(study.createPlan).not.toHaveBeenCalled();
+        expect(study.generatePlan).not.toHaveBeenCalled();
+        expect(await prisma.studyPlan.count({ where: { userId: fixtureUserIds[404] } })).toBe(1);
+      } finally {
+        await prisma.user.deleteMany({ where: { id: { in: fixtureUserIds } } });
+        await prisma.$disconnect();
+      }
+    }, 60_000);
 
     it('skips a missing model or unfinished manual plan without creating an automatic plan', async () => {
       const prisma = new PrismaClient({
