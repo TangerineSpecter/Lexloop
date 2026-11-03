@@ -1,3 +1,4 @@
+import { USAGE_CLARITY_CORRECTIONS } from '../src/modules/vocabulary/usage-clarity-corrections';
 import { VERB_SENSE_CORRECTIONS } from '../src/modules/vocabulary/verb-sense-corrections';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,12 +11,18 @@ import {
   EXISTING_POS_CORRECTION_BATCH,
   SUPPLEMENT_CORRECTION_BATCH,
   VERB_SENSE_CORRECTION_BATCH,
+  USAGE_CLARITY_CORRECTION_BATCH,
 } from '../src/modules/vocabulary/vocabulary-corrections.service';
 import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 
 describe.each([
   { name: 'existing-pos', entries: EXISTING_POS_CORRECTIONS, batch: EXISTING_POS_CORRECTION_BATCH },
   { name: 'verb-senses', entries: VERB_SENSE_CORRECTIONS, batch: VERB_SENSE_CORRECTION_BATCH },
+  {
+    name: 'usage-clarity',
+    entries: USAGE_CLARITY_CORRECTIONS,
+    batch: USAGE_CLARITY_CORRECTION_BATCH,
+  },
 ])('$name', ({ entries, batch }) => {
   describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
     'exact meaning repair on isolated PostgreSQL',
@@ -23,9 +30,11 @@ describe.each([
       it('never auto-updates old values, atomically repairs exact originals, and restores with edit protection', async () => {
         await withVocabularyCorrectionFixture(async ({ db, importer }) => {
           const words = [];
-          for (const entry of entries) {
-            const book = await db.vocabularyBook.create({
-              data: {
+          for (const [entryIndex, entry] of entries.entries()) {
+            const book = await db.vocabularyBook.upsert({
+              where: { sourceKey: entry.sourceKeys[0] },
+              update: {},
+              create: {
                 title: 'audited source',
                 sourceKey: entry.sourceKeys[0],
                 sourcePath: entry.sourceKeys[0],
@@ -36,7 +45,7 @@ describe.each([
               data: { text: entry.word, normalized: entry.word, meaning: entry.expectedMeaning },
             });
             const link = await db.vocabularyBookWord.create({
-              data: { bookId: book.id, wordId: word.id, position: 1 },
+              data: { bookId: book.id, wordId: word.id, position: entryIndex + 1 },
             });
             words.push({ ...word, bookWordId: link.id });
           }
@@ -49,13 +58,15 @@ describe.each([
             );
           const service = new VocabularyCorrectionsService(db, batch);
           const plan = await service.preview();
-          expect(plan.wordsToChange).toBe(2);
+          expect(plan.wordsToChange).toBe(entries.length);
           for (const otherBatch of [
             undefined,
             SUPPLEMENT_CORRECTION_BATCH,
-            ...[EXISTING_POS_CORRECTION_BATCH, VERB_SENSE_CORRECTION_BATCH].filter(
-              (other) => other.batchId !== batch.batchId,
-            ),
+            ...[
+              EXISTING_POS_CORRECTION_BATCH,
+              VERB_SENSE_CORRECTION_BATCH,
+              USAGE_CLARITY_CORRECTION_BATCH,
+            ].filter((other) => other.batchId !== batch.batchId),
           ]) {
             const other = new VocabularyCorrectionsService(db, otherBatch);
             await expect(other.execute('apply', plan.token)).rejects.toThrow('stale');
@@ -80,7 +91,7 @@ describe.each([
           expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
           expect(
             await db.vocabularyCorrectionAudit.count({ where: { batchId: batch.batchId } }),
-          ).toBe(2);
+          ).toBe(entries.length);
           for (const entry of entries)
             expect(
               (await db.vocabularyWord.findUniqueOrThrow({ where: { normalized: entry.word } }))
@@ -100,14 +111,35 @@ describe.each([
             data: { meaning: '用户重新编辑' },
           });
           const restore = await service.preview('restore');
-          expect(restore.wordsToChange).toBe(1);
+          expect(restore.wordsToChange).toBe(entries.length - 1);
           expect(restore.actions.find((a) => a.word === entries[0].word)?.reason).toBe(
             'edited-after-apply',
           );
-          await service.execute('restore', restore.token);
+          expect(await service.execute('restore', restore.token)).toEqual({
+            batchId: batch.batchId,
+            mode: 'restore',
+            changedWords: entries.length - 1,
+            changedFields: entries.length - 1,
+          });
+          for (const word of words.slice(1)) {
+            expect(
+              (await db.vocabularyWord.findUniqueOrThrow({ where: { id: word.id } })).meaning,
+            ).toBe(word.meaning);
+            expect(
+              (
+                await db.vocabularyCorrectionAudit.findFirstOrThrow({
+                  where: { wordId: word.id, batchId: batch.batchId },
+                })
+              ).state,
+            ).toBe('RESTORED');
+          }
           expect(
-            (await db.vocabularyWord.findUniqueOrThrow({ where: { id: words[1].id } })).meaning,
-          ).toBe(words[1].meaning);
+            (
+              await db.vocabularyCorrectionAudit.findFirstOrThrow({
+                where: { wordId: words[0].id, batchId: batch.batchId },
+              })
+            ).state,
+          ).toBe('APPLIED');
           expect(
             (await db.vocabularyWord.findUniqueOrThrow({ where: { id: words[0].id } })).meaning,
           ).toBe('用户重新编辑');

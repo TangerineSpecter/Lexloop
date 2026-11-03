@@ -1,3 +1,4 @@
+import { USAGE_CLARITY_CORRECTIONS } from '../src/modules/vocabulary/usage-clarity-corrections';
 import { VERB_SENSE_CORRECTIONS } from '../src/modules/vocabulary/verb-sense-corrections';
 import { EXISTING_POS_CORRECTIONS } from '../src/modules/vocabulary/existing-pos-corrections';
 import type { VocabularyWord } from '@prisma/client';
@@ -40,7 +41,11 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         ]);
         for (const entry of SUPPLEMENT_MEANINGS)
           expect(words.find((word) => word.normalized === entry.word)?.meaning).toBe(entry.meaning);
-        for (const entry of [...EXISTING_POS_CORRECTIONS, ...VERB_SENSE_CORRECTIONS])
+        for (const entry of [
+          ...EXISTING_POS_CORRECTIONS,
+          ...VERB_SENSE_CORRECTIONS,
+          ...USAGE_CLARITY_CORRECTIONS,
+        ])
           expect(words.find((word) => word.normalized === entry.word)?.meaning).toBe(entry.meaning);
         const daily = await db.vocabularyBook.findUniqueOrThrow({
           where: { sourceKey: '通用/日常生活单词.xlsx' },

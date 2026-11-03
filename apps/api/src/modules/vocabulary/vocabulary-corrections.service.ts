@@ -1,3 +1,4 @@
+import { USAGE_CLARITY_BATCH, USAGE_CLARITY_CORRECTIONS } from './usage-clarity-corrections';
 import { VERB_SENSE_BATCH, VERB_SENSE_CORRECTIONS } from './verb-sense-corrections';
 import { EXISTING_POS_BATCH, EXISTING_POS_CORRECTIONS } from './existing-pos-corrections';
 import { SUPPLEMENT_MEANINGS, SUPPLEMENT_MEANING_BATCH } from './supplement-meanings';
@@ -63,11 +64,17 @@ export const VERB_SENSE_CORRECTION_BATCH: CorrectionBatch = {
   sourceKey,
   corrections: VERB_SENSE_CORRECTIONS,
 };
+export const USAGE_CLARITY_CORRECTION_BATCH: CorrectionBatch = {
+  batchId: USAGE_CLARITY_BATCH,
+  sourceKey,
+  corrections: USAGE_CLARITY_CORRECTIONS,
+};
 export function correctionBatch(id?: string): CorrectionBatch {
   if (!id || id === DEFAULT_CORRECTION_BATCH.batchId) return DEFAULT_CORRECTION_BATCH;
   if (id === SUPPLEMENT_CORRECTION_BATCH.batchId) return SUPPLEMENT_CORRECTION_BATCH;
   if (id === EXISTING_POS_BATCH) return EXISTING_POS_CORRECTION_BATCH;
   if (id === VERB_SENSE_BATCH) return VERB_SENSE_CORRECTION_BATCH;
+  if (id === USAGE_CLARITY_BATCH) return USAGE_CLARITY_CORRECTION_BATCH;
   throw new Error('Unknown vocabulary correction batch');
 }
 
