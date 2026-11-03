@@ -3234,7 +3234,7 @@ function AccountSettings({
           </DashboardChunkErrorBoundary>
         ) : section === 'bank' && session.user.role === 'ADMIN' ? (
           <DashboardChunkErrorBoundary title="公共题库" onRetry={onRetryDeferredPage}>
-            <StudyContentBankPanel session={session} />
+            <StudyContentBankPanel key={session.user.id} session={session} />
           </DashboardChunkErrorBoundary>
         ) : (
           <section className="account-settings-content">

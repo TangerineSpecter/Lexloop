@@ -1,0 +1,5 @@
+{
+  "rawInput": "  PENCIL\t 　BOX  ",
+  "normalizedInput": "PENCIL BOX",
+  "canonicalWord": "pencil box"
+}

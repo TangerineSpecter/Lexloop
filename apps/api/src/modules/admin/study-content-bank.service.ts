@@ -11,6 +11,7 @@ export type StudyContentBankFilters = {
   from?: string;
   to?: string;
   search?: string;
+  targetWord?: string;
   feedback?: 'all' | 'negative';
 };
 
@@ -59,6 +60,25 @@ function validateRange(from?: string, to?: string) {
   if (from && to && from > to) throw new BadRequestException('开始日期不能晚于结束日期');
 }
 
+function normalizeTargetWord(value?: string) {
+  const normalized = value
+    ?.replace(/[ \t\n\v\f\r\u00a0\u3000]+/gu, ' ')
+    .replace(/^ +| +$/g, '')
+    .toLowerCase();
+  return normalized || undefined;
+}
+
+function normalizedWordSql(value: Prisma.Sql) {
+  return Prisma.sql`lower(regexp_replace(
+    btrim(translate(
+      ${value},
+      chr(32) || chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(160) || chr(12288),
+      '        '
+    )),
+    ' +', ' ', 'g'
+  ))`;
+}
+
 @Injectable()
 export class StudyContentBankService {
   constructor(private readonly prisma: PrismaService) {}
@@ -81,6 +101,37 @@ export class StudyContentBankService {
           AND feedback."rating" = 'DOWN'::"StudyContentFeedbackRating"
           AND feedback."withdrawnAt" IS NULL
       )`);
+    }
+    const targetWord = normalizeTargetWord(filters.targetWord);
+    if (targetWord) {
+      // A present object is the snapshot's authoritative target-word map, including
+      // an empty object. Use relational question links only for legacy/non-object maps.
+      clauses.push(Prisma.sql`CASE
+        WHEN jsonb_typeof("material"->'wordOccurrences') = 'object' THEN EXISTS (
+          SELECT 1
+          FROM jsonb_each_text("material"->'wordOccurrences') AS target_words("word", "occurrences")
+          WHERE ${normalizedWordSql(Prisma.sql`target_words."word"`)} = ${targetWord}
+        )
+        ELSE EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof("material"->'questions') = 'array'
+                THEN "material"->'questions'
+              ELSE '[]'::jsonb
+            END
+          ) AS question_items(question)
+          JOIN "public"."VocabularyBookWord" AS book_word
+            ON book_word."id" = question_items.question->>'bookWordId'
+          JOIN "public"."VocabularyBook" AS source_book
+            ON source_book."id" = book_word."bookId"
+          JOIN "public"."VocabularyWord" AS vocabulary_word
+            ON vocabulary_word."id" = book_word."wordId"
+          WHERE source_book."kind" = 'SYSTEM'::"VocabularyBookKind"
+            AND source_book."ownerId" IS NULL
+            AND ${normalizedWordSql(Prisma.sql`vocabulary_word."text"`)} = ${targetWord}
+        )
+      END`);
     }
     const search = filters.search?.trim();
     if (search) {

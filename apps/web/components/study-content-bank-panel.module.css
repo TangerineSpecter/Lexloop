@@ -1,4 +1,6 @@
 .panel {
+  container-name: bank-panel;
+  container-type: inline-size;
   width: 100%;
   min-width: 0;
   color: var(--border-color);
@@ -28,7 +30,8 @@
   color: #526a9f;
 }
 
-.wordTags {
+.wordTags,
+.wordMatch {
   margin: 0.45rem 0 0;
   color: var(--border-color);
   font-weight: 800;
@@ -46,7 +49,7 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(12rem, 2fr) repeat(5, minmax(7rem, 1fr)) auto;
+  grid-template-columns: minmax(12rem, 2fr) minmax(8rem, 1.2fr) repeat(5, minmax(7rem, 1fr)) auto;
   gap: 0.75rem;
   align-items: end;
   margin: 1.1rem 0 1.3rem;
@@ -143,6 +146,18 @@
 .restore:disabled {
   opacity: 0.62;
   cursor: wait;
+}
+
+@container bank-panel (max-width: 1000px) {
+  .filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .search {
+    grid-column: span 2;
+  }
+  .apply {
+    grid-column: 3;
+  }
 }
 
 .status,

@@ -334,11 +334,28 @@ test(
           window.questionFeedbackWithdrawalAttempts = 0;
           window.holdFeedbackWithdrawal = false;
           window.studyBankListRequests = [];
+          window.studyBankListResolvers = [];
+          window.studyBankResponsesConsumed = [];
+          window.holdNextStudyBankRead = false;
+          window.resolveStudyBankRead = (index, status = 200) => {
+            const pending = window.studyBankListResolvers.splice(index, 1)[0];
+            if (!pending) throw new Error('No pending public-bank list request');
+            pending.resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              async json() {
+                window.studyBankResponsesConsumed.push(pending.path);
+                return status >= 200 && status < 300
+                  ? pending.payload
+                  : { message: 'Fixture delayed list failure' };
+              },
+            });
+          };
           window.studyBankFixture = {
             page: 1, pageSize: 20, total: 2, quarantinedCount: 2,
             items: [{
               id: 'cache-fixture', mode: 'GROUP',
-              material: { title: 'Fixture public lesson', wordOccurrences: { bright: 1 }, sentences: [] },
+              material: { title: 'Fixture public lesson', wordOccurrences: { bright: 1, 'pencil box': 1 }, sentences: [] },
               reuseHits: 3, planReferences: 4, isActive: true, disabledAt: null, disabledReason: null,
               createdAt: '2026-10-31T12:00:00.000Z', provenance: '生成模型来源未记录（题库未保存该字段）',
               feedbackSummary: { current: { up: 2, down: 0 }, older: { up: 0, down: 1 } },
@@ -447,11 +464,25 @@ test(
               const url = new URL(path, location.href);
               const status = url.searchParams.get('status');
               const feedback = url.searchParams.get('feedback');
+              const targetWord = url.searchParams.get('targetWord')
+                ?.replace(/[ \\t\\n\\v\\f\\r\\u00a0\\u3000]+/g, ' ')
+                .replace(/^ +| +$/g, '')
+                .toLowerCase();
               const items = window.studyBankFixture.items.filter((item) =>
                 (status === 'active' ? item.isActive : status === 'disabled' ? !item.isActive : true) &&
-                (feedback !== 'negative' || item.feedbackSummary.current.down + item.feedbackSummary.older.down > 0),
+                (feedback !== 'negative' || item.feedbackSummary.current.down + item.feedbackSummary.older.down > 0) &&
+                (!targetWord || Object.keys(item.material.wordOccurrences ?? {}).some((word) =>
+                  word.replace(/[ \\t\\n\\v\\f\\r\\u00a0\\u3000]+/g, ' ').replace(/^ +| +$/g, '').toLowerCase() === targetWord,
+                )),
               );
-              return Response.json({ ...window.studyBankFixture, items, total: items.length });
+              const payload = { ...window.studyBankFixture, items, total: items.length };
+              if (window.holdNextStudyBankRead) {
+                window.holdNextStudyBankRead = false;
+                return new Promise((resolve) => {
+                  window.studyBankListResolvers.push({ path, payload, resolve });
+                });
+              }
+              return Response.json(payload);
             }
             if (path.includes('/api/v1/study/plans/plan-1/public-questions/') && path.endsWith('/feedback') && method === 'POST') {
               const body = JSON.parse(options.body);
@@ -2807,6 +2838,193 @@ test(
       await until(
         'window.studyBankListRequests.length === 3 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 2',
       );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        input.focus();
+      })()`);
+      assert.equal(
+        await evaluate(`(() => {
+          const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+          const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+          return document.activeElement === input && input.getBoundingClientRect().width > 0;
+        })()`),
+        true,
+      );
+      await send('Input.insertText', { text: '  BRIGHT\u00a0\u3000' });
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until(
+        'window.studyBankListRequests.length === 4 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 1',
+      );
+      assert.equal(
+        await evaluate(
+          'new URL(window.studyBankListRequests.at(-1), location.href).searchParams.get("targetWord")',
+        ),
+        'BRIGHT',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[aria-labelledby=study-content-bank-title] article").innerText.includes("筛选命中词：BRIGHT")',
+        ),
+        true,
+      );
+      const targetFilterMobile = await evaluate(`(() => ({
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+        field: [...document.querySelector('[aria-labelledby="study-content-bank-title"] form').querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).getBoundingClientRect().toJSON(),
+      }))()`);
+      assert.equal(targetFilterMobile.viewport, 390);
+      assert.ok(
+        targetFilterMobile.document <= targetFilterMobile.viewport,
+        JSON.stringify(targetFilterMobile),
+      );
+      assert.ok(targetFilterMobile.field.width > 0, JSON.stringify(targetFilterMobile));
+      const targetWordWhitespaceFixture = JSON.parse(
+        await readFile(
+          new URL('../../api/test/fixtures/study-content-bank-target-word.json', import.meta.url),
+          'utf8',
+        ),
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(targetWordWhitespaceFixture.rawInput)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+      })()`);
+      await pressKey('Enter', 'Enter', 13, '\r');
+      await until(
+        'window.studyBankListRequests.length === 5 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 1',
+      );
+      assert.equal(
+        await evaluate(
+          'new URL(window.studyBankListRequests.at(-1), location.href).searchParams.has("targetWord")',
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          'new URL(window.studyBankListRequests.at(-1), location.href).searchParams.get("targetWord")',
+        ),
+        targetWordWhitespaceFixture.normalizedInput,
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[aria-labelledby=study-content-bank-title] article").innerText.includes("筛选命中词：PENCIL BOX")',
+        ),
+        true,
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        form.querySelector('button[type=submit]').click();
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 6 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 2',
+      );
+      assert.equal(
+        await evaluate(
+          'new URL(window.studyBankListRequests.at(-1), location.href).searchParams.has("targetWord")',
+        ),
+        false,
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'bright');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.holdNextStudyBankRead = true;
+        form.querySelector('button[type=submit]').click();
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 7 && window.studyBankListResolvers.length === 1',
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'steady');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.holdNextStudyBankRead = true;
+        // Force a newer submission while the previous request is still pending.
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 8 && window.studyBankListResolvers.length === 2',
+      );
+      const staleSuccessPath = await evaluate('window.studyBankListRequests[6]');
+      await evaluate('window.resolveStudyBankRead(0, 200)');
+      await until(
+        `window.studyBankResponsesConsumed.includes(${JSON.stringify(staleSuccessPath)})`,
+      );
+      await evaluate(
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+      );
+      assert.equal(
+        await evaluate('document.body.innerText.includes("正在读取公共题库…")'),
+        true,
+        'A stale response must not let its finally handler clear the newer request loading state.',
+      );
+      assert.equal(await evaluate('document.querySelector("[role=alert]") === null'), true);
+      await evaluate('window.resolveStudyBankRead(0, 200)');
+      await until(
+        'document.querySelector("[aria-labelledby=study-content-bank-title] article h3")?.textContent === "Fixture without negative votes"',
+      );
+
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'bright');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.holdNextStudyBankRead = true;
+        form.querySelector('button[type=submit]').click();
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 9 && window.studyBankListResolvers.length === 1',
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'steady');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        // Exercise the stale catch/finally path after a newer filter request wins.
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 10 && document.querySelector("[aria-labelledby=study-content-bank-title] article h3")?.textContent === "Fixture without negative votes"',
+      );
+      const staleErrorPath = await evaluate('window.studyBankListRequests[8]');
+      await evaluate('window.resolveStudyBankRead(0, 503)');
+      await until(`window.studyBankResponsesConsumed.includes(${JSON.stringify(staleErrorPath)})`);
+      await evaluate(
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+      );
+      assert.equal(await evaluate('document.querySelector("[role=alert]") === null'), true);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[aria-labelledby=study-content-bank-title] article h3")?.textContent === "Fixture without negative votes"',
+        ),
+        true,
+        'A stale failure must not replace the latest successful filter result.',
+      );
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        form.querySelector('button[type=submit]').click();
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 11 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 2',
+      );
+
       assert.equal(
         await evaluate('document.body.innerText.includes("来源无法确认已隔离停用")'),
         true,
@@ -2928,8 +3146,37 @@ test(
       );
       await until('document.body.innerText.includes("材料已恢复")');
       assert.equal(await evaluate('window.studyBankFixture.items[0].isActive'), true);
+      await until('window.studyBankListRequests.length === 14');
+      await evaluate(`(() => {
+        const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
+        const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'bright');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.holdNextStudyBankRead = true;
+        form.querySelector('button[type=submit]').click();
+      })()`);
+      await until(
+        'window.studyBankListRequests.length === 15 && window.studyBankListResolvers.length === 1',
+      );
+      const unmountedPath = await evaluate('window.studyBankListRequests[14]');
+      await evaluate('document.querySelector(".menu-trigger").click()');
+      await until('document.querySelector(".study-sidebar.is-open")');
+      await evaluate('document.querySelector(".study-sidebar .nav-item.nav-button").click()');
+      await until('document.querySelector("#study-content-bank-title") === null');
+      await evaluate('window.resolveStudyBankRead(0, 200)');
+      await until(`window.studyBankResponsesConsumed.includes(${JSON.stringify(unmountedPath)})`);
+      await evaluate(
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+      );
+      assert.equal(
+        await evaluate('document.querySelector("#study-content-bank-title") === null'),
+        true,
+      );
+      assert.equal(await evaluate('document.querySelector("[role=alert]") === null'), true);
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
-      console.log(`keyboard learning journey and public bank feedback/admin: 1440px/768px/390px`);
+      console.log(
+        `keyboard learning journey and public bank feedback/admin: 1440px/768px/390px, stale success/error and unmount guards`,
+      );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

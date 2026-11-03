@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArchiveRestore, Search, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { request, type Session, userFacingError } from '../lib/api';
+import { isCurrentStudyContentBankRequest } from '../lib/study-content-bank-request';
 import styles from './study-content-bank-panel.module.css';
 
 type BankQuestion = {
@@ -51,6 +52,7 @@ type BankResponse = {
 };
 type Filters = {
   search: string;
+  targetWord: string;
   status: 'active' | 'disabled' | 'all';
   mode: '' | 'GROUP' | 'INDIVIDUAL' | 'EXAM';
   from: string;
@@ -60,12 +62,18 @@ type Filters = {
 
 const EMPTY_FILTERS: Filters = {
   search: '',
+  targetWord: '',
   status: 'active',
   mode: '',
   from: '',
   to: '',
   feedback: 'all',
 };
+
+function normalizeTargetWordInput(value: string) {
+  return value.replace(/[ \t\n\v\f\r\u00a0\u3000]+/gu, ' ').replace(/^ +| +$/g, '');
+}
+
 const MODE_LABELS = { GROUP: '分组阅读', INDIVIDUAL: '单词练习', EXAM: '测评题型' };
 const REASON_LABELS: Record<string, string> = {
   ANSWER_INCORRECT: '答案错误',
@@ -100,15 +108,38 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
   const [statusMessage, setStatusMessage] = useState('');
   const [requestNumber, setRequestNumber] = useState(0);
   const requestSequence = useRef(0);
+  const currentSessionRef = useRef({
+    userId: session.user.id,
+    accessToken: session.accessToken,
+  });
+  currentSessionRef.current = { userId: session.user.id, accessToken: session.accessToken };
 
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
+    const requestUserId = session.user.id;
+    const requestAccessToken = session.accessToken;
+    const isCurrentRequest = () =>
+      isCurrentStudyContentBankRequest(
+        {
+          sequence: requestId,
+          userId: requestUserId,
+          accessToken: requestAccessToken,
+        },
+        {
+          sequence: requestSequence.current,
+          ...currentSessionRef.current,
+        },
+      );
     const query = new URLSearchParams({
       page: String(page),
       pageSize: '20',
       status: filters.status,
     });
     if (filters.search.trim()) query.set('search', filters.search.trim());
+    const targetWord = normalizeTargetWordInput(filters.targetWord);
+    if (targetWord) {
+      query.set('targetWord', targetWord);
+    }
     if (filters.mode) query.set('mode', filters.mode);
     if (filters.from) query.set('from', filters.from);
     if (filters.to) query.set('to', filters.to);
@@ -121,24 +152,32 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
         {},
         session.accessToken,
       );
-      if (requestSequence.current === requestId) setData(result);
+      if (isCurrentRequest()) setData(result);
     } catch (cause) {
-      if (requestSequence.current === requestId) {
+      if (isCurrentRequest()) {
         setError(userFacingError(cause, '公共题库暂时无法加载。'));
       }
     } finally {
-      if (requestSequence.current === requestId) setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [filters, page, requestNumber, session.accessToken]);
+  }, [filters, page, requestNumber, session.accessToken, session.user.id]);
 
   useEffect(() => {
     void load();
+    return () => {
+      // Invalidate this request on filter changes, account changes, or unmount.
+      requestSequence.current += 1;
+    };
   }, [load]);
 
   const applyFilters = (event: FormEvent) => {
     event.preventDefault();
     setPage(1);
-    setFilters({ ...draft, search: draft.search.trim() });
+    setFilters({
+      ...draft,
+      search: draft.search.trim(),
+      targetWord: normalizeTargetWordInput(draft.targetWord),
+    });
   };
 
   const toggleActive = async (item: BankItem) => {
@@ -195,6 +234,16 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
               onChange={(event) => setDraft({ ...draft, search: event.target.value })}
             />
           </div>
+        </label>
+        <label className={styles.targetWord}>
+          <span>目标词精确筛选</span>
+          <input
+            type="search"
+            maxLength={120}
+            value={draft.targetWord}
+            placeholder="如：pencil box"
+            onChange={(event) => setDraft({ ...draft, targetWord: event.target.value })}
+          />
         </label>
         <label>
           <span>状态</span>
@@ -319,6 +368,11 @@ export function StudyContentBankPanel({ session }: { session: Session }) {
               {item.material.wordOccurrences && (
                 <p className={styles.wordTags}>
                   目标词：{Object.keys(item.material.wordOccurrences).join('、') || '未记录'}
+                </p>
+              )}
+              {filters.targetWord && (
+                <p className={styles.wordMatch}>
+                  筛选命中词：<strong>{filters.targetWord}</strong>
                 </p>
               )}
               {item.disabledReason && (

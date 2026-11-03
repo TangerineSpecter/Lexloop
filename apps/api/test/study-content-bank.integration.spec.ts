@@ -16,6 +16,7 @@ import { ROLES_KEY } from '../src/modules/auth/roles.decorator';
 import { studyQuestionFingerprint } from '../src/modules/study/study-content-bank';
 import { contentSignature, StudyService } from '../src/modules/study/study.service';
 import { lexicalFields } from '../src/modules/vocabulary/lexical';
+import targetWordWhitespaceFixture from './fixtures/study-content-bank-target-word.json';
 
 const generatedQuestion = (bookWordId: string) => ({
   bookWordId,
@@ -159,6 +160,316 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('public study material bank 
       if (signature) await prisma.studyContentCache.deleteMany({ where: { signature } });
       if (userId) await prisma.user.deleteMany({ where: { id: userId } });
       if (bookId) await prisma.vocabularyBook.deleteMany({ where: { id: bookId } });
+      await prisma.$disconnect();
+    }
+  }, 60_000);
+
+  it('filters exact target words across book entries, legacy snapshots, feedback, and pages', async () => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
+    });
+    const fixtureId = randomUUID();
+    const bookIds: string[] = [];
+    const cacheIds: string[] = [];
+    let voterId: string | undefined;
+
+    try {
+      const voter = await prisma.user.create({
+        data: {
+          email: `study-bank-word-filter-${fixtureId}@example.invalid`,
+          passwordHash: 'isolated-test-fixture',
+        },
+        select: { id: true },
+      });
+      voterId = voter.id;
+
+      const entries: Array<{
+        key: string;
+        text: string;
+        publicTarget?: string;
+        emptyMap?: boolean;
+        materialMention?: string;
+        isActive: boolean;
+      }> = [
+        { key: 'active', text: 'pencil box', publicTarget: 'pencil box', isActive: true },
+        { key: 'disabled', text: 'pencil box', publicTarget: 'Pencil   Box', isActive: false },
+        { key: 'legacy', text: 'pencil box', publicTarget: undefined, isActive: true },
+        { key: 'nbsp', text: 'pencil box', publicTarget: 'pencil\u00a0box', isActive: true },
+        {
+          key: 'ideographic-space',
+          text: 'pencil box',
+          publicTarget: 'pencil\u3000box',
+          isActive: true,
+        },
+        { key: 'conflict', text: 'dim', publicTarget: 'bright', isActive: true },
+        {
+          key: 'empty-map',
+          text: 'empty map relation',
+          publicTarget: 'ignored map value',
+          emptyMap: true,
+          isActive: true,
+        },
+        {
+          key: 'partial',
+          text: 'pencil case',
+          publicTarget: 'pencil case',
+          materialMention: 'This lesson compares a pencil box with a pencil case.',
+          isActive: true,
+        },
+      ];
+      const caches: Array<{ id: string; isActive: boolean; bookWordId: string }> = [];
+
+      for (const [index, entry] of entries.entries()) {
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            kind: 'SYSTEM',
+            sourceKey: `study-bank-word-filter-${fixtureId}-${entry.key}`,
+            title: `Exact target fixture ${entry.key}`,
+            sourcePath: 'isolated-test',
+            category: 'GENERAL',
+            bookWords: {
+              create: {
+                position: 0,
+                word: {
+                  create: {
+                    normalized: `study-bank-word-filter-${fixtureId}-${entry.key}`,
+                    text: entry.text,
+                    meaning: '学习用品',
+                  },
+                },
+              },
+            },
+          },
+          include: { bookWords: true },
+        });
+        bookIds.push(book.id);
+        const bookWordId = book.bookWords[0].id;
+        const question = generatedQuestion(bookWordId);
+        const material = {
+          ...(entry.publicTarget === undefined
+            ? {
+                index: 0,
+                title: `Legacy exact target fixture ${fixtureId}`,
+                sentences: [],
+                questions: [question],
+              }
+            : {
+                ...generatedGroup(bookWordId, entry.publicTarget),
+                title: `Exact target fixture ${fixtureId} ${entry.key}`,
+                ...(entry.materialMention
+                  ? { sentences: [{ english: entry.materialMention, chinese: '隔离测试材料。' }] }
+                  : {}),
+              }),
+          ...(entry.emptyMap ? { wordOccurrences: {} } : {}),
+        };
+        const cache = await prisma.studyContentCache.create({
+          data: {
+            signature: `study-bank-word-filter-${fixtureId}-${entry.key}`,
+            mode: StudyPlanMode.INDIVIDUAL,
+            material,
+            isPublic: true,
+            isActive: entry.isActive,
+            createdAt: new Date(Date.UTC(2026, 10, 1, index)),
+          },
+          select: { id: true },
+        });
+        cacheIds.push(cache.id);
+        caches.push({ id: cache.id, isActive: entry.isActive, bookWordId });
+      }
+      const nonObjectFallbackBook = await prisma.vocabularyBook.create({
+        data: {
+          kind: 'SYSTEM',
+          sourceKey: `study-bank-word-filter-${fixtureId}-non-object-fallback`,
+          title: 'Malformed map fallback fixture',
+          sourcePath: 'isolated-test',
+          category: 'GENERAL',
+          bookWords: {
+            create: {
+              position: 0,
+              word: {
+                create: {
+                  normalized: `study-bank-word-filter-${fixtureId}-non-object-fallback`,
+                  text: 'non-object relation',
+                  meaning: '异常映射回退测试',
+                },
+              },
+            },
+          },
+        },
+        include: { bookWords: true },
+      });
+      bookIds.push(nonObjectFallbackBook.id);
+      const malformedCache = await prisma.studyContentCache.create({
+        data: {
+          signature: `study-bank-word-filter-${fixtureId}-malformed`,
+          mode: StudyPlanMode.INDIVIDUAL,
+          material: {
+            title: `Malformed target fixture ${fixtureId}`,
+            wordOccurrences: ['pencil box'],
+            questions: [generatedQuestion(nonObjectFallbackBook.bookWords[0].id)],
+          },
+          isPublic: true,
+        },
+        select: { id: true },
+      });
+      cacheIds.push(malformedCache.id);
+
+      const privateBook = await prisma.vocabularyBook.create({
+        data: {
+          kind: 'PERSONAL',
+          ownerId: voter.id,
+          sourceKey: `study-bank-word-filter-${fixtureId}-private`,
+          title: 'Private vocabulary fixture',
+          sourcePath: 'isolated-test',
+          category: 'GENERAL',
+          bookWords: {
+            create: {
+              position: 0,
+              word: {
+                create: {
+                  normalized: `study-bank-word-filter-${fixtureId}-private-word`,
+                  text: 'private pencil box',
+                  meaning: '私人词条',
+                },
+              },
+            },
+          },
+        },
+        include: { bookWords: true },
+      });
+      bookIds.push(privateBook.id);
+      const malformedPublicCache = await prisma.studyContentCache.create({
+        data: {
+          signature: `study-bank-word-filter-${fixtureId}-private-reference`,
+          mode: StudyPlanMode.INDIVIDUAL,
+          material: {
+            title: `Malformed private-reference fixture ${fixtureId}`,
+            questions: [generatedQuestion(privateBook.bookWords[0].id)],
+          },
+          isPublic: true,
+        },
+        select: { id: true },
+      });
+      cacheIds.push(malformedPublicCache.id);
+
+      const addNegativeVote = async (cacheId: string, bookWordId: string) => {
+        const question = generatedQuestion(bookWordId);
+        await prisma.studyContentQuestionFeedback.create({
+          data: {
+            userId: voter.id,
+            contentCacheId: cacheId,
+            questionFingerprint: studyQuestionFingerprint(question),
+            questionSnapshot: question,
+            rating: StudyContentFeedbackRating.DOWN,
+            reason: StudyContentFeedbackReason.QUESTION_UNCLEAR,
+          },
+        });
+      };
+      await addNegativeVote(caches[0].id, caches[0].bookWordId);
+      await addNegativeVote(caches[1].id, caches[1].bookWordId);
+
+      const bank = new StudyContentBankService(prisma as never);
+      const firstPage = await bank.list({
+        targetWord: targetWordWhitespaceFixture.rawInput,
+        status: 'all',
+        mode: StudyPlanMode.INDIVIDUAL,
+        pageSize: 2,
+        page: 1,
+      });
+      const secondPage = await bank.list({
+        targetWord: 'pencil box',
+        status: 'all',
+        mode: StudyPlanMode.INDIVIDUAL,
+        pageSize: 2,
+        page: 2,
+      });
+      const thirdPage = await bank.list({
+        targetWord: 'pencil box',
+        status: 'all',
+        mode: StudyPlanMode.INDIVIDUAL,
+        pageSize: 2,
+        page: 3,
+      });
+      expect(firstPage.total).toBe(5);
+      expect(firstPage.items).toHaveLength(2);
+      expect(secondPage.total).toBe(5);
+      expect(secondPage.items).toHaveLength(2);
+      expect(thirdPage.total).toBe(5);
+      expect(thirdPage.items).toHaveLength(1);
+      expect(
+        new Set([...firstPage.items, ...secondPage.items, ...thirdPage.items].map(({ id }) => id)),
+      ).toEqual(new Set(caches.slice(0, 5).map(({ id }) => id)));
+      expect(
+        await bank.list({
+          targetWord: 'PENCIL\u00a0BOX',
+          status: 'all',
+          mode: StudyPlanMode.INDIVIDUAL,
+        }),
+      ).toMatchObject({ total: 5 });
+      expect(
+        await bank.list({
+          targetWord: 'PENCIL\u3000BOX',
+          status: 'all',
+          mode: StudyPlanMode.INDIVIDUAL,
+        }),
+      ).toMatchObject({ total: 5 });
+      expect(
+        await bank.list({ targetWord: 'dim', status: 'all', mode: StudyPlanMode.INDIVIDUAL }),
+      ).toMatchObject({ total: 0, items: [] });
+      expect(
+        await bank.list({ targetWord: 'bright', status: 'all', mode: StudyPlanMode.INDIVIDUAL }),
+      ).toMatchObject({ total: 1, items: [{ id: caches[5].id }] });
+      expect(
+        await bank.list({
+          targetWord: 'empty map relation',
+          status: 'all',
+          mode: StudyPlanMode.INDIVIDUAL,
+        }),
+      ).toMatchObject({ total: 0, items: [] });
+      expect(
+        await bank.list({
+          targetWord: 'non-object relation',
+          status: 'all',
+          mode: StudyPlanMode.INDIVIDUAL,
+        }),
+      ).toMatchObject({ total: 1, items: [{ id: malformedCache.id }] });
+      expect(
+        await bank.list({ targetWord: 'pencil', status: 'all', mode: StudyPlanMode.INDIVIDUAL }),
+      ).toMatchObject({ total: 0, items: [] });
+      expect(
+        await bank.list({ targetWord: 'box', status: 'all', mode: StudyPlanMode.INDIVIDUAL }),
+      ).toMatchObject({ total: 0, items: [] });
+      expect(
+        await bank.list({
+          targetWord: 'private pencil box',
+          status: 'all',
+          mode: StudyPlanMode.INDIVIDUAL,
+        }),
+      ).toMatchObject({ total: 0, items: [] });
+
+      expect(
+        await bank.list({
+          targetWord: 'PENCIL BOX',
+          search: fixtureId,
+          status: 'active',
+          mode: StudyPlanMode.INDIVIDUAL,
+          feedback: 'negative',
+        }),
+      ).toMatchObject({ total: 1, items: [{ id: caches[0].id }] });
+      expect(
+        await bank.list({
+          targetWord: 'pencil box',
+          status: 'disabled',
+          mode: StudyPlanMode.INDIVIDUAL,
+          feedback: 'negative',
+        }),
+      ).toMatchObject({ total: 1, items: [{ id: caches[1].id }] });
+    } finally {
+      if (cacheIds.length)
+        await prisma.studyContentCache.deleteMany({ where: { id: { in: cacheIds } } });
+      if (voterId) await prisma.user.deleteMany({ where: { id: voterId } });
+      if (bookIds.length)
+        await prisma.vocabularyBook.deleteMany({ where: { id: { in: bookIds } } });
       await prisma.$disconnect();
     }
   }, 60_000);

@@ -131,7 +131,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         const anonymousRead = await fastify.inject({ method: 'GET', url: route });
         const userRead = await fastify.inject({
           method: 'GET',
-          url: `${route}?feedback=negative`,
+          url: `${route}?feedback=negative&targetWord=steady`,
           headers: { authorization: `Bearer ${userToken}` },
         });
         const anonymousWrite = await fastify.inject({
@@ -164,7 +164,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 
         const adminRead = await fastify.inject({
           method: 'GET',
-          url: `${route}?feedback=negative`,
+          url: `${route}?feedback=negative&targetWord=steady`,
           headers: { authorization: `Bearer ${adminToken}` },
         });
         expect(adminRead.statusCode).toBe(200);
