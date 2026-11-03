@@ -83,6 +83,7 @@ const PUBLIC_CACHE_REUSED_OBSERVATION = {
   reason: '该计划复用了符合词目、模式、题型和当前熟悉度条件的公共材料；未记录题目内容。',
 };
 export const MAX_STUDY_QUESTION_REPAIR_ATTEMPTS = 3;
+const MAX_DISABLED_PUBLIC_CACHE_REPLACEMENT_ROUNDS = 3;
 export const STUDY_GENERATION_REQUEST_TIMEOUT_MS = 90_000;
 export const STUDY_GENERATION_TOTAL_TIMEOUT_MS = 6 * 60_000;
 const SAFE_GENERATION_FAILURE =
@@ -173,6 +174,12 @@ type PublicCacheResolution = {
   invalidCacheIds: Map<number, string>;
   missReasons: Map<number, PublicCacheMissReason>;
 };
+class DisabledPublicStudyMaterial extends Error {
+  constructor(readonly groupIndexes: number[]) {
+    super('A selected public study material was disabled before the plan was saved.');
+    this.name = 'DisabledPublicStudyMaterial';
+  }
+}
 type GradedAnswer = {
   isCorrect: boolean;
   questionType: GeneratedQuestion['type'];
@@ -556,6 +563,7 @@ export class StudyService {
     let cacheClaimToken: string | undefined;
     let cacheClaimFailureCode: string | undefined;
     let cacheClaimHeartbeat: ReturnType<typeof setInterval> | undefined;
+    let cacheClaimHeartbeatInFlight: Promise<void> | undefined;
     let providerRequestStarted = false;
     const cacheClaimAbortController = new AbortController();
     const generateWithBudget = async (request: Parameters<AiService['generateForUser']>[0]) => {
@@ -630,6 +638,40 @@ export class StudyService {
         data: { generationPhase: phase },
       });
       if (!updated.count) throw new StudyPlanGenerationSuperseded();
+    };
+    const startCacheClaimHeartbeat = () => {
+      if (cacheClaimHeartbeat || !heldCacheSignatures.length || !cacheClaimToken) return;
+      cacheClaimHeartbeat = setInterval(() => {
+        if (cacheClaimHeartbeatInFlight || cacheClaimAbortController.signal.aborted) return;
+        const signatures = [...heldCacheSignatures];
+        const ownerToken = cacheClaimToken!;
+        let heartbeat: Promise<void>;
+        heartbeat = renewStudyContentClaims(this.prisma, signatures, ownerToken)
+          .then((renewed) => {
+            if (!renewed && !cacheClaimAbortController.signal.aborted) {
+              cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+              cacheClaimAbortController.abort(new Error('Public study content claim expired'));
+            }
+          })
+          .catch(() => {
+            if (!cacheClaimAbortController.signal.aborted) {
+              cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+              cacheClaimAbortController.abort(new Error('Public study content claim unavailable'));
+            }
+          })
+          .finally(() => {
+            if (cacheClaimHeartbeatInFlight === heartbeat) {
+              cacheClaimHeartbeatInFlight = undefined;
+            }
+          });
+        cacheClaimHeartbeatInFlight = heartbeat;
+      }, this.cacheClaimHeartbeatMs);
+      cacheClaimHeartbeat.unref?.();
+    };
+    const stopCacheClaimHeartbeat = async () => {
+      if (cacheClaimHeartbeat) clearInterval(cacheClaimHeartbeat);
+      cacheClaimHeartbeat = undefined;
+      await cacheClaimHeartbeatInFlight;
     };
     try {
       const cacheLookupSpecs = groupSpec.map((spec) => ({
@@ -818,12 +860,35 @@ export class StudyService {
         Date.now(),
         this.cacheClaimWaitTimeoutMs,
       );
-      const initiallyMissingSignatures = publicMissingSignatures();
-      if (initiallyMissingSignatures.length) {
-        cacheClaimToken = randomUUID();
+      const acquireReplacementClaims = async (
+        requestedSignatures: string[],
+        initialResolution?: PublicCacheResolution,
+      ): Promise<PublicCacheResolution> => {
+        const previouslyHeld = [...heldCacheSignatures];
+        if (previouslyHeld.length) {
+          // Never wait for a new signature while retaining a partial claim set.
+          // Release and reacquire the complete unresolved set atomically so
+          // concurrent plans with overlapping cache keys cannot form a cycle.
+          await stopCacheClaimHeartbeat();
+          await releaseStudyContentClaims(this.prisma, previouslyHeld, cacheClaimToken!);
+          heldCacheSignatures = [];
+        }
+        const requested = [...new Set([...previouslyHeld, ...requestedSignatures])].sort();
+        let latest =
+          previouslyHeld.length || !initialResolution
+            ? await resolveCacheGroups()
+            : initialResolution;
+        if (!requested.length) return latest;
+        cacheClaimToken ??= randomUUID();
         while (true) {
-          const needed = publicMissingSignatures();
-          if (!needed.length) break;
+          const missing = requested.filter((signature) =>
+            cacheLookupSpecs.some(
+              ({ spec, signature: candidateSignature }, index) =>
+                spec.publicEligible && candidateSignature === signature && !latest.cached[index],
+            ),
+          );
+          const needed = missing.filter((signature) => !heldCacheSignatures.includes(signature));
+          if (!needed.length) return latest;
           if (Date.now() >= claimWaitDeadline) {
             throw attachSystemLogDiagnostic(
               new BadGatewayException(
@@ -837,17 +902,42 @@ export class StudyService {
               },
             );
           }
+          const now = new Date();
           if (
             await tryClaimStudyContentSignatures(
               this.prisma,
               needed,
               cacheClaimToken,
-              new Date(),
+              now,
               generationStartedAt,
             )
           ) {
-            heldCacheSignatures = needed;
-            break;
+            heldCacheSignatures = [...needed];
+            latest = await resolveCacheGroups();
+            const stillMissing = requested.filter((signature) =>
+              cacheLookupSpecs.some(
+                ({ spec, signature: candidateSignature }, index) =>
+                  spec.publicEligible && candidateSignature === signature && !latest.cached[index],
+              ),
+            );
+            const newlyMissing = stillMissing.filter(
+              (signature) => !heldCacheSignatures.includes(signature),
+            );
+            if (newlyMissing.length) {
+              await stopCacheClaimHeartbeat();
+              await releaseStudyContentClaims(this.prisma, heldCacheSignatures, cacheClaimToken);
+              heldCacheSignatures = [];
+              continue;
+            }
+            const noLongerNeeded = needed.filter((signature) => !stillMissing.includes(signature));
+            if (noLongerNeeded.length) {
+              await releaseStudyContentClaims(this.prisma, noLongerNeeded, cacheClaimToken);
+              heldCacheSignatures = heldCacheSignatures.filter(
+                (signature) => !noLongerNeeded.includes(signature),
+              );
+            }
+            startCacheClaimHeartbeat();
+            return latest;
           }
           const statuses = await Promise.all(
             needed.map(async (signature) => ({
@@ -858,7 +948,6 @@ export class StudyService {
           const blocked = statuses.find(({ status }) => status !== 'READY');
           const blockedSignature = blocked?.signature ?? needed[0];
           const status = blocked?.status ?? 'READY';
-          await releaseStudyContentClaims(this.prisma, needed, cacheClaimToken);
           if (status === 'COOLDOWN') {
             throw attachSystemLogDiagnostic(
               new BadGatewayException(
@@ -875,10 +964,7 @@ export class StudyService {
           if (status === 'BUSY') {
             await setGenerationPhase(StudyPlanGenerationPhase.WAITING_PUBLIC_CACHE);
           }
-          const waited = await this.waitForPublicCacheClaim(
-            blockedSignature ?? needed[0],
-            claimWaitDeadline,
-          );
+          const waited = await this.waitForPublicCacheClaim(blockedSignature, claimWaitDeadline);
           if (waited === 'TIMEOUT') {
             throw attachSystemLogDiagnostic(
               new BadGatewayException(
@@ -905,45 +991,14 @@ export class StudyService {
               },
             );
           }
+          latest = await resolveCacheGroups();
         }
-        cacheResolution = await resolveCacheGroups();
+      };
+      const initiallyMissingSignatures = publicMissingSignatures();
+      if (initiallyMissingSignatures.length) {
+        cacheResolution = await acquireReplacementClaims(signatures, cacheResolution);
         cached = cacheResolution.cached;
         invalidCacheIds = cacheResolution.invalidCacheIds;
-        const noLongerNeeded = heldCacheSignatures.filter(
-          (signature) => !publicMissingSignatures().includes(signature),
-        );
-        if (noLongerNeeded.length) {
-          await releaseStudyContentClaims(this.prisma, noLongerNeeded, cacheClaimToken);
-          heldCacheSignatures = heldCacheSignatures.filter(
-            (signature) => !noLongerNeeded.includes(signature),
-          );
-        }
-        if (heldCacheSignatures.length) {
-          let heartbeatInFlight = false;
-          cacheClaimHeartbeat = setInterval(() => {
-            if (heartbeatInFlight || cacheClaimAbortController.signal.aborted) return;
-            heartbeatInFlight = true;
-            void renewStudyContentClaims(this.prisma, heldCacheSignatures, cacheClaimToken!)
-              .then((renewed) => {
-                if (!renewed && !cacheClaimAbortController.signal.aborted) {
-                  cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
-                  cacheClaimAbortController.abort(new Error('Public study content claim expired'));
-                }
-              })
-              .catch(() => {
-                if (!cacheClaimAbortController.signal.aborted) {
-                  cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
-                  cacheClaimAbortController.abort(
-                    new Error('Public study content claim unavailable'),
-                  );
-                }
-              })
-              .finally(() => {
-                heartbeatInFlight = false;
-              });
-          }, this.cacheClaimHeartbeatMs);
-          cacheClaimHeartbeat.unref?.();
-        }
       }
       if (cached.some(Boolean)) {
         this.observePublicCache(
@@ -956,26 +1011,49 @@ export class StudyService {
         const observation = PUBLIC_CACHE_OBSERVATION_DETAILS[reason];
         this.observePublicCache(observation.code, observation.reason);
       }
-      const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
-      let generatedMissing: GeneratedGroup[] = [];
-      if (missingSpecs.length) {
-        generationPhase = 'provider_request';
+      let cacheReplacementRequests = 0;
+      const generateGroupsForSpecs = async (
+        specs: typeof groupSpec,
+        replacementForDisabledCache = false,
+      ): Promise<GeneratedGroup[]> => {
+        if (!specs.length) return [];
+        if (
+          replacementForDisabledCache &&
+          cacheReplacementRequests >= MAX_DISABLED_PUBLIC_CACHE_REPLACEMENT_ROUNDS
+        ) {
+          throw attachSystemLogDiagnostic(
+            new BadGatewayException(
+              '公共材料在本次生成期间多次被停用，已达到替代生成上限；请稍后重新发起计划。',
+            ),
+            {
+              code: 'STUDY_DISABLED_CACHE_REPLACEMENT_LIMIT',
+              phase: 'internal',
+              fieldPath: 'public_material_cache',
+              reason: '公共材料在本次计划生成期间多次停用；有限替代次数已用完，未再发起请求。',
+            },
+          );
+        }
         if (!(await this.modelConfigs.selectedProvider(userId))) {
           throw new BadRequestException(
             '部分学习材料缺失或未通过内容校验，请先在阅读材料模型设置中选择可用的大模型',
           );
         }
+        if (replacementForDisabledCache) cacheReplacementRequests += 1;
+        generationPhase = 'provider_request';
         await setGenerationPhase(StudyPlanGenerationPhase.WAITING_MODEL);
         const response = await generateWithBudget({
           purpose: 'study-plan',
-          prompt: generationPrompt(plan.mode, missingSpecs, plan.purpose),
+          prompt: generationPrompt(plan.mode, specs, plan.purpose),
           schema: {},
         });
         await setGenerationPhase(StudyPlanGenerationPhase.VALIDATING);
         generationPhase = 'content_parse';
         const generated = normalizeGeneratedContentFormatting(parseGeneratedContent(response));
         generationPhase = 'content_validation';
-        const repaired = await validateAndRepairGeneratedContent(generated, missingSpecs, {
+        const repairAttemptsBefore = repairAttempts;
+        const repaired = await validateAndRepairGeneratedContent(generated, specs, {
+          maxAttempts: Math.max(0, MAX_STUDY_QUESTION_REPAIR_ATTEMPTS - repairAttempts),
+          attemptOffset: repairAttempts,
           onRepairAttempt: async (attempt) => {
             repairAttempts = attempt;
             generationPhase = 'content_validation';
@@ -1021,31 +1099,39 @@ export class StudyService {
           },
         });
         repairAttempts = repaired.attempts;
-        if (repairAttempts > 0 && this.systemLogs) {
+        if (repaired.attempts > repairAttemptsBefore && this.systemLogs) {
           await this.systemLogs.record({
             source: 'api',
             kind: 'study.generation.repair',
             code: 'STUDY_QUESTION_REPAIR_COMPLETED',
             phase: 'content_validation',
             fieldPath: 'groups[].questions',
-            attemptsMade: repairAttempts,
+            attemptsMade: repaired.attempts,
             maxAttempts: MAX_STUDY_QUESTION_REPAIR_ATTEMPTS,
             reason: '个别题目已通过有限局部修复；题目内容未写入日志。',
           });
         }
-        generatedMissing = repaired.content.groups;
-      }
-      const resolved = groupSpec.map((spec, index): ResolvedGroup => {
+        return repaired.content.groups.map((group) => {
+          const spec = specs.find((candidate) => candidate.index === group.index);
+          if (!spec) throw new Error('Generated study group did not match a requested group.');
+          const passage = group.sentences.map((sentence) => sentence.english).join(' ');
+          return {
+            ...group,
+            wordOccurrences: Object.fromEntries(
+              spec.words.map((word) => [
+                word.word,
+                passage.match(new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'gi'))?.length ?? 0,
+              ]),
+            ),
+          };
+        });
+      };
+      const missingSpecs = groupSpec.filter((_, index) => !cached[index]);
+      const generatedMissing = await generateGroupsForSpecs(missingSpecs);
+      let resolved = groupSpec.map((spec, index): ResolvedGroup => {
         const cache = cached[index];
         if (cache) return cache;
         const group = generatedMissing.find((item) => item.index === spec.index)!;
-        const passage = group.sentences.map((sentence) => sentence.english).join(' ');
-        group.wordOccurrences = Object.fromEntries(
-          spec.words.map((word) => [
-            word.word,
-            passage.match(new RegExp(`\\b${escapeRegExp(word.word)}\\b`, 'gi'))?.length ?? 0,
-          ]),
-        );
         return {
           group,
           cacheId: invalidCacheIds.get(spec.index),
@@ -1059,118 +1145,226 @@ export class StudyService {
           publicEligible: spec.publicEligible,
         };
       });
-      const generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
+      let generatedContent: GeneratedContent = { groups: resolved.map((item) => item.group) };
       generationPhase = 'content_validation';
       validateGeneratedContent(generatedContent, groupSpec);
-      const generatedAt = new Date();
-      await setGenerationPhase(StudyPlanGenerationPhase.SAVING);
-      generationPhase = 'plan_persistence';
-      await this.prisma.$transaction(async (tx) => {
-        if (heldCacheSignatures.length && cacheClaimToken) {
-          const lease = await tx.studyContentGenerationClaim.updateMany({
-            where: {
-              signature: { in: heldCacheSignatures },
-              ownerToken: cacheClaimToken,
-              leaseExpiresAt: { gt: generatedAt },
-            },
-            data: {
-              leaseExpiresAt: new Date(generatedAt.getTime() + STUDY_CONTENT_CLAIM_LEASE_MS),
-            },
+      let deactivationReconciliationRounds = 0;
+      while (true) {
+        const generatedAt = new Date();
+        await setGenerationPhase(StudyPlanGenerationPhase.SAVING);
+        generationPhase = 'plan_persistence';
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            if (heldCacheSignatures.length && cacheClaimToken) {
+              const lease = await tx.studyContentGenerationClaim.updateMany({
+                where: {
+                  signature: { in: heldCacheSignatures },
+                  ownerToken: cacheClaimToken,
+                  leaseExpiresAt: { gt: generatedAt },
+                },
+                data: {
+                  leaseExpiresAt: new Date(generatedAt.getTime() + STUDY_CONTENT_CLAIM_LEASE_MS),
+                },
+              });
+              if (lease.count !== heldCacheSignatures.length) {
+                cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+                throw attachSystemLogDiagnostic(
+                  new Error('公共学习材料生成协同租约失效；已停止保存结果。'),
+                  {
+                    code: 'STUDY_CACHE_CLAIM_LOST',
+                    phase: 'plan_persistence',
+                    fieldPath: 'public_material_claim',
+                    reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+                  },
+                );
+              }
+            }
+
+            const deactivatedGroups: number[] = [];
+            for (const [groupIndex, resolvedGroup] of resolved.entries()) {
+              if (!resolvedGroup.publicEligible || !resolvedGroup.cacheId) continue;
+              const updated = await tx.studyContentCache.updateMany({
+                where: {
+                  id: resolvedGroup.cacheId,
+                  isPublic: true,
+                  isActive: true,
+                },
+                data: {
+                  hitCount: resolvedGroup.reused ? { increment: 1 } : 0,
+                  lastUsedAt: generatedAt,
+                  ...(!resolvedGroup.reused
+                    ? {
+                        material: {
+                          ...resolvedGroup.group,
+                          index: 0,
+                        } as unknown as Prisma.InputJsonValue,
+                      }
+                    : {}),
+                },
+              });
+              if (!updated.count) deactivatedGroups.push(groupIndex);
+            }
+            if (deactivatedGroups.length) {
+              throw new DisabledPublicStudyMaterial(deactivatedGroups);
+            }
+
+            const finalized = await tx.studyPlan.updateMany({
+              where: {
+                id: planId,
+                userId,
+                status: StudyPlanStatus.GENERATING,
+                generationStartedAt,
+              },
+              data: {
+                generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
+                generationError: null,
+                generationPhase: null,
+                generationStartedAt: null,
+                generatedAt,
+                status: StudyPlanStatus.ACTIVE,
+              },
+            });
+            if (!finalized.count) throw new StudyPlanGenerationSuperseded();
+
+            for (const resolvedGroup of resolved) {
+              let cacheId = resolvedGroup.cacheId;
+              if (resolvedGroup.publicEligible && !cacheId) {
+                if (!cacheClaimToken || !heldCacheSignatures.includes(resolvedGroup.signature)) {
+                  cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+                  throw attachSystemLogDiagnostic(
+                    new Error('新建公共学习材料缺少当前请求的协同租约；已停止保存结果。'),
+                    {
+                      code: 'STUDY_CACHE_CLAIM_LOST',
+                      phase: 'plan_persistence',
+                      fieldPath: 'public_material_claim',
+                      reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+                    },
+                  );
+                }
+                const created = await tx.studyContentCache.create({
+                  data: {
+                    signature: resolvedGroup.signature,
+                    mode: plan.mode,
+                    material: {
+                      ...resolvedGroup.group,
+                      index: 0,
+                    } as unknown as Prisma.InputJsonValue,
+                    isPublic: true,
+                  },
+                });
+                cacheId = created.id;
+              }
+              for (const question of resolvedGroup.group.questions) {
+                await tx.studyPlanItem.updateMany({
+                  where: { planId, bookWordId: question.bookWordId },
+                  data: {
+                    contentCacheId: resolvedGroup.publicEligible ? (cacheId ?? null) : null,
+                    question: question as unknown as Prisma.InputJsonValue,
+                  },
+                });
+              }
+            }
+            const newWordIds = plan.items
+              .filter((item) => item.source === StudyPlanItemSource.NEW)
+              .map((item) => item.bookWordId)
+              .sort();
+            if (newWordIds.length && !plan.autoDateKey) {
+              await tx.userWordProgress.createMany({
+                data: newWordIds.map((bookWordId) => ({
+                  userId,
+                  bookWordId,
+                  state: WordProgressState.LEARNING,
+                  firstLearnedAt: generatedAt,
+                })),
+                skipDuplicates: true,
+              });
+            }
+            if (heldCacheSignatures.length && cacheClaimToken) {
+              await tx.studyContentGenerationClaim.deleteMany({
+                where: {
+                  signature: { in: heldCacheSignatures },
+                  ownerToken: cacheClaimToken,
+                },
+              });
+            }
           });
-          if (lease.count !== heldCacheSignatures.length) {
-            cacheClaimFailureCode = 'STUDY_CACHE_CLAIM_LOST';
+          break;
+        } catch (error) {
+          if (!(error instanceof DisabledPublicStudyMaterial)) throw error;
+          deactivationReconciliationRounds += 1;
+          generationPhase = 'internal';
+          if (deactivationReconciliationRounds > MAX_DISABLED_PUBLIC_CACHE_REPLACEMENT_ROUNDS) {
             throw attachSystemLogDiagnostic(
-              new Error('公共学习材料生成协同租约失效；已停止保存结果。'),
+              new BadGatewayException(
+                '公共材料在本次生成期间多次被停用，已达到替代生成上限；请稍后重新发起计划。',
+              ),
               {
-                code: 'STUDY_CACHE_CLAIM_LOST',
-                phase: 'plan_persistence',
-                fieldPath: 'public_material_claim',
-                reason: '公共材料生成协同租约失效；已停止本次后续模型请求。',
+                code: 'STUDY_DISABLED_CACHE_REPLACEMENT_LIMIT',
+                phase: 'internal',
+                fieldPath: 'public_material_cache',
+                reason: '公共材料在本次计划生成期间多次停用；有限替代次数已用完，未再发起请求。',
               },
             );
           }
-        }
-        const finalized = await tx.studyPlan.updateMany({
-          where: {
-            id: planId,
-            userId,
-            status: StudyPlanStatus.GENERATING,
-            generationStartedAt,
-          },
-          data: {
-            generatedContent: generatedContent as unknown as Prisma.InputJsonValue,
-            generationError: null,
-            generationPhase: null,
-            generationStartedAt: null,
-            generatedAt,
-            status: StudyPlanStatus.ACTIVE,
-          },
-        });
-        if (!finalized.count) throw new StudyPlanGenerationSuperseded();
-
-        for (const resolvedGroup of resolved) {
-          let cacheId = resolvedGroup.cacheId;
-          if (resolvedGroup.publicEligible && cacheId) {
-            await tx.studyContentCache.update({
-              where: { id: cacheId },
-              data: {
-                hitCount: resolvedGroup.reused ? { increment: 1 } : 0,
-                lastUsedAt: new Date(),
-                ...(!resolvedGroup.reused
-                  ? {
-                      material: {
-                        ...resolvedGroup.group,
-                        index: 0,
-                      } as unknown as Prisma.InputJsonValue,
-                    }
-                  : {}),
-              },
-            });
-          } else if (resolvedGroup.publicEligible) {
-            const created = await tx.studyContentCache.create({
-              data: {
-                signature: resolvedGroup.signature,
-                mode: plan.mode,
-                material: { ...resolvedGroup.group, index: 0 } as unknown as Prisma.InputJsonValue,
-                isPublic: true,
-              },
-            });
-            cacheId = created.id;
+          const latest = await resolveCacheGroups();
+          const replacementsNeeded: typeof groupSpec = [];
+          for (const groupIndex of error.groupIndexes) {
+            const previous = resolved[groupIndex];
+            const alternative = latest.cached[groupIndex];
+            if (previous.reused && alternative) {
+              resolved[groupIndex] = alternative;
+            } else if (previous.reused) {
+              replacementsNeeded.push(groupSpec[groupIndex]);
+            } else {
+              // This group was already generated locally. Keep that content, but
+              // do not repair or bind the cache row that the admin disabled.
+              resolved[groupIndex] = { ...previous, cacheId: undefined };
+            }
           }
-          for (const question of resolvedGroup.group.questions) {
-            await tx.studyPlanItem.updateMany({
-              where: { planId, bookWordId: question.bookWordId },
-              data: {
-                contentCacheId: resolvedGroup.publicEligible ? (cacheId ?? null) : null,
-                question: question as unknown as Prisma.InputJsonValue,
-              },
-            });
+          if (replacementsNeeded.length) {
+            const replacementSignatures = replacementsNeeded.map((spec) =>
+              contentSignature(plan.mode, spec.words, plan.purpose, spec.targetQuestionTypes),
+            );
+            const claimsBeforeReplacement = [...heldCacheSignatures];
+            const afterClaims = await acquireReplacementClaims(replacementSignatures, latest);
+            const requestedReplacementSignatures = new Set([
+              ...replacementSignatures,
+              ...claimsBeforeReplacement,
+            ]);
+            for (const [index, cache] of afterClaims.cached.entries()) {
+              if (cache && requestedReplacementSignatures.has(cacheLookupSpecs[index].signature)) {
+                resolved[index] = cache;
+              }
+            }
+            const specsStillMissing: typeof groupSpec = [];
+            for (const spec of replacementsNeeded) {
+              const index = groupSpec.findIndex((candidate) => candidate.index === spec.index);
+              const alternative = afterClaims.cached[index];
+              if (alternative) resolved[index] = alternative;
+              else specsStillMissing.push(spec);
+            }
+            const replacementGroups = await generateGroupsForSpecs(specsStillMissing, true);
+            for (const group of replacementGroups) {
+              const spec = specsStillMissing.find((candidate) => candidate.index === group.index)!;
+              const index = groupSpec.findIndex((candidate) => candidate.index === group.index);
+              resolved[index] = {
+                group,
+                signature: contentSignature(
+                  plan.mode,
+                  spec.words,
+                  plan.purpose,
+                  spec.targetQuestionTypes,
+                ),
+                reused: false,
+                publicEligible: spec.publicEligible,
+              };
+            }
           }
+          generatedContent = { groups: resolved.map((item) => item.group) };
+          generationPhase = 'content_validation';
+          validateGeneratedContent(generatedContent, groupSpec);
         }
-        const newWordIds = plan.items
-          .filter((item) => item.source === StudyPlanItemSource.NEW)
-          .map((item) => item.bookWordId)
-          .sort();
-        if (newWordIds.length && !plan.autoDateKey) {
-          await tx.userWordProgress.createMany({
-            data: newWordIds.map((bookWordId) => ({
-              userId,
-              bookWordId,
-              state: WordProgressState.LEARNING,
-              firstLearnedAt: generatedAt,
-            })),
-            skipDuplicates: true,
-          });
-        }
-        if (heldCacheSignatures.length && cacheClaimToken) {
-          await tx.studyContentGenerationClaim.deleteMany({
-            where: {
-              signature: { in: heldCacheSignatures },
-              ownerToken: cacheClaimToken,
-            },
-          });
-        }
-      });
+      }
       heldCacheSignatures = [];
       return this.serializePlan(planId, userId);
     } catch (error) {
@@ -1207,12 +1401,14 @@ export class StudyService {
         diagnostic,
       );
     } finally {
-      if (cacheClaimHeartbeat) clearInterval(cacheClaimHeartbeat);
+      await stopCacheClaimHeartbeat();
       if (heldCacheSignatures.length && cacheClaimToken) {
+        const finalGenerationPhase = generationPhase as SystemLogDiagnosticPhase;
         const failureCode =
           cacheClaimFailureCode ??
           (providerRequestStarted
-            ? generationPhase === 'content_parse' || generationPhase === 'content_validation'
+            ? finalGenerationPhase === 'content_parse' ||
+              finalGenerationPhase === 'content_validation'
               ? 'STUDY_CACHE_VALIDATION_FAILED'
               : 'STUDY_CACHE_PROVIDER_FAILED'
             : undefined);
@@ -2011,6 +2207,9 @@ function safeGenerationFailureMessage(
   if (diagnostic.code === 'STUDY_CACHE_CLAIM_LOST') {
     return '公共学习材料协同状态已失效；已停止后续请求，请稍后重试。';
   }
+  if (diagnostic.code === 'STUDY_DISABLED_CACHE_REPLACEMENT_LIMIT') {
+    return '公共材料在本次生成期间多次被停用，已达到替代生成上限；请稍后重新发起计划。';
+  }
   if (
     phase === 'content_validation' &&
     SAFE_VALIDATION_ERROR_PATTERNS.some((pattern) => pattern.test(message))
@@ -2353,6 +2552,8 @@ type RepairableQuestion = {
 type GeneratedContentRepairOptions = {
   onRepairAttempt: (attempt: number) => Promise<void>;
   repairQuestion: (input: RepairableQuestion) => Promise<GeneratedQuestion>;
+  maxAttempts?: number;
+  attemptOffset?: number;
 };
 
 export async function validateAndRepairGeneratedContent(
@@ -2366,13 +2567,15 @@ export async function validateAndRepairGeneratedContent(
 ): Promise<{ content: GeneratedContent; attempts: number }> {
   const content = normalizeGeneratedContentFormatting(input);
   let attempts = 0;
+  const maxAttempts = options.maxAttempts ?? MAX_STUDY_QUESTION_REPAIR_ATTEMPTS;
+  const attemptOffset = options.attemptOffset ?? 0;
   while (true) {
     try {
       validateGeneratedContent(content, expected);
-      return { content, attempts };
+      return { content, attempts: attemptOffset + attempts };
     } catch (error) {
       if (!(error instanceof StudyQuestionValidationError)) throw error;
-      if (attempts >= MAX_STUDY_QUESTION_REPAIR_ATTEMPTS) throw error;
+      if (attempts >= maxAttempts) throw error;
       const expectedGroup = expected.find((group) =>
         group.words.some((word) => word.id === error.bookWordId),
       );
@@ -2383,13 +2586,14 @@ export async function validateAndRepairGeneratedContent(
       );
       if (!expectedGroup || !group || !word || !question) throw error;
       attempts += 1;
-      await options.onRepairAttempt(attempts);
+      const attempt = attemptOffset + attempts;
+      await options.onRepairAttempt(attempt);
       const repaired = await options.repairQuestion({
         error,
         word,
         group,
         question,
-        attempt: attempts,
+        attempt,
       });
       if (repaired.bookWordId !== word.id) {
         throw attachSystemLogDiagnostic(new Error('单题修复返回了不匹配的词条标识'), {

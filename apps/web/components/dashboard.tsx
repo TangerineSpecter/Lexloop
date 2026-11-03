@@ -1501,7 +1501,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 className={activeTab === 'history' ? 'active' : ''}
                 onClick={() => setActiveTab('history')}
               >
-                今日学习历史
+                学习记录
               </button>
             </div>
             {visiblePlansStatus !== 'ready' && (

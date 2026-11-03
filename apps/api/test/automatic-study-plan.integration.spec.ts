@@ -7,6 +7,30 @@ import { AutomaticStudyPlanWorkerService } from '../src/modules/automatic-study-
 
 const NOW = new Date('2026-11-02T00:00:00.000Z'); // 08:00 in Asia/Shanghai.
 
+function prismaForSweepUser(prisma: PrismaClient, userId: string) {
+  return new Proxy(prisma, {
+    get(target, property) {
+      if (property === 'user') {
+        return new Proxy(target.user, {
+          get(delegate, method) {
+            const operation = Reflect.get(delegate, method, delegate);
+            if (method === 'findMany' && typeof operation === 'function') {
+              return (args: { where?: object }) =>
+                operation.call(delegate, {
+                  ...args,
+                  where: { AND: [args.where ?? {}, { id: userId }] },
+                });
+            }
+            return typeof operation === 'function' ? operation.bind(delegate) : operation;
+          },
+        });
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'automatic study plans in an isolated database',
   () => {
@@ -33,7 +57,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         getConfig: vi.fn().mockResolvedValue({ enabled: true, scheduleTime: '06:30' }),
       };
       const service = new AutomaticStudyPlanWorkerService(
-        prisma as never,
+        prismaForSweepUser(prisma, user.id) as never,
         settings as never,
         {} as never,
         {} as never,

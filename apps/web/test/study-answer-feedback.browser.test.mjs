@@ -2458,7 +2458,7 @@ test(
       await send('Page.reload');
       await until('document.querySelector("[role=tab]")');
       await evaluate(
-        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("今日学习历史")).click()',
+        '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("学习记录")).click()',
       );
       await until('document.querySelector(".plan-empty")');
       assert.equal(

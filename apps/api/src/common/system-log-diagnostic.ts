@@ -32,6 +32,7 @@ const SAFE_FIELD_PATHS = new Set([
   'studyPlan.generatedContent',
   'studyPlan.generation',
   'public_material_claim',
+  'public_material_cache',
   'groups',
   'groups[].sentences',
   'groups[].sentences[].english',
@@ -57,6 +58,7 @@ const VALID_REASONS = new Set([
   '等待同一公共材料超过时限；已停止发起重复模型请求。',
   '同一公共材料近期生成失败；处于短暂冷却期，未发起重复模型请求。',
   '公共材料生成协同租约失效；已停止本次后续模型请求。',
+  '公共材料在本次计划生成期间多次停用；有限替代次数已用完，未再发起请求。',
 ]);
 
 export function attachSystemLogDiagnostic<T extends Error>(

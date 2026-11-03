@@ -330,6 +330,35 @@ describe('study generation question validation and bounded repair', () => {
     expect(error).toBeInstanceOf(StudyQuestionValidationError);
   });
 
+  it('uses the remaining repair allowance after earlier local repair requests', async () => {
+    const source = makeContent(
+      [phraseWord],
+      [makeQuestion(phraseWord.id, ['pencil box', 'book bag', 'pen holder', 'desk drawer'])],
+    );
+    const repairOrdinals: number[] = [];
+    let repairCalls = 0;
+    const error = await validateAndRepairGeneratedContent(
+      source,
+      [{ index: 0, words: [phraseWord] }],
+      {
+        maxAttempts: 1,
+        attemptOffset: MAX_STUDY_QUESTION_REPAIR_ATTEMPTS - 1,
+        onRepairAttempt: async (attempt) => {
+          repairOrdinals.push(attempt);
+        },
+        repairQuestion: async ({ attempt, question }) => {
+          repairCalls += 1;
+          expect(attempt).toBe(MAX_STUDY_QUESTION_REPAIR_ATTEMPTS);
+          return question;
+        },
+      },
+    ).catch((caught: unknown) => caught);
+
+    expect(repairCalls).toBe(1);
+    expect(repairOrdinals).toEqual([MAX_STUDY_QUESTION_REPAIR_ATTEMPTS]);
+    expect(error).toBeInstanceOf(StudyQuestionValidationError);
+  });
+
   it('keeps question type constraints in the local repair prompt', () => {
     const prompt = questionRepairPrompt({
       word: phraseWord,
