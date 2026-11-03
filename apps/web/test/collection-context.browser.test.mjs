@@ -216,6 +216,24 @@ test(
       window.failImportOnce = false;
       window.deferImportOnce = false;
       window.apiRequests = [];
+      window.ttsApiRequests = [];
+      window.ttsLookupState = 'disabled';
+      window.deferTtsLookupOnce = false;
+      window.ttsLookupResolvers = [];
+      window.ttsGenerateCount = 0;
+      window.ttsPlayedCount = 0;
+      window.ttsAudioPauseCount = 0;
+      window.ttsAudioPlaybackFails = false;
+      window.Audio = class {
+        constructor(src) { this.src = src; this.playbackRate = 1; this.onended = null; this.onerror = null; }
+        play() {
+          window.ttsPlayedCount += 1;
+          return window.ttsAudioPlaybackFails
+            ? Promise.reject(new DOMException('Blocked by fixture', 'NotAllowedError'))
+            : Promise.resolve();
+        }
+        pause() { window.ttsAudioPauseCount += 1; }
+      };
       window.failNotebookPageTwoOnce = false;
       window.failWordHistoryOnce = false;
       window.deferWordHistoryOnce = false;
@@ -245,6 +263,38 @@ test(
       const nativeFetch = window.fetch;
       window.fetch = async (url, options) => {
         const path = String(url);
+        if (path.includes('/api/v1/tts/')) {
+          window.ttsApiRequests.push({
+            path,
+            method: options.method ?? 'GET',
+            body: options.body ? JSON.parse(options.body) : null,
+            authorization: new Headers(options.headers).get('Authorization'),
+          });
+          if (path.endsWith('/tts/audio/lookup')) {
+            if (window.deferTtsLookupOnce) {
+              window.deferTtsLookupOnce = false;
+              return await new Promise(resolve => window.ttsLookupResolvers.push(() => resolve(
+                Response.json(window.ttsLookupState === 'hit'
+                  ? { state: 'hit', audioId: 'fixture-audio' }
+                  : { state: window.ttsLookupState }),
+              )));
+            }
+            return Response.json(
+              window.ttsLookupState === 'hit'
+                ? { state: 'hit', audioId: 'fixture-audio' }
+                : { state: window.ttsLookupState },
+            );
+          }
+          if (path.endsWith('/tts/audio/generate')) {
+            window.ttsGenerateCount += 1;
+            return Response.json({ audioId: 'fixture-audio', cache: 'generated' });
+          }
+          if (path.includes('/tts/audio/fixture-audio'))
+            return new Response(new Uint8Array(128), {
+              status: 200,
+              headers: { 'Content-Type': 'audio/mpeg' },
+            });
+        }
         if (path.includes('/api/v1/')) window.apiRequests.push(path);
         const userId = JSON.parse(localStorage.getItem('lexloop.session') || '{}').user?.id || 'fixture';
         if (path.includes('/api/v1/auth/me')) return Response.json({ id: userId });
@@ -703,7 +753,7 @@ test(
         false,
       );
       await evaluate('document.querySelector("[data-spelling-play]").click()');
-      assert.equal(await evaluate('window.notebookSpeechAudit.at(-1)'), 'take it for granted');
+      await until('window.notebookSpeechAudit.at(-1) === "take it for granted"');
       assert.equal(
         await evaluate(
           'document.querySelector("[data-notebook-spelling-practice]").innerText.includes("take it for granted")',
@@ -726,6 +776,13 @@ test(
       assert.equal(await evaluate('document.querySelector("[data-spelling-difference]")'), null);
       const requestsAfterCorrectSpelling = await evaluate('window.apiRequests.length');
       assert.equal(requestsAfterCorrectSpelling, apiRequestsBeforeSpelling);
+      assert.equal(
+        await evaluate(
+          'window.ttsApiRequests.filter(request => request.path.endsWith("/tts/audio/lookup")).length',
+        ),
+        1,
+      );
+      assert.equal(await evaluate('window.ttsGenerateCount'), 0);
 
       await evaluate('document.querySelector("[data-spelling-start]").click()');
       await until(
@@ -738,7 +795,7 @@ test(
         false,
       );
       await evaluate('document.querySelector("[data-spelling-play]").click()');
-      assert.equal(await evaluate('window.notebookSpeechAudit.at(-1)'), 'in the long run');
+      await until('window.notebookSpeechAudit.at(-1) === "in the long run"');
       await evaluate(`(() => {
         const input = document.querySelector('[data-spelling-answer-input]');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'in the long runn');
@@ -776,7 +833,7 @@ test(
       await evaluate('window.notebookSpeechVoices = []');
       await evaluate('document.querySelector("[data-spelling-play]").click()');
       await until(
-        'document.querySelector("[data-spelling-notice]")?.textContent.includes("标记为本地服务")',
+        'document.querySelector("[data-notebook-spelling-practice] [aria-live=polite]")?.textContent.includes("标记为本地服务")',
       );
       await evaluate('document.querySelector("[data-spelling-reveal]").click()');
       assert.equal(
@@ -811,7 +868,9 @@ test(
         mobileSpellingLayout.buttonLeft >= 0 &&
           mobileSpellingLayout.buttonRight <= mobileSpellingLayout.viewport,
       );
-      await evaluate('document.querySelector("[data-spelling-start]").click()');
+      await evaluate(
+        'Math.random = () => 0; document.querySelector("[data-spelling-start]").click()',
+      );
       await until('document.activeElement?.matches("[data-spelling-answer-input]")');
       await evaluate(`(() => {
         const input = document.querySelector('[data-spelling-answer-input]');
@@ -1251,6 +1310,114 @@ test(
         ),
         favoritePageReadsBeforeFailure + 2,
       );
+
+      await evaluate(`(() => {
+        const session = JSON.parse(localStorage.getItem('lexloop.session'));
+        session.accessToken = 'fixture-token';
+        session.user = { id: 'fixture', email: 'fixture@example.invalid', displayName: 'Fixture', role: 'USER' };
+        localStorage.setItem('lexloop.session', JSON.stringify(session));
+        location.href = '/dashboard/notebook?tab=words';
+      })()`);
+      await until('document.querySelector("[data-spelling-start]")');
+      await evaluate(
+        'Math.random = () => 0; document.querySelector("[data-spelling-start]").click()',
+      );
+      await until('document.querySelector("[data-spelling-play]")');
+      await evaluate(
+        'window.ttsLookupState = "miss"; document.querySelector("[data-spelling-play]").click()',
+      );
+      await until(
+        'document.querySelector("[data-spelling-play]")?.parentElement.innerText.includes("确认生成并播放")',
+      );
+      assert.equal(
+        await evaluate('window.ttsGenerateCount'),
+        0,
+        'cache miss must not trigger a paid call',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("[data-spelling-play]").parentElement.innerText.includes("可能产生费用")',
+        ),
+        true,
+      );
+      const mobileTtsConfirmation = await evaluate(`(() => {
+        const panel = [...document.querySelectorAll('[role=group]')].find(node => node.innerText.includes('确认生成并播放'));
+        const rect = panel.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: rect.left, right: rect.right };
+      })()`);
+      assert.equal(mobileTtsConfirmation.viewport, 390);
+      assert.ok(mobileTtsConfirmation.page <= 390);
+      assert.ok(mobileTtsConfirmation.left >= 0 && mobileTtsConfirmation.right <= 390);
+      await evaluate(
+        '[...document.querySelectorAll("button")].find(button => button.textContent.includes("取消")).click()',
+      );
+      assert.equal(await evaluate('window.ttsGenerateCount'), 0);
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      await until(
+        'document.querySelector("[data-spelling-play]")?.parentElement.innerText.includes("确认生成并播放")',
+      );
+      await evaluate(
+        'window.ttsAudioPlaybackFails = true; [...document.querySelectorAll("button")].find(button => button.textContent.includes("确认生成并播放")).click()',
+      );
+      await until(
+        'document.querySelector("[data-notebook-spelling-practice]")?.innerText.includes("浏览器无法播放")',
+      );
+      assert.equal(await evaluate('window.ttsGenerateCount'), 1);
+      assert.deepEqual(
+        await evaluate(
+          'window.ttsApiRequests.find(request => request.path.endsWith("/tts/audio/generate"))?.body',
+        ),
+        {
+          text: 'take it for granted',
+          consent: true,
+        },
+      );
+      assert.equal(
+        await evaluate(
+          'window.ttsApiRequests.find(request => request.path.endsWith("/tts/audio/generate"))?.authorization',
+        ),
+        'Bearer fixture-token',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("button")].find(button => button.textContent.includes("改用浏览器朗读")).click()',
+      );
+      await until('window.notebookSpeechAudit.at(-1) === "take it for granted"');
+      await evaluate(
+        'window.ttsAudioPlaybackFails = false; window.ttsLookupState = "hit"; document.querySelector("[data-spelling-play]").click()',
+      );
+      await until('window.ttsPlayedCount >= 2');
+      assert.equal(
+        await evaluate('window.ttsGenerateCount'),
+        1,
+        'cache hit must not call the provider again',
+      );
+
+      await until('document.querySelector("[data-spelling-play]")?.disabled === false');
+      const pausesBeforeReplay = await evaluate('window.ttsAudioPauseCount');
+      const playsBeforeReplay = await evaluate('window.ttsPlayedCount');
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      await until(`window.ttsPlayedCount > ${playsBeforeReplay}`);
+      assert.ok(
+        await evaluate('window.ttsAudioPauseCount > ' + pausesBeforeReplay),
+        'starting another playback must stop the current audio element',
+      );
+
+      const playbackCountBeforeLateLookup = await evaluate('window.ttsPlayedCount');
+      await evaluate(
+        'window.ttsLookupState = "hit"; window.deferTtsLookupOnce = true; document.querySelector("[data-spelling-start]").click()',
+      );
+      await until('document.querySelector("[data-spelling-play]")');
+      await evaluate('document.querySelector("[data-spelling-play]").click()');
+      await until('window.ttsLookupResolvers.length === 1');
+      await evaluate('document.querySelector("[data-spelling-end]").click()');
+      await evaluate('window.ttsLookupResolvers.shift()()');
+      await delay(100);
+      assert.equal(
+        await evaluate('window.ttsPlayedCount'),
+        playbackCountBeforeLateLookup,
+        'a cache response arriving after the practice control unmounts must not start audio',
+      );
+      assert.equal(await evaluate('window.ttsGenerateCount'), 1);
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();
       await closeChromium(browser, profile);

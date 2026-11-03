@@ -6,6 +6,16 @@
   margin: -8px 0 18px;
 }
 
+.compact {
+  display: contents;
+}
+
+.compact .button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 6px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -39,6 +49,44 @@
   color: var(--border-color);
   font-size: 13px;
   font-weight: 700;
+}
+
+.confirmation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff4c7;
+  color: var(--border-color);
+}
+
+.confirmation p {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fallback {
+  display: inline-block;
+  margin-inline-start: 8px;
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fallback:focus-visible {
+  outline: 3px solid #315eb6;
+  outline-offset: 2px;
 }
 
 .unavailable {

@@ -90,7 +90,7 @@ export function browserTimeZone() {
 export function refreshSession() {
   return request<Session>('/auth/refresh', { method: 'POST' });
 }
-export async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+async function authorizedResponse(path: string, init: RequestInit, token?: string) {
   let requestToken = currentSessionToken(token);
   let response = await sendRequest(path, init, requestToken);
   let body: unknown;
@@ -119,8 +119,28 @@ export async function request<T>(path: string, init: RequestInit = {}, token?: s
       response.status,
     );
   }
+  return response;
+}
+
+export async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  const response = await authorizedResponse(path, init, token);
   try {
     return (await response.json()) as T;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (isTypeError(error)) throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);
+    throw error;
+  }
+}
+
+export async function requestBlob(
+  path: string,
+  init: RequestInit = {},
+  token?: string,
+): Promise<Blob> {
+  const response = await authorizedResponse(path, init, token);
+  try {
+    return await response.blob();
   } catch (error) {
     if (isAbortError(error)) throw error;
     if (isTypeError(error)) throw new ApiRequestError(NETWORK_ERROR_MESSAGE, 0);

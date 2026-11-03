@@ -8,3 +8,4 @@ coverage
 *.log
 *.tsbuildinfo
 apps/api/var/system-logs/
+apps/api/var/tts-audio/

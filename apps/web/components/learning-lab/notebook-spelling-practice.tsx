@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NotebookWord } from '@lexloop/types';
-import { speakEnglish } from '../english-audio-controls';
+import { EnglishAudioControls } from '../english-audio-controls';
 import { buildNotebookContextPrompt } from '../../lib/target-word-highlighting';
 import {
   compareSpelling,
@@ -128,7 +128,6 @@ export function NotebookSpellingPractice({
   }
 
   const finish = useCallback(() => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     setCurrentId(null);
     setAnswer('');
     setAnswerState(null);
@@ -150,13 +149,6 @@ export function NotebookSpellingPractice({
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [active, finish]);
 
-  useEffect(
-    () => () => {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    },
-    [currentId],
-  );
-
   function submitAnswer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!current || answerState) return;
@@ -172,18 +164,6 @@ export function NotebookSpellingPractice({
       normalizeSpelling(answer) === normalizeSpelling(current.text) ? 'correct' : 'incorrect',
     );
     setNotice('本练习只供自查，不记录成绩或改变复习状态。');
-  }
-
-  function playWord() {
-    if (!current) return;
-    const result = speakEnglish(current.text);
-    setNotice(
-      result === 'played'
-        ? '已请求浏览器播放英语发音。'
-        : result === 'no-voice'
-          ? '浏览器没有提供标记为本地服务的英语语音；可显示答案并结束本题。'
-          : '当前浏览器不支持语音播放；可显示答案并结束本题。',
-    );
   }
 
   return (
@@ -263,9 +243,12 @@ export function NotebookSpellingPractice({
           )}
           <div className={styles.spellingActions}>
             {mode === 'spelling' && (
-              <button className={styles.button} type="button" data-spelling-play onClick={playWord}>
-                播放单词发音
-              </button>
+              <EnglishAudioControls
+                text={current.text}
+                context="练习单词"
+                compact
+                dataAttribute="data-spelling-play"
+              />
             )}
             <button
               className={styles.button}

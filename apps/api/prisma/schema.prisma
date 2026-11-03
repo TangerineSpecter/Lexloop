@@ -18,6 +18,11 @@ enum AiCallStatus {
   FAILED
 }
 
+enum TtsRegion {
+  CHINA
+  GLOBAL
+}
+
 enum AiModelProvider {
   DEEPSEEK
   OPENAI_COMPATIBLE
@@ -325,6 +330,8 @@ model User {
   microErrors MicroError[]
   disabledStudyContentCaches StudyContentCache[] @relation("StudyContentCacheDisabledBy")
   studyContentQuestionFeedback StudyContentQuestionFeedback[]
+  ttsAudioCache TtsAudioCache[]
+  ttsDailyUsage TtsDailyUsage[]
 }
 
 model MicroProgress {
@@ -671,6 +678,71 @@ model StudyContentGenerationClaim {
 
   @@index([leaseExpiresAt])
   @@index([retryAfter])
+}
+
+model TtsProviderConfig {
+  id                          String     @id @default("global")
+  enabled                     Boolean    @default(false)
+  region                      TtsRegion?
+  model                       String     @default("speech-2.8-hd")
+  voiceId                     String?    @default("English_captivating_female1")
+  speed                       Float      @default(1)
+  volume                      Float      @default(1)
+  pitch                       Int        @default(0)
+  encryptedApiKey             String?
+  maxGenerationsPerUserPerDay Int        @default(100)
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+}
+
+// Personal TTS cache: the text is represented by a keyed fingerprint and never stored here.
+model TtsAudioCache {
+  id                String   @id @default(cuid())
+  userId            String
+  cacheKey          String   @unique @db.VarChar(64)
+  objectName        String   @unique @db.VarChar(80)
+  configFingerprint String   @db.VarChar(64)
+  model             String   @db.VarChar(100)
+  voiceId           String   @db.VarChar(200)
+  speed             Float
+  volume            Float
+  pitch             Int
+  format            String   @db.VarChar(12)
+  mimeType          String   @db.VarChar(80)
+  byteSize          Int
+  audioSha256       String   @db.VarChar(64)
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lastUsedAt])
+  @@index([createdAt])
+}
+
+// One paid generation at a time for the same user/text/settings fingerprint.
+model TtsAudioGenerationClaim {
+  cacheKey        String    @id @db.VarChar(64)
+  ownerToken      String?   @db.VarChar(64)
+  leaseExpiresAt  DateTime?
+  retryAfter      DateTime?
+  lastFailureCode String?   @db.VarChar(80)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leaseExpiresAt])
+  @@index([retryAfter])
+}
+
+model TtsDailyUsage {
+  userId          String
+  dateKey         String   @db.VarChar(10)
+  generationCount Int      @default(0)
+  characterCount  Int      @default(0)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, dateKey])
+  @@index([dateKey])
 }
 
 model StudyContentQuestionFeedback {

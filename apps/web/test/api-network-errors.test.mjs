@@ -23,7 +23,7 @@ const compiled = ts.transpile(source, {
   target: ts.ScriptTarget.ES2022,
 });
 runInNewContext(compiled, sandbox);
-const { request, streamSse } = module.exports;
+const { request, requestBlob, streamSse } = module.exports;
 const networkErrorMessage = '暂时无法连接学习服务，请检查网络或稍后重试。';
 const userId = 'refresh-user-1';
 const oldToken = makeToken(userId, 'old');
@@ -41,6 +41,28 @@ test('ordinary API connection failures give network recovery guidance', async ()
   };
 
   await assert.rejects(request('/learning/history'), isNetworkError);
+});
+
+test('binary API responses retain their media type and include the authenticated account token', async () => {
+  useSession({
+    accessToken: oldToken,
+    user: { id: userId, email: 'learner@example.invalid', displayName: null, role: 'USER' },
+  });
+  let requestedUrl;
+  let authorization;
+  sandbox.fetch = async (url, init) => {
+    requestedUrl = String(url);
+    authorization = new Headers(init.headers).get('Authorization');
+    return new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'private, no-store' },
+    });
+  };
+
+  const audio = await requestBlob('/tts/audio/cache-id', {}, oldToken);
+  assert.equal(requestedUrl, '/api/v1/tts/audio/cache-id');
+  assert.equal(authorization, `Bearer ${oldToken}`);
+  assert.equal(audio.type, 'audio/mpeg');
+  assert.deepEqual([...new Uint8Array(await audio.arrayBuffer())], [1, 2, 3]);
 });
 
 test('API response body interruptions use network recovery guidance too', async () => {

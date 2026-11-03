@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.146',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '按需生成并缓存英语发音',
+        entry: '系统设置 → 语音合成；单词或句子旁的播放按钮',
+        usage:
+          '管理员可配置 MiniMax 语音服务；用户首次播放未缓存内容时会先明确确认，音频按账号隔离缓存。默认关闭，未缓存时仍可选择浏览器本地朗读。',
+      },
+    ],
+  },
+  {
     version: '1.27.143',
     date: '2026-11-03',
     items: [

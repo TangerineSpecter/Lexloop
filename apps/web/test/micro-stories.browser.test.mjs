@@ -184,7 +184,7 @@ test(
           return nativeSetItem.call(this, key, value);
         };
       }
-      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : params.has('due-review') ? 1 : 0), selectedStory: savedFixture.selectedStory || null, revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || (params.has('due-review') ? '之前的理解' : ''), errors: savedFixture.errors || (params.has('due-review') ? [{ id: 'card1', english: 'Tom misses the bus.', interpretation: '之前的理解', reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: 'I missed the train.', dueAt: new Date().toISOString() }] : []), reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0, selectionPending: false, releaseSelection: null };
+      window.microFixture = { index: savedFixture.index ?? (completedOriginal ? 9 : params.has('due-review') ? 1 : 0), selectedStory: savedFixture.selectedStory || null, revealed: savedFixture.revealed || false, failReveal: params.has('fail-reveal') && sessionStorage.getItem(fixtureKey + '.reveal-failed') !== '1', interpretation: savedFixture.interpretation || (params.has('due-review') ? '之前的理解' : ''), errors: savedFixture.errors || (params.has('due-review') ? [{ id: 'card1', english: 'Tom misses the bus.', interpretation: '之前的理解', reference: '汤姆没赶上公交车。', explanation: 'miss the bus 是没赶上公交车。', ownSentence: 'I missed the train.', dueAt: new Date().toISOString() }] : []), reviewDone: savedFixture.reviewDone || false, failReview: params.has('fail-review') && sessionStorage.getItem(fixtureKey + '.review-failed') !== '1', speechLog: [], speechCancelCount: 0, requests: [], ttsRequests: [], ttsLookupState: 'disabled', ttsAudioPlayCount: 0, ttsAudioPauseCount: 0, notebookSaves: [], notebookButtonClicks: 0, notebookSubmits: 0, selectionPending: false, releaseSelection: null };
       document.addEventListener('click', event => { if (event.target instanceof Element && event.target.closest('details form button')) window.microFixture.notebookButtonClicks += 1; });
       document.addEventListener('submit', event => { if (event.target instanceof HTMLFormElement && event.target.closest('details')) window.microFixture.notebookSubmits += 1; });
       const audioAuditKey = 'lexloop.test.local-audio-audit';
@@ -192,6 +192,11 @@ test(
       const writeAudioAudit = audit => sessionStorage.setItem(audioAuditKey, JSON.stringify(audit));
       window.addEventListener('pagehide', () => { const audit = readAudioAudit(); audit.pageHides = (audit.pageHides || 0) + 1; writeAudioAudit(audit); });
       window.localSpeechFixture = { permissionRequests: [], streams: [], recorders: [], createdUrls: [], revokedUrls: [], playedUrls: [] };
+      window.Audio = class {
+        constructor(src) { this.src = src; this.playbackRate = 1; this.onended = null; this.onerror = null; }
+        play() { window.microFixture.ttsAudioPlayCount += 1; return Promise.resolve(); }
+        pause() { window.microFixture.ttsAudioPauseCount += 1; }
+      };
       const localSpeech = window.localSpeechFixture;
       const noMic = params.has('no-mic');
       Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
@@ -235,7 +240,12 @@ test(
       window.fetch = async (url, options = {}) => {
         const path = String(url);
         const f = window.microFixture;
-        if (path.includes('/api/v1/')) f.requests.push({ path, method: options.method ?? 'GET', authorization: new Headers(options.headers).get('Authorization') });
+        if (path.includes('/api/v1/tts/')) {
+          f.ttsRequests.push({ path, method: options.method ?? 'GET' });
+          if (path.endsWith('/tts/audio/lookup')) return Response.json(f.ttsLookupState === 'hit' ? { state: 'hit', audioId: 'fixture-audio' } : { state: 'disabled' });
+          if (path.endsWith('/tts/audio/fixture-audio')) return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'audio/mpeg' } });
+        }
+        if (path.includes('/api/v1/') && !path.includes('/api/v1/tts/')) f.requests.push({ path, method: options.method ?? 'GET', authorization: new Headers(options.headers).get('Authorization') });
         const first = { key: 'bus-01', series: '上班路上', part: 1, level: 'A1', english: 'Tom misses the bus.', interpretation: f.revealed ? f.interpretation : null };
         const continuation = { key: 'weekend-01', series: '周末约朋友', part: 1, level: 'A2', english: 'Maya wants to see a friend this weekend. She texts Leo to ask if he is free on Saturday.', interpretation: null };
         const storyCatalog = [
@@ -614,6 +624,7 @@ test(
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
       );
+      await until('window.microFixture.speechLog.length === 1');
       assert.deepEqual(await evaluate('window.microFixture.speechLog[0]'), {
         text: 'Tom misses the bus.',
         lang: 'en-US',
@@ -982,10 +993,14 @@ test(
         url: new URL('/dashboard/micro-stories?fail-reveal=1&fail-review=1', baseUrl).href,
       });
       await until('document.body.textContent.includes("你的理解：")');
+      const speechCountBeforeSlowPlayback = await evaluate('window.microFixture.speechLog.length');
       await evaluate(`document.querySelector('button[aria-label="慢速播放微故事原文"]').click()`);
-      assert.equal(await evaluate('window.microFixture.speechLog[0].rate'), 0.8);
+      await until(
+        `window.microFixture.speechLog.length > ${speechCountBeforeSlowPlayback} && window.microFixture.speechLog.at(-1)?.rate === 0.8`,
+      );
+      assert.equal(await evaluate('window.microFixture.speechLog.at(-1).rate'), 0.8);
       await evaluate(`document.querySelector('button[aria-label="停止播放微故事原文"]').click()`);
-      assert.ok(await evaluate('window.microFixture.speechCancelCount >= 2'));
+      assert.equal(await evaluate('window.microFixture.speechCancelCount'), 1);
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('翻看记录')).click()`,
       );
@@ -996,9 +1011,13 @@ test(
         'I missed the train.',
       );
       await until('document.body.textContent.includes("读下一段")');
+      const speechCountBeforeNormalPlayback = await evaluate(
+        'window.microFixture.speechLog.length',
+      );
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
       );
+      await until(`window.microFixture.speechLog.length > ${speechCountBeforeNormalPlayback}`);
       const cancelCountBeforeNext = await evaluate('window.microFixture.speechCancelCount');
       await evaluate('document.querySelector("[data-local-speech-action=start]").click()');
       await until(
@@ -1038,12 +1057,60 @@ test(
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
       );
+      await until('window.microFixture.speechLog[2]?.text === "Tom calls his boss."');
       assert.equal(await evaluate('window.microFixture.speechLog[2].text'), 'Tom calls his boss.');
       await until('document.querySelector(`button[aria-label="按正常速度播放到期复习句"]`)');
+      const speechCountBeforeSecondControl = await evaluate('window.microFixture.speechLog.length');
+      const speechCancelCountBeforeSecondControl = await evaluate(
+        'window.microFixture.speechCancelCount',
+      );
       await evaluate(
         `document.querySelector('button[aria-label="按正常速度播放到期复习句"]').click()`,
       );
-      assert.equal(await evaluate('window.microFixture.speechLog[3].rate'), 1);
+      await until(`window.microFixture.speechLog.length > ${speechCountBeforeSecondControl}`);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("button[aria-label=\\"停止播放微故事原文\\"]").disabled',
+        ),
+        true,
+        'starting another audio control stops the previous control',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("button[aria-label=\\"停止播放到期复习句\\"]").disabled',
+        ),
+        false,
+        'the newly selected audio control remains active',
+      );
+      assert.ok(
+        await evaluate(
+          'window.microFixture.speechCancelCount > ' + speechCancelCountBeforeSecondControl,
+        ),
+        'starting playback from a different control cancels the active browser utterance',
+      );
+      assert.equal(await evaluate('window.microFixture.speechLog.at(-1).rate'), 1);
+      await evaluate('window.microFixture.ttsLookupState = "hit"');
+      await evaluate(
+        `document.querySelector('button[aria-label="按正常速度播放微故事原文"]').click()`,
+      );
+      await until('window.microFixture.ttsAudioPlayCount === 1');
+      const remotePausesBeforeSecondControl = await evaluate(
+        'window.microFixture.ttsAudioPauseCount',
+      );
+      await evaluate(
+        `document.querySelector('button[aria-label="按正常速度播放到期复习句"]').click()`,
+      );
+      await until('window.microFixture.ttsAudioPlayCount === 2');
+      assert.ok(
+        await evaluate(
+          'window.microFixture.ttsAudioPauseCount > ' + remotePausesBeforeSecondControl,
+        ),
+        'a different audio control must pause the previously active MiniMax audio element',
+      );
+      await evaluate(
+        'document.querySelector("button[aria-label=\\"停止播放到期复习句\\"]").click()',
+      );
+      await evaluate('window.microFixture.ttsLookupState = "disabled"');
       await until(
         'document.querySelector("article") && document.querySelector("article").textContent.includes("想念公交车")',
       );
@@ -1149,10 +1216,15 @@ test(
       await send('Page.navigate', {
         url: new URL('/dashboard/micro-stories?no-speech=1', baseUrl).href,
       });
-      await until('document.body.textContent.includes("当前浏览器不支持语音播放")');
+      await until('document.querySelector("button[aria-label=\\"按正常速度播放微故事原文\\"]")');
+      await evaluate(
+        'document.querySelector("button[aria-label=\\"按正常速度播放微故事原文\\"]").click()',
+      );
+      await until('document.body.textContent.includes("当前浏览器不支持本地语音朗读")');
       assert.equal(
         await evaluate('Boolean(document.querySelector("button[aria-label*=播放微故事原文]"))'),
-        false,
+        true,
+        'the MiniMax route remains available even when browser speech synthesis is unsupported',
       );
       await evaluate(
         `[...document.querySelectorAll('button')].find(button => button.textContent.includes('先听后看原文')).click()`,
@@ -1455,6 +1527,43 @@ test(
       assert.equal(
         await evaluate('localStorage.getItem("lexloop.micro-story.review.legacy.card1")'),
         null,
+      );
+
+      await send('Page.navigate', {
+        url: new URL('/dashboard/micro-stories?user=playback-owner&due-review=1', baseUrl).href,
+      });
+      await until('document.querySelector("#story-heading")');
+      await clickVisible('button[aria-label="按正常速度播放微故事原文"]');
+      await until('window.microFixture.speechLog.length === 1');
+      await clickVisible('button[aria-label="按正常速度播放到期复习句"]');
+      await until(
+        'window.microFixture.speechLog.length === 2 && !document.querySelector("button[aria-label=\\"停止播放到期复习句\\"]").disabled',
+      );
+      const cancelCountBeforeStoryControlUnmount = await evaluate(
+        'window.microFixture.speechCancelCount',
+      );
+      await clickVisible('button[aria-haspopup="dialog"]');
+      await until('document.querySelector("dialog")?.open');
+      await clickVisible('dialog [data-story-key="neighbor-greeting-01"]');
+      await until('document.querySelector("#story-heading")?.textContent.includes("新邻居")');
+      assert.equal(
+        await evaluate('window.microFixture.speechCancelCount'),
+        cancelCountBeforeStoryControlUnmount,
+        'unmounting a non-owner audio control must not cancel another control’s local speech',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("button[aria-label=\\"停止播放到期复习句\\"]").disabled',
+        ),
+        false,
+        'the playback owner remains active after a different control unmounts',
+      );
+      await clickVisible('button[aria-label="停止播放到期复习句"]');
+      assert.ok(
+        await evaluate(
+          'window.microFixture.speechCancelCount > ' + cancelCountBeforeStoryControlUnmount,
+        ),
+        'the active playback control can still stop its own utterance',
       );
     } finally {
       if (socket?.readyState === WebSocket.OPEN) socket.close();

@@ -13,6 +13,7 @@ import {
   Plus,
   Trash2,
   X,
+  Volume2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { request, type Session } from '../lib/api';
@@ -20,6 +21,7 @@ import { Tooltip } from './tooltip';
 import { SystemBackupPanel } from './system-backup/system-backup-panel';
 import { DailySentenceSettings } from './daily-sentence/daily-sentence-settings';
 import { AutomaticStudyPlanSettings } from './automatic-study-plan-settings';
+import { TtsSettings } from './tts-settings';
 
 type AiModel = {
   id: string;
@@ -55,7 +57,7 @@ const DEEPSEEK_MODELS = [
 ] as const;
 
 export function SystemSettings({ session }: { session: Session }) {
-  const [tab, setTab] = useState<'models' | 'features' | 'backups'>('models');
+  const [tab, setTab] = useState<'models' | 'features' | 'backups' | 'tts'>('models');
   const [models, setModels] = useState<AiModel[]>([]);
   const [modal, setModal] = useState<AiModel | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
@@ -142,6 +144,15 @@ export function SystemSettings({ session }: { session: Session }) {
           功能开关
         </button>
         <button
+          className={tab === 'tts' ? 'active' : ''}
+          role="tab"
+          aria-selected={tab === 'tts'}
+          onClick={() => setTab('tts')}
+        >
+          <Volume2 size={18} />
+          语音合成
+        </button>
+        <button
           className={tab === 'models' ? 'active' : ''}
           role="tab"
           aria-selected={tab === 'models'}
@@ -158,6 +169,8 @@ export function SystemSettings({ session }: { session: Session }) {
           <DailySentenceSettings session={session} />
           <AutomaticStudyPlanSettings session={session} />
         </>
+      ) : tab === 'tts' ? (
+        <TtsSettings session={session} />
       ) : (
         <>
           <div className="model-head">

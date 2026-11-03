@@ -137,7 +137,7 @@ import {
   WEAK_FOCUS_WORD_COUNT,
 } from '../lib/weak-focus';
 import { wrongRetestPlan } from '../lib/wrong-item-retest';
-import { speakEnglish } from './english-audio-controls';
+import { EnglishAudioControls } from './english-audio-controls';
 import { findTargetWordMatches } from '../lib/target-word-highlighting';
 import { clearMicroStoryDrafts } from '../lib/micro-story-drafts';
 import {
@@ -4543,7 +4543,6 @@ function PlanPreview({
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [waitingNoteIndex, setWaitingNoteIndex] = useState(0);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  const [audioNote, setAudioNote] = useState('');
   const planRef = useRef(plan);
   planRef.current = plan;
   const onPlanUpdatedRef = useRef(onPlanUpdated);
@@ -4584,14 +4583,7 @@ function PlanPreview({
       }
       if (event.key === ' ' || event.code === 'Space') {
         event.preventDefault();
-        const result = speakEnglish(word.word);
-        setAudioNote(
-          result === 'played'
-            ? ''
-            : result === 'no-voice'
-              ? '浏览器没有提供标记为本地服务的英语语音，可直接看词。'
-              : '当前浏览器不支持语音播放。',
-        );
+        document.querySelector<HTMLButtonElement>('[data-preview-tts] button')?.click();
       }
     };
     document.addEventListener('keydown', handleKeydown);
@@ -4823,24 +4815,15 @@ function PlanPreview({
               ) : (
                 <span className="phonetic-empty">暂无音标</span>
               )}
-              <button
-                type="button"
-                aria-label={`播放 ${word.word} 发音`}
-                onClick={() => {
-                  const result = speakEnglish(word.word);
-                  setAudioNote(
-                    result === 'played'
-                      ? ''
-                      : result === 'no-voice'
-                        ? '浏览器没有提供标记为本地服务的英语语音，可直接看词。'
-                        : '当前浏览器不支持语音播放。',
-                  );
-                }}
-              >
-                <SpeakerIcon />
-              </button>
+              <span data-preview-tts>
+                <EnglishAudioControls
+                  text={word.word}
+                  context={`单词 ${word.word}`}
+                  compact
+                  buttonLabel={`播放 ${word.word} 发音`}
+                />
+              </span>
             </div>
-            {audioNote && <p className="phonetic-note">{audioNote}</p>}
             <hr />
             <MeaningLines word={word} />
             <small>可使用左右方向键切换，空格键播放发音</small>
@@ -6068,29 +6051,6 @@ function GeneratedReadingContent({
   const [rewriteSentenceIndex, setRewriteSentenceIndex] = useState<number | null>(null);
   const [translationSentenceIndex, setTranslationSentenceIndex] = useState<number | null>(null);
   const [wordUseOpen, setWordUseOpen] = useState(false);
-  const [speechNotice, setSpeechNotice] = useState('');
-
-  useEffect(
-    () => () => {
-      window.speechSynthesis?.cancel();
-    },
-    [],
-  );
-
-  const speak = (text: string) => {
-    if (!text.trim()) {
-      setSpeechNotice('暂无可朗读的英文内容。');
-      return;
-    }
-    const result = speakEnglish(text);
-    setSpeechNotice(
-      result === 'no-voice'
-        ? '浏览器没有提供标记为本地服务的英语语音；可直接阅读原文。'
-        : result === 'unsupported'
-          ? '当前浏览器不支持语音播放，可直接阅读原文。'
-          : '',
-    );
-  };
   const toggleDetail = (index: number, detail: Detail) =>
     setSentenceDetails((current) => ({
       ...current,
@@ -6114,8 +6074,6 @@ function GeneratedReadingContent({
           aria-pressed={sentenceMode}
           data-tip={sentenceMode ? '收起分句阅读' : '展开分句阅读'}
           onClick={() => {
-            window.speechSynthesis?.cancel();
-            setSpeechNotice('');
             setRewriteSentenceIndex(null);
             setTranslationSentenceIndex(null);
             setSentenceMode((value) => !value);
@@ -6141,17 +6099,13 @@ function GeneratedReadingContent({
         >
           ✦
         </button>
-        <button
-          aria-label="朗读全文"
-          data-tip="朗读全文"
-          onClick={() => speak(sentences.map((sentence) => sentence.english).join(' '))}
-        >
-          <Volume2 size={18} />
-        </button>
+        <EnglishAudioControls
+          text={sentences.map((sentence) => sentence.english).join(' ')}
+          context="精读全文"
+          compact
+          buttonLabel="朗读全文"
+        />
       </div>
-      <p className="reading-speech-status" role="status" aria-live="polite">
-        {speechNotice}
-      </p>
       <CollectWordForm
         session={session}
         sourceType="READING"
@@ -6201,9 +6155,12 @@ function GeneratedReadingContent({
                 >
                   ✦
                 </button>
-                <button aria-label="朗读" data-tip="朗读" onClick={() => speak(sentence.english)}>
-                  <Volume2 size={16} />
-                </button>
+                <EnglishAudioControls
+                  text={sentence.english}
+                  context={`第 ${index + 1} 句`}
+                  compact
+                  buttonLabel="朗读"
+                />
                 <button
                   aria-label={`换种说法第 ${index + 1} 句`}
                   aria-expanded={rewriteSentenceIndex === index}
@@ -6809,6 +6766,15 @@ function GroupStudyPage({
   onBack: () => void;
   onPlanUpdated: (plan: LearningPlan) => void;
 }) {
+  const [readingAudioRequest, setReadingAudioRequest] = useState<{
+    text: string;
+    context: string;
+    requestId: number;
+  } | null>(null);
+  const readingAudioRequestId = useRef(0);
+  const requestReadingAudio = useCallback((text: string, context: string) => {
+    setReadingAudioRequest({ text, context, requestId: ++readingAudioRequestId.current });
+  }, []);
   const [results, setResults] = useState<Record<string, boolean>>({});
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
   const [selectedDefinition, setSelectedDefinition] = useState<number | null>(null);
@@ -6920,6 +6886,7 @@ function GroupStudyPage({
     });
   }, [matches]);
   useEffect(() => {
+    setReadingAudioRequest(null);
     const card = document.querySelector<HTMLElement>('.reading-card');
     if (!card || card.querySelector('.reading-tools')) return;
     const toolbar = document.createElement('div');
@@ -6989,7 +6956,7 @@ function GroupStudyPage({
           button.setAttribute('aria-label', label);
           button.addEventListener('click', () => {
             if (label === '复制') navigator.clipboard?.writeText(sentence);
-            if (label === '朗读') speakEnglish(sentence);
+            if (label === '朗读') requestReadingAudio(sentence, `第 ${index + 1} 句`);
           });
           tools.append(button);
         });
@@ -7023,10 +6990,10 @@ function GroupStudyPage({
       simple.textContent = '简化版：我们分享有用的学习资源，帮助大家更好地交流。';
       card.append(simple);
     });
-    addTool('朗读全文', '◖', () => speakEnglish(sentences.join(' ')));
+    addTool('朗读全文', '◖', () => requestReadingAudio(sentences.join(' '), '阅读全文'));
     card.append(toolbar);
     return () => toolbar.remove();
-  }, [currentGroupIndex, words]);
+  }, [currentGroupIndex, words, requestReadingAudio]);
   const continueToNextGroup = async () => {
     try {
       const latestPlans = await request<Omit<LearningPlan, 'mode'>[]>(
@@ -7139,6 +7106,21 @@ function GroupStudyPage({
                 )}
               </p>
               <small>Powered by Lexloop AI</small>
+              {readingAudioRequest && (
+                <div className="reading-speech-status" aria-label="语音播放" role="region">
+                  <strong>正在准备朗读：{readingAudioRequest.context}</strong>
+                  <EnglishAudioControls
+                    key={readingAudioRequest.requestId}
+                    text={readingAudioRequest.text}
+                    context={readingAudioRequest.context}
+                    compact
+                    autoPlayRequest={readingAudioRequest.requestId}
+                  />
+                  <button type="button" onClick={() => setReadingAudioRequest(null)}>
+                    关闭语音状态
+                  </button>
+                </div>
+              )}
             </article>
           </section>
           <section className="lesson-section exercises">

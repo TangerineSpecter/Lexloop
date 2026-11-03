@@ -22,6 +22,7 @@ import { AdventureModule } from './modules/adventure/adventure.module';
 import { PracticeModule } from './modules/practice/practice.module';
 import { DailySentenceModule } from './modules/daily-sentence/daily-sentence.module';
 import { MicroStoriesModule } from './modules/micro-stories/micro-stories.module';
+import { TtsModule } from './modules/tts/tts.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { MicroStoriesModule } from './modules/micro-stories/micro-stories.module
     PracticeModule,
     LabModule,
     MicroStoriesModule,
+    TtsModule,
   ],
 })
 export class AppModule {}

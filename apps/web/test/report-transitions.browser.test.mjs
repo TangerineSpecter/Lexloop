@@ -303,6 +303,20 @@ test(
             pendingModelTests: [],
             holdModelTest: false,
             modelConfigSaves: [],
+            ttsConfigRequests: [],
+            ttsTestRequests: [],
+            failTtsConfigReadOnce: false,
+            ttsConfig: {
+              enabled: false,
+              region: 'CHINA',
+              model: 'speech-2.8-hd',
+              voiceId: 'English_captivating_female1',
+              speed: 1,
+              volume: 1,
+              pitch: 0,
+              maxGenerationsPerUserPerDay: 100,
+              hasApiKey: true,
+            },
             systemLogRequests: [],
             systemLogExportRequests: [],
             systemLogClearRequests: [],
@@ -503,6 +517,30 @@ test(
             if (path.includes('/api/v1/learning-lab/lessons')) return Response.json({ items: [], page: 1, pageSize: 10, total: 0, hasMore: false });
             if (path.includes('/api/v1/learning-lab/grammar-evidence')) return Response.json([]);
             if (path.includes('/api/v1/practice/output/today')) return Response.json(null);
+            if (path === '/api/v1/admin/tts-config') {
+              const body = options.body ? JSON.parse(options.body) : null;
+              window.reportFixture.ttsConfigRequests.push({ method: options.method ?? 'GET', body });
+              if (options.method !== 'PUT' && window.reportFixture.failTtsConfigReadOnce) {
+                window.reportFixture.failTtsConfigReadOnce = false;
+                return Response.json({ message: '模拟语音设置读取失败' }, { status: 503 });
+              }
+              if (options.method === 'PUT') {
+                window.reportFixture.ttsConfig = {
+                  ...window.reportFixture.ttsConfig,
+                  ...body,
+                  hasApiKey: body.clearApiKey ? false : Boolean(body.apiKey) || window.reportFixture.ttsConfig.hasApiKey,
+                };
+              }
+              return Response.json(window.reportFixture.ttsConfig);
+            }
+            if (path === '/api/v1/admin/tts-config/test' && options.method === 'POST') {
+              window.reportFixture.ttsTestRequests.push({
+                method: options.method,
+                body: options.body ?? null,
+                authorization: new Headers(options.headers).get('Authorization'),
+              });
+              return Response.json({ success: true, mimeType: 'audio/mpeg', audioBase64: 'AQIDBA==' });
+            }
             if (path === '/api/v1/admin/ai-models' && options.method !== 'POST') return Response.json([
               { id: 'saved-model-fixture', displayName: 'Fixture model', provider: 'OPENAI_COMPATIBLE', model: 'fixture-model', baseUrl: 'https://provider.example.invalid/v1', temperature: null, isEnabled: true, hasApiKey: true }
             ]);
@@ -1021,6 +1059,96 @@ test(
       await send('Fetch.continueRequest', { requestId: delayedSystemSettingsChunk.requestId });
       await send('Fetch.disable');
       await until('document.querySelector(".system-settings")');
+      await until('document.querySelector(".model-test-button")');
+      await evaluate('window.reportFixture.failTtsConfigReadOnce = true');
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("语音合成")).click()',
+      );
+      await until('document.querySelector("#tts-settings-title")');
+      await until(
+        'document.querySelector("section[aria-labelledby=tts-settings-title] [role=alert]")',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=tts-settings-title] button").disabled',
+        ),
+        true,
+        'a failed configuration read must not allow saving default values over the saved settings',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=tts-settings-title] input[type=checkbox]").disabled',
+        ),
+        true,
+        'configuration controls stay disabled until the saved state is loaded',
+      );
+      await evaluate(
+        '[...document.querySelectorAll("section[aria-labelledby=tts-settings-title] button")].find(button => button.textContent.includes("重新加载")).click()',
+      );
+      await until(
+        'window.reportFixture.ttsConfigRequests.some(request => request.method === "GET")',
+      );
+      await until(
+        'window.reportFixture.ttsConfigRequests.filter(request => request.method === "GET").length === 2 && !document.querySelector("section[aria-labelledby=tts-settings-title] button").disabled',
+      );
+      assert.equal(
+        await evaluate('window.reportFixture.ttsTestRequests.length'),
+        0,
+        'loading admin TTS settings must not call the provider',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#tts-settings-title").closest("section").querySelector("input[type=password]").value',
+        ),
+        '',
+        'saved API keys must never be displayed back into the password input',
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      const mobileTtsSettings = await evaluate(`(() => {
+        const panel = document.querySelector('#tts-settings-title')?.closest('section');
+        const rect = panel?.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth, left: rect?.left ?? null, right: rect?.right ?? null };
+      })()`);
+      assert.ok(
+        mobileTtsSettings.viewport === 390 &&
+          mobileTtsSettings.page <= 390 &&
+          mobileTtsSettings.left >= 0 &&
+          mobileTtsSettings.right <= 390,
+        JSON.stringify(mobileTtsSettings),
+      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        `[...document.querySelectorAll('section[aria-labelledby="tts-settings-title"] button')].find(button => button.textContent.includes("测试连接")).click()`,
+      );
+      await until('window.reportFixture.ttsTestRequests.length === 1');
+      assert.deepEqual(
+        await evaluate('window.reportFixture.ttsTestRequests[0]'),
+        { method: 'POST', body: null, authorization: 'Bearer fixture-token' },
+        'the provider test must only happen after the explicit admin click and use the saved key server-side',
+      );
+      assert.equal(
+        await evaluate(
+          'document.querySelector("#tts-settings-title").closest("section").innerText.includes("可能产生费用")',
+        ),
+        true,
+        'the connection test should disclose possible cost before clicking',
+      );
+      await until(
+        'document.querySelector("#tts-settings-title").closest("section").querySelector("[role=status]")?.textContent.includes("连接与短样音生成成功")',
+      );
+      await evaluate(
+        '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("AI 模型管理")).click()',
+      );
       await until('document.querySelector(".model-test-button")');
       await evaluate(
         '[...document.querySelectorAll(".system-tabs button")].find(button => button.textContent.includes("远端备份")).click()',

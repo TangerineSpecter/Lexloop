@@ -390,7 +390,8 @@ test(
             const path = String(url);
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
-            window.apiFetchLog.push({ path, method });
+            if (path.includes('/api/v1/tts/audio/lookup')) return Response.json({ state: 'disabled' });
+            if (!path.includes('/api/v1/tts/')) window.apiFetchLog.push({ path, method });
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: JSON.parse(localStorage.getItem('lexloop.session')).user.id });
             if (path.includes('/api/v1/vocabulary/default')) return Response.json(window.defaultBook);
             if (path.endsWith('/api/v1/vocabulary/learning')) return Response.json(window.learningBooks);
@@ -899,17 +900,27 @@ test(
       );
       const apiCallsBeforeSpeech = await evaluate('window.apiFetchLog.length');
       await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
-      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
-      assert.equal(await evaluate('window.studySpeech.spoken.length'), 2);
+      await until('window.studySpeech.spoken.length === 1');
+      assert.equal(
+        await evaluate('window.studySpeech.spoken.length'),
+        1,
+        'one click starts one local speech request',
+      );
       assert.equal(await evaluate('window.studySpeech.spoken.at(-1).lang'), 'en-US');
       assert.equal(await evaluate('window.studySpeech.spoken.at(-1).voice'), 'en-US');
-      assert.ok(await evaluate('window.studySpeech.cancelCount >= 2'));
+      assert.equal(
+        await evaluate('window.studySpeech.cancelCount'),
+        0,
+        'starting speech while no playback is owned must not send a global cancel',
+      );
       assert.equal(await evaluate('window.studySpeech.active.text.length > 0'), true);
       assert.equal(await evaluate('window.studySpeech.queue.length'), 1);
+      await evaluate('document.querySelector(\'button[aria-label="朗读全文"]\').click()');
+      await until('window.studySpeech.spoken.length === 2');
       await evaluate(`window.studySpeech.voices = [{ lang: 'en-US', name: 'Remote English', localService: false }];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until(
-        'document.querySelector(".reading-speech-status")?.textContent.includes("标记为本地服务")',
+        'Array.from(document.querySelectorAll("[aria-live=polite]")).some(node => node.textContent.includes("标记为本地服务"))',
       );
       assert.equal(await evaluate('window.studySpeech.spoken.length'), 2);
       assert.equal(await evaluate('window.studySpeech.active === null'), true);
@@ -919,7 +930,7 @@ test(
       await evaluate(`window.SpeechSynthesisUtterance = undefined;
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until(
-        'document.querySelector(".reading-speech-status")?.textContent.includes("不支持语音播放")',
+        'Array.from(document.querySelectorAll("[aria-live=polite]")).some(node => node.textContent.includes("没有提供标记为本地服务"))',
       );
       assert.ok(
         await evaluate('document.querySelector(".generated-passage")?.innerText.length > 0'),
@@ -1741,11 +1752,11 @@ test(
       await evaluate(`window.studySpeech.voices = [{ lang: 'en-US', name: 'Remote English', localService: false }];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
       await until(
-        'document.querySelector(".reading-speech-status")?.textContent.includes("标记为本地服务")',
+        'Array.from(document.querySelectorAll("[aria-live=polite]")).some(node => node.textContent.includes("标记为本地服务"))',
       );
       const mobileSpeechStatus = await evaluate(`(() => {
         const card = document.querySelector('.reading-card').getBoundingClientRect();
-        const status = document.querySelector('.reading-speech-status').getBoundingClientRect();
+        const status = [...document.querySelectorAll('[aria-live=polite]')].find(node => node.textContent.includes('标记为本地服务')).getBoundingClientRect();
         return {
           viewport: innerWidth,
           page: document.documentElement.scrollWidth,
@@ -1768,12 +1779,13 @@ test(
         JSON.stringify(mobileSpeechStatus),
       );
       const apiCallsBeforeMobileSpeech = await evaluate('window.apiFetchLog.length');
+      const speechCountBeforeMobilePlayback = await evaluate('window.studySpeech.spoken.length');
       await evaluate(`window.studySpeech.voices = [
           { lang: 'zh-CN', name: 'Fixture Chinese' },
           { lang: 'en-US', name: 'Fixture English', localService: true },
         ];
         document.querySelector('button[aria-label="朗读全文"]').click()`);
-      await until('document.querySelector(".reading-speech-status")?.textContent === ""');
+      await until(`window.studySpeech.spoken.length > ${speechCountBeforeMobilePlayback}`);
       assert.equal(await evaluate('window.apiFetchLog.length'), apiCallsBeforeMobileSpeech);
       const mobileLayout = await evaluate(`(() => {
         const card = document.querySelector('.reading-card').getBoundingClientRect();

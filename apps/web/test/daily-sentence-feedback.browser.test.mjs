@@ -160,6 +160,7 @@ test(
           const nativeFetch = window.fetch;
           window.fetch = async (url, options = {}) => {
             const path = String(url);
+            if (path.includes('/api/v1/tts/audio/lookup')) return Response.json({ state: 'disabled' });
             if (path.includes('/api/v1/daily-sentences/') && options.method && options.method !== 'GET') {
               window.dailySentenceWrites.push({ method: options.method, path });
             }
@@ -247,7 +248,7 @@ test(
       );
       await evaluate('document.querySelector(\'[aria-label="停止播放每日一句"]\').click()');
       await delay(30);
-      assert.equal(await evaluate('window.dailySentenceSpeech.cancelCount'), 4);
+      assert.equal(await evaluate('window.dailySentenceSpeech.cancelCount'), 3);
       assert.equal(await evaluate('document.querySelector("[aria-live=polite]")?.textContent'), '');
       assert.equal(await evaluate('window.dailySentenceWrites.length'), writeCountBeforeReveal);
       await evaluate('document.querySelector("dialog button[aria-controls]").click()');

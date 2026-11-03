@@ -108,9 +108,11 @@ services:
       AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY}
       UPDATER_SOCKET: /run/lexloop/updater.sock
       LEXLOOP_LOG_DIR: /var/lib/lexloop/logs
+      LEXLOOP_TTS_AUDIO_DIR: /var/lib/lexloop/tts-audio
     volumes:
       - /opt/lexloop/data/run:/run/lexloop:ro
       - system_logs:/var/lib/lexloop/logs
+      - tts_audio_data:/var/lib/lexloop/tts-audio
     depends_on:
       postgres:
         condition: service_healthy
@@ -197,5 +199,6 @@ volumes:
   redis_data:
   minio_data:
   system_logs:
+  tts_audio_data:
   caddy_data:
   caddy_config:
