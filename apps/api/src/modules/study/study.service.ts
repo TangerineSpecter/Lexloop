@@ -1,3 +1,4 @@
+import { progressiveSentenceIssue } from './progressive-quality';
 import {
   BadGatewayException,
   BadRequestException,
@@ -106,21 +107,21 @@ export const PROGRESSIVE_PRACTICE_STAGE_RULES: Record<
     focus: '在直白线索里识别词义',
     questionType: 'MEANING_RECOGNITION',
     promptRules:
-      '材料恰好 2 个简单英文句子。目标词所在句为 5–12 个英文词，使用常见周边词，直接给出词义线索；题目是 MEANING_RECOGNITION，不需要跨句推断。',
+      '材料恰好 2 个不同的简单英文句子，每个 sentences 条目只放一句，english 不含中文。目标词所在句为 5–12 个英文词，使用常见周边词，直接给出词义线索；题目是 MEANING_RECOGNITION，不需要跨句推断。',
   },
   CONTEXT: {
     label: '语境辨析',
     focus: '借助搭配、人物或时间线索判断用法',
     questionType: 'SYNONYM_REPLACEMENT',
     promptRules:
-      '材料恰好 2 个英文句子。目标词所在句为 10–18 个英文词，加入具体人物、动作、对象、时间或搭配线索；题目是 SYNONYM_REPLACEMENT，要求找出能保留本句语义的替换表达，不要求跨段推断。',
+      '材料恰好 2 个不同的英文句子，每个 sentences 条目只放一句，english 不含中文。目标词所在句为 10–18 个英文词，加入具体人物、动作、对象、时间或搭配线索；题目是 SYNONYM_REPLACEMENT，要求找出能保留本句语义的替换表达，不要求跨段推断。',
   },
   TRANSFER: {
     label: '跨句推断',
     focus: '结合多条线索理解短文中的词义和原因',
     questionType: 'READING_COMPREHENSION',
     promptRules:
-      '材料恰好 3 个英文句子、合计 35–55 个英文词；短文中至少两条分布在不同句子的线索共同支持一个推断。题目是 READING_COMPREHENSION，答案必须仅依据短文。',
+      '材料恰好 3 个不同的英文句子、合计 35–55 个英文词；每个 sentences 条目只放一句，english 不含中文；短文中至少两条分布在不同句子的线索共同支持一个推断。题目是 READING_COMPREHENSION，答案必须仅依据短文。',
   },
 };
 const SAFE_GENERATION_FAILURE =
@@ -2739,6 +2740,8 @@ export function validateGeneratedContent(
         throw progressiveGroupError('结构', 'STUDY_PROGRESSIVE_GROUP_WORD_COUNT_INVALID');
       }
       if (!targetWord) throw new Error('渐进练习分组缺少目标词');
+      const sentenceIssue = progressiveSentenceIssue(group.sentences);
+      if (sentenceIssue) throw progressiveGroupError('结构', sentenceIssue);
       const stage = expectedGroup.progressiveStage;
       const targetSentences = group.sentences.filter((sentence) =>
         new RegExp(`\\b${escapeRegExp(targetWord.word)}\\b`, 'i').test(sentence.english),
@@ -3081,6 +3084,10 @@ function safeQuestionRepairIssue(code: string) {
     STUDY_QUESTION_MATCHING_PAIRS_INVALID: '匹配题必须提供四组唯一且符合语言要求的配对',
     STUDY_QUESTION_MATCHING_TARGET_MISSING: '每个匹配短语都必须包含目标词',
     STUDY_PROGRESSIVE_GROUP_WORD_COUNT_INVALID: '每组只能包含一个目标词',
+    STUDY_PROGRESSIVE_SENTENCE_LANGUAGE_INVALID: 'english 字段必须使用英文，不混入中文翻译',
+    STUDY_PROGRESSIVE_SENTENCE_BOUNDARY_INVALID:
+      '每个 sentences 条目只能放一个英文句子，不得把多句合并进一个条目',
+    STUDY_PROGRESSIVE_SENTENCES_DUPLICATE: '各句必须提供不同内容，不能重复同一句凑够阶段句数',
     STUDY_PROGRESSIVE_GROUP_SENTENCE_COUNT_INVALID: '句子数量不符合阶段要求',
     STUDY_PROGRESSIVE_TARGET_SENTENCE_LENGTH_INVALID: '目标句长度不符合阶段要求',
     STUDY_PROGRESSIVE_TRANSFER_PASSAGE_LENGTH_INVALID: '短文长度或句数不符合阶段要求',

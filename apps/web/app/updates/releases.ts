@@ -7,6 +7,18 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: '1.27.151',
+    date: '2026-11-03',
+    items: [
+      {
+        title: '渐进材料增加句子质量防护',
+        entry: '学习进度 → 渐进练习',
+        usage:
+          '检查英文材料中的重复句、混入中文及单项多句问题；公共材料复用前同样检查，失败进入有限修复。',
+      },
+    ],
+  },
+  {
     version: '1.27.150',
     date: '2026-11-03',
     items: [

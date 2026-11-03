@@ -288,127 +288,139 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
 );
 
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)('progressive public material quality', () => {
-  it('reuses complete validated groups across learners and regenerates only a malformed cached group', async () => {
-    const prisma = new PrismaClient({
-      datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
-    });
-    const suffix = randomUUID();
-    const users: string[] = [];
-    const words: string[] = [];
-    const caches: string[] = [];
-    const signatures: string[] = [];
-    let bookId: string | undefined;
-    const ai = {
-      generateForUser: vi.fn(async ({ prompt }: { prompt: string }) => {
-        const input = prompt.match(/^输入分组：(.*)$/m)?.[1];
-        if (!input) throw new Error('unexpected repair request');
-        return fixtureResponse(JSON.parse(input));
-      }),
-    };
-    const service = new StudyService(
-      prisma as never,
-      ai as never,
-      { selectedProvider: vi.fn(async () => ({ id: 'offline-fixture' })) } as never,
-      new MistakesService(prisma as never),
-    );
-    try {
-      const book = await prisma.vocabularyBook.create({
-        data: {
-          sourceKey: `progressive-public-${suffix}`,
-          sourcePath: 'isolated-fixture',
-          category: 'GENERAL',
-          title: 'Public quality fixture',
-          bookWords: {
-            create: [
-              { text: 'available', meaning: '可用的' },
-              { text: 'quiet', meaning: '安静的' },
-            ].map((word, index) => ({
-              position: index + 1,
-              word: {
-                create: {
-                  ...word,
-                  normalized: `progressive-public-${suffix}-${index}`,
-                },
-              },
-            })),
-          },
-        },
-        include: { bookWords: true },
+  it.each(['length', 'packed', 'duplicate'] as const)(
+    'reuses complete groups and replaces only a %s cached group',
+    async (defect) => {
+      const prisma = new PrismaClient({
+        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
       });
-      bookId = book.id;
-      words.push(...book.bookWords.map((word) => word.wordId));
-      for (let i = 0; i < 3; i++) {
-        const user = await prisma.user.create({
-          data: { email: `${suffix}-${i}@example.invalid`, passwordHash: 'fixture-only' },
-        });
-        users.push(user.id);
-        await prisma.userVocabularyBook.create({
-          data: { userId: user.id, bookId, isDefault: true },
-        });
-      }
-      const first = await service.createProgressivePlan(users[0]);
-      await service.generatePlan(users[0], first.id);
-      const links = await prisma.studyPlanItem.findMany({
-        where: { planId: first.id },
-        orderBy: { groupIndex: 'asc' },
-      });
-      caches.push(...links.map((link) => link.contentCacheId!));
-      expect(caches).toHaveLength(2);
-      expect(caches.every(Boolean)).toBe(true);
-      const original = await prisma.studyContentCache.findMany({ where: { id: { in: caches } } });
-      signatures.push(...original.map((row) => row.signature));
-      expect(original.every((row) => row.isPublic)).toBe(true);
-      const broken = original[0];
-      const material = JSON.parse(JSON.stringify(broken.material));
-      const target = material.questions[0].bookWordId;
-      const targetText = material.sentences[0].english.includes('available')
-        ? 'available'
-        : 'quiet';
-      material.sentences[1].english = `It is ${targetText} for all the people who visit the building after the long meeting finishes today.`;
-      await prisma.studyContentCache.update({ where: { id: broken.id }, data: { material } });
-      ai.generateForUser.mockClear();
-      const second = await service.createProgressivePlan(users[1]);
-      await service.generatePlan(users[1], second.id);
-      expect(ai.generateForUser).toHaveBeenCalledTimes(1);
-      const generatedGroups = JSON.parse(
-        ai.generateForUser.mock.calls[0][0].prompt.match(/^输入分组：(.*)$/m)![1],
+      const suffix = randomUUID();
+      const users: string[] = [];
+      const words: string[] = [];
+      const caches: string[] = [];
+      const signatures: string[] = [];
+      let bookId: string | undefined;
+      const ai = {
+        generateForUser: vi.fn(async ({ prompt }: { prompt: string }) => {
+          const input = prompt.match(/^输入分组：(.*)$/m)?.[1];
+          if (!input) throw new Error('unexpected repair request');
+          return fixtureResponse(JSON.parse(input));
+        }),
+      };
+      const service = new StudyService(
+        prisma as never,
+        ai as never,
+        { selectedProvider: vi.fn(async () => ({ id: 'offline-fixture' })) } as never,
+        new MistakesService(prisma as never),
       );
-      expect(generatedGroups).toHaveLength(1);
-      expect(generatedGroups[0].words[0].id).toBe(target);
-      const untouched = original.find((row) => row.id !== broken.id)!;
-      expect(
-        (await prisma.studyContentCache.findUniqueOrThrow({ where: { id: untouched.id } }))
-          .material,
-      ).toEqual(untouched.material);
-      ai.generateForUser.mockClear();
-      const third = await service.createProgressivePlan(users[2]);
-      await service.generatePlan(users[2], third.id);
-      expect(ai.generateForUser).not.toHaveBeenCalled();
-      const thirdLinks = await prisma.studyPlanItem.findMany({ where: { planId: third.id } });
-      expect(thirdLinks.map((link) => link.contentCacheId).sort()).toEqual([...caches].sort());
-      expect(await prisma.wordReviewAttempt.count({ where: { userId: { in: users } } })).toBe(0);
-      const progress = await prisma.userWordProgress.findMany({ where: { userId: { in: users } } });
-      expect(progress).toHaveLength(6);
-      for (const row of progress)
-        expect(row).toMatchObject({
-          state: 'LEARNING',
-          totalAttempts: 0,
-          correctAttempts: 0,
-          reviewCount: 0,
-          familiarity: 0,
-          nextReviewAt: null,
-          lastReviewedAt: null,
+      try {
+        const book = await prisma.vocabularyBook.create({
+          data: {
+            sourceKey: `progressive-public-${suffix}`,
+            sourcePath: 'isolated-fixture',
+            category: 'GENERAL',
+            title: 'Public quality fixture',
+            bookWords: {
+              create: [
+                { text: 'available', meaning: '可用的' },
+                { text: 'quiet', meaning: '安静的' },
+              ].map((word, index) => ({
+                position: index + 1,
+                word: {
+                  create: {
+                    ...word,
+                    normalized: `progressive-public-${suffix}-${index}`,
+                  },
+                },
+              })),
+            },
+          },
+          include: { bookWords: true },
         });
-    } finally {
-      await prisma.studyPlan.deleteMany({ where: { userId: { in: users } } });
-      await prisma.studyContentCache.deleteMany({ where: { id: { in: caches } } });
-      await prisma.studyContentGenerationClaim.deleteMany({
-        where: { signature: { in: signatures } },
-      });
-      await prisma.user.deleteMany({ where: { id: { in: users } } });
-      if (bookId) await prisma.vocabularyBook.delete({ where: { id: bookId } });
-      await prisma.vocabularyWord.deleteMany({ where: { id: { in: words } } });
-      await prisma.$disconnect();
-    }
-  }, 30_000);
+        bookId = book.id;
+        words.push(...book.bookWords.map((word) => word.wordId));
+        for (let i = 0; i < 3; i++) {
+          const user = await prisma.user.create({
+            data: { email: `${suffix}-${i}@example.invalid`, passwordHash: 'fixture-only' },
+          });
+          users.push(user.id);
+          await prisma.userVocabularyBook.create({
+            data: { userId: user.id, bookId, isDefault: true },
+          });
+        }
+        const first = await service.createProgressivePlan(users[0]);
+        await service.generatePlan(users[0], first.id);
+        const links = await prisma.studyPlanItem.findMany({
+          where: { planId: first.id },
+          orderBy: { groupIndex: 'asc' },
+        });
+        caches.push(...links.map((link) => link.contentCacheId!));
+        expect(caches).toHaveLength(2);
+        expect(caches.every(Boolean)).toBe(true);
+        const original = await prisma.studyContentCache.findMany({ where: { id: { in: caches } } });
+        signatures.push(...original.map((row) => row.signature));
+        expect(original.every((row) => row.isPublic)).toBe(true);
+        const broken = original[0];
+        const material = JSON.parse(JSON.stringify(broken.material));
+        const target = material.questions[0].bookWordId;
+        const targetText = material.sentences[0].english.includes('available')
+          ? 'available'
+          : 'quiet';
+        if (defect === 'length') {
+          material.sentences[1].english = `It is ${targetText} for all the people who visit the building after the long meeting finishes today.`;
+        } else if (defect === 'packed') {
+          material.sentences[0].english = `The room is ${targetText}. Sit here.`;
+        } else {
+          material.sentences[1].english = material.sentences[0].english;
+        }
+        await prisma.studyContentCache.update({ where: { id: broken.id }, data: { material } });
+        ai.generateForUser.mockClear();
+        const second = await service.createProgressivePlan(users[1]);
+        await service.generatePlan(users[1], second.id);
+        expect(ai.generateForUser).toHaveBeenCalledTimes(1);
+        const generatedGroups = JSON.parse(
+          ai.generateForUser.mock.calls[0][0].prompt.match(/^输入分组：(.*)$/m)![1],
+        );
+        expect(generatedGroups).toHaveLength(1);
+        expect(generatedGroups[0].words[0].id).toBe(target);
+        const untouched = original.find((row) => row.id !== broken.id)!;
+        expect(
+          (await prisma.studyContentCache.findUniqueOrThrow({ where: { id: untouched.id } }))
+            .material,
+        ).toEqual(untouched.material);
+        ai.generateForUser.mockClear();
+        const third = await service.createProgressivePlan(users[2]);
+        await service.generatePlan(users[2], third.id);
+        expect(ai.generateForUser).not.toHaveBeenCalled();
+        const thirdLinks = await prisma.studyPlanItem.findMany({ where: { planId: third.id } });
+        expect(thirdLinks.map((link) => link.contentCacheId).sort()).toEqual([...caches].sort());
+        expect(await prisma.wordReviewAttempt.count({ where: { userId: { in: users } } })).toBe(0);
+        const progress = await prisma.userWordProgress.findMany({
+          where: { userId: { in: users } },
+        });
+        expect(progress).toHaveLength(6);
+        for (const row of progress)
+          expect(row).toMatchObject({
+            state: 'LEARNING',
+            totalAttempts: 0,
+            correctAttempts: 0,
+            reviewCount: 0,
+            familiarity: 0,
+            nextReviewAt: null,
+            lastReviewedAt: null,
+          });
+      } finally {
+        await prisma.studyPlan.deleteMany({ where: { userId: { in: users } } });
+        await prisma.studyContentCache.deleteMany({ where: { id: { in: caches } } });
+        await prisma.studyContentGenerationClaim.deleteMany({
+          where: { signature: { in: signatures } },
+        });
+        await prisma.user.deleteMany({ where: { id: { in: users } } });
+        if (bookId) await prisma.vocabularyBook.delete({ where: { id: bookId } });
+        await prisma.vocabularyWord.deleteMany({ where: { id: { in: words } } });
+        await prisma.$disconnect();
+      }
+    },
+    30_000,
+  );
 });

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "mode": "review-only",
+  "applyAvailable": false,
+  "license": "CC-BY-SA-4.0",
+  "book": {
+    "path": "apps/api/assets/vocabulary/通用/日常生活单词.xlsx",
+    "sha256": "86da0383a0e8953c0cd28b2ce2b462d9b1ed5beb8428dc68fcd5b7f06417b5bb"
+  },
+  "sourceExcerpts": [
+    {
+      "id": "espresso-en",
+      "file": "sources/espresso-en.json",
+      "sha256": "fb69e90a922d1b8164ec8c3725cd98740ba75d39859af54b8136896ed691204e"
+    },
+    {
+      "id": "crate-en",
+      "file": "sources/crate-en.json",
+      "sha256": "c338e34b8d913daff246181868b60a74d1588b09b6afcd425ba5487f4375fdac"
+    }
+  ],
+  "candidates": [
+    {
+      "word": "espresso",
+      "row": 1125,
+      "original": {
+        "meaning": "无",
+        "ukPhonetic": "无",
+        "usPhonetic": "无"
+      },
+      "sourceId": "espresso-en",
+      "pos": "noun",
+      "sense": "strong type of coffee",
+      "status": "needs-review",
+      "reason": "Multiple legitimate UK variants and noun senses: reviewer must select the intended learning sense and pronunciation.",
+      "proposed": {
+        "meaning": ["n. 浓缩咖啡"],
+        "ukPhonetic": ["/ɛˈspɹɛsəʊ/", "/ɪˈspɹɛsəʊ/", "/əˈspɹɛsəʊ/"],
+        "usPhonetic": ["/ɛˈspɹɛsoʊ/"]
+      },
+      "unassignedPhonetics": [],
+      "transformations": [
+        "Selected existing Simplified Chinese translation, added n. prefix; source sense retained.",
+        "IPA copied exactly with source tags, no conversion or inferred region."
+      ]
+    },
+    {
+      "word": "crate",
+      "row": 984,
+      "original": {
+        "meaning": "无",
+        "ukPhonetic": "无",
+        "usPhonetic": "无"
+      },
+      "sourceId": "crate-en",
+      "pos": "noun",
+      "sense": "box or basket",
+      "status": "needs-review",
+      "reason": "Only the container noun sense is selected; confirm book context. IPA has no region, so neither regional field is proposed.",
+      "proposed": {
+        "meaning": ["n. 板条箱"],
+        "ukPhonetic": [],
+        "usPhonetic": []
+      },
+      "unassignedPhonetics": [
+        {
+          "ipa": "/kɹeɪt/",
+          "tags": []
+        }
+      ],
+      "transformations": [
+        "Selected existing Simplified Chinese translation, added n. prefix; source sense retained.",
+        "IPA copied exactly with source tags, no conversion or inferred region."
+      ]
+    }
+  ]
+}
