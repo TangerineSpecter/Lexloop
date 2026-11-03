@@ -97,6 +97,26 @@ test(
       };
 
       const clickVisible = async (selector) => {
+        // Route effects and scrolling can move an option after its first DOM paint.
+        // Wait for stable geometry before dispatching a real pointer click.
+        await evaluate(`new Promise((resolve, reject) => {
+          let previous = '';
+          let stable = 0;
+          let frames = 0;
+          const sample = () => {
+            const element = document.querySelector(${JSON.stringify(selector)});
+            if (!element) return reject(new Error('Missing click target'));
+            element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+            const rect = element.getBoundingClientRect();
+            const current = [rect.x, rect.y, rect.width, rect.height].join(',');
+            stable = current === previous ? stable + 1 : 0;
+            previous = current;
+            if (stable >= 3) return resolve();
+            if (++frames >= 120) return reject(new Error('Click target did not settle'));
+            requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        })`);
         const point = await evaluate(`(() => {
           const element = document.querySelector(${JSON.stringify(selector)});
           if (!element) return null;

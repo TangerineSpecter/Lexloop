@@ -2961,7 +2961,11 @@ test(
       })()`);
       await pressKey('Backspace', 'Backspace', 8);
       await until(
-        'document.querySelector("[aria-labelledby=study-content-bank-title] form input[type=search]")?.value === ""',
+        `[...document.querySelectorAll('[aria-labelledby="study-content-bank-title"] form label')].find(label => label.innerText.includes('目标词精确筛选'))?.querySelector('input')?.value === ''`,
+      );
+      // Let the controlled target-word state commit before submitting the cleared filter.
+      await evaluate(
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
       );
       await evaluate(
         'document.querySelector("[aria-labelledby=study-content-bank-title] form button[type=submit]").click()',
