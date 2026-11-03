@@ -1,6 +1,6 @@
 {
   "name": "@lexloop/api",
-  "version": "1.27.152",
+  "version": "1.27.153",
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
