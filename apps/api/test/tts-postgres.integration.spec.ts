@@ -253,7 +253,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         });
         expect(audits.map(({ status }) => status).sort()).toEqual(['FAILED', 'SUCCEEDED']);
         expect(audits.find(({ status }) => status === 'FAILED')?.errorCode).toBe(
-          'TTS_LEASE_EXPIRED',
+          'TTS_REQUEST_NOT_DISPATCHED',
         );
       } finally {
         resumeOldOwner.resolve();
@@ -262,6 +262,105 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         await fixture.cleanup();
       }
     }, 20_000);
+
+    it.each([false, true])(
+      'preserves refundable evidence after rollback (persistent=%s)',
+      async (persistent) => {
+        const fixture = await createFixture();
+        const client = {
+          synthesize: vi.fn(async () => {
+            throw new Error('fixture before dispatch');
+          }),
+        };
+        const service = fixture.makeServiceWithClient(client as never);
+        const user = await fixture.makeUser();
+        fixture.trackClaim(await fixture.claimKey(service, user.id, TEST_TEXT));
+        // A real PostgreSQL trigger aborts the usage decrement after the audit update.
+        // This checks rollback of both writes, not just a mocked transaction rejection.
+        const trigger = `refund_fault_${randomUUID().replaceAll('-', '')}`;
+        await fixture.admin.$executeRawUnsafe(
+          `CREATE FUNCTION "${trigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD."userId" = '${user.id}' AND NEW."generationCount" < OLD."generationCount" THEN RAISE EXCEPTION 'fixture refund transaction failure'; END IF; RETURN NEW; END $$`,
+        );
+        await fixture.admin.$executeRawUnsafe(
+          `CREATE TRIGGER "${trigger}" BEFORE UPDATE ON "TtsDailyUsage" FOR EACH ROW EXECUTE FUNCTION "${trigger}"()`,
+        );
+        const internals = service as unknown as {
+          releaseDailyUsage: (
+            reservation: { userId: string; dateKey: string; characterCount: number },
+            auditId: string,
+          ) => Promise<void>;
+        };
+        const original = internals.releaseDailyUsage.bind(service);
+        let failures = 0;
+        const refund = vi
+          .spyOn(internals, 'releaseDailyUsage')
+          .mockImplementation(async (...args) => {
+            try {
+              return await original(...args);
+            } catch (error) {
+              failures++;
+              const audit = await fixture.admin.aiCallAudit.findUniqueOrThrow({
+                where: { id: args[1] },
+              });
+              expect(audit.status).toBe('PENDING');
+              if (!persistent)
+                await fixture.admin.$executeRawUnsafe(
+                  `DROP TRIGGER IF EXISTS "${trigger}" ON "TtsDailyUsage"`,
+                );
+              throw error;
+            }
+          });
+        try {
+          await expect(service.generate(user.id, TEST_TEXT, true)).rejects.toThrow();
+          expect(failures).toBe(persistent ? 3 : 1);
+          if (persistent) {
+            expect(
+              await fixture.admin.aiCallAudit.findFirst({ where: { userId: user.id } }),
+            ).toMatchObject({ status: 'PENDING', completedAt: null });
+            expect(
+              await fixture.admin.ttsDailyUsage.findFirst({ where: { userId: user.id } }),
+            ).toMatchObject({ generationCount: 1, characterCount: Array.from(TEST_TEXT).length });
+            expect(
+              await fixture.admin.ttsAudioGenerationClaim.findUnique({
+                where: { cacheKey: await fixture.claimKey(service, user.id, TEST_TEXT) },
+              }),
+            ).toMatchObject({ lastFailureCode: 'TTS_REFUND_PENDING' });
+            await fixture.admin.$executeRawUnsafe(
+              `DROP TRIGGER IF EXISTS "${trigger}" ON "TtsDailyUsage"`,
+            );
+            // Explicit retry with the original in-memory reservation after DB recovery.
+            // This is not a restart recovery mechanism or a scan of all PENDING audits.
+            await Promise.all([
+              original(...refund.mock.calls[0]),
+              original(...refund.mock.calls[0]),
+            ]);
+          }
+          const outstanding = await fixture.admin.ttsDailyUsage.findMany({
+            where: { userId: user.id },
+            select: { generationCount: true, characterCount: true },
+          });
+          const auditState = await fixture.admin.aiCallAudit.findFirst({
+            where: { userId: user.id },
+            select: { status: true, errorCode: true },
+          });
+          console.log('pre-dispatch settlement evidence', { outstanding, auditState });
+          expect(outstanding).toEqual([]);
+          expect(refund).toHaveBeenCalledTimes(persistent ? 3 : 2);
+          expect(
+            await fixture.admin.aiCallAudit.findFirst({ where: { userId: user.id } }),
+          ).toMatchObject({ status: 'FAILED', errorCode: 'TTS_REQUEST_NOT_DISPATCHED' });
+          expect(client.synthesize).toHaveBeenCalledTimes(1);
+        } finally {
+          refund.mockRestore();
+          await fixture.admin.$executeRawUnsafe(
+            `DROP TRIGGER IF EXISTS "${trigger}" ON "TtsDailyUsage"`,
+          );
+          await fixture.admin.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${trigger}"()`);
+          await fixture.cleanup();
+        }
+      },
+      20_000,
+    );
 
     it('refunds one original reservation once without reducing a concurrent reservation', async () => {
       const fixture = await createFixture();
@@ -282,6 +381,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           reservation: { userId: string; dateKey: string; characterCount: number },
           auditId: string,
         ) => Promise<void>;
+        refundBeforeDispatch: (
+          reservation: { userId: string; dateKey: string; characterCount: number },
+          auditId: string,
+        ) => Promise<boolean>;
       };
       const provider = await fixture.admin.ttsProviderConfig.findUniqueOrThrow({
         where: { id: 'global' },
@@ -302,10 +405,27 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
       try {
         expect(refundReservation.userId).toBe(user.id);
         expect(refundReservation.dateKey).toBe(remainingReservation.dateKey);
-        await Promise.all([
-          internals.releaseDailyUsage(refundReservation, refundedAuditId),
-          internals.releaseDailyUsage(refundReservation, refundedAuditId),
-        ]);
+        const originalRefund = internals.releaseDailyUsage.bind(service);
+        let loseAcknowledgement = true;
+        const refundSpy = vi
+          .spyOn(internals, 'releaseDailyUsage')
+          .mockImplementation(async (...args) => {
+            await originalRefund(...args);
+            if (loseAcknowledgement) {
+              loseAcknowledgement = false;
+              throw new Error('fixture lost commit acknowledgement');
+            }
+          });
+        try {
+          expect(
+            await Promise.all([
+              internals.refundBeforeDispatch(refundReservation, refundedAuditId),
+              internals.refundBeforeDispatch(refundReservation, refundedAuditId),
+            ]),
+          ).toEqual([true, true]);
+        } finally {
+          refundSpy.mockRestore();
+        }
 
         const usage = await fixture.admin.ttsDailyUsage.findUniqueOrThrow({
           where: {
@@ -341,6 +461,72 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         await fixture.cleanup();
       }
     }, 20_000);
+
+    it.each([false, true])(
+      'reports unconfirmed settlement despite cleanup failure (committed=%s)',
+      async (committed) => {
+        const fixture = await createFixture();
+        const client = {
+          synthesize: vi.fn(async () => {
+            throw new Error('before dispatch');
+          }),
+        };
+        const service = fixture.makeServiceWithClient(client as never);
+        const user = await fixture.makeUser();
+        fixture.trackClaim(await fixture.claimKey(service, user.id, TEST_TEXT));
+        const internals = service as unknown as {
+          releaseDailyUsage: (
+            r: { userId: string; dateKey: string; characterCount: number },
+            id: string,
+          ) => Promise<void>;
+          failClaim: () => Promise<void>;
+        };
+        const original = internals.releaseDailyUsage.bind(service);
+        let first = true;
+        const refund = vi
+          .spyOn(internals, 'releaseDailyUsage')
+          .mockImplementation(async (...args) => {
+            if (first && committed) {
+              first = false;
+              await original(...args);
+            }
+            throw new Error('DB unavailable or commit acknowledgement lost');
+          });
+        const cleanup = vi
+          .spyOn(internals, 'failClaim')
+          .mockRejectedValue(new Error('DB unavailable'));
+        try {
+          await expect(service.generate(user.id, TEST_TEXT, true)).rejects.toThrow(
+            '本地额度返还暂未确认',
+          );
+          expect(refund).toHaveBeenCalledTimes(3);
+          expect(client.synthesize).toHaveBeenCalledTimes(1);
+          expect(fixture.logs.record).toHaveBeenCalledWith(
+            expect.objectContaining({ code: 'TTS_REFUND_PENDING' }),
+          );
+          const [reservation, auditId] = refund.mock.calls[0];
+          if (committed) {
+            expect(await fixture.admin.ttsDailyUsage.count({ where: { userId: user.id } })).toBe(0);
+            await original(reservation, auditId);
+            expect(await fixture.admin.ttsDailyUsage.count({ where: { userId: user.id } })).toBe(0);
+            return;
+          }
+          await fixture.admin.aiCallAudit.update({
+            where: { id: auditId },
+            data: { status: 'FAILED', errorCode: 'TTS_INTERNAL' },
+          });
+          await expect(original(reservation, auditId)).rejects.toThrow('receipt is not confirmed');
+          expect(
+            await fixture.admin.ttsDailyUsage.findFirst({ where: { userId: user.id } }),
+          ).toMatchObject({ generationCount: 1 });
+        } finally {
+          refund.mockRestore();
+          cleanup.mockRestore();
+          await fixture.cleanup();
+        }
+      },
+      20_000,
+    );
 
     it('does not let an old in-flight provider response overwrite the newer lease owner', async () => {
       const fixture = await createFixture();
@@ -519,6 +705,7 @@ async function createFixture() {
 
   return {
     admin,
+    logs,
     audioDirectory,
     makeService,
     makeServiceWithClient,

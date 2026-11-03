@@ -310,12 +310,37 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       return { audioId: saved.id, cache: 'generated' as const };
     } catch (error) {
       if (objectName) await this.store.remove(objectName).catch(() => undefined);
+      const refunded = providerRequestStarted
+        ? false
+        : await this.refundBeforeDispatch(usageReservation, auditId);
+      const safe =
+        !providerRequestStarted && !refunded
+          ? {
+              code: 'TTS_REFUND_PENDING',
+              reason: '语音请求未发送，但本地额度返还暂未确认，请联系管理员核查。',
+            }
+          : safeFailure(error);
+      // A pre-dispatch refund owns its audit receipt. Never overwrite it after
+      // rollback (PENDING) or an uncertain commit (possibly already refunded).
       if (!providerRequestStarted) {
-        await this.releaseDailyUsage(usageReservation, auditId).catch(() => undefined);
+        // A database outage can also prevent claim cleanup. Keep the safe
+        // settlement result visible; the claim's bounded lease will expire.
+        await this.failClaim(cacheKey, ownerToken, safe.code).catch(() => {
+          this.recordFailure(purpose, '/api/v1/tts/audio/generate', {
+            code: 'TTS_CLAIM_CLEANUP_FAILED',
+            reason: '语音请求未发送，租约清理暂未确认。',
+          });
+        });
+      } else {
+        await this.failClaim(cacheKey, ownerToken, safe.code);
       }
-      const safe = safeFailure(error);
-      await this.failClaim(cacheKey, ownerToken, safe.code);
-      await this.finishAudit(auditId, 'FAILED', Date.now() - startedAt, safe.code);
+      if (providerRequestStarted) {
+        await this.finishAudit(auditId, 'FAILED', Date.now() - startedAt, safe.code);
+      }
+      if (!providerRequestStarted && !refunded) {
+        this.recordFailure(purpose, '/api/v1/tts/audio/generate', safe);
+        throw new ServiceUnavailableException(safe.reason);
+      }
       this.recordFailure(purpose, '/api/v1/tts/audio/generate', safe);
       throw error instanceof ServiceUnavailableException
         ? error
@@ -500,10 +525,28 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     return { userId, dateKey, characterCount: Array.from(text).length };
   }
 
+  private async refundBeforeDispatch(reservation: DailyUsageReservation, auditId: string) {
+    // Retry only the idempotent local transaction, never the provider request.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this.releaseDailyUsage(reservation, auditId);
+        return true;
+      } catch {
+        if (attempt < 2) await delay(50 * (attempt + 1));
+      }
+    }
+    return false;
+  }
+
   private async releaseDailyUsage(reservation: DailyUsageReservation, auditId: string) {
     await this.prisma.$transaction(async (tx) => {
       const refundReceipt = await tx.aiCallAudit.updateMany({
-        where: { id: auditId, status: 'PENDING' },
+        where: {
+          id: auditId,
+          userId: reservation.userId,
+          purpose: 'tts.synthesis',
+          status: 'PENDING',
+        },
         data: {
           status: 'FAILED',
           errorCode: 'TTS_REQUEST_NOT_DISPATCHED',
@@ -511,7 +554,17 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
           completedAt: new Date(),
         },
       });
-      if (refundReceipt.count !== 1) return;
+      if (refundReceipt.count !== 1) {
+        const receipt = await tx.aiCallAudit.findUnique({ where: { id: auditId } });
+        if (
+          receipt?.userId === reservation.userId &&
+          receipt.purpose === 'tts.synthesis' &&
+          receipt.status === 'FAILED' &&
+          receipt.errorCode === 'TTS_REQUEST_NOT_DISPATCHED'
+        )
+          return;
+        throw new Error('TTS refund receipt is not confirmed');
+      }
 
       const released = await tx.ttsDailyUsage.updateMany({
         where: {
