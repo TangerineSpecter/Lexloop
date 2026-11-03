@@ -3133,6 +3133,7 @@ export function progressiveGroupRepairPrompt(input: {
       Object.fromEntries(input.words.map((word) => [word.id, rules.questionType])),
     )}\n` +
     `阶段要求：${rules.promptRules}\n` +
+    `材料、题干和选项必须原创。禁止复述、翻译、改写或仿写任何真实试卷、真题原文、版权阅读篇章或听力原文。\n` +
     `待修分组：${JSON.stringify(input.group)}\n` +
     `结构问题：${safeQuestionRepairIssue(input.error.code)}；这是第 ${input.attempt} 次有限局部修复。保留分组 index=${input.group.index}、所有目标词条 id、题型和原有释义语义，保证题目答案唯一且由材料支持。不得新增词条、改动其他分组或返回模型过程说明。`
   );

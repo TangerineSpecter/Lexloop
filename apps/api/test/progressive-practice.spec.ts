@@ -276,6 +276,7 @@ describe('progressive practice contracts', () => {
     expect(repairPrompt).toContain('只修复一组');
     expect(repairPrompt).toContain('阶段要求');
     expect(repairPrompt).toContain('不得新增词条');
+    expect(repairPrompt).toContain('禁止复述、翻译、改写或仿写任何真实试卷');
   });
 
   it('counts group repairs within the same three-request total budget', async () => {
