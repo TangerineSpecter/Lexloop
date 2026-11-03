@@ -9033,8 +9033,7 @@ button {
 .update-auto-toggle {
   align-self: end;
 }
-.update-auto-toggle,
-.update-auto-acknowledge {
+.update-auto-toggle {
   display: flex;
   min-height: 40px;
   align-items: center;
@@ -9042,8 +9041,7 @@ button {
   font-size: 13px;
   font-weight: 900;
 }
-.update-auto-toggle input,
-.update-auto-acknowledge input {
+.update-auto-toggle input {
   width: 18px;
   height: 18px;
   flex: none;
@@ -9074,7 +9072,6 @@ button {
   color: var(--border-color);
   font: inherit;
 }
-.update-auto-acknowledge,
 .update-auto-settings form > .update-auto-interval-help,
 .update-auto-settings form > .update-auto-error,
 .update-auto-settings form > .update-auto-message {
@@ -9402,6 +9399,78 @@ button {
   background: #fff;
   color: var(--border-color);
 }
+.update-auto-confirm-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(82vh, 680px);
+  padding: 0;
+  border: 3px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--border-color);
+  background: var(--soft);
+  box-shadow: 8px 8px 0 var(--border-color);
+}
+.update-auto-confirm-dialog::backdrop {
+  background: rgba(8, 40, 119, 0.46);
+}
+.update-auto-confirm-content {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+}
+.update-auto-confirm-content > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.update-auto-confirm-content > header svg {
+  flex: none;
+  color: var(--coral);
+}
+.update-auto-confirm-content h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.update-auto-confirm-content > p {
+  margin: 0;
+  padding: 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff4b9;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.6;
+}
+.update-auto-confirm-content > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 2px dashed rgba(8, 40, 119, 0.35);
+}
+.update-auto-confirm-content button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 3px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--teal);
+  color: #fff;
+  box-shadow: 3px 3px 0 var(--border-color);
+  font-weight: 900;
+  cursor: pointer;
+}
+.update-auto-confirm-content button.secondary {
+  background: #fff;
+  color: var(--border-color);
+}
+.update-auto-confirm-content button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.update-auto-confirm-content button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
 @keyframes update-spin {
   to {
     transform: rotate(360deg);
@@ -9447,7 +9516,6 @@ button {
   .update-auto-toggle {
     align-self: start;
   }
-  .update-auto-acknowledge,
   .update-auto-settings form > .update-auto-interval-help,
   .update-auto-settings form > .update-auto-error,
   .update-auto-settings form > .update-auto-message {
@@ -9492,6 +9560,15 @@ button {
     flex-direction: column-reverse;
   }
   .update-dialog footer button {
+    width: 100%;
+  }
+  .update-auto-confirm-content {
+    padding: 18px;
+  }
+  .update-auto-confirm-content > footer {
+    flex-direction: column-reverse;
+  }
+  .update-auto-confirm-content button {
     width: 100%;
   }
 }

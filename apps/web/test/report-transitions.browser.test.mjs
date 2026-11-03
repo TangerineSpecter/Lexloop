@@ -312,6 +312,7 @@ test(
             systemUpdateApplyRequests: [],
             systemAutoUpdateRequests: [],
             systemAutoUpdateSaves: [],
+            failSystemAutoUpdateStatusReads: 0,
             remoteBackupRequests: [],
             dailySentenceSettings: { enabled: false },
             dailySentenceSaves: [],
@@ -579,6 +580,10 @@ test(
             }
             if (path === '/api/v1/admin/system/update/auto') {
               window.reportFixture.systemAutoUpdateRequests.push('GET');
+              if (window.reportFixture.failSystemAutoUpdateStatusReads > 0) {
+                window.reportFixture.failSystemAutoUpdateStatusReads -= 1;
+                return Response.json({ message: 'fixture updater status unavailable' }, { status: 503 });
+              }
               return Response.json(window.reportFixture.systemAutoUpdateStatus);
             }
             if (path === '/api/v1/admin/system/update/apply' && options.method === 'POST') {
@@ -1514,11 +1519,27 @@ test(
           if (delayMs === 30_000) window.__autoUpdatePolls.push(callback);
           return originalSetInterval(callback, delayMs, ...args);
         };
+        window.reportFixture.failSystemAutoUpdateStatusReads = 1;
       })()`);
       await evaluate(
         `[...document.querySelectorAll('.settings-layout nav button')].find(button => button.textContent.includes('关于系统')).click()`,
       );
       await until('document.querySelector(".system-update-panel")');
+      await until('document.querySelector(".update-auto-error")');
+      assert.match(
+        await evaluate('document.querySelector(".update-auto-error").textContent'),
+        /无法读取自动更新设置/,
+      );
+      assert.equal(
+        await evaluate('document.querySelector(".update-auto-toggle input").disabled'),
+        true,
+        'a failed settings read must keep automatic update controls unavailable',
+      );
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      await evaluate('window.__autoUpdatePolls[0]?.()');
+      await until(
+        'window.reportFixture.systemAutoUpdateRequests.length === 2 && document.querySelector(".update-auto-error") === null',
+      );
       assert.equal(await evaluate('new URLSearchParams(location.search).get("section")'), 'about');
       assert.equal(
         await evaluate(
@@ -1669,17 +1690,126 @@ test(
       assert.equal(await evaluate('window.reportFixture.systemUpdateChecks.length'), 2);
       await capture('system-update-recovered-1440.png');
 
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
       const autoToggle = '.update-auto-toggle input[type="checkbox"]';
+      const autoSave = '.update-auto-settings form button[type="submit"]';
       assert.equal(
         await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
         false,
       );
+      assert.equal(await evaluate('document.querySelector(".update-auto-acknowledge")'), null);
       assert.match(
         await evaluate('document.querySelector(".update-auto-warning").textContent'),
         /可能中断服务/,
       );
       await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
-      await until('document.querySelector(".update-auto-acknowledge input[type=checkbox]")');
+      await evaluate(`document.querySelector(${JSON.stringify(autoSave)}).click()`);
+      await until('document.querySelector(".update-auto-confirm-dialog")?.open === true');
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      assert.equal(
+        await evaluate(`(() => {
+          const dialog = document.querySelector('.update-auto-confirm-dialog');
+          const descriptionId = dialog?.getAttribute('aria-describedby');
+          return Boolean(descriptionId && document.getElementById(descriptionId)?.textContent.includes('服务可能短暂中断'));
+        })()`),
+        true,
+        'the modal announcement includes the update and interruption warning',
+      );
+      const confirmDialogMobile = await evaluate(`(() => {
+        const dialog = document.querySelector('.update-auto-confirm-dialog');
+        const rect = dialog.getBoundingClientRect();
+        return {
+          viewport: innerWidth,
+          document: document.documentElement.scrollWidth,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          modal: dialog.matches(':modal'),
+        };
+      })()`);
+      assert.ok(
+        confirmDialogMobile.viewport === 390 &&
+          confirmDialogMobile.document <= 390 &&
+          confirmDialogMobile.left >= 0 &&
+          confirmDialogMobile.right <= 390 &&
+          confirmDialogMobile.width > 0 &&
+          confirmDialogMobile.modal,
+        JSON.stringify(confirmDialogMobile),
+      );
+      await evaluate(
+        'document.querySelector(".update-auto-confirm-dialog [data-auto-update-cancel]").click()',
+      );
+      await until('document.querySelector(".update-auto-confirm-dialog")?.open === false');
+      await until(`document.activeElement === document.querySelector(${JSON.stringify(autoSave)})`);
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
+        false,
+      );
+      assert.equal(
+        await evaluate(
+          `document.activeElement === document.querySelector(${JSON.stringify(autoSave)})`,
+        ),
+        true,
+        'cancel returns focus to the save control without sending a settings request',
+      );
+
+      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
+      await evaluate(`document.querySelector(${JSON.stringify(autoSave)}).click()`);
+      await until('document.querySelector(".update-auto-confirm-dialog")?.open === true');
+      await evaluate(
+        'document.querySelector(".update-auto-confirm-dialog [data-auto-update-cancel]").focus()',
+      );
+      assert.equal(
+        await evaluate(
+          'document.activeElement.matches(".update-auto-confirm-dialog [data-auto-update-cancel]")',
+        ),
+        true,
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      assert.equal(
+        await evaluate(
+          'document.activeElement.matches(".update-auto-confirm-dialog [data-auto-update-confirm]")',
+        ),
+        true,
+        'Tab moves focus through the native modal to its confirm action',
+      );
+      await send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+      await until('document.querySelector(".update-auto-confirm-dialog")?.open === false');
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
+        false,
+      );
+
+      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
       await evaluate(`(() => {
         const input = document.querySelector('.update-auto-interval input');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -1687,13 +1817,16 @@ test(
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       })()`);
-      await evaluate(
-        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
-      );
-      await until('document.querySelector(".update-auto-error")');
+      await evaluate(`document.querySelector(${JSON.stringify(autoSave)}).click()`);
+      await until('document.querySelector(".update-auto-confirm-dialog")?.open === true');
       assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 0);
+      const requestCountBeforeDraftRefresh = await evaluate(
+        'window.reportFixture.systemAutoUpdateRequests.length',
+      );
       await evaluate('window.__autoUpdatePolls[0]?.()');
-      await until('window.reportFixture.systemAutoUpdateRequests.length >= 2');
+      await until(
+        `window.reportFixture.systemAutoUpdateRequests.length === ${requestCountBeforeDraftRefresh + 1}`,
+      );
       assert.equal(
         await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).checked`),
         true,
@@ -1703,11 +1836,15 @@ test(
         '6',
         'background status polling must preserve unsaved automatic update choices',
       );
-      await evaluate('document.querySelector(".update-auto-acknowledge input").click()');
-      await evaluate(
-        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
-      );
+      await evaluate(`(() => {
+        const dialog = document.querySelector('.update-auto-confirm-dialog');
+        const confirm = dialog.querySelector('[data-auto-update-confirm]');
+        confirm.click();
+        confirm.click();
+      })()`);
       await until('window.reportFixture.systemAutoUpdateSaves.length === 1');
+      await delay(100);
+      assert.equal(await evaluate('window.reportFixture.systemAutoUpdateSaves.length'), 1);
       assert.deepEqual(await evaluate('window.reportFixture.systemAutoUpdateSaves[0]'), {
         enabled: true,
         intervalHours: 6,
@@ -1722,14 +1859,41 @@ test(
         await evaluate('document.querySelector(".update-auto-status").textContent'),
         /下次检查/,
       );
-      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
-      await evaluate(
-        'document.querySelector(".update-auto-settings form button[type=submit]").click()',
-      );
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(`(() => {
+        const input = document.querySelector('.update-auto-interval input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, '12');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(`document.querySelector(${JSON.stringify(autoSave)}).click()`);
       await until('window.reportFixture.systemAutoUpdateSaves.length === 2');
+      assert.equal(
+        await evaluate('document.querySelector(".update-auto-confirm-dialog")?.open === true'),
+        false,
+        'editing the interval of an already enabled setting does not repeat confirmation',
+      );
       assert.deepEqual(await evaluate('window.reportFixture.systemAutoUpdateSaves[1]'), {
+        enabled: true,
+        intervalHours: 12,
+      });
+      await evaluate(`document.querySelector(${JSON.stringify(autoToggle)}).click()`);
+      await evaluate(`document.querySelector(${JSON.stringify(autoSave)}).click()`);
+      await until('window.reportFixture.systemAutoUpdateSaves.length === 3');
+      assert.equal(
+        await evaluate('document.querySelector(".update-auto-confirm-dialog")?.open === true'),
+        false,
+        'turning automatic updates off does not ask for confirmation',
+      );
+      assert.deepEqual(await evaluate('window.reportFixture.systemAutoUpdateSaves[2]'), {
         enabled: false,
-        intervalHours: 6,
+        intervalHours: 12,
       });
       assert.equal(await evaluate('window.reportFixture.systemAutoUpdateStatus.nextCheckAt'), null);
       assert.equal(await evaluate('window.reportFixture.systemUpdateApplyRequests.length'), 0);

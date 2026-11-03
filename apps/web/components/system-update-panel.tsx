@@ -433,12 +433,15 @@ function AutoUpdateSettings({
   const [status, setStatus] = useState<SystemAutoUpdateStatus | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [intervalHours, setIntervalHours] = useState(24);
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const onRefreshRef = useRef(onRefreshStatus);
+  const enableConfirmDialogRef = useRef<HTMLDialogElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const savingRef = useRef(false);
   const formDirty = useRef(false);
 
   useEffect(() => {
@@ -472,33 +475,69 @@ function AutoUpdateSettings({
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (enabled && !acknowledged) {
-      setError('请先确认自动更新会自动安装版本并可能中断服务。');
-      return;
+  useEffect(() => {
+    const dialog = enableConfirmDialogRef.current;
+    if (!dialog) return;
+    if (confirmEnableOpen && !dialog.open) {
+      dialog.showModal();
+      dialog.querySelector<HTMLButtonElement>('[data-auto-update-confirm]')?.focus();
+    } else if (!confirmEnableOpen && dialog.open) {
+      dialog.close();
     }
+  }, [confirmEnableOpen]);
+
+  const closeEnableConfirmation = () => {
+    setConfirmEnableOpen(false);
+    setEnabled(status?.enabled ?? false);
+    formDirty.current = status !== null && intervalHours !== status.intervalHours;
+    setError('');
+  };
+
+  const persistSettings = async (nextEnabled: boolean, nextIntervalHours: number) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     setMessage('');
     try {
       const result = await request<SystemAutoUpdateStatus>(
         '/admin/system/update/auto',
-        { method: 'POST', body: JSON.stringify({ enabled, intervalHours }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ enabled: nextEnabled, intervalHours: nextIntervalHours }),
+        },
         session.accessToken,
       );
       setStatus(result);
       formDirty.current = false;
       setEnabled(result.enabled);
       setIntervalHours(result.intervalHours);
-      setAcknowledged(false);
       setMessage(result.enabled ? '自动更新设置已保存。' : '自动更新已关闭。');
       void onRefreshRef.current();
     } catch {
       setError('自动更新设置未保存；请重试并确认更新服务可用。');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
+  };
+
+  const save = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (savingRef.current) return;
+    if (enabled && !status?.enabled) {
+      setConfirmEnableOpen(true);
+      return;
+    }
+    void persistSettings(enabled, intervalHours);
+  };
+
+  const confirmEnable = () => {
+    if (!confirmEnableOpen || savingRef.current) return;
+    setConfirmEnableOpen(false);
+    void persistSettings(true, intervalHours).finally(() => {
+      window.requestAnimationFrame(() => saveButtonRef.current?.focus());
+    });
   };
 
   const checkResultLabel: Record<SystemAutoUpdateStatus['lastCheckResult'], string> = {
@@ -564,17 +603,6 @@ function AutoUpdateSettings({
         <small className="update-auto-interval-help">
           可设置 6–168 小时；调度器每分钟检查一次是否到期。
         </small>
-        {enabled && (
-          <label className="update-auto-acknowledge">
-            <input
-              type="checkbox"
-              checked={acknowledged}
-              disabled={loading || !status?.available || saving}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-            />
-            我理解开启后会自动安装更新，且服务可能短暂中断。
-          </label>
-        )}
         {error && (
           <p className="update-auto-error" role="alert">
             {error}
@@ -585,10 +613,57 @@ function AutoUpdateSettings({
             {message}
           </p>
         )}
-        <button type="submit" disabled={loading || !status?.available || saving}>
+        <button
+          ref={saveButtonRef}
+          type="submit"
+          disabled={loading || !status?.available || saving}
+        >
           {saving ? '正在保存…' : '保存自动更新设置'}
         </button>
       </form>
+      <dialog
+        ref={enableConfirmDialogRef}
+        className="update-auto-confirm-dialog"
+        aria-labelledby="auto-update-enable-confirm-title"
+        aria-describedby="auto-update-enable-confirm-description"
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!savingRef.current) closeEnableConfirmation();
+        }}
+        onClose={() => {
+          window.requestAnimationFrame(() => {
+            if (!savingRef.current) saveButtonRef.current?.focus();
+          });
+        }}
+      >
+        <div className="update-auto-confirm-content">
+          <header>
+            <AlertTriangle size={22} aria-hidden="true" />
+            <h2 id="auto-update-enable-confirm-title">确认开启自动安装</h2>
+          </header>
+          <p id="auto-update-enable-confirm-description">
+            系统会按设定周期检查受信任的更新，并在发现新版本时自动安装。安装期间服务可能短暂中断；数据库迁移失败不会自动回滚。本次确认只保存设置，不会立即检查或安装更新。
+          </p>
+          <footer>
+            <button
+              type="button"
+              className="secondary"
+              data-auto-update-cancel
+              onClick={closeEnableConfirmation}
+            >
+              取消开启
+            </button>
+            <button
+              type="button"
+              data-auto-update-confirm
+              onClick={confirmEnable}
+              disabled={saving}
+            >
+              确认开启自动安装
+            </button>
+          </footer>
+        </div>
+      </dialog>
       <dl className="update-auto-status">
         <div>
           <dt>自动检查状态</dt>

@@ -2920,13 +2920,20 @@ test(
         ),
         true,
       );
+      await until(
+        'document.querySelector("[aria-labelledby=study-content-bank-title] form button[type=submit]")?.disabled === false',
+      );
       await evaluate(`(() => {
         const form = document.querySelector('[aria-labelledby="study-content-bank-title"] form');
         const input = [...form.querySelectorAll('label')].find((label) => label.innerText.includes('目标词精确筛选')).querySelector('input');
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        form.querySelector('button[type=submit]').click();
+        input.focus();
+        input.select();
       })()`);
+      await pressKey('Backspace', 'Backspace', 8);
+      await until(
+        'document.querySelector("[aria-labelledby=study-content-bank-title] form input[type=search]")?.value === ""',
+      );
+      await pressKey('Enter', 'Enter', 13, '\r');
       await until(
         'window.studyBankListRequests.length === 6 && document.querySelectorAll("[aria-labelledby=study-content-bank-title] article").length === 2',
       );
