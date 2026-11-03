@@ -1,3 +1,4 @@
+import { normalizedMeaningLine } from './meaning-sql';
 import { canonicalSupplementWord, lockSupplementAccount } from './supplement-eligibility';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
@@ -197,20 +198,6 @@ function decodeMissingMeaningCursor(value: string, expectedBookId: string): Miss
   }
   return { bookId: expectedBookId, position: cursor.position };
 }
-
-const normalizedMeaningLine = Prisma.sql`
-  REGEXP_REPLACE(
-    REGEXP_REPLACE(
-      meaning_line.value,
-      '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
-      '',
-      'i'
-    ),
-    '^[[:space:]]+|[[:space:]]+$',
-    '',
-    'g'
-  )
-`;
 
 const hasUsableMeaningLine = Prisma.sql`
   NULLIF(${normalizedMeaningLine}, '') IS NOT NULL

@@ -1,5 +1,7 @@
 'use client';
 
+import { ProgressiveResultReview } from './progressive-result-review';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProgressivePracticeStage } from '@lexloop/types';
 import { AlertTriangle, BookOpen, Check, LockKeyhole, RotateCcw } from 'lucide-react';
@@ -267,7 +269,7 @@ export function ProgressivePracticePanel({
       )}
 
       {path && latestResult && (
-        <div className={styles.result} role="status">
+        <div className={styles.result} aria-label="最近渐进练习结果">
           <strong>
             最近完成 · {STAGES.find((stage) => stage.id === latestResult.stage)?.title}
           </strong>
@@ -279,6 +281,11 @@ export function ProgressivePracticePanel({
             解锁表示完成练习，不表示已掌握。
             {latestResult.answered < latestResult.total ? '部分题目缺少作答记录，不计入对错。' : ''}
           </p>
+          <ProgressiveResultReview
+            key={`${session.user.id}:${latestResult.planId}`}
+            session={session}
+            planId={latestResult.planId}
+          />
           {!currentPlan && latestResult.answered > latestResult.correct && (
             <button
               type="button"
@@ -288,7 +295,7 @@ export function ProgressivePracticePanel({
                 setActionError('');
               }}
             >
-              选择这个阶段再练
+              选择同阶段正式练习
             </button>
           )}
         </div>

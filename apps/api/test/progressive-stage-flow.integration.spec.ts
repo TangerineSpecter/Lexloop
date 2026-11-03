@@ -206,6 +206,10 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             expect(after.totalAttempts).toBe(stageIndex + 1);
             expect(after.correctAttempts).toBe(learnerIndex === 0 ? stageIndex + 1 : 0);
             expect(after.nextReviewAt!.getTime()).toBeGreaterThan(Date.now());
+            const review = await service.getCompletedPlanReview(userId, plan.id);
+            expect(review.words[0].currentReviewStatus).toBe('SCHEDULED');
+            expect(review.words[0].nextReviewAt).toEqual(after.nextReviewAt);
+
             expect(await prisma.userMasteredWord.count({ where: { userId } })).toBe(0);
             expect(await service.getProgressivePath(userId)).toMatchObject({
               highestUnlockedStage: stageIndex === 0 ? 'context' : 'transfer',
@@ -258,6 +262,51 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
         );
         expect(await prisma.userWordProgress.findUnique({ where })).toEqual(before);
         expect(await prisma.studyPlan.count({ where: { userId } })).toBe(3);
+        const reviewPlanId = (await service.getProgressivePath(userId)).latestResult!.planId;
+        const assertReadStatus = async (expected: string) => {
+          const evidence = async () => ({
+            progress: await prisma.userWordProgress.findMany({ where: { userId } }),
+            attempts: await prisma.wordReviewAttempt.findMany({
+              where: { userId },
+              orderBy: { id: 'asc' },
+            }),
+            weaknesses: await prisma.weaknessSignal.findMany({ where: { userId } }),
+            path: await prisma.progressivePracticeProgress.findMany({ where: { userId } }),
+          });
+          const saved = await evidence();
+          expect(
+            (await service.getCompletedPlanReview(userId, reviewPlanId)).words[0]
+              .currentReviewStatus,
+          ).toBe(expected);
+          expect(await evidence()).toEqual(saved);
+        };
+        // Global mastery overrides the still-overdue original book-word schedule.
+        await assertReadStatus('MASTERED');
+        await prisma.userMasteredWord.delete({ where: { userId_wordId: { userId, wordId } } });
+        await assertReadStatus('DUE');
+        await prisma.userWordProgress.update({
+          where,
+          data: { nextReviewAt: new Date(Date.now() + 86_400_000) },
+        });
+        await assertReadStatus('SCHEDULED');
+        await prisma.vocabularyBookWord.update({
+          where: { id: bookWordId },
+          data: { contextMeaning: '  n. 无' },
+        });
+        await assertReadStatus('MISSING_MEANING');
+        await prisma.userWordProgress.update({ where, data: { nextReviewAt: new Date(0) } });
+        await expect(service.createProgressivePlan(userId, 'foundation')).rejects.toThrow(
+          '没有带可用释义',
+        );
+        await prisma.vocabularyBookWord.update({
+          where: { id: bookWordId },
+          data: { contextMeaning: null },
+        });
+        await prisma.userWordProgress.delete({ where });
+        await assertReadStatus('UNSCHEDULED');
+        await expect(service.getCompletedPlanReview(users[1], reviewPlanId)).rejects.toThrow(
+          '已完成学习记录不存在',
+        );
         // Missing historical evidence must not be counted as an incorrect answer.
         const latest = await service.getProgressivePath(userId);
         const latestItems = await prisma.studyPlanItem.findMany({

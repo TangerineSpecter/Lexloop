@@ -61,7 +61,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
           {
             key: 'placeholder',
             text: 'placeholder',
-            meaning: 'n. 无\nadj. 暂无释义',
+            meaning: '  n. 无\n \tadj. 暂无释义 ',
             contextMeaning: null,
           },
         ] as const;

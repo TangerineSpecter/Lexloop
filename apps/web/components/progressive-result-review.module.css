@@ -1,0 +1,59 @@
+.review {
+  margin-top: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review > p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.review button {
+  padding: 8px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--border-color);
+  cursor: pointer;
+  max-width: 100%;
+  white-space: normal;
+}
+.review button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.review button:focus-visible,
+.review summary:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+.card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--paper);
+  line-height: 1.6;
+  min-width: 0;
+}
+.card p {
+  margin: 8px 0;
+}
+.card ol {
+  padding-left: 24px;
+}
+.card summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.card details {
+  border-top: 1px dashed var(--border-color);
+  padding-top: 8px;
+}
+.passage {
+  padding: 8px 12px;
+  background: var(--soft);
+  border-radius: 6px;
+}
+.arrangement {
+  font-size: 13px;
+}

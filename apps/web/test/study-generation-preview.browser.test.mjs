@@ -296,6 +296,7 @@ test(
             { word: 'nickname', meaning: '昵称', state: 'learned_elsewhere' },
             { word: 'elbow', meaning: null, state: 'missing' },
           ] };
+          window.progressiveReviewRequests = []; window.progressiveReviewResolvers = []; window.reviewMutationLog = [];
           window.progressivePathRequests = [];
           window.progressivePlanCreateBodies = [];
           window.generationResolvers = {};
@@ -310,7 +311,14 @@ test(
             const path = String(url);
             if (!path.includes('/api/v1/')) return nativeFetch(url, options);
             const method = options.method ?? 'GET';
+            if (method !== 'GET') window.reviewMutationLog.push(path);
             const session = JSON.parse(localStorage.getItem('lexloop.session') || 'null');
+            if (path.endsWith('/study/plans/completed-context/review')) {
+              window.progressiveReviewRequests.push({userId: session?.user.id, method});
+              if (window.progressiveReviewFail) return Response.json({message: '回看暂不可用'}, {status: 503});
+              if (window.progressiveReviewDelay) return new Promise(resolve => window.progressiveReviewResolvers.push(() => resolve(Response.json(window.progressiveReviewFixture))));
+              return Response.json(window.progressiveReviewFixture);
+            }
             if (path.includes('/api/v1/auth/me')) return Response.json({ id: session?.user.id ?? null });
             if (path.endsWith('/api/v1/auth/refresh')) return Response.json({ message: 'No fixture session' }, { status: 401 });
             if (path.endsWith('/api/v1/auth/login') && method === 'POST') return Response.json(secondSession);
@@ -606,6 +614,71 @@ test(
         );
       };
       await reopenWords();
+      await evaluate(`window.progressiveReviewFixture = {id: 'completed-context', status: 'COMPLETED',
+        content: {groups: [{index: 0, sentences: [{english: 'She repaired the broken radio.', chinese: '隐藏译文不可提前展示'}, {english: 'It worked again after the repair.'}]}, {index: 1, sentences: [{english: 'Tom helped his friend carry the box.'}]}]},
+        words: [{id: 'review-repair', word: 'repair', groupIndex: 0, result: false, selectedAnswer: ['buy'], currentReviewStatus: 'SCHEDULED', nextReviewAt: new Date(Date.now()+86400000).toISOString(), question: {prompt: 'Which phrase can replace repair?', options: ['fix', 'buy', 'sell', 'drop'], correctAnswers: ['fix'], explanation: '回看专用解析：修好后收音机又能工作。'}},
+          {id: 'review-help', word: 'help', groupIndex: 1, result: false, selectedAnswer: ['delay'], currentReviewStatus: 'MASTERED', nextReviewAt: '1970-01-01T00:00:00.000Z', question: {prompt: 'What does help mean?', options: ['assist', 'delay'], correctAnswers: ['assist'], explanation: 'help表示帮助。'}}]};
+        window.progressiveReviewFail = true;`);
+      const mutationsBeforeReview = await evaluate('window.reviewMutationLog.length');
+      await evaluate(
+        'document.querySelector("section[aria-label=上次渐进练习回看] button").click()',
+      );
+      await until('document.querySelector("section[aria-label=上次渐进练习回看] [role=alert]")');
+      await evaluate(
+        'window.progressiveReviewFail = false; [...document.querySelectorAll("section[aria-label=上次渐进练习回看] button")].find(button => button.textContent.includes("重新读取记录")).click()',
+      );
+      await until(
+        'document.querySelectorAll("section[aria-label=上次渐进练习回看] article").length === 2',
+      );
+      const recallText = await evaluate(
+        'document.querySelector("section[aria-label=上次渐进练习回看]").innerText',
+      );
+      assert.match(recallText, /She repaired the broken radio/);
+      assert.match(recallText, /It worked again after the repair/);
+      assert.match(recallText, /尚未到期/);
+      assert.match(recallText, /已标记掌握/);
+      assert.doesNotMatch(recallText, /回看专用解析|隐藏译文|1970/);
+      await evaluate(
+        'document.querySelector("section[aria-label=上次渐进练习回看] details summary").click()',
+      );
+      assert.match(
+        await evaluate('document.querySelector("section[aria-label=上次渐进练习回看]").innerText'),
+        /回看专用解析/,
+      );
+      assert.match(
+        await evaluate('document.querySelector("section[aria-label=上次渐进练习回看]").innerText'),
+        /你的答案：buy/,
+      );
+      await evaluate(
+        'window.progressiveReviewFixture.words[0].currentReviewStatus = "DUE"; [...document.querySelectorAll("section[aria-label=上次渐进练习回看] button")].find(button => button.textContent.includes("刷新当前安排")).click()',
+      );
+      await until(
+        'document.querySelector("section[aria-label=上次渐进练习回看]").innerText.includes("已到期")',
+      );
+      await evaluate(
+        'window.progressiveReviewFail = true; [...document.querySelectorAll("section[aria-label=上次渐进练习回看] button")].find(button => button.textContent.includes("刷新当前安排")).click()',
+      );
+      await until('document.querySelector("section[aria-label=上次渐进练习回看] [role=alert]")');
+      assert.match(
+        await evaluate('document.querySelector("section[aria-label=上次渐进练习回看]").innerText'),
+        /以下仍为上次读取结果/,
+      );
+      assert.match(
+        await evaluate('document.querySelector("section[aria-label=上次渐进练习回看]").innerText'),
+        /She repaired the broken radio/,
+      );
+      await evaluate(
+        'window.progressiveReviewFail = false; delete window.progressiveReviewFixture.words[0].currentReviewStatus; [...document.querySelectorAll("section[aria-label=上次渐进练习回看] button")].find(button => button.textContent.includes("刷新当前安排")).click()',
+      );
+      await until(
+        'document.querySelector("section[aria-label=上次渐进练习回看]").innerText.includes("当前复习安排暂未提供")',
+      );
+      assert.equal(await evaluate('window.reviewMutationLog.length'), mutationsBeforeReview);
+      assert.equal(
+        await evaluate('window.progressiveReviewRequests.every(item => item.method === "GET")'),
+        true,
+      );
+
       assert.match(
         await evaluate(
           'document.querySelector("section[aria-labelledby=progressive-practice-title]").innerText',
@@ -619,7 +692,7 @@ test(
         /不表示已掌握/,
       );
       await evaluate(
-        '[...document.querySelectorAll("section[aria-labelledby=progressive-practice-title] button")].find(button => button.textContent.includes("选择这个阶段再练")).click()',
+        '[...document.querySelectorAll("section[aria-labelledby=progressive-practice-title] button")].find(button => button.textContent.includes("选择同阶段正式练习")).click()',
       );
       assert.match(
         await evaluate(
@@ -656,6 +729,22 @@ test(
       });
       // The path snapshot stays empty while creation/generation updates arrive.
       // Closing the preview must still expose the newly failed plan for retry.
+      await evaluate(
+        'window.progressiveReviewDelay = true; [...document.querySelectorAll("section[aria-label=上次渐进练习回看] button")].find(button => button.textContent.includes("刷新当前安排")).click()',
+      );
+      await until('window.progressiveReviewResolvers.length === 1');
+      await reopenWords();
+      await evaluate(
+        'window.progressiveReviewResolvers[0](); window.progressiveReviewDelay = false;',
+      );
+      await delay(50);
+      assert.equal(
+        await evaluate(
+          'document.querySelector("section[aria-label=上次渐进练习回看]").innerText.includes("回看专用解析")',
+        ),
+        false,
+      );
+
       await evaluate(`window.progressiveCreateFixture = { id: 'progressive-created', mode: 'individual', purpose: 'progressive',
         progressiveStage: 'context', progressiveVersion: 1, status: 'GENERATING', wordCount: 1, groupCount: 1,
         completed: 0, words: [], content: null, createdAt: new Date().toISOString() }`);
@@ -1818,6 +1907,8 @@ test(
       await until(
         'document.querySelector(".study-app .sidebar-book > div > span")?.textContent === "Second account book"',
       );
+      assert.equal(await evaluate('document.body.innerText.includes("回看专用解析")'), false);
+
       assert.equal(
         await evaluate(
           'document.querySelectorAll(".progress-grid .metric-card")[0].querySelector(".metric-front b").textContent',

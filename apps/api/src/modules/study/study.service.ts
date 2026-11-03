@@ -1,3 +1,5 @@
+import { normalizedMeaningLine as usableMeaningLine } from '../vocabulary/meaning-sql';
+import { currentReviewStatus } from './current-review-status';
 import { hasInvalidStoredAnswerKey, progressiveRecoveryEnabled } from './answer-key-integrity';
 import { ConfigService } from '@nestjs/config';
 import { requireSupplementDeployment } from '../vocabulary/daily-supplement.service';
@@ -319,9 +321,12 @@ const studyPlanInclude = (userId: string) =>
       include: {
         bookWord: {
           include: {
-            word: true,
+            word: { include: { masteredBy: { where: { userId }, select: { id: true }, take: 1 } } },
             book: { select: { isSupplement: true } },
-            progress: { where: { userId }, select: { nextReviewAt: true, lastIntervalDays: true } },
+            progress: {
+              where: { userId },
+              select: { state: true, nextReviewAt: true, lastIntervalDays: true },
+            },
             weaknesses: {
               where: { userId, status: WeaknessStatus.ACTIVE },
               select: { questionType: true, wrongCount: true, consecutiveCorrect: true },
@@ -347,20 +352,6 @@ const studyPlanInclude = (userId: string) =>
 type StudyPlanWithItems = Prisma.StudyPlanGetPayload<{
   include: ReturnType<typeof studyPlanInclude>;
 }>;
-
-const usableMeaningLine = Prisma.sql`
-  REGEXP_REPLACE(
-    REGEXP_REPLACE(
-      meaning_line.value,
-      '^(adj|adv|n|v|vi|vt|prep|pron|conj|num|art|aux|int)[.][[:space:]]*',
-      '',
-      'i'
-    ),
-    '^[[:space:]]+|[[:space:]]+$',
-    '',
-    'g'
-  )
-`;
 
 const usableBookWordMeaning = Prisma.sql`
   ${ordinaryBookSql} AND
@@ -2291,6 +2282,18 @@ export class StudyService {
       submittedGroups.has(item.groupIndex) &&
       isStringAnswerArray(item.attempts[0]?.selectedAnswer)
         ? { selectedAnswer: item.attempts[0]!.selectedAnswer as string[] }
+        : {}),
+      ...(includeSelectedAnswers && item.completedAt
+        ? {
+            currentReviewStatus: currentReviewStatus({
+              mastered: Boolean(item.bookWord.word.masteredBy?.length),
+              supplementary: Boolean(item.bookWord.book?.isSupplement),
+              usableMeaning: hasUsableMeaning(
+                item.bookWord.contextMeaning ?? item.bookWord.word.meaning,
+              ),
+              progress: item.bookWord.progress[0],
+            }),
+          }
         : {}),
       nextReviewAt: item.completedAt ? (item.bookWord.progress[0]?.nextReviewAt ?? null) : null,
       lastIntervalDays: item.completedAt
