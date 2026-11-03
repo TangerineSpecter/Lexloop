@@ -142,8 +142,9 @@ export class VocabularyCorrectionsService {
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${batchId}))`;
-        // Lock existing target rows before the final preview. Writers cannot slip between
-        // preview and update; SERIALIZABLE also rejects concurrent membership changes.
+        // Lock existing target words before the final preview. Same-row editors wait or
+        // cause a serialization failure. Membership rows are not locked: an unlink
+        // after this snapshot can serialize after backfill, with both commits valid.
         await tx.$queryRaw`SELECT "id" FROM "VocabularyWord" WHERE "normalized" IN (${Prisma.join(corrections.map((c) => c.word))}) ORDER BY "id" FOR UPDATE`;
         const plan = await this.plan(tx, mode);
         if (plan.token !== token)

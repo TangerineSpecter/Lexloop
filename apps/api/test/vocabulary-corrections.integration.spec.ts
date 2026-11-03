@@ -1,100 +1,17 @@
-import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, mkdtemp, mkdir, copyFile, rm } from 'node:fs/promises';
+import { copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { VocabularyCorrectionsService } from '../src/modules/vocabulary/vocabulary-corrections.service';
-import { VocabularySeedService } from '../src/modules/vocabulary/vocabulary-seed.service';
-import {
-  VOCABULARY_CORRECTION_BATCH,
-  VOCABULARY_CORRECTIONS,
-} from '../src/modules/vocabulary/vocabulary-corrections.batch';
+import { VOCABULARY_CORRECTION_BATCH } from '../src/modules/vocabulary/vocabulary-corrections.batch';
+import { withVocabularyCorrectionFixture } from './helpers/vocabulary-correction-fixture';
 
-// A private schema containing the exact pre-upgrade tables, populated from the old
-// XLSX before the new audit migration runs. No shared fixture names or production URLs.
 describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
   'controlled vocabulary database upgrade',
   () => {
     it('previews, fills only untouched nulls, rolls back failures, restores safely, and keeps fresh installs idempotent', async () => {
-      const admin = new PrismaClient({
-        datasources: { db: { url: process.env.LAB_TEST_DATABASE_URL! } },
-      });
-      const schema = 'vocab_correction_' + randomUUID().replaceAll('-', '');
-      const url = new URL(process.env.LAB_TEST_DATABASE_URL!);
-      url.searchParams.set('schema', schema);
-      const db = new PrismaClient({ datasources: { db: { url: url.toString() } } });
-      const root = await mkdtemp(join(tmpdir(), 'lexloop-correction-'));
-      try {
-        await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
-        for (const type of [
-          'LexicalItemType',
-          'CefrLevel',
-          'VocabularyCategory',
-          'VocabularyBookKind',
-        ]) {
-          const labels = await admin.$queryRaw<
-            Array<{ enumlabel: string }>
-          >`SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' AND t.typname=${type} ORDER BY e.enumsortorder`;
-          await admin.$executeRawUnsafe(
-            `CREATE TYPE "${schema}"."${type}" AS ENUM (${labels.map((l) => "'" + l.enumlabel.replaceAll("'", "''") + "'").join(',')})`,
-          );
-        }
-        for (const table of [
-          'VocabularyWord',
-          'VocabularyBook',
-          'VocabularyBookWord',
-          'UserWordProgress',
-        ])
-          await admin.$executeRawUnsafe(
-            `CREATE TABLE "${schema}"."${table}" (LIKE public."${table}" INCLUDING ALL)`,
-          );
-        for (const [table, column, type, defaultValue] of [
-          ['VocabularyWord', 'itemType', 'LexicalItemType', 'WORD'],
-          ['VocabularyWord', 'cefrLevel', 'CefrLevel', null],
-          ['VocabularyBook', 'category', 'VocabularyCategory', null],
-          ['VocabularyBook', 'kind', 'VocabularyBookKind', 'SYSTEM'],
-        ]) {
-          await admin.$executeRawUnsafe(
-            `ALTER TABLE "${schema}"."${table}" ALTER COLUMN "${column}" DROP DEFAULT`,
-          );
-          await admin.$executeRawUnsafe(
-            `ALTER TABLE "${schema}"."${table}" ALTER COLUMN "${column}" TYPE "${schema}"."${type}" USING "${column}"::text::"${schema}"."${type}"`,
-          );
-          if (defaultValue)
-            await admin.$executeRawUnsafe(
-              `ALTER TABLE "${schema}"."${table}" ALTER COLUMN "${column}" SET DEFAULT '${defaultValue}'`,
-            );
-        }
-        await mkdir(join(root, '通用'));
-        const target = join(root, '通用/日常生活单词.xlsx');
-        await copyFile(
-          join(process.cwd(), '../../data/vocabulary-candidates/2026-11-03/source-workbook.xlsx'),
-          target,
-        );
-        const importer = new VocabularySeedService(db as never) as unknown as {
-          importVocabulary: (root: string) => Promise<void>;
-        };
-        await importer.importVocabulary(root);
-        const old = await db.vocabularyWord.findMany({
-          where: { normalized: { in: VOCABULARY_CORRECTIONS.map((c) => c.word) } },
-        });
-        expect(old).toHaveLength(6);
-        expect(old.every((w) => w.meaning === null)).toBe(true);
-        // The actual shipped migration runs against an existing populated vocabulary schema.
-        const migration = await readFile(
-          join(
-            process.cwd(),
-            'prisma/migrations/20261103160000_vocabulary_correction_audit/migration.sql',
-          ),
-          'utf8',
-        );
-        await db.$transaction(async (tx) => {
-          for (const sql of migration.split(';').filter((s) => s.trim()))
-            await tx.$executeRawUnsafe(sql);
-        });
+      await withVocabularyCorrectionFixture(async ({ db, url, target, root, importer, old }) => {
         const service = new VocabularyCorrectionsService(db);
         const association = await db.vocabularyBookWord.findFirstOrThrow({
           where: { word: { normalized: 'moped' } },
@@ -234,12 +151,7 @@ describe.skipIf(!process.env.LAB_TEST_DATABASE_URL)(
             where: { batchId: VOCABULARY_CORRECTION_BATCH },
           }),
         ).toBe(0);
-      } finally {
-        await db.$disconnect();
-        await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-        await admin.$disconnect();
-        await rm(root, { recursive: true, force: true });
-      }
+      });
     }, 60000);
   },
 );
