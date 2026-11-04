@@ -40,11 +40,13 @@ export function DailySupplementPanel({
   session,
   onCreatePlan,
   existingPlan,
+  planListReady,
   refreshKey,
 }: {
   session: Session;
   onCreatePlan: (plan: LearningPlan) => void;
   existingPlan: LearningPlan | null;
+  planListReady: boolean;
   refreshKey: number;
 }) {
   const [state, setState] = useState<{ owner: string; data: Preview | null }>({
@@ -74,6 +76,7 @@ export function DailySupplementPanel({
   }, [session.user.id, session.accessToken, refreshKey]);
   async function act(kind: 'toggle' | 'practice' | 'sync') {
     if (!data || pending.current) return;
+    if (kind === 'practice' && (!planListReady || existingPlan)) return;
     pending.current = true;
     setBusy(true);
     setError('');
@@ -99,7 +102,9 @@ export function DailySupplementPanel({
           },
           session.accessToken,
         );
-        if (current === sequence.current) onCreatePlan(plan);
+        // Keep successful server work recoverable after leaving this tab.
+        // Dashboard checks the owner and navigation intent before opening it.
+        onCreatePlan(plan);
       }
     } catch (error) {
       if (current === sequence.current)
@@ -138,10 +143,20 @@ export function DailySupplementPanel({
             </button>
             <button
               type="button"
-              disabled={busy || !data.deploymentReady || !data.enabled || Boolean(existingPlan)}
+              disabled={
+                busy ||
+                !planListReady ||
+                !data.deploymentReady ||
+                !data.enabled ||
+                Boolean(existingPlan)
+              }
               onClick={() => void act('practice')}
             >
-              {existingPlan ? '先完成当前计划' : '练习补充词（最多 5 词）'}
+              {!planListReady
+                ? '先读取已有计划'
+                : existingPlan
+                  ? '先完成当前计划'
+                  : '练习补充词（最多 5 词）'}
             </button>
             {data.enabled && data.rows.some((row) => row.state === 'needs_sync') && (
               <button

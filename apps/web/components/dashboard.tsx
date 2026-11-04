@@ -4,8 +4,6 @@ import { ProgressiveRecoveryPanel } from './progressive-recovery-panel';
 import { CollectWordForm } from './learning-lab/collect-word-form';
 import { SystemLogsPanel } from './system-logs-panel';
 import { SystemUpdatePanel } from './system-update-panel';
-import { ProgressivePracticePanel } from './progressive-practice-panel';
-import { DailySupplementPanel } from './daily-supplement-panel';
 import {
   DashboardBootstrapLoading,
   DashboardLoadingCard,
@@ -705,6 +703,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   } | null>(null);
   const [dashboardRouteReady, setDashboardRouteReady] = useState(false);
   const [page, setCurrentPage] = useState<DashboardRoutePage>('study');
+  const [navigationRevision, setNavigationRevision] = useState(0);
   const currentPageRef = useRef<DashboardRoutePage>('study');
   currentPageRef.current = page;
   const setPage = (nextPage: DashboardRoutePage, targetUrl?: string) => {
@@ -716,7 +715,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     const currentUrl = `${window.location.pathname}${window.location.search}`;
     if (currentPageRef.current === nextPage && currentUrl === url) return;
     const previousPage = currentPageRef.current;
-    if (previousPage !== nextPage) planCreateIntentRef.current++;
+    planCreateIntentRef.current++;
+    setNavigationRevision((current) => current + 1);
     currentPageRef.current = nextPage;
     setCurrentPage(nextPage);
     const state =
@@ -838,6 +838,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     activeTab,
     currentBook?.id ?? null,
     planCreateIntent,
+    navigationRevision,
   ]);
   const planCreateContextRef = useRef(planCreateContext);
   planCreateContextRef.current = planCreateContext;
@@ -874,13 +875,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   const handleCreatedPlan = (plan: LearningPlan) => {
     const ownerId = session.user.id;
     if (currentUserIdRef.current !== ownerId) return;
+    setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
     if (
       planCreateIntentRef.current === planCreateIntent &&
       planCreateContextRef.current === planCreateContext
     ) {
       openPlanPreview(plan, true);
-    } else {
-      setPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
     }
   };
   const retryPlanLoad = () => {
@@ -1009,7 +1009,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           settingsSectionFromLocation(window.location.search, event.state, session.user.id),
         );
       }
-      if (currentPageRef.current !== nextPage) planCreateIntentRef.current++;
+      planCreateIntentRef.current++;
+      setNavigationRevision((current) => current + 1);
       currentPageRef.current = nextPage;
       setCurrentPage(nextPage);
     };
@@ -1018,7 +1019,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [session.user.id]);
 
   useEffect(() => {
-    if (!dashboardRouteReady || page !== 'study') return;
+    if (!dashboardRouteReady || (page !== 'study' && page !== 'practice')) return;
     let active = true;
     const ownerId = session.user.id;
     const requestId = ++defaultBookRequestRef.current;
@@ -1130,7 +1131,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }, [accountMenuOpen]);
 
   useEffect(() => {
-    if (!dashboardRouteReady || page !== 'study') return;
+    if (!dashboardRouteReady || (page !== 'study' && page !== 'practice')) return;
     let active = true;
     setPlansOwnerId(session.user.id);
     setPlans([]);
@@ -1581,7 +1582,6 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onChooseBook={() => setBookPickerOpen(true)}
                 onCreatePlan={handleCreatedPlan}
                 existingPlan={visiblePlans.find((plan) => plan.blocksNewPlanCreation) ?? null}
-                progressivePlans={visiblePlans.filter((plan) => plan.purpose === 'progressive')}
                 onOpenExistingPlan={openPlanPreview}
                 onOpenReadingSettings={() => setReadingSettingsOpen(true)}
                 planListReady={visiblePlansStatus === 'ready'}
@@ -1736,6 +1736,22 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             session={session}
             embedded
             onBack={() => setPage('study')}
+            wordPractice={{
+              bookId: currentBook?.id ?? null,
+              bookStatus: visibleCurrentBookState.status,
+              onChooseBook: () => setBookPickerOpen(true),
+              onRetryBook: retryCurrentBookLoad,
+              plans: visiblePlans,
+              planStatus: visiblePlansStatus,
+              onRetryPlans: retryPlanLoad,
+              refreshKey: progressRevision,
+              onCreatePlan: handleCreatedPlan,
+              onOpenExistingPlan: openPlanPreview,
+              onNavigate: () => {
+                planCreateIntentRef.current++;
+                setNavigationRevision((current) => current + 1);
+              },
+            }}
           />
         ) : page === 'settings' ? (
           <AccountSettings
@@ -3510,7 +3526,6 @@ function WordsPanel({
   onChooseBook,
   onCreatePlan,
   existingPlan,
-  progressivePlans,
   onOpenExistingPlan,
   onOpenReadingSettings,
   planListReady,
@@ -3524,7 +3539,6 @@ function WordsPanel({
   onChooseBook: () => void;
   onCreatePlan: (plan: LearningPlan) => void;
   existingPlan: LearningPlan | null;
-  progressivePlans: LearningPlan[];
   onOpenExistingPlan: (plan: LearningPlan) => void;
   onOpenReadingSettings: () => void;
   planListReady: boolean;
@@ -4001,22 +4015,6 @@ function WordsPanel({
           </div>
         )}
       </div>
-      <ProgressivePracticePanel
-        session={session}
-        bookReady={bookWordsReady}
-        planListReady={planListReady}
-        existingPlan={existingPlan}
-        knownPlans={progressivePlans}
-        refreshKey={progressRevision}
-        onCreatePlan={onCreatePlan}
-        onOpenExistingPlan={onOpenExistingPlan}
-      />
-      <DailySupplementPanel
-        session={session}
-        existingPlan={existingPlan}
-        refreshKey={progressRevision}
-        onCreatePlan={onCreatePlan}
-      />
       {dueClearNotice && (
         <p className="due-clear-note" role="status">
           <span>今天已经到点的词都处理完了。</span>

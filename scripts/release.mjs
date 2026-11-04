@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { readReleaseNotes } from './release-notes.mjs';
 
 const PACKAGE_FILES = [
   'package.json',
@@ -10,6 +11,7 @@ const PACKAGE_FILES = [
   'apps/worker/package.json',
   'packages/types/package.json',
 ];
+const RELEASE_NOTES_FILE = 'apps/web/app/updates/releases.ts';
 
 const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
@@ -44,6 +46,7 @@ function showHelp() {
 说明文件必须包含“主要改动：”“兼容边界：”和“测试结果：”三段。
 运行前请先暂存本次验收通过的实际改动。脚本要求在 master 上执行，并拒绝未暂存或未跟踪文件。
 脚本只会额外暂存五个 workspace 版本清单，不会自动加入其他工作区文件。
+应用更新记录的首条版本必须与本次版本一致，且版本号不可重复；不符合时会在写入版本号或推送前停止。
 脚本会把摘要和说明写入提交标题、提交正文和注释 tag，再推送 master。
 远端或本地已存在同名 tag 时会停止，避免覆盖版本历史。`);
 }
@@ -138,6 +141,23 @@ if (packageVersions.length !== 1) {
 
 const currentVersion = packageVersions[0];
 const tag = `v${version}`;
+
+let releases;
+try {
+  releases = readReleaseNotes(readFileSync(RELEASE_NOTES_FILE, 'utf8'));
+} catch (error) {
+  fail(`无法读取应用更新记录 ${RELEASE_NOTES_FILE}：${error.message}。请先补齐并暂存本次说明。`);
+}
+if (releases[0].version !== version) {
+  fail(`应用更新记录首条版本必须为 ${version}；请先更新并暂存 ${RELEASE_NOTES_FILE}。`);
+}
+const recordedVersions = releases.map((release) => release.version);
+if (recordedVersions.some((recordedVersion) => !SEMVER_PATTERN.test(recordedVersion))) {
+  fail(`应用更新记录包含无效版本号；请检查 ${RELEASE_NOTES_FILE}。`);
+}
+if (new Set(recordedVersions).size !== recordedVersions.length) {
+  fail(`应用更新记录存在重复版本号；请检查 ${RELEASE_NOTES_FILE}。`);
+}
 
 console.log(`\n准备发布 ${tag}（当前版本 ${currentVersion}，分支 ${branch}）`);
 console.log('正在同步远端分支状态…');

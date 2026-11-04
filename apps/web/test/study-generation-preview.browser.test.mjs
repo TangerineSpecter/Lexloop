@@ -11,7 +11,7 @@ const screenshotDir = process.env.LAB_UI_SCREENSHOT_DIR;
 
 test(
   'study mode choices and late generation responses preserve the selected plan',
-  { skip: !baseUrl, timeout: 120_000 },
+  { skip: !baseUrl, timeout: 180_000 },
   async () => {
     const profile = await mkdtemp(join(tmpdir(), 'lexloop-generation-preview-test-'));
     const browser = spawnChromium(
@@ -183,6 +183,7 @@ test(
             summary: { totalQuestions: 0, correctQuestions: 0, durationSeconds: 0, typeStats: [] },
           });
           const firstSession = { accessToken: 'first-fixture', user: { id: 'study-user', email: 'first@example.invalid', displayName: '丢失的猫咪', role: 'USER' } };
+          window.createFixturePlan = makePlan;
           const secondSession = { accessToken: 'second-fixture', user: { id: 'second-study-user', email: 'second@example.invalid', displayName: 'Second user · 这是一个非常长的中文账户名称用于验证单行省略', role: 'USER' } };
           const secondActivePlan = makePlan('second-active', 'focused', 'ACTIVE');
           secondActivePlan.blocksNewPlanCreation = true;
@@ -291,6 +292,7 @@ test(
           window.generationAborted = false;
           window.studyPlanCreateBodies = [];
           window.supplementWrites = [];
+          window.supplementReads = 0;
           window.supplementFixture = { deploymentReady: true, enabled: false, enrolled: false, total: 3, rows: [
             { word: 'surname', meaning: '姓氏', state: 'available' },
             { word: 'nickname', meaning: '昵称', state: 'learned_elsewhere' },
@@ -323,6 +325,7 @@ test(
             if (path.endsWith('/api/v1/auth/refresh')) return Response.json({ message: 'No fixture session' }, { status: 401 });
             if (path.endsWith('/api/v1/auth/login') && method === 'POST') return Response.json(secondSession);
             if (path.endsWith('/api/v1/vocabulary/daily-supplement')) {
+              if (method === 'GET') window.supplementReads++;
               if (method === 'PATCH') {
                 const body = JSON.parse(options.body); window.supplementWrites.push(body);
                 window.supplementFixture = { ...window.supplementFixture, enrolled: true, enabled: body.enabled,
@@ -436,10 +439,15 @@ test(
               return Response.json(plan);
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'GET') {
+              if (window.planListDelay) return new Promise(resolve => { window.planListResolver = () => resolve(Response.json((window.planLists[session?.user.id] ?? []).map(safeRecoveryPlan))); });
               return Response.json((window.planLists[session?.user.id] ?? []).map(safeRecoveryPlan));
             }
             if (path.endsWith('/api/v1/study/plans') && method === 'POST') {
               window.studyPlanCreateBodies.push(JSON.parse(options.body));
+              if (window.supplementCreateFixture) {
+                if (window.supplementCreateDelay) return new Promise(resolve => { window.supplementCreateResolver = () => resolve(Response.json(window.supplementCreateFixture)); });
+                return Response.json(window.supplementCreateFixture);
+              }
               return Response.json({ message: 'Fixture stopped before plan generation' }, { status: 409 });
             }
             return Response.json({});
@@ -449,11 +457,62 @@ test(
 
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
       await until('document.querySelector("[role=tab]")');
-      await until(
-        'document.querySelector("#progressive-practice-title") && document.querySelector("section[aria-labelledby=progressive-practice-title] button[aria-pressed]")',
+      await until('document.querySelector(".word-column-head")');
+      assert.equal(
+        await evaluate(
+          'Boolean(document.querySelector("#progressive-practice-title, #daily-supplement-title"))',
+        ),
+        false,
+        'optional practice panels must not displace the main homepage word lists',
       );
+      assert.deepEqual(await evaluate('window.progressivePathRequests'), []);
+      assert.equal(await evaluate('window.supplementReads'), 0);
+      await captureScreenshot('homepage-1440.png');
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true,
+      });
+      await delay(350);
+      assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
+      await captureScreenshot('homepage-390.png');
+      const selectPractice = async (label) => {
+        await evaluate(
+          `[...document.querySelectorAll('nav[aria-label="学习专项"] button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`,
+        );
+      };
+      await evaluate('document.querySelector("button[aria-label=打开菜单]").click()');
+      await until('document.querySelector(".study-sidebar.is-open")');
+      await evaluate(
+        'document.querySelector(".sidebar-nav a[href=\\"/dashboard/practice?tab=output\\"]").click()',
+      );
+      await until('document.querySelector("nav[aria-label=学习专项] button")');
+      assert.equal(
+        await evaluate('Boolean(document.querySelector(".study-sidebar.is-open"))'),
+        false,
+      );
+      await selectPractice('补充词书');
       await until(
         'document.querySelector("#daily-supplement-title") && document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("尚未启用")',
+      );
+      assert.equal(
+        await evaluate('location.pathname + location.search'),
+        '/dashboard/practice?tab=supplement',
+      );
+      assert.equal(
+        await evaluate('Boolean(document.querySelector("#progressive-practice-title"))'),
+        false,
+      );
+      await selectPractice('渐进练习');
+      await until('document.querySelector("#progressive-practice-title")');
+      await evaluate('history.back()');
+      await until('document.querySelector("#daily-supplement-title")');
+      await evaluate('history.forward()');
+      await until('document.querySelector("#progressive-practice-title")');
+      await selectPractice('补充词书');
+      await until(
+        'document.querySelector("section[aria-labelledby=daily-supplement-title]").textContent.includes("尚未启用")',
       );
       assert.deepEqual(await evaluate('window.supplementWrites'), []);
       await evaluate(
@@ -518,6 +577,10 @@ test(
         mobile: false,
       });
       await evaluate('window.scrollTo(0, 0)');
+      await selectPractice('渐进练习');
+      await until(
+        'document.querySelector("section[aria-labelledby=progressive-practice-title] button[class*=primaryButton]:not(:disabled)")',
+      );
       const progressiveDesktop = await evaluate(`(() => {
         const panel = document.querySelector('section[aria-labelledby="progressive-practice-title"]');
         const rect = panel.getBoundingClientRect();
@@ -602,13 +665,9 @@ test(
       await evaluate(`window.progressivePathFixture = { trackVersion: 1, highestUnlockedStage: 'transfer', currentPlan: null,
         latestResult: { planId: 'completed-context', stage: 'context', total: 2, answered: 2, correct: 0 } }`);
       const reopenWords = async () => {
-        await evaluate(
-          '[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent.includes("当前学习序列")).click()',
-        );
+        await selectPractice('补充词书');
         await until('!document.querySelector("#progressive-practice-title")');
-        await evaluate(
-          '[...document.querySelectorAll("[role=tab]")].find(tab => tab.textContent.includes("单词列表")).click()',
-        );
+        await selectPractice('渐进练习');
         await until(
           'document.querySelector("section[aria-labelledby=progressive-practice-title] [class*=result]")',
         );
@@ -827,9 +886,92 @@ test(
         ),
         false,
       );
+      // Both deep links restore their selected tab after a full reload.
+      for (const tab of ['progressive', 'supplement']) {
+        await send('Page.navigate', {
+          url: new URL('/dashboard/practice?tab=' + tab, baseUrl).href,
+        });
+        await until(
+          'document.querySelector("#' +
+            (tab === 'progressive' ? 'progressive-practice' : 'daily-supplement') +
+            '-title")',
+        );
+        await evaluate('window.practiceBeforeReload = true');
+        await send('Page.reload');
+        await until(
+          '!window.practiceBeforeReload && document.querySelector("#' +
+            (tab === 'progressive' ? 'progressive-practice' : 'daily-supplement') +
+            '-title")',
+        );
+        assert.equal(await evaluate('location.search'), '?tab=' + tab);
+      }
+      // A ready/cached plan remains available after dismissing the preview.
+      // A delayed create remains recorded without hijacking a different tab.
+      for (const late of [false, true]) {
+        await send('Page.navigate', {
+          url: new URL('/dashboard/practice?tab=supplement', baseUrl).href,
+        });
+        await until(
+          'document.querySelector("section[aria-labelledby=daily-supplement-title] button")',
+        );
+        await evaluate(
+          'document.querySelector("section[aria-labelledby=daily-supplement-title] button").click()',
+        );
+        await until(
+          '!document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1].disabled',
+        );
+        if (!late) {
+          await selectPractice('渐进练习');
+          await until('document.querySelector("#progressive-practice-title")');
+          await selectPractice('补充词书');
+          await until(
+            'document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1] && !document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1].disabled',
+          );
+        }
+        await evaluate(
+          `window.supplementCreateFixture = { ...window.createFixturePlan('supplement-ready', 'steady', 'ACTIVE', 'individual'), blocksNewPlanCreation: true }; window.supplementCreateDelay = ${late}`,
+        );
+        await evaluate(
+          'document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1].click()',
+        );
+        if (late) {
+          await until('window.supplementCreateResolver');
+          await selectPractice('渐进练习');
+          await evaluate('window.supplementCreateResolver()');
+          await until(
+            '[...document.querySelectorAll("button")].some(button => button.textContent === "继续当前计划")',
+          );
+          assert.equal(
+            await evaluate('Boolean(document.querySelector(".plan-preview-layer"))'),
+            false,
+          );
+          assert.equal(await evaluate('location.search'), '?tab=progressive');
+          await selectPractice('补充词书');
+          await until('document.querySelector("#daily-supplement-title")');
+        } else {
+          await until('document.querySelector(".plan-preview-layer")');
+          await evaluate('document.querySelector(".plan-preview header button").click()');
+        }
+        await until(
+          '[...document.querySelectorAll("button")].some(button => button.textContent === "继续当前计划")',
+        );
+        assert.equal(
+          await evaluate(
+            'document.querySelectorAll("section[aria-labelledby=daily-supplement-title] button")[1].disabled',
+          ),
+          true,
+        );
+        assert.equal(await evaluate('window.studyPlanCreateBodies.length'), 1);
+        await evaluate(
+          '[...document.querySelectorAll("button")].find(button => button.textContent === "继续当前计划").click()',
+        );
+        await until('document.querySelector(".plan-preview-layer")');
+        await evaluate('document.querySelector(".plan-preview header button").click()');
+        await until('!document.querySelector(".plan-preview-layer")');
+      }
       // Restore the original scenario fixtures before the unrelated recovery tests.
       await send('Page.navigate', { url: new URL('/dashboard', baseUrl).href });
-      await until('document.querySelector("#progressive-practice-title")');
+      await until('document.querySelector(".word-column-head")');
       await clickHistory();
       await until(
         'document.querySelector("[aria-labelledby=\\"recoverable-study-plans-title\\"] [role=alert]")',
