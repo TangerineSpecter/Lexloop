@@ -163,13 +163,16 @@ export function ProgressivePracticePanel({
         },
         session.accessToken,
       );
-      if (session.user.id !== ownerId || requestSequence.current !== requestId) return;
-      setLoadState({
-        ownerId,
-        status: 'ready',
-        path: { ...visibleState.path, currentPlan: plan },
-        knownAtRead: knownPlansRef.current,
-      });
+      if (requestSequence.current === requestId) {
+        setLoadState({
+          ownerId,
+          status: 'ready',
+          path: { ...visibleState.path, currentPlan: plan },
+          knownAtRead: knownPlansRef.current,
+        });
+      }
+      // The parent records completed server work even if this tab was left.
+      // Its owner and navigation-intent guards prevent a stale modal opening.
       onCreatePlan(plan);
     } catch (error) {
       if (session.user.id !== ownerId || requestSequence.current !== requestId) return;

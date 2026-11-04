@@ -791,6 +791,10 @@ test(
       await evaluate('document.querySelector(".plan-preview header button").click()');
       await until('document.querySelector(".plan-preview-layer") === null');
       assert.equal(await evaluate('window.generationAttempts?.length ?? 0'), 0);
+      // Finish the creation fixture journey; reload the server's answer-feedback
+      // fixture rather than accidentally opening the newly retained plan-book-b.
+      await send('Page.reload', { ignoreCache: true });
+      await until('document.querySelector("[role=tab]")');
       await evaluate(
         '[...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent.includes("当前学习序列")).click()',
       );

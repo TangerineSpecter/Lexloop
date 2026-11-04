@@ -8,32 +8,42 @@ import { ConfusionPanel } from './confusion-panel';
 import { WeeklyPanel } from './weekly-panel';
 import styles from './practice.module.css';
 import { DashboardBackButton } from '../dashboard-back-button';
+import { WordPracticePanel, type WordPracticeContext } from './word-practice-panel';
 
-const tabs: Array<{ id: PracticeTab; title: string }> = [
+type PracticePageTab = PracticeTab | 'progressive' | 'supplement';
+const tabs: Array<{ id: PracticePageTab; title: string }> = [
+  { id: 'progressive', title: '渐进练习' },
+  { id: 'supplement', title: '补充词书' },
   { id: 'output', title: '每日输出挑战' },
   { id: 'confusion', title: '易混词对比训练' },
   { id: 'weekly', title: '每周学习处方' },
 ];
-function tabFromLocation(): PracticeTab {
+function tabFromLocation(): PracticePageTab {
   if (typeof window === 'undefined') return 'output';
   const value = new URLSearchParams(window.location.search).get('tab');
-  return value === 'confusion' || value === 'weekly' ? value : 'output';
+  return value === 'confusion' ||
+    value === 'weekly' ||
+    value === 'progressive' ||
+    value === 'supplement'
+    ? value
+    : 'output';
 }
 export function PracticePage({
   session,
   embedded = false,
   onBack,
+  wordPractice,
 }: {
   session: Session;
   embedded?: boolean;
   onBack?: () => void;
+  wordPractice: WordPracticeContext;
 }) {
-  const [tab, setTab] = useState<PracticeTab>(tabFromLocation);
+  const [tab, setTab] = useState<PracticePageTab>(tabFromLocation);
   const [ready, setReady] = useState(true);
   useEffect(() => {
     const read = () => {
-      const value = new URLSearchParams(window.location.search).get('tab');
-      setTab(value === 'confusion' || value === 'weekly' ? value : 'output');
+      setTab(tabFromLocation());
       setReady(true);
     };
     read();
@@ -44,7 +54,9 @@ export function PracticePage({
       window.removeEventListener('lexloop-dashboard-navigate', read);
     };
   }, []);
-  function navigate(value: PracticeTab) {
+  function navigate(value: PracticePageTab) {
+    if (tab === value) return;
+    wordPractice.onNavigate();
     setTab(value);
     window.history.pushState(
       { ...window.history.state, lexloopDashboardPage: 'practice' },
@@ -87,7 +99,9 @@ export function PracticePage({
         </nav>
         {ready && (
           <div key={tab} className="dashboard-local-transition">
-            {tab === 'output' ? (
+            {tab === 'progressive' || tab === 'supplement' ? (
+              <WordPracticePanel session={session} kind={tab} context={wordPractice} />
+            ) : tab === 'output' ? (
               <DailyOutputPanel key={session.user.id} session={session} />
             ) : tab === 'confusion' ? (
               <ConfusionPanel session={session} />
